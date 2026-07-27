@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Legacy names (kept for compat) -->
+    <color name="purple_200">#FFBB86FC</color>
+    <color name="purple_500">#FF6200EE</color>
+    <color name="purple_700">#FF3700B3</color>
+    <color name="teal_200">#FF03DAC5</color>
+    <color name="teal_700">#FF018786</color>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+
+    <!--  Dark Neural Theme  -->
+    <color name="bg_dark">#0B0D14</color>
+    <color name="surface">#141720</color>
+    <color name="surface_elevated">#1C1F2C</color>
+    <color name="surface_border">#252840</color>
+
+    <!-- Accent -->
+    <color name="primary">#6C63FF</color>
+    <color name="primary_end">#9B59B6</color>
+    <color name="accent">#00C9A7</color>
+    <color name="mic_active_color">#FF3B5C</color>
+
+    <!-- Text -->
+    <color name="text_primary">#F2F3FF</color>
+    <color name="text_secondary">#8A8FAE</color>
+
+    <!-- Chat UI (referenced from XML) -->
+    <color name="chat_bg">#0B0D14</color>
+    <color name="bubble_user">#6C63FF</color>
+    <color name="bubble_user_text">#FFFFFFFF</color>
+    <color name="bubble_assistant">#1C1F2C</color>
+    <color name="bubble_assistant_text">#F2F3FF</color>
+    <color name="status_text">#8A8FAE</color>
+    <color name="divider">#252840</color>
+    <color name="mic_idle">#6C63FF</color>
+    <color name="mic_active">#FF3B5C</color>
+</resources>

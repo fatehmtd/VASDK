@@ -1,0 +1,181 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg_dark">
+
+    <TextView
+        android:id="@+id/tv_title"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="VizAnim Test"
+        android:textColor="@color/white"
+        android:textSize="24sp"
+        android:layout_marginTop="32dp"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- Waveform Container -->
+    <LinearLayout
+        android:id="@+id/speaking_indicator"
+        android:layout_width="wrap_content"
+        android:layout_height="100dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        app:layout_constraintTop_toBottomOf="@id/tv_title"
+        app:layout_constraintBottom_toTopOf="@id/controls"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <View
+            android:id="@+id/speak_bar1"
+            android:layout_width="10dp"
+            android:layout_height="60dp"
+            android:layout_marginEnd="8dp"
+            android:background="@drawable/bg_waveform_bar" />
+
+        <View
+            android:id="@+id/speak_bar2"
+            android:layout_width="10dp"
+            android:layout_height="60dp"
+            android:layout_marginEnd="8dp"
+            android:background="@drawable/bg_waveform_bar" />
+
+        <View
+            android:id="@+id/speak_bar3"
+            android:layout_width="10dp"
+            android:layout_height="60dp"
+            android:layout_marginEnd="8dp"
+            android:background="@drawable/bg_waveform_bar" />
+
+        <View
+            android:id="@+id/speak_bar4"
+            android:layout_width="10dp"
+            android:layout_height="60dp"
+            android:layout_marginEnd="8dp"
+            android:background="@drawable/bg_waveform_bar" />
+
+        <View
+            android:id="@+id/speak_bar5"
+            android:layout_width="10dp"
+            android:layout_height="60dp"
+            android:background="@drawable/bg_waveform_bar" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/controls"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp"
+        app:layout_constraintBottom_toBottomOf="parent">
+
+        <Button
+            android:id="@+id/btn_start_fallback"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Start Fallback Anim" />
+
+        <Button
+            android:id="@+id/btn_stop_anim"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Stop Animation" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Simulate Audio Features"
+            android:textColor="@color/white"
+            android:textStyle="bold"
+            android:layout_marginTop="16dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="RMS"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp" />
+        <com.google.android.material.slider.Slider
+            android:id="@+id/slider_rms"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:valueFrom="0.0"
+            android:valueTo="1.0"
+            android:value="0.5" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Frequency Bands (Bass -> Treble)"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <com.google.android.material.slider.Slider
+                android:id="@+id/slider_bass"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:valueFrom="0.0"
+                android:valueTo="1.0"
+                android:value="0.2" />
+
+            <com.google.android.material.slider.Slider
+                android:id="@+id/slider_low_mid"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:valueFrom="0.0"
+                android:valueTo="1.0"
+                android:value="0.4" />
+
+            <com.google.android.material.slider.Slider
+                android:id="@+id/slider_mid"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:valueFrom="0.0"
+                android:valueTo="1.0"
+                android:value="0.8" />
+
+            <com.google.android.material.slider.Slider
+                android:id="@+id/slider_hi_mid"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:valueFrom="0.0"
+                android:valueTo="1.0"
+                android:value="0.5" />
+
+            <com.google.android.material.slider.Slider
+                android:id="@+id/slider_treble"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:valueFrom="0.0"
+                android:valueTo="1.0"
+                android:value="0.3" />
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/btn_push_feature"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Push Mock Feature" />
+
+        <Button
+            android:id="@+id/btn_toggle_data_driven"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Toggle Data-Driven Tick" />
+    </LinearLayout>
+
+</androidx.constraintlayout.widget.ConstraintLayout>

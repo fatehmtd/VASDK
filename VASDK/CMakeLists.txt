@@ -1,0 +1,202 @@
+cmake_minimum_required(VERSION 3.16...4.0)
+
+project(VASDK LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+#  Metrics feature options 
+option(VASDK_METRICS_PROMETHEUS "Build Prometheus /metrics HTTP exporter"      OFF)
+option(VASDK_METRICS_STATSD     "Build StatsD UDP metrics transport"           OFF)
+option(VASDK_METRICS_INFLUX     "Build InfluxDB v2 Line Protocol transport"    OFF)
+option(VASDK_METRICS_WEBSOCKET  "Build WebSocket metrics push transport"       OFF)
+
+
+add_library(VASDK SHARED
+    # Core sources
+    ./src/AudioRingBuffer.cpp
+    ./src/AudioSIMD.cpp
+    ./src/VAEngine.cpp
+    # Transport infrastructure
+    ./src/Transport.cpp
+    ./src/HttpTransport.cpp
+    ./src/LocalTransport.cpp
+    ./src/WebSocketTransport.cpp
+    ./src/MockTransport.cpp
+    ./src/TransportFactory.cpp
+    # LLM infrastructure (va::llm namespace)
+    ./src/llm/LLMTransport.cpp
+    ./src/llm/OpenAITransport.cpp
+    ./src/llm/AnthropicTransport.cpp
+    ./src/llm/PromptTemplate.cpp
+    ./src/llm/ApiPromptTemplates.cpp
+    ./src/llm/LocalPromptTemplates.cpp
+    ./src/llm/Tool.cpp
+    # Frame processors
+    ./src/FrameProcessor.cpp
+    ./src/AudioBufferProcessor.cpp
+    ./src/TransportInputProcessor.cpp
+    ./src/TransportOutputProcessor.cpp
+    ./src/VADFrameProcessor.cpp
+    ./src/TranscriptionProcessor.cpp
+    ./src/TTSFrameProcessor.cpp
+    ./src/llm/LLMProcessor.cpp
+    ./src/llm/AggregatingLLMProcessor.cpp
+    ./src/llm/ToolDispatchProcessor.cpp
+    ./src/AudioDSPProcessor.cpp
+    ./src/Pipeline.cpp
+    ./src/TurnDetectionProcessor.cpp
+    ./src/AgentStateProcessor.cpp
+    # Goal-oriented call center framework (va::goal namespace)
+    ./src/goal/GoalState.cpp
+    ./src/goal/GoalManager.cpp
+    ./src/goal/IntentRouter.cpp
+    ./src/goal/GoalStatePersistence.cpp
+    ./src/goal/ConditionEvaluator.cpp
+    ./src/goal/GoalDefinitionLoader.cpp
+    ./src/goal/GoalConversationSimulator.cpp
+    ./src/SessionManager.cpp
+    ./src/RecoveryProcessor.cpp
+    # Context providers
+    ./src/context/ContextProvider.cpp
+    ./src/context/AppContextProvider.cpp
+    ./src/context/LocationContextProvider.cpp
+    ./src/context/NetworkContextProvider.cpp
+    ./src/context/ToolsContextProvider.cpp
+    ./src/context/SystemContextProvider.cpp
+    ./src/context/ContextAggregator.cpp
+    # Metrics infrastructure (always built)
+    ./src/MetricsCollector.cpp
+    ./src/MetricsReporter.cpp
+)
+
+target_link_libraries(VASDK
+    PUBLIC spdlog::spdlog
+)
+
+#  Optional metrics exporters 
+if(VASDK_METRICS_STATSD)
+    target_sources(VASDK PRIVATE ./src/metrics/StatsDMetricsTransport.cpp)
+    target_compile_definitions(VASDK PUBLIC VASDK_METRICS_STATSD)
+    message(STATUS "VASDK metrics: StatsD UDP exporter enabled")
+endif()
+
+if(VASDK_METRICS_INFLUX)
+    target_sources(VASDK PRIVATE ./src/metrics/InfluxMetricsTransport.cpp)
+    target_compile_definitions(VASDK PUBLIC VASDK_METRICS_INFLUX)
+    find_package(CURL REQUIRED)
+    target_link_libraries(VASDK PRIVATE CURL::libcurl)
+    message(STATUS "VASDK metrics: InfluxDB exporter enabled")
+endif()
+
+if(VASDK_METRICS_WEBSOCKET)
+    target_sources(VASDK PRIVATE ./src/metrics/WebSocketMetricsTransport.cpp)
+    target_compile_definitions(VASDK PUBLIC VASDK_METRICS_WEBSOCKET)
+    message(STATUS "VASDK metrics: WebSocket push exporter enabled")
+endif()
+
+if(VASDK_METRICS_PROMETHEUS)
+    # cpp-httplib fetch and link are handled by the shared block below
+    target_sources(VASDK PRIVATE ./src/metrics/PrometheusExporter.cpp)
+    target_compile_definitions(VASDK PUBLIC VASDK_METRICS_PROMETHEUS)
+    message(STATUS "VASDK metrics: Prometheus HTTP exporter enabled")
+endif()
+
+#  Google Highway SIMD acceleration 
+if(VASDK_ENABLE_HIGHWAY AND TARGET hwy)
+    target_link_libraries(VASDK PRIVATE hwy)
+    target_compile_definitions(VASDK PRIVATE VASDK_HIGHWAY_ENABLED)
+    # On x86_64 desktop, enable AVX2+FMA so Highway picks a wider ISA than SSE2
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64" AND NOT ANDROID)
+        target_compile_options(VASDK PRIVATE -mavx2 -mfma)
+    endif()
+    message(STATUS "VASDK: Google Highway SIMD acceleration enabled")
+else()
+    message(STATUS "VASDK: Google Highway not available - using scalar audio helpers")
+endif()
+
+# Optional: Link nlohmann_json if available (for WebSocketTransport and LLMTransport serialization)
+if(TARGET nlohmann_json::nlohmann_json)
+    target_link_libraries(VASDK PRIVATE nlohmann_json::nlohmann_json)
+    target_compile_definitions(VASDK PRIVATE VASDK_HAS_JSON)
+    message(STATUS "nlohmann_json found - WebSocketTransport and LLMTransport will use JSON serialization")
+else()
+    message(STATUS "nlohmann_json not found - WebSocketTransport and LLMTransport will use stub serialization")
+endif()
+
+#  cpp-httplib (shared between Prometheus exporter and WebSocket server) 
+option(VASDK_ENABLE_WEBSOCKET_SERVER "Enable WebSocket server transport via cpp-httplib" ON)
+
+if(VASDK_METRICS_PROMETHEUS OR VASDK_ENABLE_WEBSOCKET_SERVER)
+    if(NOT TARGET httplib::httplib)
+        include(FetchContent)
+        fetchcontent_declare(
+            cpp-httplib
+            GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
+            GIT_TAG        v0.18.3
+        )
+        fetchcontent_makeavailable(cpp-httplib)
+    endif()
+    target_link_libraries(VASDK PRIVATE httplib::httplib)
+    target_compile_definitions(VASDK PRIVATE VASDK_HAS_HTTPLIB)
+    message(STATUS "VASDK: cpp-httplib available (Prometheus=${VASDK_METRICS_PROMETHEUS}, WebSocket=${VASDK_ENABLE_WEBSOCKET_SERVER})")
+endif()
+
+if(VASDK_ENABLE_WEBSOCKET_SERVER)
+    target_sources(VASDK PRIVATE ./src/network/CppHttpLibWebSocketProvider.cpp)
+    message(STATUS "VASDK: WebSocket server provider enabled")
+endif()
+
+# Find and link libcurl for HTTP transports (optional - disable with -DVASDK_ENABLE_HTTP_TRANSPORT=OFF)
+option(VASDK_ENABLE_HTTP_TRANSPORT "Enable HTTP-based transports (requires libcurl)" ON)
+if(VASDK_ENABLE_HTTP_TRANSPORT)
+    if(NOT TARGET CURL::libcurl)
+        find_package(CURL REQUIRED)
+    endif()
+    target_link_libraries(VASDK PRIVATE CURL::libcurl)
+    target_compile_definitions(VASDK PRIVATE VASDK_HAS_CURL)
+    target_sources(VASDK PRIVATE ./src/network/CurlHttpProvider.cpp)
+    message(STATUS "libcurl found - HTTP transport support enabled")
+else()
+    message(STATUS "VASDK_ENABLE_HTTP_TRANSPORT=OFF - skipping libcurl, HTTP transports will stub out")
+endif()
+
+set_target_properties(VASDK PROPERTIES
+    VERSION   ${PROJECT_VERSION}
+    SOVERSION ${PROJECT_VERSION_MAJOR}
+)
+
+include(GNUInstallDirs)
+install(TARGETS VASDK
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+
+# Generate export header
+include(GenerateExportHeader)
+generate_export_header(VASDK
+    BASE_NAME VASDK
+    EXPORT_FILE_NAME vasdk_export.h
+)
+
+target_include_directories(VASDK PUBLIC
+    $<INSTALL_INTERFACE:include>  # For installed package (optional but good practice)
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include> # For direct build
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}> # To export the symbols header
+    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/VASDK # to simplify the internal include files
+)
+
+if(VASDK_ENABLE_CTRACK AND TARGET vasdk_ctrack_iface)
+    target_link_libraries(VASDK PRIVATE vasdk_ctrack_iface)
+endif()
+
+# Install headers
+install(DIRECTORY include/VASDK
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    FILES_MATCHING PATTERN "*.h"
+)
+
+# Install export header
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/vasdk_export.h
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/VASDK
+)

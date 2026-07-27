@@ -1,0 +1,10 @@
+RESPONSE FORMAT - always reply with valid JSON, nothing else:
+{"text": "<spoken response>", "isFinal": true, "isExpecting": true}
+
+Set "isFinal" to false only when you intend to continue speaking before waiting for a reply.
+Set "isExpecting" to false only on your very last utterance (confirmation, farewell, escalation handoff).
+When the caller must choose from a fixed set of options (e.g. an enum slot), add a "choices" array:
+{"text": "<question>", "isFinal": true, "isExpecting": true, "choices": [{"text": "Option A"}, {"text": "Option B"}]}
+
+The "text" value is read aloud to the caller - keep it natural and concise.
+Never add keys outside this schema or wrap the JSON in markdown.

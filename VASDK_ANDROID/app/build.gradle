@@ -1,0 +1,142 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+    id 'org.jetbrains.kotlin.plugin.compose'
+}
+
+def localProps = new Properties()
+def localPropsFile = rootProject.file('local.properties')
+if (localPropsFile.exists()) {
+    localProps.load(localPropsFile.newDataInputStream())
+}
+
+// Load environment variables from .env.local if it exists, overriding local.properties
+def envLocalProps = new Properties()
+def envLocalFile = rootProject.file('../.env.local')
+if (envLocalFile.exists()) {
+    envLocalFile.eachLine { line ->
+        line = line.trim()
+        if (line.isEmpty() || line.startsWith('#')) return
+        def idx = line.indexOf('=')
+        if (idx <= 0) return
+        envLocalProps.setProperty(line.substring(0, idx).trim(), line.substring(idx + 1).trim())
+    }
+}
+
+def llmApiKey   = envLocalProps.getProperty('LLM_API_KEY',  localProps.getProperty('llm.apiKey',  ''))
+def llmEndpoint = envLocalProps.getProperty('LLM_ENDPOINT', localProps.getProperty('llm.endpoint', ''))
+def llmModel    = envLocalProps.getProperty('LLM_MODEL',    localProps.getProperty('llm.model',   ''))
+def sonioxApiKey = envLocalProps.getProperty('SONIOX_API_KEY', localProps.getProperty('soniox.apiKey', ''))
+def deepgramApiKey = envLocalProps.getProperty('DEEPGRAM_API_KEY', localProps.getProperty('deepgram.apiKey', ''))
+def gladiaApiKey = envLocalProps.getProperty('GLADIA_API_KEY', localProps.getProperty('gladia.apiKey', ''))
+
+android {
+    namespace 'com.vasdk.android'
+    compileSdk 35
+    ndkVersion "26.1.10909125"
+
+    defaultConfig {
+        applicationId "com.vasdk.android"
+        minSdk 33
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+
+        buildConfigField "String", "LLM_API_KEY",  "\"${llmApiKey}\""
+        buildConfigField "String", "LLM_ENDPOINT", "\"${llmEndpoint}\""
+        buildConfigField "String", "LLM_MODEL",    "\"${llmModel}\""
+        buildConfigField "String", "SONIOX_API_KEY", "\"${sonioxApiKey}\""
+        buildConfigField "String", "DEEPGRAM_API_KEY", "\"${deepgramApiKey}\""
+        buildConfigField "String", "GLADIA_API_KEY", "\"${gladiaApiKey}\""
+
+        externalNativeBuild {
+            cmake {
+                // armeabi-v7a dropped: vendored llama.cpp's ggml-cpu-impl.h NEON
+                // fallback (vcvtnq_s32_f32) collides with this NDK's arm_neon.h for
+                // the 32-bit target, and no realistic test device is armv7-only.
+                abiFilters 'arm64-v8a', 'x86_64'
+                arguments "-DVASDK_ENABLE_HTTP_TRANSPORT=ON",
+                          "-DVASDK_BUILD_APP=OFF",
+                          "-DCMAKE_BUILD_TYPE=Release",
+                          "-DLLAMA_BUILD_COMMON=ON",
+                          "-DLLAMA_CURL=ON",
+                          "-DGGML_NATIVE=OFF",
+                          "-DGGML_OPENMP=ON",
+                          "-DGGML_LLAMAFILE=OFF",
+                          "-DGGML_SYSTEM_ARCH=ARM",
+                          "-DGGML_CPU_KLEIDIAI=OFF",
+                          // TEMP: verify local (unpushed) Android/mbedTLS fix in the
+                          // sibling SonioxPP checkout before pushing it upstream.
+                          "-DFETCHCONTENT_SOURCE_DIR_SONIOXPP=/Users/fateh/Documents/GitHub/SonioxPP",
+                          // TEMP: same reason - deepgrampp's CA-path setter (mirrors
+                          // sonioxpp's) and gladiapp's Android CURL::libcurl reuse fix
+                          // are only in the local checkouts so far.
+                          "-DFETCHCONTENT_SOURCE_DIR_DEEPGRAMPP=/Users/fateh/Documents/GitHub/deepgrampp",
+                          "-DFETCHCONTENT_SOURCE_DIR_GLADIAPP=/Users/fateh/Documents/GitHub/gladiapp"
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path "../CMakeLists.txt"
+            version "3.22.0+"
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'),
+                          'proguard-rules.pro'
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+
+    kotlinOptions {
+        jvmTarget = '11'
+    }
+
+    buildFeatures {
+        compose true
+        buildConfig true
+    }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging = false
+        }
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.android.material:material:1.11.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    implementation 'androidx.core:core-ktx:1.12.0'
+    implementation 'androidx.recyclerview:recyclerview:1.3.2'
+    implementation 'com.google.mlkit:barcode-scanning-common:17.0.0'
+    implementation 'com.google.mlkit:vision-common:17.3.0'
+
+    def composeBom = platform('androidx.compose:compose-bom:2025.01.00')
+    implementation composeBom
+    androidTestImplementation composeBom
+
+    implementation 'androidx.activity:activity-compose:1.10.1'
+    implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.8.7'
+    implementation 'androidx.lifecycle:lifecycle-runtime-compose:2.8.7'
+    implementation 'androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7'
+    implementation 'androidx.compose.ui:ui'
+    implementation 'androidx.compose.foundation:foundation'
+    implementation 'androidx.compose.material3:material3'
+    implementation 'androidx.compose.material:material-icons-extended'
+    implementation 'androidx.compose.ui:ui-tooling-preview'
+
+    debugImplementation 'androidx.compose.ui:ui-tooling'
+    debugImplementation 'androidx.compose.ui:ui-test-manifest'
+}

@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Right-aligned speaking placeholder bubble - inserted into the chat
+    immediately when SPEECH_STARTING fires, before any transcript arrives.
+    Swapped for a real user text bubble as soon as the first partial or
+    final transcript is received.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="end|top"
+    android:paddingStart="80dp"
+    android:paddingEnd="14dp"
+    android:paddingTop="4dp"
+    android:paddingBottom="4dp">
+
+    <LinearLayout
+        android:id="@+id/user_speaking_bubble"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:background="@drawable/bubble_user"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:paddingTop="18dp"
+        android:paddingBottom="18dp"
+        android:gravity="center_vertical">
+
+        <View
+            android:id="@+id/user_dot1"
+            android:layout_width="8dp"
+            android:layout_height="8dp"
+            android:layout_marginEnd="5dp"
+            android:background="@drawable/dot_white" />
+
+        <View
+            android:id="@+id/user_dot2"
+            android:layout_width="8dp"
+            android:layout_height="8dp"
+            android:layout_marginEnd="5dp"
+            android:background="@drawable/dot_white" />
+
+        <View
+            android:id="@+id/user_dot3"
+            android:layout_width="8dp"
+            android:layout_height="8dp"
+            android:background="@drawable/dot_white" />
+
+    </LinearLayout>
+
+</LinearLayout>

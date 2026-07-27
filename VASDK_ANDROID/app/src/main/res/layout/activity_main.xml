@@ -1,0 +1,423 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg_dark"
+    android:keepScreenOn="true">
+
+    <!--  Header  -->
+    <LinearLayout
+        android:id="@+id/header"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:paddingTop="16dp"
+        android:paddingBottom="16dp"
+        android:background="@color/surface"
+        android:gravity="center_vertical"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <!-- AI Avatar logo -->
+        <TextView
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:text="VA"
+            android:textColor="@color/white"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:background="@drawable/bg_ai_avatar" />
+
+        <!-- Title + live status subtitle -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:layout_marginStart="14dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="VASDK Assistant"
+                android:textColor="@color/text_primary"
+                android:textSize="17sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.02" />
+
+            <TextView
+                android:id="@+id/tv_status"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp"
+                android:layout_marginTop="1dp" />
+        </LinearLayout>
+
+        <!-- Live status dot -->
+        <View
+            android:id="@+id/status_dot"
+            android:layout_width="8dp"
+            android:layout_height="8dp"
+            android:background="@drawable/dot_indicator"
+            android:alpha="0.4" />
+
+        <ImageButton
+            android:id="@+id/btn_test_anim"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="8dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@android:drawable/ic_menu_gallery"
+            android:contentDescription="@string/test_animations"
+            app:tint="@color/white" />
+    </LinearLayout>
+
+    <!--  Chat list  -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rv_chat"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:paddingTop="12dp"
+        android:paddingBottom="12dp"
+        android:clipToPadding="false"
+        android:scrollbars="none"
+        app:layout_constraintTop_toBottomOf="@id/header"
+        app:layout_constraintBottom_toTopOf="@id/pb_speaking"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <!--
+        Speaking indicator - indeterminate bar between chat and bottom panel.
+        Shown while the engine captures the user's voice (SPEECH_STARTING →
+        SPEECH_ENDED). When GONE it collapses to 0 height so the chat fills
+        flush to the bottom panel, exactly as before.
+    -->
+    <ProgressBar
+        android:id="@+id/pb_speaking"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="0dp"
+        android:layout_height="3dp"
+        android:indeterminate="true"
+        android:indeterminateTint="@color/accent"
+        android:progressBackgroundTint="@color/surface_elevated"
+        android:visibility="gone"
+        app:layout_constraintBottom_toTopOf="@id/bottom_panel"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <!--  Bottom panel  -->
+    <LinearLayout
+        android:id="@+id/bottom_panel"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingTop="24dp"
+        android:paddingBottom="36dp"
+        android:paddingStart="32dp"
+        android:paddingEnd="32dp"
+        android:background="@drawable/bg_bottom_panel"
+        android:gravity="center_horizontal"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <!-- Agent speaking indicator (waveform equalizer bars) -->
+        <LinearLayout
+            android:id="@+id/speaking_indicator"
+            android:layout_width="wrap_content"
+            android:layout_height="44dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:visibility="gone"
+            android:layout_marginBottom="20dp">
+
+            <View
+                android:id="@+id/speak_bar1"
+                android:layout_width="5dp"
+                android:layout_height="32dp"
+                android:layout_marginEnd="4dp"
+                android:background="@drawable/bg_waveform_bar" />
+
+            <View
+                android:id="@+id/speak_bar2"
+                android:layout_width="5dp"
+                android:layout_height="32dp"
+                android:layout_marginEnd="4dp"
+                android:background="@drawable/bg_waveform_bar" />
+
+            <View
+                android:id="@+id/speak_bar3"
+                android:layout_width="5dp"
+                android:layout_height="32dp"
+                android:layout_marginEnd="4dp"
+                android:background="@drawable/bg_waveform_bar" />
+
+            <View
+                android:id="@+id/speak_bar4"
+                android:layout_width="5dp"
+                android:layout_height="32dp"
+                android:layout_marginEnd="4dp"
+                android:background="@drawable/bg_waveform_bar" />
+
+            <View
+                android:id="@+id/speak_bar5"
+                android:layout_width="5dp"
+                android:layout_height="32dp"
+                android:background="@drawable/bg_waveform_bar" />
+
+        </LinearLayout>
+
+        <!-- Typing / thinking indicator (bouncing dots) -->
+        <LinearLayout
+            android:id="@+id/typing_indicator"
+            android:layout_width="wrap_content"
+            android:layout_height="38dp"
+            android:paddingStart="18dp"
+            android:paddingEnd="18dp"
+            android:background="@drawable/bg_status_chip"
+            android:gravity="center"
+            android:orientation="horizontal"
+            android:visibility="gone"
+            android:layout_marginBottom="20dp">
+
+            <View
+                android:id="@+id/dot1"
+                android:layout_width="7dp"
+                android:layout_height="7dp"
+                android:layout_marginEnd="5dp"
+                android:background="@drawable/dot_indicator" />
+
+            <View
+                android:id="@+id/dot2"
+                android:layout_width="7dp"
+                android:layout_height="7dp"
+                android:layout_marginEnd="5dp"
+                android:background="@drawable/dot_indicator" />
+
+            <View
+                android:id="@+id/dot3"
+                android:layout_width="7dp"
+                android:layout_height="7dp"
+                android:background="@drawable/dot_indicator" />
+        </LinearLayout>
+
+        <!-- Circular mic / action button -->
+        <ImageButton
+            android:id="@+id/btn_mic"
+            android:layout_width="76dp"
+            android:layout_height="76dp"
+            android:src="@drawable/ic_mic"
+            android:scaleType="center"
+            android:background="@drawable/bg_mic_disabled"
+            android:enabled="false"
+            android:contentDescription="Microphone" />
+
+        <!-- State label below button -->
+        <TextView
+            android:id="@+id/tv_mic_label"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:text="Initializing…"
+            android:textColor="@color/text_secondary"
+            android:textSize="13sp"
+            android:letterSpacing="0.04" />
+    </LinearLayout>
+
+    <!--  Download Overlay  -->
+    <!--  Covers the full screen during model downloads.               -->
+    <FrameLayout
+        android:id="@+id/download_overlay"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:background="@color/bg_dark"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:paddingStart="40dp"
+            android:paddingEnd="40dp">
+
+            <!-- Logo -->
+            <TextView
+                android:layout_width="80dp"
+                android:layout_height="80dp"
+                android:text="VA"
+                android:textColor="@color/white"
+                android:textSize="22sp"
+                android:textStyle="bold"
+                android:gravity="center"
+                android:background="@drawable/bg_ai_avatar" />
+
+            <!-- App name -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="20dp"
+                android:text="VASDK Assistant"
+                android:textColor="@color/text_primary"
+                android:textSize="24sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.02" />
+
+            <!-- Subtitle -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="@string/downloading_ai_models"
+                android:textColor="@color/text_secondary"
+                android:textSize="14sp" />
+
+            <!-- File name currently being downloaded -->
+            <TextView
+                android:id="@+id/tv_download_file"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="36dp"
+                android:text="@string/verifying"
+                android:textColor="@color/accent"
+                android:textSize="13sp"
+                android:ellipsize="middle"
+                android:singleLine="true" />
+
+            <!-- Progress bar -->
+            <ProgressBar
+                android:id="@+id/pb_download_large"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="10dp"
+                android:layout_marginTop="12dp"
+                android:progressDrawable="@drawable/progress_download"
+                android:max="100"
+                android:progress="0" />
+
+            <!-- Percentage -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="8dp"
+                android:gravity="end">
+
+                <TextView
+                    android:id="@+id/tv_download_percent"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="0%"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="13sp" />
+            </LinearLayout>
+
+            <!-- First-launch hint -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="44dp"
+                android:text="@string/first_launch_hint"
+                android:textColor="@color/text_secondary"
+                android:textSize="11sp"
+                android:alpha="0.5" />
+        </LinearLayout>
+    </FrameLayout>
+
+    <!--  Preparing / Init Overlay  -->
+    <!--  Shown while native models are being loaded after download.   -->
+    <FrameLayout
+        android:id="@+id/init_overlay"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:background="@color/bg_dark"
+        android:visibility="gone"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:orientation="vertical"
+            android:gravity="center">
+
+            <!-- Pulsing logo -->
+            <TextView
+                android:id="@+id/tv_init_logo"
+                android:layout_width="80dp"
+                android:layout_height="80dp"
+                android:text="VA"
+                android:textColor="@color/white"
+                android:textSize="22sp"
+                android:textStyle="bold"
+                android:gravity="center"
+                android:background="@drawable/bg_ai_avatar" />
+
+            <!-- Main label -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="32dp"
+                android:text="@string/preparing_assistant"
+                android:textColor="@color/text_primary"
+                android:textSize="20sp"
+                android:textStyle="bold" />
+
+            <!-- Sub label -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="@string/loading_models"
+                android:textColor="@color/text_secondary"
+                android:textSize="14sp" />
+
+            <!-- Bouncing dots -->
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="38dp"
+                android:layout_marginTop="28dp"
+                android:paddingStart="18dp"
+                android:paddingEnd="18dp"
+                android:background="@drawable/bg_status_chip"
+                android:gravity="center"
+                android:orientation="horizontal">
+
+                <View
+                    android:id="@+id/init_dot1"
+                    android:layout_width="7dp"
+                    android:layout_height="7dp"
+                    android:layout_marginEnd="5dp"
+                    android:background="@drawable/dot_indicator" />
+
+                <View
+                    android:id="@+id/init_dot2"
+                    android:layout_width="7dp"
+                    android:layout_height="7dp"
+                    android:layout_marginEnd="5dp"
+                    android:background="@drawable/dot_indicator" />
+
+                <View
+                    android:id="@+id/init_dot3"
+                    android:layout_width="7dp"
+                    android:layout_height="7dp"
+                    android:background="@drawable/dot_indicator" />
+            </LinearLayout>
+        </LinearLayout>
+    </FrameLayout>
+
+</androidx.constraintlayout.widget.ConstraintLayout>

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">VASDK Assistant</string>
+    <string name="initializing">Initializing…</string>
+    <string name="error_initializing">Error initializing…</string>
+    <string name="start_listening">Start Listening</string>
+    <string name="stop_listening">Stop Listening</string>
+    <string name="waiting_for_speech">Waiting for speech\u2026</string>
+    <string name="permission_needed">Microphone permission is required for the assistant to work.</string>
+    <string name="downloading_ai_models">Downloading AI Models</string>
+    <string name="preparing_assistant">Preparing your assistant…</string>
+    <string name="loading_models">Loading voice models</string>
+    <string name="first_launch_hint">This may take a few minutes on first launch</string>
+    <string name="verifying">Verifying…</string>
+    <string name="test_animations">Test Animations</string>
+
+    <!-- LLM prompt text, kept here rather than hardcoded in native code so it can be
+         edited/translated without touching C++. Passed to nativeInit() as-is. -->
+    <string name="default_system_prompt">You are a helpful voice assistant. Keep your responses concise and conversational, suitable for text-to-speech. Avoid long explanations. Never emit emojis or special characters that can\'t be spoken. Always respond in the same language as the input unless the user asks you to change language.</string>
+    <string name="response_format_instruction">RESPONSE FORMAT - always reply with valid JSON, nothing else. Put your own reply to the user in the \"text\" value; never repeat the examples below.\nExample:\n{\"text\": \"Sure, one large pizza is on its way.\", \"isFinal\": true}\n\nAdd \"isExpecting\": true when you are asking the user a question:\n{\"text\": \"Which size would you like?\", \"isFinal\": true, \"isExpecting\": true}\n\nAdd a \"choices\" array when the user must pick from a fixed set of options:\n{\"text\": \"Which size would you like?\", \"isFinal\": true, \"isExpecting\": true, \"choices\": [{\"text\": \"Small\"}, {\"text\": \"Large\"}]}\n\nThe \"text\" value is spoken aloud - keep it natural. Never add keys outside this schema or wrap the JSON in markdown.</string>
+    <string name="tool_call_exception_clause">\n\nEXCEPTION - tool calls: when the user\'s request requires one of your tools (see the tools list above), do NOT reply with the JSON schema. Instead emit the tool call exactly as the tools section describes. Once the tool result comes back, answer with the normal JSON reply.</string>
+</resources>

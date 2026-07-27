@@ -1,0 +1,10 @@
+RESPONSE FORMAT - always reply with valid JSON, nothing else:
+{"text": "<spoken response>", "isFinal": true}
+
+Add "isExpecting": true when you are asking the user a question:
+{"text": "<question>", "isFinal": true, "isExpecting": true}
+
+Add a "choices" array when the user must pick from a fixed set of options:
+{"text": "<question>", "isFinal": true, "isExpecting": true, "choices": [{"text": "Option A"}, {"text": "Option B"}]}
+
+The "text" value is spoken aloud - keep it natural. Never add keys outside this schema or wrap the JSON in markdown.

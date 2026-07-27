@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Model download background service -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
+    <!-- System tools: network and WiFi status queries -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+
+    <!-- System tools: set_screen_brightness (special permission - user must grant in Settings) -->
+    <uses-permission android:name="android.permission.WRITE_SETTINGS" />
+
+    <!-- System tools: set_ringer_mode silent/vibrate (needed when DND is active) -->
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+
+    <!-- Location tools: get_location, navigate_to (foreground use only - tools
+         only run in response to a live voice request while the app is open) -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+
+    <!-- Notification tools: send_notification -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Notification tools: set_alarm_or_timer. Without this, the Clock app's
+         HandleSetApiCalls activity resolves fine (see <queries> below) but
+         startActivity() throws a SecurityException ("Permission Denial ...
+         requires com.android.alarm.permission.SET_ALARM"), which was being
+         silently swallowed and reported back as a false "launched" success. -->
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
+
+    <!-- Communication tools: contacts, call logs, calendar, phone, SMS -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <uses-permission android:name="android.permission.READ_CALL_LOG" />
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <uses-permission android:name="android.permission.WRITE_CALENDAR" />
+    <uses-permission android:name="android.permission.CALL_PHONE" />
+    <uses-permission android:name="android.permission.SEND_SMS" />
+
+    <!-- Camera tools: capture_photo -->
+    <uses-permission android:name="android.permission.CAMERA" />
+
+    <!-- Media tools: search music library -->
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+
+    <!-- File tools: access shared storage (Downloads, Documents, Pictures).
+         READ_MEDIA_VISUAL_USER_SELECTED supports Android 14 partial photo access. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+
+    <uses-feature
+        android:name="android.hardware.microphone"
+        android:required="true" />
+
+    <!-- Notification tools: set_alarm/set_timer fire implicit AlarmClock intents.
+         Unlike ACTION_CALL/ACTION_VIEW(geo:), these aren't on Android's automatic
+         package-visibility exemption list, so resolveActivity()/startActivity()
+         can't see the clock app on API 30+ without declaring them here. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.SET_ALARM" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.SET_TIMER" />
+        </intent>
+    </queries>
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.VasdkApp">
+
+        <meta-data
+            android:name="com.google.android.edgetpu.ALLOWLIST_TOKEN"
+            android:value="true" />
+
+        <meta-data
+            android:name="com.google.android.neuralnetworks.allowlist"
+            android:value="true" />
+
+        <uses-native-library
+            android:name="libedgetpu.so"
+            android:required="false" />
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Background service that downloads and initializes models, notifies via local broadcast -->
+        <service
+            android:name=".services.ModelDownloadService"
+            android:foregroundServiceType="dataSync"
+            android:exported="false" />
+
+        <!-- Media tools: get_now_playing uses MediaSessionManager which requires
+             a NotificationListenerService component name for getActiveSessions() -->
+        <service
+            android:name=".tools.VasdkNotificationListener"
+            android:label="VASDK Media Access"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+    </application>
+
+</manifest>

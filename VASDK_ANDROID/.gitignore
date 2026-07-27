@@ -1,0 +1,54 @@
+# Built application files
+*.apk
+*.aar
+*.ap_
+*.aab
+
+# Build outputs
+/build/
+app/build/
+
+# CMake / NDK build artifacts
+.cxx/
+app/.cxx/
+
+# Gradle wrapper
+!gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
+
+# Gradle cache and generated files
+.gradle/
+gradle.properties.local
+
+# Local configuration (contains SDK/NDK paths - never commit)
+local.properties
+
+# Android Studio / IntelliJ project files
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Capture files from Android Studio
+captures/
+
+# External native build files
+*.externalNativeBuild/
+
+# Google Services (may contain API keys - commit intentionally if needed)
+google-services.json
+
+# Navigation editor generated files
+app/src/main/res/navigation/
+
+# ProGuard mapping files
+*.map
+
+# macOS metadata
+.DS_Store
+
+# Log files
+*.log
+
+# onnx embedded models
+!*.onnx
