@@ -25,8 +25,8 @@ flowchart LR
     end
     subgraph Impls["implementations (VASDK_3P_IMPL - pick per build)"]
         I1["Silero · Energy+ZCR"]
-        I2["Parakeet · Moonshine · Whisper.cpp · Gladia · Soniox · Deepgram"]
-        I3["Supertonic · PocketTTS · Soniox · Deepgram"]
+        I2["Parakeet · Moonshine · Whisper.cpp · Gladia · Soniox · Deepgram · Cartesia · Fish Audio · Gradium"]
+        I3["Supertonic · PocketTTS · Soniox · Deepgram · Cartesia · Fish Audio · Gradium"]
         I4["RNNoise"]
         I5["SmartTurn v3"]
         I6["MiniAudio · SDL3 · FFmpeg"]
@@ -105,8 +105,8 @@ Return one `VADResult` per detected speech region (empty vector = silence). All 
 
 | Mode | Method | Fits |
 | --- | --- | --- |
-| Streaming | `writeAudioData(data, size)` - buffer continuously, emit partials/finals via listener | Cloud STT (Gladia, Soniox, Deepgram), models with internal endpointing |
-| Batch | `writeFullAudioData(data, size)` - one complete VAD-segmented utterance in, one `TranscriptionResult` back | Local encoder-decoder models (Parakeet, Moonshine, Whisper) |
+| Streaming | `writeAudioData(data, size)` - buffer continuously, emit partials/finals via listener | Cloud STT (Gladia, Soniox, Deepgram, Cartesia, Gradium), models with internal endpointing |
+| Batch | `writeFullAudioData(data, size)` - one complete VAD-segmented utterance in, one `TranscriptionResult` back | Local encoder-decoder models (Parakeet, Moonshine, Whisper), REST-only cloud STT (Fish Audio) |
 
 `writeFullAudioData` **throws by default** - a provider that doesn't override it is streaming-only, and `TranscriptionFrameProcessor` must run with `setStreamingMode(true)`.
 
@@ -129,7 +129,7 @@ virtual void cancelSynthesis() {}   // optional but important - see below
 
 The **`cancelSynthesis()` contract** is what makes barge-in work: it must be non-blocking, stop audio emission promptly, and still fire `onSynthesisCompleted()` (or `onSynthesisError()`) once cancellation is confirmed - that completion is what lets `TTSFrameProcessor` emit `SynthesisStateFrame{INTERRUPTED}` upstream and unblock the agent state machine. A provider that can't cancel leaves the assistant talking over the user.
 
-Implementations: Supertonic and PocketTTS (local ONNX), Soniox and Deepgram (cloud).
+Implementations: Supertonic and PocketTTS (local ONNX), Soniox, Deepgram, Cartesia, Fish Audio, and Gradium (cloud).
 
 ## GenericAudioDSPProvider
 

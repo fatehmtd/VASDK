@@ -39,7 +39,7 @@ An overview based on [root README](../README.md):
 | --- | --- |
 | Core pipeline (audio → VAD → STT → LLM → TTS) | Stable in daily use across three showcase apps |
 | Local/offline providers (Silero, Parakeet, llama.cpp, …) | Working; models and parameters still being tuned. Moonshine, Supertonic, and Whisper.cpp are WIP |
-| Cloud providers (Gladia, Soniox, Deepgram, OpenAI, Anthropic) | Working; APIs evolve, pin a commit. Gladia is WIP |
+| Cloud providers (Gladia, Soniox, Deepgram, Cartesia, Fish Audio, Gradium, OpenAI, Anthropic) | Working; APIs evolve, pin a commit. Gladia is WIP |
 | Goal-oriented call center layer (`goal/`) | Newest, most ambitious, fastest-moving |
 | Android app | Growing quickly from wrapper to full assistant |
 | Metrics/observability | Solid base for basic visibility; not production-hardened |

@@ -95,6 +95,18 @@
 #include "DeepgramppTranscription/DeepgramppTranscriptionProvider.h"
 #endif
 
+#ifdef VASDK_HAS_CARTESIAPP_STT
+#include "CartesiappTranscription/CartesiappTranscriptionProvider.h"
+#endif
+
+#ifdef VASDK_HAS_FISHAUDIOPP_STT
+#include "FishaudioppTranscription/FishaudioppTranscriptionProvider.h"
+#endif
+
+#ifdef VASDK_HAS_GRADIUMPP_STT
+#include "GradiumppTranscription/GradiumppTranscriptionProvider.h"
+#endif
+
 #ifdef VASDK_HAS_PARAKEET
 #include "Parakeet/ParakeetTranscriptionProvider.hpp"
 #endif
@@ -110,6 +122,18 @@
 // TTS providers
 #ifdef VASDK_HAS_DEEPGRAMPP_TTS
 #include "DeepgramppVoiceSynthesis/DeepgramppVoiceSynthesisProvider.h"
+#endif
+
+#ifdef VASDK_HAS_CARTESIAPP_TTS
+#include "CartesiappVoiceSynthesis/CartesiappVoiceSynthesisProvider.h"
+#endif
+
+#ifdef VASDK_HAS_FISHAUDIOPP_TTS
+#include "FishaudioppVoiceSynthesis/FishaudioppVoiceSynthesisProvider.h"
+#endif
+
+#ifdef VASDK_HAS_GRADIUMPP_TTS
+#include "GradiumppVoiceSynthesis/GradiumppVoiceSynthesisProvider.h"
 #endif
 
 #ifdef VASDK_HAS_SONIOXPP_TTS
@@ -581,7 +605,11 @@ std::optional<AudioBundle> setupAudioProviders(const std::string& modelsPath, in
     }
 #endif
 
-#if defined(VASDK_HAS_SONIOXPP_STT)
+#if defined(VASDK_HAS_GRADIUMPP_STT)
+    auto gradiumStt = std::make_shared<va::thirdparty::GradiumppTranscriptionProvider>(
+        std::getenv("GRADIUM_API_KEY") ? std::getenv("GRADIUM_API_KEY") : "");
+    b.transcriptionProvider = gradiumStt;
+#elif defined(VASDK_HAS_SONIOXPP_STT)
     auto soniox = std::make_shared<va::thirdparty::SonioxppTranscriptionProvider>(
         std::getenv("SONIOX_API_KEY") ? std::getenv("SONIOX_API_KEY") : "");
     b.transcriptionProvider = soniox;
@@ -589,6 +617,14 @@ std::optional<AudioBundle> setupAudioProviders(const std::string& modelsPath, in
     auto deepgramStt = std::make_shared<va::thirdparty::DeepgramppTranscriptionProvider>(
         std::getenv("DEEPGRAM_API_KEY") ? std::getenv("DEEPGRAM_API_KEY") : "");
     b.transcriptionProvider = deepgramStt;
+#elif defined(VASDK_HAS_CARTESIAPP_STT)
+    auto cartesiaStt = std::make_shared<va::thirdparty::CartesiappTranscriptionProvider>(
+        std::getenv("CARTESIA_API_KEY") ? std::getenv("CARTESIA_API_KEY") : "");
+    b.transcriptionProvider = cartesiaStt;
+#elif defined(VASDK_HAS_FISHAUDIOPP_STT)
+    auto fishaudioStt = std::make_shared<va::thirdparty::FishaudioppTranscriptionProvider>(
+        std::getenv("FISHAUDIO_API_KEY") ? std::getenv("FISHAUDIO_API_KEY") : "");
+    b.transcriptionProvider = fishaudioStt;
 #elif defined(VASDK_HAS_MOONSHINE_STT)
     auto moonshine = std::make_shared<MoonshineSttProvider>(modelsPath + "/moonshine");
     MoonshineSttProvider::InferenceConfig inferenceConfig;
@@ -610,21 +646,18 @@ std::optional<AudioBundle> setupAudioProviders(const std::string& modelsPath, in
     parakeet->setInferenceConfig(inferenceConfig);
     b.transcriptionProvider = parakeet;
 #else
-#error "No transcription provider available - enable VASDK_HAS_SONIOXPP_STT, VASDK_HAS_DEEPGRAMPP_STT, VASDK_HAS_MOONSHINE_STT, VASDK_HAS_PARAKEET, or VASDK_HAS_WHISPERCPP"
+#error "No transcription provider available - enable VASDK_HAS_SONIOXPP_STT, VASDK_HAS_DEEPGRAMPP_STT, VASDK_HAS_CARTESIAPP_STT, VASDK_HAS_FISHAUDIOPP_STT, VASDK_HAS_GRADIUMPP_STT, VASDK_HAS_MOONSHINE_STT, VASDK_HAS_PARAKEET, or VASDK_HAS_WHISPERCPP"
 #endif
     b.transcriptionProvider->setAudioConfiguration(b.inputConfig);
 
-#if defined(VASDK_HAS_SONIOXPP_TTS)
+#if defined(VASDK_HAS_GRADIUMPP_TTS)
+    b.ttsProvider = std::make_shared<va::thirdparty::GradiumppVoiceSynthesisProvider>(
+        std::getenv("GRADIUM_API_KEY") ? std::getenv("GRADIUM_API_KEY") : "",
+        std::getenv("GRADIUM_VOICE_ID") ? std::getenv("GRADIUM_VOICE_ID") : "");
+#elif defined(VASDK_HAS_SONIOXPP_TTS)
     auto sonioxTts = std::make_shared<va::thirdparty::SonioxppVoiceSynthesisProvider>(
         std::getenv("SONIOX_API_KEY") ? std::getenv("SONIOX_API_KEY") : "");
     b.ttsProvider = sonioxTts;
-#elif defined(VASDK_HAS_POCKET_TTS)
-    auto pocket = std::make_shared<PocketVoiceSynthesisProvider>(modelsPath + "/pocket_tts", "cosette");
-    pocket->setLsdSteps(4);
-    pocket->setVoice("jean");
-    pocket->setPreBufferedSamplesMS(250);
-    pocket->setSilenceDuration(0.3f);
-    b.ttsProvider = pocket;
 #elif defined(VASDK_HAS_SUPERTONIC_TTS)
     auto supertonic = std::make_shared<SupertonicVoiceSynthesisProvider>(
         modelsPath + "/supertonic/onnx",
@@ -634,8 +667,24 @@ std::optional<AudioBundle> setupAudioProviders(const std::string& modelsPath, in
 #elif defined(VASDK_HAS_DEEPGRAMPP_TTS)
     b.ttsProvider = std::make_shared<va::thirdparty::DeepgramppVoiceSynthesisProvider>(
         std::getenv("DEEPGRAM_API_KEY") ? std::getenv("DEEPGRAM_API_KEY") : "");
+#elif defined(VASDK_HAS_CARTESIAPP_TTS)
+    b.ttsProvider = std::make_shared<va::thirdparty::CartesiappVoiceSynthesisProvider>(
+        std::getenv("CARTESIA_API_KEY") ? std::getenv("CARTESIA_API_KEY") : "",
+        std::getenv("CARTESIA_VOICE_ID") ? std::getenv("CARTESIA_VOICE_ID") : "");
+#elif defined(VASDK_HAS_FISHAUDIOPP_TTS)
+    b.ttsProvider = std::make_shared<va::thirdparty::FishaudioppVoiceSynthesisProvider>(
+        std::getenv("FISHAUDIO_API_KEY") ? std::getenv("FISHAUDIO_API_KEY") : "",
+        std::getenv("FISHAUDIO_VOICE_ID") ? std::getenv("FISHAUDIO_VOICE_ID") : "");
+#elif defined(VASDK_HAS_POCKET_TTS)
+    // Local/offline fallback: only used when no cloud TTS provider is compiled in.
+    auto pocket = std::make_shared<PocketVoiceSynthesisProvider>(modelsPath + "/pocket_tts", "cosette");
+    pocket->setLsdSteps(4);
+    pocket->setVoice("jean");
+    pocket->setPreBufferedSamplesMS(250);
+    pocket->setSilenceDuration(0.3f);
+    b.ttsProvider = pocket;
 #else
-#error "No TTS provider available - enable VASDK_BUILD_SONIOXPP_TTS, VASDK_BUILD_POCKET_TTS, VASDK_BUILD_SUPERTONIC_TTS, or VASDK_BUILD_DEEPGRAMPP_TTS"
+#error "No TTS provider available - enable VASDK_BUILD_SONIOXPP_TTS, VASDK_BUILD_POCKET_TTS, VASDK_BUILD_SUPERTONIC_TTS, VASDK_BUILD_DEEPGRAMPP_TTS, VASDK_BUILD_CARTESIAPP_TTS, VASDK_BUILD_FISHAUDIOPP_TTS, or VASDK_BUILD_GRADIUMPP_TTS"
 #endif
     b.ttsProvider->setAudioConfiguration(b.outputConfig);
 

@@ -22,14 +22,20 @@ enum class SttProvider(val id: String, val label: String) {
     PARAKEET("parakeet", "Parakeet (on-device)"),
     SONIOX("soniox", "Soniox (cloud)"),
     DEEPGRAM("deepgram", "Deepgram (cloud)"),
-    GLADIA("gladia", "Gladia (cloud)")
+    GLADIA("gladia", "Gladia (cloud)"),
+    CARTESIA("cartesia", "Cartesia (cloud)"),
+    FISHAUDIO("fishaudio", "Fish Audio (cloud)"),
+    GRADIUM("gradium", "Gradium (cloud)")
 }
 
 /** On-device vs cloud TTS provider choice, exposed via the Settings UI. */
 enum class TtsProvider(val id: String, val label: String) {
     POCKET("pocket", "Pocket TTS (on-device)"),
     SONIOX("soniox", "Soniox (cloud)"),
-    DEEPGRAM("deepgram", "Deepgram (cloud)")
+    DEEPGRAM("deepgram", "Deepgram (cloud)"),
+    CARTESIA("cartesia", "Cartesia (cloud)"),
+    FISHAUDIO("fishaudio", "Fish Audio (cloud)"),
+    GRADIUM("gradium", "Gradium (cloud)")
 }
 
 /**
@@ -288,6 +294,12 @@ class VasdkEngine private constructor(
                 sonioxApiKey = BuildConfig.SONIOX_API_KEY,
                 deepgramApiKey = BuildConfig.DEEPGRAM_API_KEY,
                 gladiaApiKey = BuildConfig.GLADIA_API_KEY,
+                cartesiaApiKey = BuildConfig.CARTESIA_API_KEY,
+                cartesiaVoiceId = BuildConfig.CARTESIA_VOICE_ID,
+                fishaudioApiKey = BuildConfig.FISHAUDIO_API_KEY,
+                fishaudioVoiceId = BuildConfig.FISHAUDIO_VOICE_ID,
+                gradiumApiKey = BuildConfig.GRADIUM_API_KEY,
+                gradiumVoiceId = BuildConfig.GRADIUM_VOICE_ID,
                 caBundlePath = caBundlePath
             )
             return isNativeInitialized
@@ -649,6 +661,12 @@ class VasdkEngine private constructor(
                                     sonioxApiKey: String,
                                     deepgramApiKey: String,
                                     gladiaApiKey: String,
+                                    cartesiaApiKey: String,
+                                    cartesiaVoiceId: String,
+                                    fishaudioApiKey: String,
+                                    fishaudioVoiceId: String,
+                                    gradiumApiKey: String,
+                                    gradiumVoiceId: String,
                                     caBundlePath: String): Boolean
     private external fun nativeStart(): Boolean
     private external fun nativeStop()

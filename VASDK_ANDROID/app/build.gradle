@@ -29,6 +29,12 @@ def llmModel    = envLocalProps.getProperty('LLM_MODEL',    localProps.getProper
 def sonioxApiKey = envLocalProps.getProperty('SONIOX_API_KEY', localProps.getProperty('soniox.apiKey', ''))
 def deepgramApiKey = envLocalProps.getProperty('DEEPGRAM_API_KEY', localProps.getProperty('deepgram.apiKey', ''))
 def gladiaApiKey = envLocalProps.getProperty('GLADIA_API_KEY', localProps.getProperty('gladia.apiKey', ''))
+def cartesiaApiKey = envLocalProps.getProperty('CARTESIA_API_KEY', localProps.getProperty('cartesia.apiKey', ''))
+def cartesiaVoiceId = envLocalProps.getProperty('CARTESIA_VOICE_ID', localProps.getProperty('cartesia.voiceId', ''))
+def fishaudioApiKey = envLocalProps.getProperty('FISHAUDIO_API_KEY', localProps.getProperty('fishaudio.apiKey', ''))
+def fishaudioVoiceId = envLocalProps.getProperty('FISHAUDIO_VOICE_ID', localProps.getProperty('fishaudio.voiceId', ''))
+def gradiumApiKey = envLocalProps.getProperty('GRADIUM_API_KEY', localProps.getProperty('gradium.apiKey', ''))
+def gradiumVoiceId = envLocalProps.getProperty('GRADIUM_VOICE_ID', localProps.getProperty('gradium.voiceId', ''))
 
 android {
     namespace 'com.vasdk.android'
@@ -48,6 +54,12 @@ android {
         buildConfigField "String", "SONIOX_API_KEY", "\"${sonioxApiKey}\""
         buildConfigField "String", "DEEPGRAM_API_KEY", "\"${deepgramApiKey}\""
         buildConfigField "String", "GLADIA_API_KEY", "\"${gladiaApiKey}\""
+        buildConfigField "String", "CARTESIA_API_KEY", "\"${cartesiaApiKey}\""
+        buildConfigField "String", "CARTESIA_VOICE_ID", "\"${cartesiaVoiceId}\""
+        buildConfigField "String", "FISHAUDIO_API_KEY", "\"${fishaudioApiKey}\""
+        buildConfigField "String", "FISHAUDIO_VOICE_ID", "\"${fishaudioVoiceId}\""
+        buildConfigField "String", "GRADIUM_API_KEY", "\"${gradiumApiKey}\""
+        buildConfigField "String", "GRADIUM_VOICE_ID", "\"${gradiumVoiceId}\""
 
         externalNativeBuild {
             cmake {

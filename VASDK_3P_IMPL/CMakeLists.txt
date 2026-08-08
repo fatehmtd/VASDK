@@ -21,12 +21,18 @@ option(VASDK_BUILD_SMART_TURN_V3 "Build SmartTurn v3 provider" ON)
 option(VASDK_BUILD_GLADIAPP "Build Gladiapp transcription provider" OFF)
 option(VASDK_BUILD_SONIOXPP_STT "Build SonioxPP transcription provider" OFF)
 option(VASDK_BUILD_DEEPGRAMPP_STT "Build Deepgrampp transcription provider" OFF)
+option(VASDK_BUILD_CARTESIAPP_STT "Build CartesiaPP transcription provider" OFF)
+option(VASDK_BUILD_FISHAUDIOPP_STT "Build FishAudioPP transcription provider" OFF)
+option(VASDK_BUILD_GRADIUMPP_STT "Build GradiumPP transcription provider" ON)
 option(VASDK_BUILD_PARAKEET "Build Parakeet transcription provider" ON)
 option(VASDK_BUILD_MOONSHINE_STT "Build Moonshine STT provider" OFF)
 option(VASDK_BUILD_WHISPERCPP "Build WhisperCpp transcription provider" OFF)
 
 # Voice Synthesis
 option(VASDK_BUILD_DEEPGRAMPP_TTS "Build Deepgrampp voice synthesis provider" OFF)
+option(VASDK_BUILD_CARTESIAPP_TTS "Build CartesiaPP voice synthesis provider" OFF)
+option(VASDK_BUILD_FISHAUDIOPP_TTS "Build FishAudioPP voice synthesis provider" OFF)
+option(VASDK_BUILD_GRADIUMPP_TTS "Build GradiumPP voice synthesis provider" ON)
 option(VASDK_BUILD_SONIOXPP_TTS "Build SonioxPP voice synthesis provider" OFF)
 option(VASDK_BUILD_SUPERTONIC_TTS "Build Supertonic TTS provider" OFF)
 option(VASDK_BUILD_POCKET_TTS "Build Pocket TTS provider (flow-matching ONNX TTS at 24 kHz)" ON)
@@ -193,6 +199,51 @@ if(VASDK_BUILD_SONIOXPP_STT OR VASDK_BUILD_SONIOXPP_TTS)
     endif()
 endif()
 
+# cartesiapp (Cartesia STT/TTS REST + WebSocket client)
+if(VASDK_BUILD_CARTESIAPP_STT OR VASDK_BUILD_CARTESIAPP_TTS)
+    # TODO: Pin GIT_TAG to a specific commit SHA before release for reproducibility
+    set(CARTESIAPP_BUILD_SAMPLES OFF CACHE BOOL "" FORCE)
+    fetchcontent_declare(
+        cartesiapp
+        GIT_REPOSITORY https://github.com/fatehmtd/CartesiaPP.git
+        GIT_TAG        main
+        GIT_SHALLOW    ON
+    )
+    fetchcontent_makeavailable(cartesiapp)
+endif()
+
+# fishaudiopp (Fish Audio STT/TTS REST + WebSocket client)
+if(VASDK_BUILD_FISHAUDIOPP_STT OR VASDK_BUILD_FISHAUDIOPP_TTS)
+    # TODO: Pin GIT_TAG to a specific commit SHA before release for reproducibility
+    set(FISHAUDIOPP_BUILD_SAMPLES OFF CACHE BOOL "" FORCE)
+    fetchcontent_declare(
+        fishaudiopp
+        GIT_REPOSITORY https://github.com/fatehmtd/fishaudiopp.git
+        GIT_TAG        master
+        GIT_SHALLOW    ON
+    )
+    fetchcontent_makeavailable(fishaudiopp)
+endif()
+
+# gradiumpp (Gradium STT/TTS REST + WebSocket client)
+# NOTE: placed after cartesiapp/sonioxpp/fishaudiopp on purpose. GradiumPP's own
+# CMakeLists.txt unconditionally fetches curl/libwebsockets/spdlog/nlohmann_json
+# under the same FetchContent names those libraries use; when one of them runs
+# first, GradiumPP's fetch calls become no-ops that reuse the already-populated
+# (mbedTLS-backed) targets instead of building a second, OpenSSL-backed copy.
+if(VASDK_BUILD_GRADIUMPP_STT OR VASDK_BUILD_GRADIUMPP_TTS)
+    # TODO: Pin GIT_TAG to a specific commit SHA before release for reproducibility
+    set(GRADIUM_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    fetchcontent_declare(
+        gradiumpp
+        GIT_REPOSITORY https://github.com/fatehmtd/GradiumPP.git
+        GIT_TAG        master
+        GIT_SHALLOW    ON
+        PATCH_COMMAND  ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/patch-gradiumpp-cppcodec-guard.cmake
+    )
+    fetchcontent_makeavailable(gradiumpp)
+endif()
+
 # Moonshine bin-tokenizer sources (source-only, no CMake target needed - compiled into MoonshineSTT)
 if(VASDK_BUILD_MOONSHINE_STT)
     fetchcontent_declare(
@@ -342,6 +393,18 @@ if(VASDK_BUILD_DEEPGRAMPP_STT)
     add_subdirectory(DeepgramppTranscription)
 endif()
 
+if(VASDK_BUILD_CARTESIAPP_STT)
+    add_subdirectory(CartesiappTranscription)
+endif()
+
+if(VASDK_BUILD_FISHAUDIOPP_STT)
+    add_subdirectory(FishaudioppTranscription)
+endif()
+
+if(VASDK_BUILD_GRADIUMPP_STT)
+    add_subdirectory(GradiumppTranscription)
+endif()
+
 if(VASDK_BUILD_PARAKEET)
     add_subdirectory(Parakeet)
 endif()
@@ -356,6 +419,18 @@ endif()
 
 if(VASDK_BUILD_DEEPGRAMPP_TTS)
     add_subdirectory(DeepgramppVoiceSynthesis)
+endif()
+
+if(VASDK_BUILD_CARTESIAPP_TTS)
+    add_subdirectory(CartesiappVoiceSynthesis)
+endif()
+
+if(VASDK_BUILD_FISHAUDIOPP_TTS)
+    add_subdirectory(FishaudioppVoiceSynthesis)
+endif()
+
+if(VASDK_BUILD_GRADIUMPP_TTS)
+    add_subdirectory(GradiumppVoiceSynthesis)
 endif()
 
 if(VASDK_BUILD_SONIOXPP_TTS)

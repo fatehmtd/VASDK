@@ -32,7 +32,7 @@ The project is still young and moving fast. There are no tagged releases yet, an
 
 - CMake 3.16+ and a C++17 compiler.
 - Git on your `PATH` - needed both to clone the repo and by CMake's `FetchContent` to pull every C++ dependency at configure time.
-- libcurl development files. VASDK links against system libcurl for every HTTP-based transport (OpenAI/Anthropic/OpenRouter LLM calls, Gladia/Deepgram cloud STT/TTS) via `find_package(CURL REQUIRED)`, so configure fails without it unless you pass `-DVASDK_ENABLE_HTTP_TRANSPORT=OFF` (which also disables every cloud provider, leaving only local/offline ones). Usually already present on Linux/macOS (`apt install libcurl4-openssl-dev` / `brew install curl` if not); on Windows, the simplest path is `vcpkg install curl` plus `-DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake` on the configure line below.
+- libcurl development files. VASDK links against system libcurl for every HTTP-based transport (OpenAI/Anthropic/OpenRouter LLM calls, Gladia/Deepgram/Cartesia/Fish Audio cloud STT/TTS) via `find_package(CURL REQUIRED)`, so configure fails without it unless you pass `-DVASDK_ENABLE_HTTP_TRANSPORT=OFF` (which also disables every cloud provider, leaving only local/offline ones). Usually already present on Linux/macOS (`apt install libcurl4-openssl-dev` / `brew install curl` if not); on Windows, the simplest path is `vcpkg install curl` plus `-DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake` on the configure line below. Gradium builds its own libcurl from source instead of using the system one, unless another enabled provider's system-curl lookup already claimed the shared `libcurl` target first.
 - A network connection and ~1.5 GB free disk for the first configure - everything else (C++ deps and model files) is fetched for you, and re-configures skip anything already downloaded.
 
 ```bash
@@ -229,17 +229,17 @@ Every row is an independent target under `VASDK_3P_IMPL/`. Enable only what you 
 | VAD | Silero (ONNX), Energy+ZCR | - |
 | Turn detection | SmartTurn v3 | - |
 | Noise suppression | RNNoise | - |
-| STT | Parakeet, Moonshine (WIP), Whisper.cpp (WIP) (all ONNX/GGUF) | Gladia (WIP), Soniox, Deepgram |
-| TTS | Supertonic (WIP), PocketTTS (ONNX) | Deepgram, Soniox |
+| STT | Parakeet, Moonshine (WIP), Whisper.cpp (WIP) (all ONNX/GGUF) | Gladia (WIP), Gradium, Soniox, Deepgram, Cartesia, Fish Audio |
+| TTS | Supertonic (WIP), PocketTTS (ONNX) | Gradium, Soniox, Deepgram, Cartesia, Fish Audio |
 | LLM | llama.cpp, or any OpenAI-compatible local server | OpenAI, Anthropic |
 | File / batch audio | FFmpeg-backed file transport | - |
 | Visualization | VizAnim (audio feature extraction for UI animation) | - |
 
-Mix and match freely. The call center showcase, for example, defaults to Moonshine, llama.cpp, and PocketTTS for a fully local stack, but falls back to Parakeet/Whisper.cpp and Supertonic/Deepgram if those aren't built.
+Mix and match freely. The call center showcase, for example, defaults to Moonshine, llama.cpp, and PocketTTS for a fully local stack, but falls back to Parakeet/Whisper.cpp and Supertonic/Gradium/Deepgram/Cartesia/Fish Audio if those aren't built - when more than one cloud STT/TTS is enabled in the same build, Gradium takes priority.
 
 **WIP:** Gladia, Moonshine, Supertonic, and Whisper.cpp are still work in progress - expect rough edges, incomplete feature coverage, or breaking changes before they stabilize.
 
-The cloud STT/TTS providers (Gladia, Soniox, Deepgram) integrate against third-party APIs that change on their own schedule, and this project is still under heavy, frequent development. Don't be surprised if one of those integrations lags behind an upstream API change; the local/offline providers are the more stable path if you need something that keeps working without maintenance. More generally, the STT/TTS provider set as a whole is still evolving - parameter surfaces and generation controls on the local providers shift release to release too (PocketTTS's chunking and generation-control options, for one), so pin a commit if you need a stable target.
+The cloud STT/TTS providers (Gladia, Soniox, Deepgram, Cartesia, Fish Audio, Gradium) integrate against third-party APIs that change on their own schedule, and this project is still under heavy, frequent development. Don't be surprised if one of those integrations lags behind an upstream API change; the local/offline providers are the more stable path if you need something that keeps working without maintenance. More generally, the STT/TTS provider set as a whole is still evolving - parameter surfaces and generation controls on the local providers shift release to release too (PocketTTS's chunking and generation-control options, for one), so pin a commit if you need a stable target.
 
 ### Provider sources and licenses
 
@@ -259,6 +259,9 @@ Where each provider's underlying code or API actually comes from, and under what
 | <a href="https://github.com/supertone-inc/supertonic"><img src="assets/logos/supertone-inc.png" width="48" alt=""></a> | Supertonic | - | [supertone-inc/supertonic](https://github.com/supertone-inc/supertonic) (inference code) | MIT (code) · OpenRAIL (model weights) |
 | <a href="https://kyutai.org"><img src="assets/logos/kyutai-labs.png" width="48" alt=""></a> | PocketTTS | - | [kyutai/pocket-tts](https://huggingface.co/kyutai/pocket-tts) (model) · [google/sentencepiece](https://github.com/google/sentencepiece) (tokenizer) | CC BY 4.0 (model) · Apache 2.0 (sentencepiece) |
 | <a href="https://deepgram.com"><img src="assets/logos/deepgram.svg" width="48" height="48" alt=""></a> | Deepgram (cloud STT/TTS) | [deepgram.com](https://deepgram.com) · [API docs](https://developers.deepgram.com) | [fatehmtd/deepgrampp](https://github.com/fatehmtd/deepgrampp) (VASDK's own client, not Deepgram's official SDK) | Apache 2.0 (deepgrampp) |
+| | Cartesia (cloud STT/TTS) | [cartesia.ai](https://cartesia.ai) | [fatehmtd/CartesiaPP](https://github.com/fatehmtd/CartesiaPP) (VASDK's own client, not Cartesia's official SDK) | Apache 2.0 (CartesiaPP) |
+| | Fish Audio (cloud STT/TTS) | [fish.audio](https://fish.audio) | [fatehmtd/fishaudiopp](https://github.com/fatehmtd/fishaudiopp) (VASDK's own client, not Fish Audio's official SDK) | Apache 2.0 (fishaudiopp) |
+| | Gradium (cloud STT/TTS) | [gradium.ai](https://gradium.ai) · [API docs](https://docs.gradium.ai) | [fatehmtd/GradiumPP](https://github.com/fatehmtd/GradiumPP) (VASDK's own client, not Gradium's official SDK) | Apache 2.0 (GradiumPP) |
 | <a href="https://github.com/ggml-org/llama.cpp"><img src="assets/logos/ggml-org.jpg" width="48" alt=""></a> | llama.cpp | - | [ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp) | MIT |
 | <a href="https://openai.com"><img src="assets/logos/openai.png" width="48" alt=""></a> | OpenAI (cloud LLM) | [openai.com](https://openai.com) · [API docs](https://platform.openai.com/docs) | - (direct HTTP via libcurl, no vendor SDK) | - |
 | <a href="https://www.anthropic.com"><img src="assets/logos/anthropic.svg" width="48" alt=""></a> | Anthropic (cloud LLM) | [anthropic.com](https://www.anthropic.com) · [API docs](https://platform.claude.com/docs) | - (direct HTTP via libcurl, no vendor SDK) | - |
@@ -267,7 +270,7 @@ Where each provider's underlying code or API actually comes from, and under what
 | <a href="https://ffmpeg.org"><img src="assets/logos/ffmpeg.svg" width="48" alt=""></a> | FFmpeg | [ffmpeg.org](https://ffmpeg.org) | [FFmpeg/FFmpeg](https://github.com/FFmpeg/FFmpeg) | LGPL or GPL, depending on how your system build was configured |
 | | VizAnim | - | custom, in-repo · [marton78/pffft](https://github.com/marton78/pffft) (FFT dependency) | Apache 2.0 (VASDK) · permissive NCAR/UCAR license (pffft) |
 
-`gladiapp`, `SonioxPP`, and `deepgrampp` are VASDK's own thin WebSocket clients for those APIs, not an SDK published by Gladia, Soniox, or Deepgram themselves - the license listed is for that wrapper code, not the underlying service.
+`gladiapp`, `SonioxPP`, `deepgrampp`, `CartesiaPP`, `fishaudiopp`, and `GradiumPP` are VASDK's own thin WebSocket clients for those APIs, not an SDK published by Gladia, Soniox, Deepgram, Cartesia, Fish Audio, or Gradium themselves - the license listed is for that wrapper code, not the underlying service.
 
 ## Configuration
 

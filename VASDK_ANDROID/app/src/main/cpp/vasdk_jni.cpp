@@ -75,6 +75,12 @@ Java_com_vasdk_android_VasdkEngine_nativeInit(JNIEnv *env, jobject thiz, jstring
                                               jstring sonioxApiKey,
                                               jstring deepgramApiKey,
                                               jstring gladiaApiKey,
+                                              jstring cartesiaApiKey,
+                                              jstring cartesiaVoiceId,
+                                              jstring fishaudioApiKey,
+                                              jstring fishaudioVoiceId,
+                                              jstring gradiumApiKey,
+                                              jstring gradiumVoiceId,
                                               jstring caBundlePath) {
     std::lock_guard<std::mutex> lock(gSessionMutex);
 
@@ -90,12 +96,18 @@ Java_com_vasdk_android_VasdkEngine_nativeInit(JNIEnv *env, jobject thiz, jstring
     // file path here; each provider forwards it to its underlying client(s).
     const std::string caBundlePathStr = jstringToStdString(env, caBundlePath);
     if (caBundlePathStr.empty()) {
-        spdlog::warn("[VASDK] nativeInit: no CA bundle path provided; Soniox/Deepgram/Gladia TLS connections will fail");
+        spdlog::warn("[VASDK] nativeInit: no CA bundle path provided; Soniox/Deepgram/Gladia/Cartesia/Fish Audio TLS connections will fail");
     }
 
     const std::string sonioxApiKeyStr = jstringToStdString(env, sonioxApiKey);
     const std::string deepgramApiKeyStr = jstringToStdString(env, deepgramApiKey);
     const std::string gladiaApiKeyStr = jstringToStdString(env, gladiaApiKey);
+    const std::string cartesiaApiKeyStr = jstringToStdString(env, cartesiaApiKey);
+    const std::string cartesiaVoiceIdStr = jstringToStdString(env, cartesiaVoiceId);
+    const std::string fishaudioApiKeyStr = jstringToStdString(env, fishaudioApiKey);
+    const std::string fishaudioVoiceIdStr = jstringToStdString(env, fishaudioVoiceId);
+    const std::string gradiumApiKeyStr = jstringToStdString(env, gradiumApiKey);
+    const std::string gradiumVoiceIdStr = jstringToStdString(env, gradiumVoiceId);
 
     auto session = std::make_unique<VasdkSession>();
     session->callbackRef = env->NewWeakGlobalRef(thiz);
@@ -201,6 +213,9 @@ Java_com_vasdk_android_VasdkEngine_nativeInit(JNIEnv *env, jobject thiz, jstring
     sttParams.sonioxApiKey = sonioxApiKeyStr;
     sttParams.deepgramApiKey = deepgramApiKeyStr;
     sttParams.gladiaApiKey = gladiaApiKeyStr;
+    sttParams.cartesiaApiKey = cartesiaApiKeyStr;
+    sttParams.fishaudioApiKey = fishaudioApiKeyStr;
+    sttParams.gradiumApiKey = gradiumApiKeyStr;
     sttParams.caBundlePath = caBundlePathStr;
     sttParams.audioConfig = audioConfig;
     sttParams.frameSize = frameSize;
@@ -312,6 +327,12 @@ Java_com_vasdk_android_VasdkEngine_nativeInit(JNIEnv *env, jobject thiz, jstring
     ttsParams.stylePath = jstringToStdString(env, ttsStylePath);
     ttsParams.sonioxApiKey = sonioxApiKeyStr;
     ttsParams.deepgramApiKey = deepgramApiKeyStr;
+    ttsParams.cartesiaApiKey = cartesiaApiKeyStr;
+    ttsParams.cartesiaVoiceId = cartesiaVoiceIdStr;
+    ttsParams.fishaudioApiKey = fishaudioApiKeyStr;
+    ttsParams.fishaudioVoiceId = fishaudioVoiceIdStr;
+    ttsParams.gradiumApiKey = gradiumApiKeyStr;
+    ttsParams.gradiumVoiceId = gradiumVoiceIdStr;
     ttsParams.caBundlePath = caBundlePathStr;
     ttsParams.outputAudioConfig = outputAudioConfig;
 

@@ -9,6 +9,19 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 include(GNUInstallDirs)
 include(FetchContent)
 
+# curl's own CMakeLists.txt resolves libidn2 via pkg-config and calls
+# link_directories() in its own directory scope. That directory property isn't
+# inherited by sibling directories like VASDK_APP/VASDK_CALLCENTER_APP, so their
+# final executable link sees a bare "-lidn2" with no matching "-L" and fails.
+# Locate it via CMake's own find_library (searches standard system paths
+# regardless of package manager) and add its directory globally so every
+# subdirectory inherits it.
+find_library(VASDK_LIBIDN2_LIBRARY NAMES idn2 libidn2)
+if(VASDK_LIBIDN2_LIBRARY)
+    get_filename_component(VASDK_LIBIDN2_LIBDIR "${VASDK_LIBIDN2_LIBRARY}" DIRECTORY)
+    link_directories(${VASDK_LIBIDN2_LIBDIR})
+endif()
+
 option(VASDK_BUILD_EXAMPLES "Build examples" OFF)
 option(VASDK_BUILD_APP "Build VASDK application" ON)
 option(VASDK_BUILD_THIRDPARTY_IMPL "Build third-party provider implementations" ON)

@@ -29,7 +29,7 @@ Points worth knowing before you ship a product on top of these:
 
 ## Provider and library dependencies
 
-Every VAD/STT/TTS/LLM/audio provider under `VASDK_3P_IMPL/`, plus the core library's own build dependencies, fetched from their upstream repository (or system-installed) at build time. Version/tag is whatever's currently pinned in the relevant `CMakeLists.txt` or `VASDK_3P_IMPL/cmake/*.cmake` script - check there for the exact commit if you need it. Three providers (`gladiapp`, `SonioxPP`, `deepgrampp`) are VASDK's own thin API clients, not an SDK published by Gladia, Soniox, or Deepgram themselves; the license listed for those is for the wrapper code, not the underlying cloud service.
+Every VAD/STT/TTS/LLM/audio provider under `VASDK_3P_IMPL/`, plus the core library's own build dependencies, fetched from their upstream repository (or system-installed) at build time. Version/tag is whatever's currently pinned in the relevant `CMakeLists.txt` or `VASDK_3P_IMPL/cmake/*.cmake` script - check there for the exact commit if you need it. Six providers (`gladiapp`, `SonioxPP`, `deepgrampp`, `CartesiaPP`, `fishaudiopp`, `GradiumPP`) are VASDK's own thin API clients, not an SDK published by Gladia, Soniox, Deepgram, Cartesia, Fish Audio, or Gradium themselves; the license listed for those is for the wrapper code, not the underlying cloud service.
 
 | Dependency | Used by | Source | License |
 | --- | --- | --- | --- |
@@ -44,6 +44,9 @@ Every VAD/STT/TTS/LLM/audio provider under `VASDK_3P_IMPL/`, plus the core libra
 | [supertone-inc/supertonic](https://github.com/supertone-inc/supertonic) | TTS (Supertonic inference code) | GitHub | MIT |
 | [google/sentencepiece](https://github.com/google/sentencepiece) | TTS (PocketTTS tokenizer) | GitHub | Apache 2.0 |
 | [fatehmtd/deepgrampp](https://github.com/fatehmtd/deepgrampp) | STT/TTS (Deepgram, cloud) | GitHub | Apache 2.0 |
+| [fatehmtd/CartesiaPP](https://github.com/fatehmtd/CartesiaPP) | STT/TTS (Cartesia, cloud) | GitHub | Apache 2.0 |
+| [fatehmtd/fishaudiopp](https://github.com/fatehmtd/fishaudiopp) | STT/TTS (Fish Audio, cloud) | GitHub | Apache 2.0 |
+| [fatehmtd/GradiumPP](https://github.com/fatehmtd/GradiumPP) | STT/TTS (Gradium, cloud) | GitHub | Apache 2.0 |
 | [ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp) | LLM (local GGUF inference) | GitHub | MIT |
 | [mackron/miniaudio](https://github.com/mackron/miniaudio) | Audio I/O | GitHub (single header) | Public domain (Unlicense) / MIT-0, your choice |
 | [libsdl-org/SDL](https://github.com/libsdl-org/SDL) | Audio I/O (SDL3) | GitHub | zlib |
@@ -56,7 +59,7 @@ Every VAD/STT/TTS/LLM/audio provider under `VASDK_3P_IMPL/`, plus the core libra
 | [laserpants/dotenv-cpp](https://github.com/laserpants/dotenv-cpp) | `.env` file loading | GitHub | BSD 3-Clause |
 | [yhirose/cpp-httplib](https://github.com/yhirose/cpp-httplib) | WebSocket transport | GitHub | MIT |
 | [ArthurSonzogni/FTXUI](https://github.com/ArthurSonzogni/FTXUI) | Terminal UI (`-DVASDK_BUILD_TUI=ON`) | GitHub | MIT |
-| libcurl | HTTP (OpenAI/Anthropic/Gladia/Deepgram transport) | System-installed (`find_package(CURL)`) | MIT-style (curl license) |
+| libcurl | HTTP (OpenAI/Anthropic/Gladia/Deepgram/Cartesia/Fish Audio/Gradium transport) | System-installed (`find_package(CURL)`); GradiumPP instead fetches and builds its own from source, github.com/curl/curl, unless another enabled provider already provides one | MIT-style (curl license) |
 | OpenAI API | LLM (cloud) | [openai.com](https://openai.com) / [API docs](https://platform.openai.com/docs) - direct HTTP, no vendor SDK | Governed by OpenAI's API terms, not an OSS license |
 | Anthropic API | LLM (cloud) | [anthropic.com](https://www.anthropic.com) / [API docs](https://platform.claude.com/docs) - direct HTTP, no vendor SDK | Governed by Anthropic's API terms, not an OSS license |
 
