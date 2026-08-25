@@ -1,3 +1,5 @@
+
+
 <p align="center">
   <img alt="VASDK" src="docs/assets/vasdk-logo-wordmark.svg" width="512">
 </p>
@@ -257,10 +259,10 @@ Where each provider's underlying code or API actually comes from, and under what
 | <a href="https://github.com/moonshine-ai/moonshine"><img src="assets/logos/moonshine-ai.png" width="48"  alt=""></a> | Moonshine | - | [moonshine-ai/moonshine](https://github.com/moonshine-ai/moonshine) | MIT (English models; other languages ship under the non-commercial Moonshine Community License) |
 | <a href="https://github.com/ggml-org/whisper.cpp"><img src="assets/logos/ggml-org.jpg" width="48" alt=""></a> | Whisper.cpp | - | [ggml-org/whisper.cpp](https://github.com/ggml-org/whisper.cpp) | MIT |
 | <a href="https://www.gladia.io"><img src="assets/logos/gladiaio.jpg" width="48" alt=""></a> | Gladia (cloud STT) | [gladia.io](https://www.gladia.io) · [API docs](https://docs.gladia.io) | [fatehmtd/gladiapp](https://github.com/fatehmtd/gladiapp) (VASDK's own client, not Gladia's official SDK) | MIT (gladiapp) |
-| <a href="https://soniox.com"><img src="assets/logos/soniox.png" width="48" alt=""></a> | Soniox (cloud STT/TTS) | [soniox.com](https://soniox.com) · [API docs](https://soniox.com/docs) | [fatehmtd/SonioxPP](https://github.com/fatehmtd/SonioxPP) (VASDK's own client, not Soniox's official SDK) | Apache 2.0 (SonioxPP) |
+| <a href="https://soniox.com"><img src="assets/logos/soniox.png" width="48" height="48" alt=""></a> | Soniox (cloud STT/TTS) | [soniox.com](https://soniox.com) · [API docs](https://soniox.com/docs) | [fatehmtd/SonioxPP](https://github.com/fatehmtd/SonioxPP) (VASDK's own client, not Soniox's official SDK) | Apache 2.0 (SonioxPP) |
 | <a href="https://github.com/supertone-inc/supertonic"><img src="assets/logos/supertone-inc.png" width="48" alt=""></a> | Supertonic | - | [supertone-inc/supertonic](https://github.com/supertone-inc/supertonic) (inference code) | MIT (code) · OpenRAIL (model weights) |
 | <a href="https://kyutai.org"><img src="assets/logos/kyutai-labs.png" width="48" alt=""></a> | PocketTTS | - | [kyutai/pocket-tts](https://huggingface.co/kyutai/pocket-tts) (model) · [google/sentencepiece](https://github.com/google/sentencepiece) (tokenizer) | CC BY 4.0 (model) · Apache 2.0 (sentencepiece) |
-| <a href="https://deepgram.com"><img src="assets/logos/deepgram.svg" width="48" height="48" alt=""></a> | Deepgram (cloud STT/TTS) | [deepgram.com](https://deepgram.com) · [API docs](https://developers.deepgram.com) | [fatehmtd/deepgrampp](https://github.com/fatehmtd/deepgrampp) (VASDK's own client, not Deepgram's official SDK) | Apache 2.0 (deepgrampp) |
+| <a href="https://deepgram.com"><img src="assets/logos/deepgram.svg" width="48" height="48" alt=""></a> | Deepgram (cloud STT/TTS) | [deepgram.com](https://www.deepgram.com) · [API docs](https://developers.deepgram.com) | [fatehmtd/deepgrampp](https://github.com/fatehmtd/deepgrampp) (VASDK's own client, not Deepgram's official SDK) | Apache 2.0 (deepgrampp) |
 | | Cartesia (cloud STT/TTS) | [cartesia.ai](https://cartesia.ai) | [fatehmtd/CartesiaPP](https://github.com/fatehmtd/CartesiaPP) (VASDK's own client, not Cartesia's official SDK) | Apache 2.0 (CartesiaPP) |
 | | Fish Audio (cloud STT/TTS) | [fish.audio](https://fish.audio) | [fatehmtd/fishaudiopp](https://github.com/fatehmtd/fishaudiopp) (VASDK's own client, not Fish Audio's official SDK) | Apache 2.0 (fishaudiopp) |
 | | Gradium (cloud STT/TTS) | [gradium.ai](https://gradium.ai) · [API docs](https://docs.gradium.ai) | [fatehmtd/GradiumPP](https://github.com/fatehmtd/GradiumPP) (VASDK's own client, not Gradium's official SDK) | Apache 2.0 (GradiumPP) |
@@ -327,7 +329,7 @@ Or bring up the full local stack (Prometheus scraping the app, Grafana pointed a
 
 ```bash
 docker compose up -d
-# Grafana at http://localhost:3000 (admin/admin)
+# Grafana at http://localhost:3000 (admin/admin), Prometheus at http://localhost:9090
 ```
 
 ## Android
