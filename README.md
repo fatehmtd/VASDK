@@ -1,5 +1,8 @@
 <p align="center">
-  <img alt="VASDK" src="docs/assets/vasdk-logo-wordmark.svg" width="512">
+    <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/assets/vasdk-logo-wordmark.svg">
+        <img alt="VASDK" src="docs/assets/vasdk-logo-wordmark-dark.svg" width="512">
+    </picture>
 </p>
 
 A C++17 framework for building voice assistants that listen, think, and talk back, running anywhere from a desktop, an Android device, a car head unit, etc... VASDK is not a wrapper around a single vendor's API. It's a pipeline runtime plus a set of interchangeable provider implementations for VAD, speech-to-text, turn-detection, LLM reasoning, tool calling and text-to-speech, and it can run the whole loop fully offline on ONNX models if you need it to.

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="3 3 114 114" width="114" height="114" role="img" aria-labelledby="vasdkLogoDarkTitle">
+  <title id="vasdkLogoDarkTitle">VASDK</title>
+  <g transform="translate(-68,-68) scale(4)">
+    <g stroke="#111111" stroke-width="2.5" stroke-linecap="round" fill="none">
+      <path d="M20,30 L20,20 L30,20" />
+      <path d="M44,34 L44,44 L34,44" />
+    </g>
+    <rect x="26" y="26" width="12" height="12" fill="none" stroke="#111111" stroke-width="2.2" />
+  </g>
+</svg>
