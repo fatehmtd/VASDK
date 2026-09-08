@@ -28,6 +28,7 @@ Built on top of those:
 - **[The LLM stack](reference/llm.md)** - `LLMTransport`, prompt templates and chat formats, tools and dispatch, fire policies, streaming, cancellation.
 - **[The goal layer](reference/goal.md)** - goal-oriented conversations: slots and validation, `GoalManager`, intent routing, persistence/resume, the conversation simulator, multi-session `SessionManager`.
 - **[RequestFlow spec](reference/requestflow-spec.md)** - implementation specification for RequestFlow, a deterministic flow/node/route orchestration runtime on top of VASDK.
+- **[RequestFlow backend & webhook auth spec](reference/requestflow-backend-spec.md)** - the wire contract and authentication for the backend services `callWebhook` talks to, with per-language (Spring Boot/Java, Python, Go) implementation guidance.
 - **[Context and metrics](reference/context-and-metrics.md)** - feeding situational context into prompts; instrumenting and exporting pipeline metrics.
 
 ## Worked examples
