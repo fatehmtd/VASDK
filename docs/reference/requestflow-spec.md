@@ -2,7 +2,7 @@
 
 Reference target: RequestFlow, a deterministic, NLU-first flow/node/route orchestration layer for VASDK that is frame-native to the existing pipeline.
 
-Status: **Draft v2.3** - event parameters and explicit multi-turn control, layered on Draft v2.2's cross-vertical extensions (proactive/scheduled triggers, multi-intent co-firing, mid-task interrupts, a minimal permission gate, shared/context CEL state, offline-resilient webhooks), themselves layered on the Draft v2.1 protobuf/textproto foundation; the v2.1 domain model and mechanism are otherwise unchanged. See [§0](#0-what-changed-from-draft-v1)/[§0.1](#01-what-changed-in-draft-v21)/[§0.2](#02-what-changed-in-draft-v22) for prior history and [§0.3](#03-what-changed-in-draft-v23) for this revision. `goal/` is untouched by this document: it keeps working as-is for the existing call center showcase, and this spec introduces a new, independent module rather than extending or migrating it. See [§3](#3-relationship-to-existing-vasdk-components) and [§17](#17-explicitly-out-of-scope-for-v1) for exactly what that means.
+Status: **Draft v2.8** - per-action execution modes (fire-and-forget, best-effort), layered on Draft v2.7's declared default values for intent captures, themselves layered on Draft v2.6's entity-backed CEL constants, themselves layered on Draft v2.5's typed `context.*` codegen, themselves layered on Draft v2.4's typed `customTool` argument/result codegen, themselves layered on Draft v2.3's event parameters and explicit multi-turn control, themselves layered on Draft v2.2's cross-vertical extensions (proactive/scheduled triggers, multi-intent co-firing, mid-task interrupts, a minimal permission gate, shared/context CEL state, offline-resilient webhooks), themselves layered on the Draft v2.1 protobuf/textproto foundation; the v2.1 domain model and mechanism are otherwise unchanged. See [§0](#0-what-changed-from-draft-v1)/[§0.1](#01-what-changed-in-draft-v21)/[§0.2](#02-what-changed-in-draft-v22)/[§0.3](#03-what-changed-in-draft-v23)/[§0.4](#04-what-changed-in-draft-v24)/[§0.5](#05-what-changed-in-draft-v25)/[§0.6](#06-what-changed-in-draft-v26)/[§0.7](#07-what-changed-in-draft-v27) for prior history and [§0.8](#08-what-changed-in-draft-v28) for this revision. `goal/` is untouched by this document: it keeps working as-is for the existing call center showcase, and this spec introduces a new, independent module rather than extending or migrating it. See [§3](#3-relationship-to-existing-vasdk-components) and [§17](#17-explicitly-out-of-scope-for-v1) for exactly what that means.
 
 ## 0. What changed from Draft v1
 
@@ -48,6 +48,44 @@ Two more gaps surfaced from continued review, both about how information carries
 - **Explicit, enumerable turn-spanning** ([§9.5](#95-expect-and-inline-slot-elicitation)) - `ExpectAction.parameter` can now be left unset for a bare turn-wait (wait for a reply without extracting a typed value), and `OrchestratorConfigLoader::validate()` flags a node that can complete without transitioning, emitting an event, or invoking one of the three turn-spanning mechanisms as a load-time dead end rather than a silent runtime hang. This also resolves the [§18](#18-open-decisions) question of a `generative_exit_reason` signal, since `generative_exit` now carries one as an ordinary event param.
 
 Both are additive: `EmitEventAction.params` and `ExpectAction.no_input_timeout_ms` are new fields with safe empty/zero defaults, so no Draft v2.2 config needs to change.
+
+## 0.4 What changed in Draft v2.4
+
+One gap surfaced from real integration work rather than spec review: [§9.6](#96-the-customtool-contract)'s `customTool` contract - a handler always receives a bare `google::protobuf::Struct` and pulls arguments out with `.fields().at("name").string_value()` - is fine for the engine's own internals, but it's a rough surface for an integrator writing dozens of tool handlers by hand, and it has no load-time defense against a typo'd `args_cel` key (`"zone"` vs `"target_zone"`) - that only surfaces as a runtime `.at()` throw, inside whatever handler happens to hit it first, in production.
+
+- **Typed `customTool` argument/result structs** ([§23](#23-typed-customtool-argument-and-result-codegen)) - a new `tools/*.textproto` file (split per vertical exactly like `training/*.textproto` and `entities.textproto`, [§14.1](#141-splitting-config-across-files)/[§22.3](#223-file-layout)) declares each tool's argument (and, for a tool exposed to a generative node, result) shape as a `ToolSchema`. A codegen step turns that into a plain C++ struct plus `FromStruct`/`ToStruct` conversions, and `OrchestratorEngine::setTypedCustomToolHandler<Args>` wraps [§9.6](#96-the-customtool-contract)'s untyped contract so a handler's signature becomes `(const ApplyTemperatureArgs&, SessionState&)` instead of `(const google::protobuf::Struct&, SessionState&)` - no field-name string literals in application code at all.
+- `OrchestratorConfigLoader::validate()` cross-checks every `CustomToolAction.args_cel` key and every `GenerativeConfig.ToolRef.name` against its tool's declared `ToolSchema`, turning a typo'd argument name into a load-time error - the same "fail loudly at load time, not at the moment it happens to matter" rule this spec already applies to CEL compilation ([§8](#8-condition--expression-language)) and entity/training references ([§22.1](#221-phrase-grammar)).
+- This is entirely additive and opt-in: `setCustomToolHandler` (untyped) is unchanged, still works, and a tool with no declared `ToolSchema` simply skips both the generated struct and the cross-validation - exactly the same "a route can still work against the LLM-backed provider's own judgment with zero examples, just less reliably" posture [§22.3](#223-file-layout) already takes toward undocumented intents.
+
+## 0.5 What changed in Draft v2.5
+
+Draft v2.4 fixed `customTool`'s argument-side string-keyed `google::protobuf::Struct` access; the identical complaint applies on the `context.*` side of [§8.1](#81-external-context-and-shared-state-namespaces) - `OrchestratorEngine::setContextProvider` hands the engine a `google::protobuf::Struct` an integrator builds by hand, one `(*ctx.mutable_fields())["cabin_temp_c"].set_number_value(...)` call at a time, with the field name only ever existing as a string literal that has to independently match every `context.cabin_temp_c` CEL reference scattered across a flow config.
+
+- **Typed `context.*` codegen** ([§24](#24-typed-context-codegen)) - a `context/*.textproto` file (composed the same way as `tools/*.textproto`, [§23.1](#231-toolschema)) declares a `ContextSchema` for an agent: named, typed fields an integrator's context provider actually populates. Codegen emits a plain C++ struct with a `ToStruct()`, and `OrchestratorEngine::setTypedContextProvider<Context>` wraps [§8.1](#81-external-context-and-shared-state-namespaces)'s untyped `setContextProvider` contract so the callback returns `ClimateContext{ .cabin_temp_c = bus->cabinTempC(), ... }` instead of building a `Struct` by hand.
+- **This is the one case in this spec where a generated schema also changes CEL itself, not just C++ ergonomics**: when a `ContextSchema` is supplied, `context.*` becomes a typed field lookup in the CEL environment CEL expressions are compiled against ([§8](#8-condition--expression-language)), rather than an open, dynamically-resolved namespace. A `condition_cel`/`value_cel` expression referencing an undeclared `context.*` field, or using a declared one at the wrong type, now fails to compile - a load-time error - instead of resolving as an unset/empty value the first time that route actually evaluates in production. Without a `ContextSchema`, `context.*` behaves exactly as Draft v2.2 specified it: dynamic, always resolves (empty when the provider hasn't set a field), no compile-time check.
+- Additive and opt-in, same posture as Draft v2.4: `setContextProvider` (untyped) is unchanged and still works with no `ContextSchema` declared at all.
+
+## 0.6 What changed in Draft v2.6
+
+A gap Draft v2.4/v2.5 didn't reach: a `customTool` call that always passes one fixed value - not whatever the caller's utterance captured into `nlu.*`, just a constant the route author picked - is still written as a bare CEL string literal (`args_cel { key: "zone" value: "\"rear\"" }`), with nothing checking it against the vocabulary [§22](#22-nlu-training-data)'s `EntityDictionary` already declares for the very same concept elsewhere in the same agent.
+
+- **`entity.*` CEL constants** ([§25](#25-entity-backed-cel-constants)) - every `EntityDictionary` canonical becomes an optional, compiled CEL constant - `entity.zone.front_left`, or bare `entity.front_left` when unique dictionary-wide (mirroring the identical bare-vs-qualified choice [§22.1](#221-phrase-grammar) already offers for phrase-grammar placeholders) - so `args_cel`/`condition_cel`/`value_cel` can reference a name instead of retyping a literal. A misspelled or nonexistent reference fails **CEL compilation**, the same load-time failure mode [§24.3](#243-typed-cel-environment) established for `context.*`.
+- Requires no new authoring surface: it's the identical `EntityDictionary` [§22.3](#223-file-layout) already composes for NLU training, handed to CEL compilation via a new, optional fourth parameter on `OrchestratorConfigLoader::validate()`. An agent with no `entities.textproto` at all simply has no `entity.*` namespace, the same as never authoring `tools/` or `context/` skips [§23](#23-typed-customtool-argument-and-result-codegen)/[§24](#24-typed-context-codegen)'s checks.
+
+## 0.7 What changed in Draft v2.7
+
+The last gap in this run of drafts wasn't a missing name, it was a missing *value*. [§22.4](#224-worked-example)'s own worked example already shows the pattern every non-trivial route ends up repeating: `<number:delta>` inside an optional phrase group means `nlu.delta` is sometimes simply absent, so every route reading it writes `has(nlu.delta) ? nlu.delta : <something>` rather than just `nlu.delta`. That ternary is copy-pasted per route, per capture, with no single place declaring what "not captured" should actually mean for a given name.
+
+- **`capture_defaults` on `IntentTrainingData`** ([§26](#26-default-values-for-intent-captures)) - an intent can now declare, per capture name, a default `google.protobuf.Value` used whenever that intent matches but the named capture wasn't present in `NLUResult.extracted_parameters` - regardless of *why* it's missing (an unspoken optional phrase group for `TrainingPhraseNLUProvider`, or the LLM-backed provider simply not returning it). The engine fills these in once, immediately after `NLUProvider.detect()` returns and before route evaluation ([§6](#6-route-evaluation-semantics) step 2), so every `condition_cel`/`value_cel`/`args_cel` downstream just reads `nlu.delta` directly.
+- **The default is itself optional, deliberately** - a capture name with no `CaptureDefault` entry behaves exactly as before: absent when not captured, `has(nlu.name)` still meaningful. Declaring a default for one capture name on an intent says nothing about any other capture on that same intent; this is opt-in per name, not a blanket behavior change; §22.4's `<number:delta>` example is the only place existing prose needed updating.
+
+## 0.8 What changed in Draft v2.8
+
+Every prior draft treated "how long does this turn wait for an action" as a fixed fact about the action's *kind*: a `callWebhook` always makes the turn wait, bounded by a timeout that's a failure on expiry ([§9.2](#92-callwebhook-execution-model)); a `customTool` always runs inline with no timeout, no thread pool, no bound at all ([§9.6](#96-the-customtool-contract)). Neither kind offered a way to say "dispatch this but don't hold up the conversation for it" - a usage-analytics beacon, a non-critical preference sync - without either accepting `callWebhook`'s full wait-and-possibly-fail contract or, worse, reaching for `customTool` and violating its explicit "must be fast" rule to do slow work inline.
+
+- **`ExecutionMode` on `CallWebhookAction` and `CustomToolAction`** ([§9.10](#910-action-execution-modes)) - three values: `BLOCKING` (default, zero-value-safe - unchanged behavior for both action kinds, all the way back to Draft v2.1/v2.2), `FIRE_AND_FORGET` (dispatch off-thread, don't wait at all - this turn never sees the result, success or failure), and `BEST_EFFORT` (wait up to `timeout_ms`, but expiry is *not* a failure - the turn proceeds with whatever arrived, or nothing).
+- Deliberately not added to every action kind - `say`/`setParameter`/`clearParameter`/`emitEvent` have nothing to wait on to begin with, `llmGenerate` fire-and-forget would mean a turn that says nothing, and `expect` already has its own, orthogonal turn-spanning mechanism ([§9.5](#95-expect-and-inline-slot-elicitation)). See [§9.10](#910-action-execution-modes) for the full reasoning.
+- A `customTool`'s `BLOCKING` mode is unchanged in a way worth flagging: it still means "inline on the calling thread, no thread pool," not "dispatched and waited on" the way `callWebhook`'s `BLOCKING` does - only `FIRE_AND_FORGET`/`BEST_EFFORT` move a `customTool` call onto the engine's executor thread pool at all.
 
 ## 1. Purpose and Scope
 
@@ -242,14 +280,25 @@ message ClearParameterAction { string name = 1; }
 message EmitEventAction    { string name = 1; google.protobuf.Struct params = 2; }   // §8.2 - surfaced to whatever handles this event via event.*
 message HandoffAction      { string reason = 1; }
 message LlmGenerateAction  { string prompt_template = 1; }
+// §9.10 (Draft v2.8) - shared by CustomToolAction and CallWebhookAction only; see §9.10
+// for why the other Action kinds don't get one.
+enum ExecutionMode {
+  BLOCKING = 0;          // default - unchanged behavior for both action kinds, see §9.10
+  FIRE_AND_FORGET = 1;   // dispatch off-thread, don't wait - this turn never sees the result
+  BEST_EFFORT = 2;       // wait up to timeout_ms; expiry is not a failure - the turn proceeds anyway
+}
+
 message CustomToolAction {
   string tool = 1;
   map<string, string> args_cel = 2;   // each value is a CEL expression, evaluated before the tool handler runs
+  ExecutionMode execution_mode = 3;   // default BLOCKING = inline, no thread pool - see §9.10
+  int32 timeout_ms = 4;               // BEST_EFFORT only; 0 => OrchestratorConfig::turnExternalCallBudget
 }
 message CallWebhookAction {
   string url = 1;
   string method = 2;        // default POST
-  int32 timeout_ms = 3;     // 0 => use OrchestratorConfig::webhookTimeout
+  int32 timeout_ms = 3;     // 0 => use OrchestratorConfig::webhookTimeout; also governs BEST_EFFORT's wait bound
+  ExecutionMode execution_mode = 4;   // default BLOCKING = Draft v2.1's original behavior, unchanged - see §9.10
 }
 message ExpectAction {
   Parameter parameter = 1;        // ephemeral - same shape as a form Parameter, never added to Node.form. Unset => a bare turn-wait, see §9.5
@@ -394,7 +443,7 @@ If the active node has `generative: true`, none of the following applies - see [
 Per turn:
 
 1. Apply any pending internally-emitted events from the previous step.
-2. `NLUProvider.detect()` runs once, as in Draft v2.1, but `context.interrupt_intent_names` (the merged agent/flow/node set, [§6.2](#62-interrupt-intents-and-mid-task-cancel)) is now always populated alongside whatever else this step is asking for - `expected_parameter_name` when `pending_ask` is set ([§9.5](#95-expect-and-inline-slot-elicitation)) or the active node's `form` has a required, currently-unfilled parameter (per its `condition_cel`), or `candidate_intent_names` otherwise. A provider is expected to check the interrupt set first: if `NLUResult.top_intent` matches an entry in it, that wins regardless of what else the result contains, and evaluation skips straight to step 3 with it as the winning intent - no parameter is extracted or stored this turn. Otherwise, proceed exactly as in Draft v2.1: validate and store an extracted parameter value or select the next reprompt (this step does not consult routes) when a parameter was being asked for, or fall through to step 3 with the classification result - now possibly including `co_intents` ([§6.1](#61-multi-intent-co-firing)) - when an intent was being asked for.
+2. `NLUProvider.detect()` runs once, as in Draft v2.1, but `context.interrupt_intent_names` (the merged agent/flow/node set, [§6.2](#62-interrupt-intents-and-mid-task-cancel)) is now always populated alongside whatever else this step is asking for - `expected_parameter_name` when `pending_ask` is set ([§9.5](#95-expect-and-inline-slot-elicitation)) or the active node's `form` has a required, currently-unfilled parameter (per its `condition_cel`), or `candidate_intent_names` otherwise. A provider is expected to check the interrupt set first: if `NLUResult.top_intent` matches an entry in it, that wins regardless of what else the result contains, and evaluation skips straight to step 3 with it as the winning intent - no parameter is extracted or stored this turn. Otherwise, proceed exactly as in Draft v2.1: validate and store an extracted parameter value or select the next reprompt (this step does not consult routes) when a parameter was being asked for, or fall through to step 3 with the classification result - now possibly including `co_intents` ([§6.1](#61-multi-intent-co-firing)) - when an intent was being asked for. Immediately before that fall-through, the engine fills in `top_intent`'s (and each `co_intent`'s) declared `capture_defaults` ([§26](#26-default-values-for-intent-captures)) for any name not already present in `extracted_parameters` - so `nlu.*` is exactly what step 3's routes see, defaults and all.
 3. Otherwise, evaluate routes in strict order: `event` routes first, then `intent` routes (including any `co_intents`, each evaluated against its own matching route - [§6.1](#61-multi-intent-co-firing)), then `condition` routes, then the node's no-match fallback (`EventHandlers.no_match`, falling back to the flow's, then the agent's).
 4. Execute the matched route's `executor` actions in order, awaiting any async ones (bounded by `turnExternalCallBudget`, [§9.2](#92-callwebhook-execution-model)).
 5. Apply the `transition`, if any.
@@ -483,7 +532,7 @@ CEL ships with `contains`/`startsWith`/`endsWith`/`size`, full arithmetic, and `
 
 Draft v2.1's CEL activation only ever saw session `parameters`, the well-known counters, and (for the winning route) `nlu.*`. Two more sources of external state matter enough across the automotive/agriculture/homelab scenarios to warrant their own namespaces - deliberately two, not one, because they have different write semantics.
 
-**`context.*` - read-only, app-pushed, refreshed every turn.** `OrchestratorEngine::setContextProvider(std::function<google::protobuf::Struct()>)` ([§13](#13-public-api-surface-proposed-c)) is called once at the start of every turn, and its result is flattened into the `context.*` namespace for that turn's CEL evaluations - `context.vehicle_speed_kmh > 0`, `context.hour_of_day >= 22`. The orchestrator never writes to it; it exists purely so an app doesn't have to remember to call `setParameter` every turn just to keep continuously-changing facts (vehicle telemetry, time of day, equipment status) visible to route conditions. If the callback is unset, `context.*` resolves empty, same as an unset session parameter.
+**`context.*` - read-only, app-pushed, refreshed every turn.** `OrchestratorEngine::setContextProvider(std::function<google::protobuf::Struct()>)` ([§13](#13-public-api-surface-proposed-c)) is called once at the start of every turn, and its result is flattened into the `context.*` namespace for that turn's CEL evaluations - `context.vehicle_speed_kmh > 0`, `context.hour_of_day >= 22`. The orchestrator never writes to it; it exists purely so an app doesn't have to remember to call `setParameter` every turn just to keep continuously-changing facts (vehicle telemetry, time of day, equipment status) visible to route conditions. If the callback is unset, `context.*` resolves empty, same as an unset session parameter. [§24](#24-typed-context-codegen) (Draft v2.5) adds an optional typed variant of this same callback, `setTypedContextProvider<Context>`, plus schema-driven compile-time checking of `context.*` references in CEL - this paragraph describes the underlying untyped mechanism both build on, unchanged since Draft v2.2.
 
 **`shared.*` - read/write, shared across independent `OrchestratorEngine` instances.** A deployment with multiple engines - one per vehicle zone, one per home-automation room - sometimes needs a small set of facts visible to all of them ("are all the lights off," "who's home"). `OrchestratorEngine::setSharedStateStore(std::shared_ptr<SharedStateStore>)` wires a small key/value interface:
 
@@ -529,7 +578,11 @@ This isn't limited to author-defined custom events. The engine's own internally-
 
 No executor action may block the processor thread `OrchestratorFrameProcessor` runs on. `say`, `setParameter`, `clearParameter`, `emitEvent`, and `customTool` (if the handler is fast/local) execute inline. `callWebhook` and `llmGenerate` execute on a small dedicated thread pool owned by the engine (`OrchestratorConfig::executorThreadPoolSize`, default 2), and the turn *waits* on the result with a hard timeout (`turnExternalCallBudget`, default 2000 ms) rather than either blocking the pipeline indefinitely or letting the conversation move on before the result is known - this keeps turn ordering simple at the cost of a bounded wait.
 
+Worth being precise about two different things both called "non-blocking" here: the *processor thread* never blocks (true unconditionally, for every action, in every mode) versus the *turn* waiting on a result (true only in some modes). Everything described in this section is the `BLOCKING` `ExecutionMode` - the only one that existed before Draft v2.8. [§9.10](#910-action-execution-modes) adds `FIRE_AND_FORGET` and `BEST_EFFORT` for `callWebhook`/`customTool`, where the turn itself, not just the processor thread, stops waiting.
+
 ### 9.2 `callWebhook` execution model
+
+This section describes the default `BLOCKING` `ExecutionMode` ([§9.10](#910-action-execution-modes)), unchanged since Draft v2.1. `FIRE_AND_FORGET`/`BEST_EFFORT` reuse the same request/retry/circuit-breaker mechanics below but change what the turn does with the outcome - see [§9.10](#910-action-execution-modes) for exactly what differs.
 
 - Request: session metadata, active flow/node, matched route id, current parameters snapshot, last user utterance, trace id (reuses `Frame::sourceId`/sequence for correlation, no new tracing system). **The request and response bodies are plain JSON over HTTP** - unlike the rest of this module, the webhook wire contract is not protobuf, since it talks to an integrator's own REST backend, which almost certainly already speaks JSON.
 - Response: `messages[]?`, `parameterPatches[]?`, `transition?`, `emitEvents[]?`, `handoff?`, `endSession?`.
@@ -582,7 +635,9 @@ One related gap Draft v2.1 flagged here is resolved as of Draft v2.2: an out-of-
 
 **No control-flow authority.** A handler can read and write `SessionState`'s parameters; it cannot trigger a transition, emit an event, or push a `TextFrame` directly. What happens next is still decided entirely by the declarative route/transition graph reacting to whatever the handler just wrote - the same "the LLM never decides conversation state" principle from [§2](#2-design-principles), extended to custom C++ code. If a tool's result needs to change what happens next, the pattern is: write the fact, transition unconditionally to a node whose `condition_cel` routes react to it - there's no conditional-branch construct inside an `Executor` itself, so this is the only way, not a workaround.
 
-**No blocking, and no separate error path.** `customTool` executes inline on the processor thread ([§9.1](#91-non-blocking-rule)) - there is no thread pool, timeout, retry, or circuit breaker backing it the way `callWebhook` has ([§9.2](#92-callwebhook-execution-model)). A handler doing network I/O or anything else that can stall belongs behind `callWebhook`, not `customTool` - reaching for `customTool` for slow work silently reintroduces exactly the blocking this module was designed to avoid. A handler that throws is caught by the engine and surfaces as `ErrorFrame` upstream, the same treatment [§9.2](#92-callwebhook-execution-model)'s last bullet already gives an unrecoverable webhook failure - no separate error event type needed.
+**No blocking, and no separate error path - for the default mode.** `customTool`'s default `ExecutionMode` (`BLOCKING`, [§9.10](#910-action-execution-modes)) executes inline on the processor thread ([§9.1](#91-non-blocking-rule)) - there is no thread pool, timeout, retry, or circuit breaker backing it the way `callWebhook` has ([§9.2](#92-callwebhook-execution-model)). A handler doing network I/O or anything else that can stall still belongs behind `callWebhook`, or a `customTool` explicitly opted into `FIRE_AND_FORGET`/`BEST_EFFORT` ([§9.10](#910-action-execution-modes)) - reaching for the *default* mode to do slow work silently reintroduces exactly the blocking this module was designed to avoid. A handler that throws is caught by the engine and surfaces as `ErrorFrame` upstream, the same treatment [§9.2](#92-callwebhook-execution-model)'s last bullet already gives an unrecoverable webhook failure - no separate error event type needed.
+
+Everything above describes the raw contract every `customTool` handler is built on. [§23](#23-typed-customtool-argument-and-result-codegen) layers optional, generated typed structs on top of it - `google::protobuf::Struct` in, `google::protobuf::Struct` out is still what actually crosses the boundary; the typed struct is a load-time-validated view of the same bytes, not a different mechanism.
 
 ### 9.7 External and Scheduled Triggers
 
@@ -636,6 +691,31 @@ When no `PendingActionStore` is configured, behavior is unchanged from Draft v2.
 
 This is deliberately not a general distributed job queue - no priority, no scheduling, no cross-action ordering guarantees beyond FIFO `drain()` order. A deployment needing more belongs building it behind this same interface, not inside the engine.
 
+### 9.10 Action Execution Modes
+
+*Draft v2.8 - see [§0.8](#08-what-changed-in-draft-v28).* Every action kind capable of doing work slower than a CPU cycle - `callWebhook` and, as of this section, `customTool` - has until now had exactly one execution shape baked into its *kind*: `callWebhook` always runs off-thread and the turn always waits, bounded by a timeout that **is** a failure on expiry ([§9.2](#92-callwebhook-execution-model)); `customTool` always runs inline, with no timeout, no thread pool, and an explicit "must be fast" rule ([§9.6](#96-the-customtool-contract)). `ExecutionMode` ([§4](#4-domain-model)) makes that a per-action choice instead of a per-kind fact, for the two action kinds where the choice is meaningful.
+
+**Not every action kind gets one.** `say`, `setParameter`, `clearParameter`, and `emitEvent` are in-memory operations with nothing to wait on ([§9.1](#91-non-blocking-rule)) - `ExecutionMode` would be a knob with no effect on any of them. `llmGenerate` is excluded for a different reason: its entire purpose is producing the text this turn says next, so "fire and forget" or "discard the result on timeout" describe a turn that says nothing at all, not a mode worth naming. `expect` is excluded because it isn't an I/O action to begin with - it spans turns by design ([§9.5](#95-expect-and-inline-slot-elicitation)), a mechanism orthogonal to how long one action inside one turn waits.
+
+**`BLOCKING` (default, value `0`) changes nothing.** For `callWebhook`, this is [§9.2](#92-callwebhook-execution-model) exactly as already specified: off-thread, the turn waits, `timeout_ms`/`turnExternalCallBudget` bounds it, expiry after retries emits `webhook_error`. For `customTool`, `BLOCKING` is [§9.6](#96-the-customtool-contract) exactly as already specified: inline on the calling thread, no thread pool at all, no timeout, because nothing was dispatched to bound. This asymmetry - one kind's `BLOCKING` uses the thread pool, the other's doesn't - is deliberate: the overwhelming majority of `customTool` calls are, and should stay, cheap enough that dispatching them anywhere would be pure overhead. Opting into the pool is what the other two modes are for.
+
+**`FIRE_AND_FORGET`** dispatches to the same off-thread pool `callWebhook` already uses (`OrchestratorConfig::executorThreadPoolSize`) and does not wait - the executor's remaining actions run immediately, and `processFrame()` can return for this turn before the dispatched call has even started, let alone finished.
+
+- A fire-and-forget `callWebhook`'s response - `messages`/`parameterPatches`/`transition`/`emitEvents`/`handoff`/`endSession` ([requestflow-backend-spec.md §3](requestflow-backend-spec.md#3-the-webhook-response)) - is never applied to any turn; a backend told a route calls it fire-and-forget has no reason to populate that body at all.
+- A fire-and-forget `customTool` handler's return `Struct` is discarded, same as any `BLOCKING` deterministic-route call's already is ([§9.6](#96-the-customtool-contract)). Its `SessionState&` writes are a different story: the write still lands on the live session object, but the turn that dispatched it has already moved past the point of reading anything by the time the write happens - it becomes visible only to a *later* turn, if the session is still on a node that would notice it. This extends [§6.1](#61-multi-intent-co-firing)'s already-accepted "two co-fired routes writing the same parameter is last-write-wins, undetected" caveat to "co-fired with a future turn" - not a new footgun the engine specifically guards against, an author designs around it (typically: don't write anything a route condition depends on from a fire-and-forget handler).
+- Failure is not silent, just not turn-blocking: a fire-and-forget call that ultimately fails still bumps `fire_and_forget_failure_count` ([§11](#11-observability)) and reaches `AuditSink`/is `PendingActionStore`-eligible exactly as a `BLOCKING` call's failure would ([§11.1](#111-audit-sink-for-consequential-actions), [§9.9](#99-offline-resilient-callwebhook-store-and-forward)) - it just never emits `webhook_error` or re-enters route evaluation, since there is no turn left to redirect.
+- Barge-in ([§9.3](#93-llmgenerate-and-barge-in)) does not cancel a fire-and-forget call. Cancellation-on-interrupt exists specifically because a `BLOCKING` call's result still matters to the turn the user just abandoned; a fire-and-forget call's result was never going to matter to any turn, so there's nothing for barge-in to protect by cancelling it.
+
+**`BEST_EFFORT`** also dispatches off-thread, but the turn *does* wait - up to `timeout_ms` (or `turnExternalCallBudget` if unset, the identical default-resolution rule `BLOCKING` already uses).
+
+- If the call completes within the bound, it behaves exactly like `BLOCKING` succeeding - the response/return value applies normally.
+- If the bound elapses first, this is **not** treated as failure, unlike `BLOCKING` - no `webhook_error`, no `ErrorFrame`. The turn proceeds as though the action had simply produced nothing; a route reading a `customTool`'s not-yet-written `SessionState` parameter should treat "not set" as a normal outcome to design for, not an error state. The now-detached call, once it does complete, is handled exactly like a `FIRE_AND_FORGET` call's late completion (metrics/audit only, no route re-entry) - past its own bound, `BEST_EFFORT` and `FIRE_AND_FORGET` converge to identical background-completion handling.
+- Barge-in cancels a `BEST_EFFORT` call only while the turn is still actively waiting on it, identical to `BLOCKING` ([§9.3](#93-llmgenerate-and-barge-in)) - once its bound has already elapsed and the turn has moved on, it is no longer "this turn's" call to cancel, the same reasoning `FIRE_AND_FORGET` already gets above.
+
+`BEST_EFFORT` is the "delay/timeout" shape: a lookup worth trying but not worth stalling the conversation for - a saved-preference fetch, a nice-to-have enrichment - distinct from `BLOCKING`'s "this turn cannot proceed correctly without this result" and `FIRE_AND_FORGET`'s "this turn was never going to use the result at all."
+
+**Interaction with co-firing.** [§6.1](#61-multi-intent-co-firing) already specifies that "executor actions across co-fired routes execute in `co_intents` order, each route's `executor.actions` running to completion before the next route starts." For a `FIRE_AND_FORGET` action, or a `BEST_EFFORT` one past its bound, "running to completion" means *dispatched*, not *finished* - the next action in the same executor, or the next co-fired route's executor, proceeds immediately once the call has been handed to the thread pool, exactly as [§9.1](#91-non-blocking-rule) already describes for the processor thread never blocking, just now true of turn progression too.
+
 ## 10. Session State and Persistence
 
 Same three-method contract as `GoalStatePersistence`, new name to match the module, now typed against the proto `SessionSnapshot` from [§4](#4-domain-model) instead of a bare JSON blob:
@@ -656,7 +736,7 @@ Checkpointing happens after every turn boundary (step 6 of [§6](#6-route-evalua
 
 ## 11. Observability
 
-Per-turn metrics into the existing `MetricsCollector`/`CallMetrics`: `route_eval_latency_ms`, `route_match_count`, `no_match_count`, `no_input_count`, `parameter_validation_failures`, `nlu_latency_ms`, `nlu_confidence_avg`, `webhook_latency_ms`, `webhook_error_count`, `handoff_count`, `completion_count`, `turns_to_completion`. `OrchestratorFrameProcessor` gets the same automatic latency/queue-wait/frame-count instrumentation every processor gets from the `FrameProcessor` base constructor, with nothing extra to wire up.
+Per-turn metrics into the existing `MetricsCollector`/`CallMetrics`: `route_eval_latency_ms`, `route_match_count`, `no_match_count`, `no_input_count`, `parameter_validation_failures`, `nlu_latency_ms`, `nlu_confidence_avg`, `webhook_latency_ms`, `webhook_error_count`, `handoff_count`, `completion_count`, `turns_to_completion`, `fire_and_forget_failure_count`, `best_effort_timeout_count` (the last two added in [§9.10](#910-action-execution-modes), Draft v2.8 - counted separately from `webhook_error_count` since neither represents a turn failure). `OrchestratorFrameProcessor` gets the same automatic latency/queue-wait/frame-count instrumentation every processor gets from the `FrameProcessor` base constructor, with nothing extra to wire up.
 
 No separate tracing or logging system: correlation reuses `Frame::sourceId` and sequence IDs already threaded through every frame; logs redact any `Parameter` marked `redact_in_logs`. Full audit trails and a dedicated trace-export pipeline are out of scope for v1 ([§17](#17-explicitly-out-of-scope-for-v1)).
 
@@ -734,6 +814,22 @@ public:
     static Agent fromBinaryFile(const std::string& path);      // compact, for generated/exported configs
     static Agent fromDirectory(const std::string& dirPath);    // composes agent.textproto + flows/*.textproto - see §14.1
     static ValidationReport validate(const Agent& agent);      // referential integrity (incl. cross-file flow ids), reachability, handler coverage
+
+    // §22.3 / §23 - sibling loaders, same fromDirectory composition rule, validated
+    // against the already-assembled Agent rather than folded into it.
+    static TrainingSet loadTrainingSet(const std::string& dirPath);   // composes training/*.textproto + entities.textproto
+    static std::vector<ToolSchema> loadToolSchemas(const std::string& dirPath);   // composes tools/*.textproto - see §23
+    static ContextSchema loadContextSchema(const std::string& dirPath);   // composes context/*.textproto - see §24
+
+    // Overload, not a replacement: validate(agent) alone still runs every check that
+    // doesn't need tool/context/entity schemas. Passing them in additionally runs
+    // §23.4's args_cel cross-check, §24.3's context.*-reference type-check, and §25's
+    // entity.*-reference compile check; omitting any one just skips that check, same
+    // as never authoring that config directory/file at all.
+    static ValidationReport validate(const Agent& agent,
+                                      const std::vector<ToolSchema>& toolSchemas = {},
+                                      const ContextSchema& contextSchema = {},
+                                      const EntityDictionary& entities = {});
 };
 
 class OrchestratorEngine {
@@ -746,12 +842,25 @@ public:
     void setCustomToolHandler(std::string name,
                                std::function<google::protobuf::Struct(const google::protobuf::Struct&, SessionState&)> handler);
 
+    // §23 (Draft v2.4) - thin wrapper over setCustomToolHandler: converts to/from a
+    // codegen'd Args/Result struct pair at the boundary. Args must expose a static
+    // `FromStruct(const google::protobuf::Struct&)`; the handler's return value is
+    // converted back via the result struct's `ToStruct()` if the tool declares one.
+    template <typename Args>
+    void setTypedCustomToolHandler(std::string name,
+                                    std::function<google::protobuf::Struct(const Args&, SessionState&)> handler);
+
     void setOnHandoff(std::function<void(const HandoffContext&)> cb);
     void setOnFlowComplete(std::function<void(const std::string& flowId, const SessionState&)> cb);
 
     // Draft v2.2 - all optional; each stays a no-op with nothing configured.
     void setContextProvider(std::function<google::protobuf::Struct()> provider);            // §8.1
     void setSharedStateStore(std::shared_ptr<SharedStateStore> store);                      // §8.1
+
+    // §24 (Draft v2.5) - thin wrapper over setContextProvider: calls Context::ToStruct()
+    // once per turn. Also switches context.* to a typed CEL environment - see §24.3.
+    template <typename Context>
+    void setTypedContextProvider(std::function<Context()> provider);
     void setPendingActionStore(std::shared_ptr<PendingActionStore> store);                  // §9.9
     void setAuditSink(std::shared_ptr<AuditSink> sink);                                     // §11.1
     void setPermissionChecker(std::function<bool(const std::string& requiredRole,
@@ -878,6 +987,10 @@ agents/appointments/
   flows/
     appointments.textproto   # one `flow { ... }` message - the "appointments" vertical
     triage.textproto         # one `flow { ... }` message - the "triage" vertical
+  tools/
+    appointments.textproto   # ToolSchema entries for this vertical's customTools - see §23
+  context/
+    appointments.textproto   # ContextSchema fields this vertical's routes reference - see §24
 ```
 
 `agent.textproto` for the example above:
@@ -912,7 +1025,7 @@ This gives each vertical - `appointments`, `triage`, a `volume_command`/`volume_
 
 **Phase 3 - external actions and hardening.** `callWebhook` with the full [§9.2](#92-callwebhook-execution-model) reliability model (timeout, retry, circuit breaker, idempotency key). `handoff`/escalation event handlers end-to-end. Cross-flow transition edge cases (`preserveParameters` interactions, mid-transition barge-in).
 
-**Phase 4 - cross-vertical extensions (Draft v2.2/v2.3 scope).** `TriggerFrame` consumption and the ambient-entry/proactive-speech path ([§9.7](#97-external-and-scheduled-triggers)). Multi-intent co-firing (`co_intents`, `Route.co_fireable`, [§6.1](#61-multi-intent-co-firing)). Interrupt intents and the `user_cancel` trigger path ([§6.2](#62-interrupt-intents-and-mid-task-cancel)). The permission gate (`required_role`, `speaker_id`, [§9.8](#98-permission-gate)). The `context.*`/`shared.*`/`event.*` CEL namespaces ([§8.1](#81-external-context-and-shared-state-namespaces), [§8.2](#82-the-event-namespace)). Offline-resilient `callWebhook` via `PendingActionStore` ([§9.9](#99-offline-resilient-callwebhook-store-and-forward)). The audit sink ([§11.1](#111-audit-sink-for-consequential-actions)). `reloadAgent` ([§13.1](#131-hot-reloading-a-running-agent)). Bare-wait `expect` and load-time dead-end detection ([§9.5](#95-expect-and-inline-slot-elicitation)). YAML-to-textproto authoring tooling for `Parameter.constraints`/`EntityDictionary` ([§18](#18-open-decisions)).
+**Phase 4 - cross-vertical extensions (Draft v2.2/v2.3 scope).** `TriggerFrame` consumption and the ambient-entry/proactive-speech path ([§9.7](#97-external-and-scheduled-triggers)). Multi-intent co-firing (`co_intents`, `Route.co_fireable`, [§6.1](#61-multi-intent-co-firing)). Interrupt intents and the `user_cancel` trigger path ([§6.2](#62-interrupt-intents-and-mid-task-cancel)). The permission gate (`required_role`, `speaker_id`, [§9.8](#98-permission-gate)). The `context.*`/`shared.*`/`event.*` CEL namespaces ([§8.1](#81-external-context-and-shared-state-namespaces), [§8.2](#82-the-event-namespace)). Offline-resilient `callWebhook` via `PendingActionStore` ([§9.9](#99-offline-resilient-callwebhook-store-and-forward)). The audit sink ([§11.1](#111-audit-sink-for-consequential-actions)). `reloadAgent` ([§13.1](#131-hot-reloading-a-running-agent)). Bare-wait `expect` and load-time dead-end detection ([§9.5](#95-expect-and-inline-slot-elicitation)). YAML-to-textproto authoring tooling for `Parameter.constraints`/`EntityDictionary` ([§18](#18-open-decisions)). Typed `customTool` argument/result codegen - the `ToolSchema` file format, the code generator itself, and `setTypedCustomToolHandler` ([§23](#23-typed-customtool-argument-and-result-codegen), Draft v2.4). Typed `context.*` codegen and the typed CEL environment it requires - `ContextSchema`, codegen, `setTypedContextProvider` ([§24](#24-typed-context-codegen), Draft v2.5). Entity-backed CEL constants - the `entity.*` namespace and its `validate()` wiring, no new authoring surface required ([§25](#25-entity-backed-cel-constants), Draft v2.6). Declared default values for intent captures - `IntentTrainingData.capture_defaults` and the engine-side fill-in step ([§26](#26-default-values-for-intent-captures), Draft v2.7). Per-action `ExecutionMode` - `FIRE_AND_FORGET`/`BEST_EFFORT` on `CallWebhookAction`/`CustomToolAction`, and the executor-thread-pool dispatch a `customTool` opting into either now gets ([§9.10](#910-action-execution-modes), Draft v2.8).
 
 Full management-plane versioning/environments and full RBAC are still not phases of v1 - narrowed but not eliminated by Phase 4 (see [§17](#17-explicitly-out-of-scope-for-v1)); they remain future work, tracked in [§18](#18-open-decisions).
 
@@ -961,6 +1074,17 @@ Carried over from Draft v1's enterprise surface, dropped deliberately rather tha
 - What happens once a `Parameter`'s `reprompts`/`escalation` are exhausted without a valid answer - the collection policy ([§7](#7-parameter-model-and-collection-policy)) describes the prompt sequence but not what follows it. `expect`'s timeout path sidesteps this by reusing `EventHandlers.no_input` instead, but the underlying gap for ordinary form parameters is still open.
 - Whether `ControlFrame::SET_LISTEN_TIMEOUT` ([§9.5](#95-expect-and-inline-slot-elicitation)) is the right shape for overriding the turn-detection layer's no-input duration, or whether that reconfiguration belongs to a different mechanism already in `core/`.
 - Whether a single `entities.textproto` stays adequate once the dictionary grows, or needs the same directory-composition treatment as flows/training (an `entities/*.textproto` directory instead of one file) - and whether requiring `canonical` names to be unique *dictionary-wide* (not just per-group), so bare `{name}` references stay unambiguous, becomes a real authoring friction point at scale.
+- **New in Draft v2.4**: whether `ToolSchema.args`/`result` ([§23](#23-typed-customtool-argument-and-result-codegen)) needs real nested-type support (a declared `OBJECT` field currently generates an opaque passthrough `google::protobuf::Struct` member, not a second generated struct) once a tool's arguments genuinely nest, and whether an `ARRAY`/`repeated` field type is worth adding in v1 or can wait - `ToolSchema` deliberately started narrower than `Parameter.constraints`' already-open typing question ([§18](#18-open-decisions) above) rather than inheriting it.
+- **New in Draft v2.4**: whether a generative node's LLM-issued tool-call JSON ([§9.4](#94-generative-nodes)) should be validated against its tool's `ToolSchema` (rejecting a malformed call back to the model as a tool error, the same way [§7](#7-parameter-model-and-collection-policy)'s `Parameter` validation rejects a bad slot value) rather than only cross-validated for *authored* `args_cel` keys at config-load time as [§23](#23-typed-customtool-argument-and-result-codegen) currently specifies - load-time validation catches an author's typo; it can't catch a model hallucinating an argument that was never in the schema to begin with.
+- **New in Draft v2.4**: whether the typed-codegen mechanism ([§23](#23-typed-customtool-argument-and-result-codegen)) should eventually generate the `Parameter`/goal-slot-style validation (`min`/`max`, `allowedValues`, ...) `ToolSchema` currently has no equivalent for, or whether tool arguments are meant to stay "already-validated by the time `args_cel`/the LLM produces them" and leave range/enum checking to the handler body, as they do today.
+- **New in Draft v2.5**: whether `shared.*` ([§8.1](#81-external-context-and-shared-state-namespaces)) deserves the same typed-codegen/typed-CEL-environment treatment [§24](#24-typed-context-codegen) gives `context.*` - it's the same "app hands the engine string-keyed values that CEL expressions reference by name" shape, just read/write and cross-engine instead of read-only and per-turn. Deferred rather than designed alongside `context.*` because `SharedStateStore::get`/`set` are keyed one field at a time already (no bulk `Struct` handoff to retrofit a schema onto the same way `setContextProvider`'s return value has one), so the natural typed shape isn't simply "the same mechanism, different namespace."
+- **New in Draft v2.5**: whether declaring `context.*` as a typed CEL environment ([§24.3](#243-typed-cel-environment)) should extend to `nlu.*` and `event.*` too, which have the identical "free-form field lookup, only ever checked at evaluation time today" shape - deferred here because both are inherently more dynamic than `context.*` (their field sets vary per intent/event rather than being fixed for the whole agent), so a schema for them would need to be keyed by intent/event name rather than being one flat struct, a meaningfully different shape from `ContextSchema` rather than a direct reapplication of it.
+- **New in Draft v2.6**: whether a `ToolField`/`Parameter` should be able to declare "this value must be one of entity group X's canonicals," cross-validated against `entity.*` ([§25](#25-entity-backed-cel-constants)) the same way [§23.4](#234-load-time-validation) already validates argument *names* - today `entity.zone.front_left` type-checks as a plain string, same as any other string, so nothing stops an `args_cel` expression from producing an entity-shaped string that never actually came from the dictionary.
+- **New in Draft v2.6**: whether an `EntityValue` ever needs to exist purely for `entity.*`'s benefit, with no training phrase referencing it at all - today authoring one still means writing an `IntentTrainingData`-adjacent `EntityValue` (synonyms optional, but the value lives in the NLU-facing file regardless), rather than a lighter-weight, CEL-only constant declaration.
+- **New in Draft v2.7**: whether `ToolField` ([§23.1](#231-toolschema)) and/or `Parameter` ([§7](#7-parameter-model-and-collection-policy)) should gain an analogous declared default - `capture_defaults` ([§26](#26-default-values-for-intent-captures)) only reaches `nlu.*`; a `required: false` `ToolField` still generates a bare `std::optional<T>` with no way to declare what "absent" should mean for that argument specifically, and an optional form `Parameter` has no default at all today (only required-vs-not). Deferred rather than designed alongside `capture_defaults` because both would need their own decision about *when* the default applies (a `ToolField` default would have to interact with `args_cel` evaluating to "absent" - itself not fully defined today - which is a different question from "this named NLU capture wasn't present").
+- **New in Draft v2.7**: whether a bare `{canonical}` capture-free placeholder ([§22.1](#221-phrase-grammar)) should be able to carry a `capture_defaults`-style default at all - it has no capture `name` to key one on by construction (that's the entire point of the bare form vs. `{group:name}`), so today `capture_defaults` is meaningful only for named `<type:name>`/`{group:name}` captures; whether that's a real gap or simply not applicable to the bare form is open.
+- **New in Draft v2.8**: whether `ExecutionMode` ([§9.10](#910-action-execution-modes)) should extend to `llmGenerate` after all, for the narrower "try to generate for up to N ms, fall back to a canned `say` line otherwise" shape - deliberately excluded from this draft because it changes what a turn *says*, not just how long it waits, which felt different enough from `FIRE_AND_FORGET`/`BEST_EFFORT`'s "the turn proceeds without this result" to warrant its own design pass rather than reusing the same three-value enum by default.
+- **New in Draft v2.8**: exact backoff/retry semantics for a `FIRE_AND_FORGET` `callWebhook` specifically - [§9.2](#92-callwebhook-execution-model)'s one-retry-on-transient-errors rule is written for a turn that's waiting; whether a fire-and-forget call should get more retries than that (since nothing is waiting on it, a longer retry budget costs nothing turn-latency-wise) is open, as is whether it should default to enqueueing into `PendingActionStore` ([§9.9](#99-offline-resilient-callwebhook-store-and-forward)) on failure rather than just incrementing `fire_and_forget_failure_count` ([§11](#11-observability)).
 
 ## 19. Worked Example: Turn-by-Turn Flow
 
@@ -1328,6 +1452,14 @@ message TrainingSet {
 message IntentTrainingData {
   string intent_name = 1;       // must match some Route's IntentTrigger.intent_name
   repeated string phrases = 2;  // pattern strings - see §22.1; a leading "!" marks a negative example
+  repeated CaptureDefault capture_defaults = 3;   // optional per-capture-name fallback - see §26
+}
+
+// §26 (Draft v2.7) - used whenever this intent matches but `name` (a <type:name> or
+// {group:name} capture from §22.1) wasn't present in NLUResult.extracted_parameters.
+message CaptureDefault {
+  string name = 1;
+  google.protobuf.Value default_value = 2;
 }
 
 // A curated, reusable vocabulary - the "predefined placeholder" side of §22.1.
@@ -1436,11 +1568,337 @@ groups {
 # agents/.../training/climate.textproto
 intents {
   intent_name: "turn_on_vent"
-  phrases: "turn on the {zone:target_zone} vent (and increase the temperature by <delta:number>)?"
+  phrases: "turn on the {zone:target_zone} vent (and increase the temperature by <number:delta>)?"
   phrases: "{zone:target_zone} vent on"
+  capture_defaults { name: "delta" default_value { number_value: 0 } }   # §26 (Draft v2.7)
 }
 ```
 
-This one shape covers a lot of ground: *"turn on the front left vent"* matches with `target_zone: front_left` and no `delta` (the whole `(and increase ... )?` clause is absent, so `nlu.delta` is simply unset - a route's executor checks `has(nlu.delta)` in CEL, or a `customTool` handler just treats a missing field as "no change requested"). *"turn on the driver's side front vent and increase the temperature by 5"* matches the same phrase with `target_zone: front_left` (via the synonym) and `delta: 5`. One shared `turn_on_vent` intent and one `customTool` handler cover all four zones, with or without a temperature delta, because the group-capturing `{zone:target_zone}` and the optional group both generalize instead of requiring a separate phrase - or a separate intent - per combination.
+This one shape covers a lot of ground: *"turn on the front left vent"* matches with `target_zone: front_left` and no `delta` - the whole `(and increase ... )?` clause is absent. Before Draft v2.7 that meant `nlu.delta` was simply unset, and a route's executor had to check `has(nlu.delta)` in CEL (or a `customTool` handler had to treat a missing field as "no change requested") every place it read `delta`. The `capture_defaults { name: "delta" default_value { number_value: 0 } }` line above ([§26](#26-default-values-for-intent-captures)) means `nlu.delta` is `0` instead of absent whenever this intent matches without that clause - a route's `value_cel` just writes `context.cabin_temp_c + nlu.delta`, no `has()` needed, since "no change requested" and "change requested by 0" already produce the identical result for this particular field. *"turn on the driver's side front vent and increase the temperature by 5"* matches the same phrase with `target_zone: front_left` (via the synonym) and `delta: 5`, overriding the default exactly as captured. One shared `turn_on_vent` intent and one `customTool` handler cover all four zones, with or without a temperature delta, because the group-capturing `{zone:target_zone}` and the optional group both generalize instead of requiring a separate phrase - or a separate intent - per combination.
 
 If instead each zone genuinely needed its own distinct handling (not just a different argument to the same tool), the bare form fits better: `intent_name: "turn_on_front_left_vent"` with `phrases: "turn on the {front_left} vent"` and no capture at all - simpler per-intent grammar, at the cost of one intent (and one set of training phrases) per zone.
+
+## 23. Typed `customTool` Argument and Result Codegen
+
+*Draft v2.4 - see [§0.4](#04-what-changed-in-draft-v24).* [§9.6](#96-the-customtool-contract) fixes the wire contract every `customTool` handler is built on: `google::protobuf::Struct` in, `google::protobuf::Struct` out, and that boundary is not changing - `args_cel` evaluates to CEL/proto values, a generative node's LLM tool call arrives as JSON, and `Struct` is the one shape both already produce without a second conversion layer. What this section adds is a *generated, load-time-validated view* of that same boundary, so an integrator writing a tool handler works with named, typed struct fields instead of `args.fields().at("zone").string_value()` scattered through the codebase.
+
+### 23.1 `ToolSchema`
+
+A new file type, split per vertical exactly like `training/*.textproto` ([§22.3](#223-file-layout)):
+
+```proto
+message ToolSchema {
+  string name = 1;              // matches CustomToolAction.tool / GenerativeConfig.ToolRef.name
+  string description = 2;       // documents the tool; also available to a codegen'd doc-comment
+  repeated ToolField args = 3;
+  ToolField result = 4;         // optional - only needed if a generative node's LLM reads this tool's return value (§9.6)
+}
+
+message ToolField {
+  enum Type { STRING = 0; NUMBER = 1; INTEGER = 2; BOOLEAN = 3; OBJECT = 4; }
+  string name = 1;
+  Type   type = 2;
+  bool   required = 5;          // default true; false generates std::optional<T>
+  string description = 6;
+}
+```
+
+`ToolField.Type` is deliberately narrower than `Parameter.Type` ([§7](#7-parameter-model-and-collection-policy)) - it describes the *shape* a `google::protobuf::Struct` can actually carry (a CEL/proto `Value`'s own type lattice), not NLU-facing validation semantics like `PHONE` normalization or `ENUM.allowedValues`. A tool argument is expected to already be a validated value by the time it reaches `args_cel` or an LLM tool call; `ToolSchema` types it, it doesn't re-validate it (see the open question in [§18](#18-open-decisions) about whether that's the right long-term split). `OBJECT` is intentionally an escape hatch, not a nested schema: a field of that type generates a plain `google::protobuf::Struct` member, passed through untyped - true nested codegen is deferred ([§18](#18-open-decisions)) rather than speculatively designed now.
+
+```textproto
+# agents/car-assistant/tools/climate.textproto
+tools {
+  name: "apply_temperature"
+  description: "Command the HVAC ECU to a target temperature for one zone."
+  args { name: "zone"  type: STRING required: true  description: "cabin | rear | a zone entity canonical name" }
+  args { name: "value" type: NUMBER required: true  description: "target temperature in Celsius" }
+}
+tools {
+  name: "adjust_temperature"
+  description: "Nudge cabin temperature by feel, for the climate_comfort_loop generative node."
+  args   { name: "delta_c" type: NUMBER required: true }
+  result { name: "new_cabin_temp_c" type: NUMBER required: true }   # the generative loop's LLM reads this back
+}
+```
+
+### 23.2 Codegen
+
+A build-time generator (a `requestflow-codegen tools` CLI step, `FetchContent`-integrated into a target's build the same way protobuf/cel-cpp are per-module opt-ins, [§0.1](#01-what-changed-in-draft-v21)) reads every `tools/*.textproto`, composed the same way `OrchestratorConfigLoader::loadToolSchemas` composes them at runtime ([§13](#13-public-api-surface-proposed-c)), and emits one header per input file. For the `apply_temperature`/`adjust_temperature` schema above:
+
+```cpp
+// GENERATED FILE - agents/car-assistant/tools/climate.textproto -> climate.tools.gen.h
+// Do not edit by hand; re-run `requestflow-codegen tools` after changing the .textproto.
+#pragma once
+#include <google/protobuf/struct.pb.h>
+#include <optional>
+#include <string>
+
+namespace agents::car_assistant::tools {
+
+struct ApplyTemperatureArgs {
+    std::string zone;
+    double      value;
+
+    static ApplyTemperatureArgs FromStruct(const google::protobuf::Struct& s) {
+        return ApplyTemperatureArgs{
+            s.fields().at("zone").string_value(),
+            s.fields().at("value").number_value(),
+        };
+    }
+};
+
+struct AdjustTemperatureArgs {
+    double delta_c;
+    static AdjustTemperatureArgs FromStruct(const google::protobuf::Struct& s) {
+        return AdjustTemperatureArgs{ s.fields().at("delta_c").number_value() };
+    }
+};
+
+struct AdjustTemperatureResult {
+    double new_cabin_temp_c;
+    google::protobuf::Struct ToStruct() const {
+        google::protobuf::Struct s;
+        (*s.mutable_fields())["new_cabin_temp_c"].set_number_value(new_cabin_temp_c);
+        return s;
+    }
+};
+
+}  // namespace agents::car_assistant::tools
+```
+
+A `required: false` field generates `std::optional<T> name;` and `FromStruct` checks `s.fields().contains(...)` instead of `.at(...)` - the same presence-vs-absence distinction `has()` gives CEL ([§8](#8-condition--expression-language)), just surfaced as `std::optional` on the C++ side instead. Namespacing is one namespace per agent directory (`agents::<agent_id>::tools`, `id` sanitized to a valid C++ identifier) so two agents in the same binary never collide on a tool name.
+
+### 23.3 Wiring a typed handler
+
+`OrchestratorEngine::setTypedCustomToolHandler<Args>` ([§13](#13-public-api-surface-proposed-c)) is a thin generic wrapper - not itself generated - that every generated `Args` type works with because `FromStruct` is the only thing it requires:
+
+```cpp
+engine.setTypedCustomToolHandler<ApplyTemperatureArgs>("apply_temperature",
+    [bus](const ApplyTemperatureArgs& args, SessionState&) -> google::protobuf::Struct {
+        bus->setTargetTemp(args.zone, std::clamp(args.value, 16.0, 30.0));
+        return {};
+    });
+
+engine.setTypedCustomToolHandler<AdjustTemperatureArgs>("adjust_temperature",
+    [bus](const AdjustTemperatureArgs& args, SessionState&) -> google::protobuf::Struct {
+        bus->setTargetTemp("cabin", bus->cabinTempC() + args.delta_c);
+        return AdjustTemperatureResult{ bus->cabinTempC() }.ToStruct();
+    });
+```
+
+Nothing about the route config changes - `CustomToolAction.args_cel` still evaluates CEL expressions into a `google::protobuf::Struct` exactly as [§9](#9-executor-actions-and-execution-model) already specifies; `setTypedCustomToolHandler` only changes what the handler *receives* on the C++ side of that same boundary. A route whose tool has no declared `ToolSchema` still works with `setCustomToolHandler` exactly as before - typing is opt-in per tool, not a requirement to use `customTool` at all ([§0.4](#04-what-changed-in-draft-v24)).
+
+### 23.4 Load-time validation
+
+`OrchestratorConfigLoader::validate()` gains one more check once tool schemas are supplied alongside an `Agent`: for every `CustomToolAction` and every `GenerativeConfig.ToolRef` reachable in the assembled config,
+
+- a `tool`/`name` with no matching `ToolSchema` is a **warning**, not a hard failure - the tool can still be wired with the untyped `setCustomToolHandler` contract, same posture [§22.3](#223-file-layout) already takes toward an `IntentTrigger` with no training phrases;
+- but every key in a matched tool's `args_cel` map must name a field the schema actually declares, and every `required: true` field must appear in `args_cel` - either violation **is** a hard failure, caught offline, before a session can ever hit the corresponding runtime `.at()` throw a mismatched key would otherwise cause deep inside a handler.
+
+This is the same tradeoff this spec already made for CEL compilation and entity/training references: authoring mistakes that are cheap to check statically get checked statically, rather than left to surface as a runtime failure mode with a worse stack trace and a live caller attached.
+
+### 23.5 What this doesn't do
+
+`ToolSchema` types and load-time-validates the *authored* side of a tool call - the `args_cel` keys a human wrote into a route. It does not runtime-validate a generative node's LLM-issued tool-call JSON against the same schema before calling `FromStruct` ([§18](#18-open-decisions) tracks this as open), it has no `Parameter`-style range/enum validation of its own (a handler that needs `value` clamped to a sane range, as `apply_temperature`'s example above does, still does that itself), and it does not generate a second schema layer for a nested `OBJECT` field. All three are scoping decisions, not oversights - each is narrower than it could be specifically so this mechanism ships as a struct-shape convenience layered cleanly on [§9.6](#96-the-customtool-contract)'s existing contract, rather than growing into a second, competing validation system alongside `Parameter`'s.
+
+## 24. Typed Context Codegen
+
+*Draft v2.5 - see [§0.5](#05-what-changed-in-draft-v25).* [§8.1](#81-external-context-and-shared-state-namespaces) put `context.*` behind one callback, `setContextProvider`, precisely so continuously-changing external facts don't need `setParameter` called on them every turn. What that section didn't address is how the callback's body is written: today, by hand, one `(*ctx.mutable_fields())["field_name"].set_number_value(...)` call at a time, with `"field_name"` existing only as a string literal that a route's `context.field_name` reference has to independently, silently agree with. This section is [§23](#23-typed-customtool-argument-and-result-codegen)'s same fix applied to the other side of the CEL activation environment - with one difference worth calling out up front: because `context.*` is compiled *into* every route's CEL expression rather than passed as a runtime argument, declaring it also lets CEL's own compiler catch a mistake that `customTool` codegen could only catch with a bespoke cross-check ([§23.4](#234-load-time-validation)).
+
+### 24.1 `ContextSchema`
+
+One schema per agent (not one per tool, since `context.*` is a single flat namespace shared by every flow), authored as `context/*.textproto` and composed the same way `tools/*.textproto` is ([§23.1](#231-toolschema)) - each file simply contributes more fields to one merged `ContextSchema`; two files declaring the same field name with different types is a load-time composition error, the same treatment [§14.1](#141-splitting-config-across-files) already gives a duplicate flow id:
+
+```proto
+message ContextSchema {
+  repeated ContextField fields = 1;
+}
+
+message ContextField {
+  enum Type { STRING = 0; NUMBER = 1; INTEGER = 2; BOOLEAN = 3; OBJECT = 4; }
+  string name = 1;
+  Type   type = 2;
+  bool   required = 3;    // default true => struct field; false => std::optional<T>, absent when unset
+  string description = 4;
+}
+```
+
+Same `Type` lattice as `ToolField` ([§23.1](#231-toolschema)) and the same `OBJECT`-is-an-opaque-passthrough scoping ([§18](#18-open-decisions) tracks nested typing for both together, not separately).
+
+```textproto
+# agents/car-assistant/context/climate.textproto
+fields { name: "cabin_temp_c"       type: NUMBER  required: true  description: "current cabin temperature, Celsius" }
+fields { name: "outside_temp_c"     type: NUMBER  required: true }
+fields { name: "child_lock_active"  type: BOOLEAN required: true }
+```
+
+### 24.2 Codegen
+
+`requestflow-codegen context` reads the composed `ContextSchema` (the same `loadContextSchema` composition `OrchestratorConfigLoader` performs at runtime, [§13](#13-public-api-surface-proposed-c)) and emits one struct per agent:
+
+```cpp
+// GENERATED FILE - agents/car-assistant/context/*.textproto -> car_assistant.context.gen.h
+// Do not edit by hand; re-run `requestflow-codegen context` after changing a context/*.textproto.
+#pragma once
+#include <google/protobuf/struct.pb.h>
+
+namespace agents::car_assistant {
+
+struct Context {
+    double cabin_temp_c;
+    double outside_temp_c;
+    bool   child_lock_active;
+
+    google::protobuf::Struct ToStruct() const {
+        google::protobuf::Struct s;
+        (*s.mutable_fields())["cabin_temp_c"].set_number_value(cabin_temp_c);
+        (*s.mutable_fields())["outside_temp_c"].set_number_value(outside_temp_c);
+        (*s.mutable_fields())["child_lock_active"].set_bool_value(child_lock_active);
+        return s;
+    }
+
+    static Context FromStruct(const google::protobuf::Struct& s) {   // mainly a testing convenience - see §24.4
+        Context c;
+        c.cabin_temp_c      = s.fields().at("cabin_temp_c").number_value();
+        c.outside_temp_c    = s.fields().at("outside_temp_c").number_value();
+        c.child_lock_active = s.fields().at("child_lock_active").bool_value();
+        return c;
+    }
+};
+
+}  // namespace agents::car_assistant
+```
+
+`required: false` generates `std::optional<T>`, and `ToStruct()` simply omits an unset optional field from the output rather than serializing a null - the field then resolves empty in CEL exactly as an unpopulated `context.*` field does today ([§8.1](#81-external-context-and-shared-state-namespaces)).
+
+### 24.3 Typed CEL environment
+
+This is the piece with no `customTool`-side analogue. `setTypedCustomToolHandler` ([§23.3](#233-wiring-a-typed-handler)) only ever changed what C++ code receives; the underlying `CustomToolAction.args_cel` map was never itself type-checked against a schema; catching a mismatch there needed [§23.4](#234-load-time-validation)'s dedicated cross-check because CEL compiles `args_cel`'s *values* (arbitrary expressions), not the map's *keys* (those are just strings the engine copies into a `Struct` after evaluation).
+
+`context.*` is different: `context.cabin_temp_c` is itself a sub-expression inside whatever larger `condition_cel`/`value_cel` string a route author wrote, compiled by CEL directly ([§8](#8-condition--expression-language)). When a `ContextSchema` is supplied to `OrchestratorConfigLoader::validate()` ([§13](#13-public-api-surface-proposed-c)), the CEL environment every route's expressions are compiled against declares `context` as a fixed-shape type built from that schema, instead of an open, dynamically-resolved map. The practical effect: `context.cabin_tmp_c` (a typo) or `context.child_lock_active + 1` (a type error - `BOOLEAN` isn't arithmetic) both fail **CEL compilation**, at the same load-time step [§8](#8-condition--expression-language) already runs every `condition_cel`/`value_cel` expression through - not a runtime "no such field" resolution the first time a driver's utterance happens to hit that route, which is exactly what happens today without a declared schema.
+
+Without a `ContextSchema`, nothing changes from Draft v2.2: `context.*` stays a dynamically-resolved, always-succeeding lookup (empty when the provider hasn't set that field), and CEL compilation of a `context.*` reference can't fail no matter what name follows the dot.
+
+### 24.4 Wiring
+
+```cpp
+engine->setTypedContextProvider<agents::car_assistant::Context>([bus]() {
+    return agents::car_assistant::Context{
+        bus->cabinTempC(),
+        bus->outsideTempC(),
+        bus->childLockActive(),
+    };
+});
+```
+
+`setTypedContextProvider<Context>` ([§13](#13-public-api-surface-proposed-c)) requires only that `Context` expose `ToStruct() const`; `FromStruct` isn't part of that requirement; it exists purely so tests can go the other direction - constructing an expected `Context`, comparing it against a value pulled back out of a `SessionSnapshot`-adjacent fixture, or feeding `OrchestratorConversationSimulator` a canned context without a real `VehicleBusClient` ([§12](#12-testing-strategy)).
+
+### 24.5 What this doesn't do
+
+Same discipline as [§23.5](#235-what-this-doesnt-do): `ContextSchema` types `context.*` and catches a mismatched reference against it at CEL-compile time; it does not validate the *values* a provider returns (a `Context::ToStruct()` that returns `cabin_temp_c = -500` compiles and runs fine - nothing here is `Parameter`-style range validation), it does not extend to `shared.*` or `nlu.*`/`event.*` (tracked separately in [§18](#18-open-decisions), for reasons specific to each), and a declared `OBJECT` field is still an opaque, untyped passthrough rather than a second generated struct. Typed `context.*` is a compile-time name/shape guarantee for one specific, already-well-scoped namespace - not a general schema system for every dynamically-keyed value this spec's CEL layer touches.
+
+## 25. Entity-Backed CEL Constants
+
+*Draft v2.6 - see [§0.6](#06-what-changed-in-draft-v26).* [§22](#22-nlu-training-data)'s `EntityDictionary` already gives an agent one canonical, deduplicated vocabulary - `zone`, `fan_level`, and so on - but until now, only NLU phrase matching could reach it: `{canonical}`/`{group:name}` ([§22.1](#221-phrase-grammar)) resolve a spoken phrase into `nlu.*`. A route author writing `condition_cel`/`value_cel`/`args_cel` had no way to reference that same dictionary at all - a `customTool` argument that's always exactly one fixed value, rather than whatever the caller's utterance captured, was written as a bare CEL string literal, spelled by hand, checked against nothing.
+
+### 25.1 The `entity.*` namespace
+
+When an `EntityDictionary` is supplied at CEL-compile time ([§8](#8-condition--expression-language)), every `EntityValue`'s `canonical` becomes a compiled CEL constant evaluating to that exact string - identical at runtime to writing the literal by hand, but now a name CEL's own compiler checks instead of an unchecked string:
+
+- **Qualified**: `entity.<group>.<canonical>` - e.g. `entity.zone.front_left`.
+- **Bare**: `entity.<canonical>` - legal because [§22.1](#221-phrase-grammar) already requires every canonical to be unique *dictionary-wide*, the identical guarantee that lets a training phrase write bare `{front_left}`; `entity.front_left` and `entity.zone.front_left` are the same constant.
+
+A reference to an undeclared group or canonical - `entity.zone.frnt_left`, `entity.no_such_group.anything` - fails to compile, at the same load-time step [§8](#8-condition--expression-language) already runs every `condition_cel`/`value_cel`/`args_cel` expression through, not the first time a route using the typo happens to fire.
+
+Unlike `context.*` ([§24.3](#243-typed-cel-environment)), there is no dynamic fallback: with no `EntityDictionary` supplied, `entity.*` simply isn't a resolvable namespace at all, rather than one that always resolves empty. That asymmetry is deliberate, not inconsistent - `context.*` had years of prior, working dynamic behavior ([§8.1](#81-external-context-and-shared-state-namespaces), Draft v2.2) that Draft v2.5 had to stay compatible with; `entity.*` is new in this revision, so there is no existing config anywhere that could already be relying on referencing it.
+
+### 25.2 Wiring
+
+No new file, no new declaration - `OrchestratorConfigLoader::validate()` ([§13](#13-public-api-surface-proposed-c)) takes the identical `EntityDictionary` [§22.3](#223-file-layout) already composes via `loadTrainingSet(dirPath).entities`, as its fourth, equally optional parameter:
+
+```cpp
+auto trainingSet = OrchestratorConfigLoader::loadTrainingSet("agents/car-assistant/");
+auto report = OrchestratorConfigLoader::validate(agent, toolSchemas, contextSchema, trainingSet.entities);
+```
+
+An agent that already authors `entities.textproto` for NLU training gets `entity.*` in every CEL expression for free by passing that same object through one more time; an agent with no entity dictionary at all just omits the fourth argument, exactly as before Draft v2.6.
+
+### 25.3 Worked example
+
+[§22.4](#224-worked-example)'s `zone` group, applied to a customTool call that always targets one fixed vent regardless of what the caller said - a "reset to default" command, say:
+
+```textproto
+routes {
+  id: "reset_default_zone"
+  trigger { intent { intent_name: "reset_zone" } }
+  executor {
+    actions {
+      custom_tool {
+        tool: "apply_vent_zone"
+        args_cel { key: "zone" value: "entity.zone.front_left" }   # was: value: "\"front_left\""
+        args_cel { key: "on"   value: "true" }
+      }
+    }
+  }
+}
+```
+
+Renaming `zone`'s `front_left` canonical to anything else, or deleting it from `entities.textproto` entirely, now breaks this route at the next `validate()` call - a compile error naming the exact route and the exact bad reference - rather than silently leaving a route whose literal no longer matches anything the rest of the agent still calls `front_left`.
+
+### 25.4 What this doesn't do
+
+`entity.*` gives CEL a checked reference to a dictionary value that already exists; it does not cross-check that reference against where it's used. A `ToolField` typed `STRING` ([§23.1](#231-toolschema)) still accepts any string an `args_cel` expression produces, whether that's `entity.zone.front_left` or an unrelated literal - whether a `ToolField`/`Parameter` should be able to declare "this argument must be one of entity group X's values" is tracked as open ([§18](#18-open-decisions)). It also doesn't add a lighter-weight way to declare a CEL-only constant - a value that will never appear in a training phrase still has to be authored as a full `EntityValue` in the NLU-facing dictionary to get one.
+
+## 26. Default Values for Intent Captures
+
+*Draft v2.7 - see [§0.7](#07-what-changed-in-draft-v27).* A `<type:name>` or `{group:name}` capture ([§22.1](#221-phrase-grammar)) inside an optional `(...)?` group is, by construction, sometimes absent - *"turn on the front left vent"* carries no `delta` at all. Before this section, "absent" meant exactly that: the key is simply missing from `NLUResult.extracted_parameters`, and every `condition_cel`/`value_cel`/`args_cel` expression reading it has to open with `has(nlu.delta) ? nlu.delta : <something>` - the same fallback value, spelled out again, at every route that happens to read that capture.
+
+### 26.1 Declaring a default
+
+`IntentTrainingData.capture_defaults` ([§22](#22-nlu-training-data)) says, once, per intent, what a given capture name should mean when it's missing:
+
+```textproto
+intents {
+  intent_name: "turn_on_vent"
+  phrases: "turn on the {zone:target_zone} vent (and increase the temperature by <number:delta>)?"
+  phrases: "{zone:target_zone} vent on"
+  capture_defaults { name: "delta" default_value { number_value: 0 } }
+}
+```
+
+`CaptureDefault.default_value` is a `google.protobuf.Value` - the same type `NLUResult.extracted_parameters`'s map already uses, so filling one in is a direct assignment, not a conversion. A default is scoped to one `IntentTrainingData` entry; two different intents can each declare their own default for a capture named `delta` (or none at all) without interfering with each other.
+
+### 26.2 When it applies
+
+The engine fills in declared defaults exactly once per turn, immediately after `NLUProvider.detect()` returns and before route evaluation reads `nlu.*` - concretely, the point [§6](#6-route-evaluation-semantics) step 2 now calls out: for `top_intent` and (per [§6.1](#61-multi-intent-co-firing)) each `co_intent` independently, any name listed in that intent's own `capture_defaults` that isn't already a key in `extracted_parameters` gets set to its declared default. This runs the same way regardless of which `NLUProvider` produced the result - `TrainingPhraseNLUProvider`'s pattern matcher and the LLM-backed provider's structured classification both simply return whatever they extracted (or didn't); the engine, not either provider, is what makes "declared but absent" mean something.
+
+**What doesn't change:** a capture name with no `CaptureDefault` entry on that intent is unaffected - still absent when not captured, still exactly what `has(nlu.name)` is for. Declaring a default is opt-in per name; nothing about this section makes any existing `has(nlu.x) ? ... : ...` expression wrong or redundant unless its author also adds a matching `capture_defaults` entry.
+
+### 26.3 Worked example
+
+Contrast the same route written with and without a declared default. Without one:
+
+```textproto
+routes {
+  id: "increase_cabin_temp"
+  trigger { intent { intent_name: "increase_cabin_temp" min_confidence: 0.6 } }
+  executor {
+    actions { set_parameter { name: "target_temp_c" value_cel: "context.cabin_temp_c + (has(nlu.delta) ? nlu.delta : 2.0)" } }
+    actions { custom_tool { tool: "apply_temperature" args_cel { key: "value" value: "target_temp_c" } } }
+  }
+}
+```
+
+With `capture_defaults { name: "delta" default_value { number_value: 2.0 } }` declared once on `increase_cabin_temp`'s `IntentTrainingData`, the same route's `value_cel` drops the ternary entirely:
+
+```textproto
+actions { set_parameter { name: "target_temp_c" value_cel: "context.cabin_temp_c + nlu.delta" } }
+```
+
+Both produce identical behavior for every utterance this intent already matched - *"warm it up"* (no captured amount) still adds `2.0`, *"warm it up by 5"* still adds `5`. What changed is where "2.0" is written down: once, next to the intent it belongs to, instead of copy-pasted into every route that ever reads `nlu.delta` for that intent - a `raise_cabin_temp` route elsewhere in the same agent ([§21.4](#214-worked-example-co-firing-multiple-intents)) reading the same capture name on a *different* intent would need (and is free to declare) its own default, since defaults are per-intent, not per-capture-name-globally.
+
+### 26.4 What this doesn't do
+
+A declared default fills in a *missing* capture; it does not validate a *present* one - `capture_defaults` has no `min`/`max`/`allowedValues` of its own (that's `Parameter`'s job, [§7](#7-parameter-model-and-collection-policy), for the different case of a static-form slot), so a captured `delta` of `-9999` sails through exactly as before. It also doesn't reach `ToolField` or `Parameter` defaults, and it doesn't give the bare `{canonical}` placeholder form a name to hang a default on, since it never produces one to begin with - both tracked as open ([§18](#18-open-decisions)). And it is strictly a fill-in-when-absent mechanism: it never overrides a capture that *was* extracted, even a plainly wrong one - "captured but wrong" is a different problem than "not captured," and this section only ever addresses the latter.
+
+One composition gap worth naming explicitly: `CaptureDefault.default_value` is a plain `google.protobuf.Value` literal, evaluated once when training data loads - it is not a CEL expression, so it cannot reference an [§25](#25-entity-backed-cel-constants) `entity.*` constant. A capture whose sensible default is itself a declared entity canonical (a zone, say) can't get that default from `capture_defaults` at all; the fallback still has to live in the route's own CEL as `has(nlu.x) ? nlu.x : entity.group.canonical`, exactly as it did before this section existed. `capture_defaults` is well-suited to a bare number or boolean fallback; anything that needs to *be* an entity value stays a CEL-level concern.

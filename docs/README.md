@@ -37,6 +37,7 @@ Built on top of those:
 - [Giving the LLM a tool](examples/llm-tools.md) - define, register, and dispatch a tool.
 - [Defining a goal in JSON](examples/goal-definitions.md) - slot types, conditions, loading.
 - [Testing without a microphone](examples/testing-with-mock-transport.md) - `MockTransport` and the goal conversation simulator.
+- [An in-vehicle HVAC assistant on RequestFlow](examples/vehicle-hvac-requestflow.md) - a full graph/intents/triggers/C++ walkthrough of a climate-control vertical, end to end.
 
 ## Conventions used across the docs
 
