@@ -2,7 +2,7 @@
 
 Reference target: RequestFlow, a deterministic, NLU-first flow/node/route orchestration layer for VASDK that is frame-native to the existing pipeline.
 
-Status: **Draft v2.8** - per-action execution modes (fire-and-forget, best-effort), layered on Draft v2.7's declared default values for intent captures, themselves layered on Draft v2.6's entity-backed CEL constants, themselves layered on Draft v2.5's typed `context.*` codegen, themselves layered on Draft v2.4's typed `customTool` argument/result codegen, themselves layered on Draft v2.3's event parameters and explicit multi-turn control, themselves layered on Draft v2.2's cross-vertical extensions (proactive/scheduled triggers, multi-intent co-firing, mid-task interrupts, a minimal permission gate, shared/context CEL state, offline-resilient webhooks), themselves layered on the Draft v2.1 protobuf/textproto foundation; the v2.1 domain model and mechanism are otherwise unchanged. See [§0](#0-what-changed-from-draft-v1)/[§0.1](#01-what-changed-in-draft-v21)/[§0.2](#02-what-changed-in-draft-v22)/[§0.3](#03-what-changed-in-draft-v23)/[§0.4](#04-what-changed-in-draft-v24)/[§0.5](#05-what-changed-in-draft-v25)/[§0.6](#06-what-changed-in-draft-v26)/[§0.7](#07-what-changed-in-draft-v27) for prior history and [§0.8](#08-what-changed-in-draft-v28) for this revision. `goal/` is untouched by this document: it keeps working as-is for the existing call center showcase, and this spec introduces a new, independent module rather than extending or migrating it. See [§3](#3-relationship-to-existing-vasdk-components) and [§17](#17-explicitly-out-of-scope-for-v1) for exactly what that means.
+Status: **Draft v2.9** - a unified `{{name:type}}` phrase-grammar capture syntax plus inline `(a|b|c)` alternation, replacing the separate `<type:name>`/`{group:name}` forms, layered on Draft v2.8's per-action execution modes (fire-and-forget, best-effort), themselves layered on Draft v2.7's declared default values for intent captures, themselves layered on Draft v2.6's entity-backed CEL constants, themselves layered on Draft v2.5's typed `context.*` codegen, themselves layered on Draft v2.4's typed `customTool` argument/result codegen, themselves layered on Draft v2.3's event parameters and explicit multi-turn control, themselves layered on Draft v2.2's cross-vertical extensions (proactive/scheduled triggers, multi-intent co-firing, mid-task interrupts, a minimal permission gate, shared/context CEL state, offline-resilient webhooks), themselves layered on the Draft v2.1 protobuf/textproto foundation; the v2.1 domain model and mechanism are otherwise unchanged. See [§0](#0-what-changed-from-draft-v1)/[§0.1](#01-what-changed-in-draft-v21)/[§0.2](#02-what-changed-in-draft-v22)/[§0.3](#03-what-changed-in-draft-v23)/[§0.4](#04-what-changed-in-draft-v24)/[§0.5](#05-what-changed-in-draft-v25)/[§0.6](#06-what-changed-in-draft-v26)/[§0.7](#07-what-changed-in-draft-v27)/[§0.8](#08-what-changed-in-draft-v28) for prior history and [§0.9](#09-what-changed-in-draft-v29) for this revision. `goal/` is untouched by this document: it keeps working as-is for the existing call center showcase, and this spec introduces a new, independent module rather than extending or migrating it. See [§3](#3-relationship-to-existing-vasdk-components) and [§17](#17-explicitly-out-of-scope-for-v1) for exactly what that means.
 
 ## 0. What changed from Draft v1
 
@@ -74,10 +74,10 @@ A gap Draft v2.4/v2.5 didn't reach: a `customTool` call that always passes one f
 
 ## 0.7 What changed in Draft v2.7
 
-The last gap in this run of drafts wasn't a missing name, it was a missing *value*. [§22.4](#224-worked-example)'s own worked example already shows the pattern every non-trivial route ends up repeating: `<number:delta>` inside an optional phrase group means `nlu.delta` is sometimes simply absent, so every route reading it writes `has(nlu.delta) ? nlu.delta : <something>` rather than just `nlu.delta`. That ternary is copy-pasted per route, per capture, with no single place declaring what "not captured" should actually mean for a given name.
+The last gap in this run of drafts wasn't a missing name, it was a missing *value*. [§22.4](#224-worked-example)'s own worked example already shows the pattern every non-trivial route ends up repeating: `{{delta:number}}` inside an optional phrase group means `nlu.delta` is sometimes simply absent, so every route reading it writes `has(nlu.delta) ? nlu.delta : <something>` rather than just `nlu.delta`. That ternary is copy-pasted per route, per capture, with no single place declaring what "not captured" should actually mean for a given name.
 
 - **`capture_defaults` on `IntentTrainingData`** ([§26](#26-default-values-for-intent-captures)) - an intent can now declare, per capture name, a default `google.protobuf.Value` used whenever that intent matches but the named capture wasn't present in `NLUResult.extracted_parameters` - regardless of *why* it's missing (an unspoken optional phrase group for `TrainingPhraseNLUProvider`, or the LLM-backed provider simply not returning it). The engine fills these in once, immediately after `NLUProvider.detect()` returns and before route evaluation ([§6](#6-route-evaluation-semantics) step 2), so every `condition_cel`/`value_cel`/`args_cel` downstream just reads `nlu.delta` directly.
-- **The default is itself optional, deliberately** - a capture name with no `CaptureDefault` entry behaves exactly as before: absent when not captured, `has(nlu.name)` still meaningful. Declaring a default for one capture name on an intent says nothing about any other capture on that same intent; this is opt-in per name, not a blanket behavior change; §22.4's `<number:delta>` example is the only place existing prose needed updating.
+- **The default is itself optional, deliberately** - a capture name with no `CaptureDefault` entry behaves exactly as before: absent when not captured, `has(nlu.name)` still meaningful. Declaring a default for one capture name on an intent says nothing about any other capture on that same intent; this is opt-in per name, not a blanket behavior change; §22.4's `{{delta:number}}` example is the only place existing prose needed updating.
 
 ## 0.8 What changed in Draft v2.8
 
@@ -86,6 +86,15 @@ Every prior draft treated "how long does this turn wait for an action" as a fixe
 - **`ExecutionMode` on `CallWebhookAction` and `CustomToolAction`** ([§9.10](#910-action-execution-modes)) - three values: `BLOCKING` (default, zero-value-safe - unchanged behavior for both action kinds, all the way back to Draft v2.1/v2.2), `FIRE_AND_FORGET` (dispatch off-thread, don't wait at all - this turn never sees the result, success or failure), and `BEST_EFFORT` (wait up to `timeout_ms`, but expiry is *not* a failure - the turn proceeds with whatever arrived, or nothing).
 - Deliberately not added to every action kind - `say`/`setParameter`/`clearParameter`/`emitEvent` have nothing to wait on to begin with, `llmGenerate` fire-and-forget would mean a turn that says nothing, and `expect` already has its own, orthogonal turn-spanning mechanism ([§9.5](#95-expect-and-inline-slot-elicitation)). See [§9.10](#910-action-execution-modes) for the full reasoning.
 - A `customTool`'s `BLOCKING` mode is unchanged in a way worth flagging: it still means "inline on the calling thread, no thread pool," not "dispatched and waited on" the way `callWebhook`'s `BLOCKING` does - only `FIRE_AND_FORGET`/`BEST_EFFORT` move a `customTool` call onto the engine's executor thread pool at all.
+
+## 0.9 What changed in Draft v2.9
+
+[§22.1](#221-phrase-grammar)'s capture syntax carried two separate forms doing the same job - `<type:name>` for a built-in `Parameter` type, `{group:name}` for a predefined `EntityGroup` - differing only in which vocabulary the matched value resolves against. Nothing about the training-data model needed two forms; it was surface syntax, not semantics.
+
+- **Unified capture: `{{name:type}}`** - `type` now resolves against either a built-in `Parameter` type or a declared `EntityGroup` name, whichever matches; the result lands in `extracted_parameters[name]` exactly as before. `<type:name>` and `{group:name}` are gone - `{{name:type}}` is the only capturing form. The bare, non-capturing `{canonical}` placeholder is untouched, since it never had a `name` to unify against in the first place.
+- **Inline alternation: `(a|b|c)`** - a group now matches any one of several sequences, not just a single optional one. `"(turn up|increase|raise) the volume"` replaces three near-duplicate `phrases:` lines differing only in their opening verb. See the rewritten [§22.4](#224-worked-example) worked example.
+- **`?` generalized to a uniform postfix operator** - applies identically to a literal, a capture, or a parenthesized group, rather than being documented as a group-specific case that captures happened to inherit. `{{delta:number}}?` and `({{delta:number}})?` are the same thing; parens exist for multi-token clauses, not because captures need special-casing.
+- **Deliberately not added**: repeatable capture groups (`(...)*`/`(...)+`, for an utterance like "the kitchen and the hallway and the bedroom") and inline sub-expression negation (`!(...)`, distinct from the existing whole-phrase leading `!`). Repeated captures would change `extracted_parameters` from one value per name to a collection per name - a data-model change, not a grammar addition - and inline negation has no motivating case in this spec's own worked examples. Tracked as open ([§18](#18-open-decisions)); revisit only when a concrete vertical needs one.
 
 ## 1. Purpose and Scope
 
@@ -1084,7 +1093,8 @@ Carried over from Draft v1's enterprise surface, dropped deliberately rather tha
 - **New in Draft v2.6**: whether a `ToolField`/`Parameter` should be able to declare "this value must be one of entity group X's canonicals," cross-validated against `entity.*` ([§25](#25-entity-backed-cel-constants)) the same way [§23.4](#234-load-time-validation) already validates argument *names* - today `entity.zone.front_left` type-checks as a plain string, same as any other string, so nothing stops an `args_cel` expression from producing an entity-shaped string that never actually came from the dictionary.
 - **New in Draft v2.6**: whether an `EntityValue` ever needs to exist purely for `entity.*`'s benefit, with no training phrase referencing it at all - today authoring one still means writing an `IntentTrainingData`-adjacent `EntityValue` (synonyms optional, but the value lives in the NLU-facing file regardless), rather than a lighter-weight, CEL-only constant declaration.
 - **New in Draft v2.7**: whether `ToolField` ([§23.1](#231-toolschema)) and/or `Parameter` ([§7](#7-parameter-model-and-collection-policy)) should gain an analogous declared default - `capture_defaults` ([§26](#26-default-values-for-intent-captures)) only reaches `nlu.*`; a `required: false` `ToolField` still generates a bare `std::optional<T>` with no way to declare what "absent" should mean for that argument specifically, and an optional form `Parameter` has no default at all today (only required-vs-not). Deferred rather than designed alongside `capture_defaults` because both would need their own decision about *when* the default applies (a `ToolField` default would have to interact with `args_cel` evaluating to "absent" - itself not fully defined today - which is a different question from "this named NLU capture wasn't present").
-- **New in Draft v2.7**: whether a bare `{canonical}` capture-free placeholder ([§22.1](#221-phrase-grammar)) should be able to carry a `capture_defaults`-style default at all - it has no capture `name` to key one on by construction (that's the entire point of the bare form vs. `{group:name}`), so today `capture_defaults` is meaningful only for named `<type:name>`/`{group:name}` captures; whether that's a real gap or simply not applicable to the bare form is open.
+- **New in Draft v2.7**: whether a bare `{canonical}` capture-free placeholder ([§22.1](#221-phrase-grammar)) should be able to carry a `capture_defaults`-style default at all - it has no capture `name` to key one on by construction (that's the entire point of the bare form vs. the capturing `{{name:type}}` form), so today `capture_defaults` is meaningful only for named `{{name:type}}` captures; whether that's a real gap or simply not applicable to the bare form is open.
+- **New in Draft v2.9**: repeatable capture groups (`(...)*`/`(...)+`) and inline sub-expression negation (`!(...)`) were considered for the [§22.1](#221-phrase-grammar) phrase grammar and deliberately deferred - see [§0.9](#09-what-changed-in-draft-v29) for why. Revisit if a concrete vertical needs either.
 - **New in Draft v2.8**: whether `ExecutionMode` ([§9.10](#910-action-execution-modes)) should extend to `llmGenerate` after all, for the narrower "try to generate for up to N ms, fall back to a canned `say` line otherwise" shape - deliberately excluded from this draft because it changes what a turn *says*, not just how long it waits, which felt different enough from `FIRE_AND_FORGET`/`BEST_EFFORT`'s "the turn proceeds without this result" to warrant its own design pass rather than reusing the same three-value enum by default.
 - **New in Draft v2.8**: exact backoff/retry semantics for a `FIRE_AND_FORGET` `callWebhook` specifically - [§9.2](#92-callwebhook-execution-model)'s one-retry-on-transient-errors rule is written for a turn that's waiting; whether a fire-and-forget call should get more retries than that (since nothing is waiting on it, a longer retry budget costs nothing turn-latency-wise) is open, as is whether it should default to enqueueing into `PendingActionStore` ([§9.9](#99-offline-resilient-callwebhook-store-and-forward)) on failure rather than just incrementing `fire_and_forget_failure_count` ([§11](#11-observability)).
 - **New (deferred - integrator tooling)**: a standalone CLI, independent of linking against the C++ engine, wrapping `OrchestratorConfigLoader::validate()` and `OrchestratorConversationSimulator` - e.g. `va-orchestrator validate agents/foo/` and `va-orchestrator simulate agents/foo/ --script turns.textproto` - so an integrator authoring flows gets a fast local edit-validate-test loop without a full C++ build per iteration. Every mechanism such a CLI would wrap already exists as a class in [§12](#12-testing-strategy)/[§13](#13-public-api-surface-proposed-c); this is purely about whether, and how, it's ever exposed as a binary (a thin `main()` over the existing static methods, most likely), and whether it ships from `va::orchestrator` itself or a separate tooling target.
@@ -1460,8 +1470,8 @@ message IntentTrainingData {
   repeated CaptureDefault capture_defaults = 3;   // optional per-capture-name fallback - see §26
 }
 
-// §26 (Draft v2.7) - used whenever this intent matches but `name` (a <type:name> or
-// {group:name} capture from §22.1) wasn't present in NLUResult.extracted_parameters.
+// §26 (Draft v2.7) - used whenever this intent matches but `name` (a {{name:type}}
+// capture from §22.1) wasn't present in NLUResult.extracted_parameters.
 message CaptureDefault {
   string name = 1;
   google.protobuf.Value default_value = 2;
@@ -1473,7 +1483,7 @@ message EntityDictionary {
 }
 
 message EntityGroup {
-  string name = 1;              // e.g. "zone" - referenced as {zone:param_name}
+  string name = 1;              // e.g. "zone" - referenced as {{param_name:zone}}
   repeated EntityValue values = 2;
 }
 
@@ -1485,25 +1495,27 @@ message EntityValue {
 
 ### 22.1 Phrase grammar
 
-Two families of placeholder, plus grouping - each symbol has one distinct job, deliberately not reused for a second meaning even where that might look tempting:
+One capturing placeholder, one bare placeholder, plus grouping and alternation - each symbol has one distinct job, deliberately not reused for a second meaning even where that might look tempting:
 
 | Token | Meaning | Example |
 | --- | --- | --- |
 | plain word(s) | literal, case-insensitive | `cancel my appointment` |
 | `*` | zero or more words | `turn * up` matches "turn it up", "turn the volume up", "turn up" |
 | `.` | exactly one word (unnamed wildcard) | `turn . up` matches "turn it up" but not "turn up" or "turn the bass up" |
-| `(...)` | a group - anything inside can itself contain literals, wildcards, or placeholders | `(by <delta:number>)` |
-| `token?` / `(group)?` | the immediately **preceding** token or group is optional - `?` is always postfix, never prefix | `please? cancel` matches "cancel" and "please cancel"; `(by <delta:number>)?` matches with or without the whole "by ..." clause |
-| `<type:name>` | **dynamic** capture - a built-in or node-declared type ([§7](#7-parameter-model-and-collection-policy)), open-ended, no fixed vocabulary; lands in `extracted_parameters[name]` | `by <number:amount>` captures "by 15" -> `amount: 15` |
-| `{canonical}` | **predefined** placeholder, bare form - matches any synonym of one specific, uniquely-named `EntityValue` anywhere in the dictionary; no extraction, since the phrase is already specific to that one value | `turn on the {front_left} vent` matches "turn on the front left vent" and "turn on the driver's side front vent" alike |
-| `{group:name}` | **predefined** placeholder, capturing form - matches any synonym of *any* value in that `EntityGroup`, and captures the matched value's `canonical` name into `extracted_parameters[name]` | `turn on the {zone:target_zone} vent` matches any known zone phrase and sets `target_zone` to whichever canonical value matched |
-| leading `!` on a whole phrase | negative example - this intent must **not** match an utterance shaped like this | `!turn * up by <number:amount> percent` under an absolute-increase intent, so a near-miss doesn't steal a match belonging to the percent intent |
+| `(...)` | a group - anything inside can itself contain literals, wildcards, captures, or nested groups | `(by {{delta:number}})` |
+| `(a\|b\|c)` | alternation - matches exactly one of the listed alternatives, each of which may itself be a multi-word sequence | `(turn up\|increase\|raise) the volume` matches any of the three openings |
+| `token?` / `(group)?` | the immediately **preceding** token or group is optional - `?` is always postfix, never prefix, and applies the same way to a literal, a capture, or a parenthesized group | `please? cancel` matches "cancel" and "please cancel"; `(by {{delta:number}})?` matches with or without the whole "by ..." clause; `{{delta:number}}?` (no parens needed for a single token) matches with or without just the number |
+| `{{name:type}}` | capture - `type` resolves against either a built-in `Parameter` type ([§7](#7-parameter-model-and-collection-policy)), open-ended with no fixed vocabulary, or the `name` of a declared `EntityGroup` ([§22](#22-nlu-training-data)), a closed predefined vocabulary; either way, the matched value lands in `extracted_parameters[name]` | `by {{amount:number}}` captures "by 15" -> `amount: 15`; `{{target_zone:zone}}` captures "the front left vent" -> `target_zone: "front_left"` |
+| `{canonical}` | bare predefined placeholder - matches any synonym of one specific, uniquely-named `EntityValue` anywhere in the dictionary; no extraction, since the phrase is already specific to that one value | `turn on the {front_left} vent` matches "turn on the front left vent" and "turn on the driver's side front vent" alike |
+| leading `!` on a whole phrase | negative example - this intent must **not** match an utterance shaped like this | `!turn * up by {{amount:number}} percent` under an absolute-increase intent, so a near-miss doesn't steal a match belonging to the percent intent |
 
-The choice between the two `{...}` forms is a real design decision, not just syntax: `{front_left}` (bare) fits a per-value intent (`turn_on_front_left_vent`, `turn_on_front_right_vent`, ...) - simpler grammar, more intents, no captured parameter needed. `{zone:target_zone}` fits one shared intent (`turn_on_vent`) whose executor reads `nlu.target_zone` and calls one `customTool` for any zone - fewer intents, more general, and the natural choice once the number of values grows past a handful. [§22.4](#224-worked-example) shows both.
+`(a|b|c)` and postfix `?` compose freely: `"(turn up|increase|raise) the volume (by {{delta:number}})?"` matches six phrasings from one line - three openings times two variants of the trailing clause - in place of what used to be three near-duplicate `phrases:` entries differing only in their opening verb ([§22.4](#224-worked-example) shows the before/after). `?` isn't special-cased to groups; it's a postfix operator on whatever token or group immediately precedes it, so `{{delta:number}}?` and `({{delta:number}})?` mean the same thing - parens exist for multi-token clauses, not because a capture needs wrapping to be optional.
 
-For an `<enum:name>` capture, the allowed values aren't restated in the training file - they're resolved at match time against the actual `Parameter` named `name` on whichever node has it in its `form` ([§7](#7-parameter-model-and-collection-policy)). A capture with no matching `Parameter` anywhere in the active flow just extracts the matched span as a plain typed value, same as `amount` in [§22.4](#224-worked-example) - never a node `form` parameter, just a one-shot argument to a route's executor. `EntityDictionary` values are a separate, complementary mechanism from `Parameter` ENUMs: an ENUM's `allowedValues` lives with one specific `Parameter` on one node, while an `EntityGroup` is shared vocabulary any phrase in any vertical can reference - use whichever matches where the canonical list of values actually lives.
+The choice between the two placeholder forms is a real design decision, not just syntax: `{front_left}` (bare) fits a per-value intent (`turn_on_front_left_vent`, `turn_on_front_right_vent`, ...) - simpler grammar, more intents, no captured parameter needed. `{{target_zone:zone}}` (capturing, `type` naming the `zone` `EntityGroup`) fits one shared intent (`turn_on_vent`) whose executor reads `nlu.target_zone` and calls one `customTool` for any zone - fewer intents, more general, and the natural choice once the number of values grows past a handful. [§22.4](#224-worked-example) shows both.
 
-Validation, at `TrainingSet` load time: every `canonical` name must be unique across the *entire* dictionary (not just within its group) so a bare `{name}` reference is unambiguous; every `{canonical}` and `{group:name}` reference in a phrase must resolve to something the dictionary actually defines; and a group referenced with no matching `EntityGroup.name` is a load-time error, the same "fail loudly, not at match time" rule [§8](#8-condition--expression-language) already established for CEL.
+For a `{{name:enum}}` capture, the allowed values aren't restated in the training file - they're resolved at match time against the actual `Parameter` named `name` on whichever node has it in its `form` ([§7](#7-parameter-model-and-collection-policy)). A capture with no matching `Parameter` anywhere in the active flow just extracts the matched span as a plain typed value, same as `amount` in [§22.4](#224-worked-example) - never a node `form` parameter, just a one-shot argument to a route's executor. `EntityDictionary` values are a separate, complementary mechanism from `Parameter` ENUMs: an ENUM's `allowedValues` lives with one specific `Parameter` on one node, while an `EntityGroup` is shared vocabulary any phrase in any vertical can reference by naming the group as `type` - use whichever matches where the canonical list of values actually lives.
+
+Validation, at `TrainingSet` load time: every `canonical` name must be unique across the *entire* dictionary (not just within its group) so a bare `{name}` reference is unambiguous; every `{canonical}` reference, and every `{{name:type}}` capture whose `type` isn't a built-in `Parameter` type, must resolve to something the dictionary actually defines; a `type` matching neither a built-in `Parameter` type nor any declared `EntityGroup.name` is a load-time error, the same "fail loudly, not at match time" rule [§8](#8-condition--expression-language) already established for CEL; and a capture `name` reused more than once within the same phrase - including across different branches of the same `(a|b|c)` alternation - is a load-time error too, since it would otherwise silently pick whichever branch happened to match last.
 
 When multiple phrases (across different intents) match the same utterance, `TrainingPhraseNLUProvider` ranks candidates by specificity - fewer `*`/`.` tokens and a higher literal-word ratio score higher - and reports that as `confidence`, the same `NLUResult` field the LLM-backed provider reports its own certainty through. `IntentTrigger.min_confidence` ([§4](#4-domain-model)) behaves identically regardless of which implementation produced the number. The exact scoring formula is tracked as an open decision ([§18](#18-open-decisions)); negative examples exist precisely to resolve the cases specificity scoring alone can't.
 
@@ -1540,21 +1552,20 @@ The volume-control intents from [§21.1](#211-nlu-only-increase-the-volume-by-15
 # agents/.../training/volume.textproto
 intents {
   intent_name: "increase_volume_absolute"
-  phrases: "turn * up by <number:amount>"
-  phrases: "increase the volume by <number:amount>"
-  phrases: "make it <number:amount> louder"
+  phrases: "(turn * up|increase the volume) by {{amount:number}}"
+  phrases: "make it {{amount:number}} louder"
   phrases: "please? turn . up a little"
-  phrases: "!turn * up by <number:amount> percent"
+  phrases: "!turn * up by {{amount:number}} percent"
 }
 intents {
   intent_name: "increase_volume_percent"
-  phrases: "turn * up by <number:amount> percent"
-  phrases: "increase the volume by <number:amount>%"
-  phrases: "make it <number:amount> percent louder"
+  phrases: "turn * up by {{amount:number}} percent"
+  phrases: "increase the volume by {{amount:number}}%"
+  phrases: "make it {{amount:number}} percent louder"
 }
 ```
 
-`"turn * up by <number:amount>"` matches *"turn the volume up by 15"* with `amount: 15`. `"turn . up a little"` matches *"turn it up a little"* but not *"turn the volume up a little"* - `.` is exactly one word, `*` is zero-or-more, and this phrase is deliberately tighter for a vaguer phrasing that carries no number. The last phrase under `increase_volume_absolute` is the negative example doing real work: without it, *"turn the volume up by 15 percent"* could plausibly match the absolute intent's own `"turn * up by <number:amount>"` pattern too (`*` swallows nothing extra, `<number:amount>` captures "15", and "percent" just trails off unmatched) - the `!` phrase tells the matcher explicitly that shape belongs to the percent intent instead.
+`"(turn * up|increase the volume) by {{amount:number}}"` matches both *"turn the volume up by 15"* (first alternative, `*` swallowing "the volume") and *"increase the volume by 15"* (second alternative) with `amount: 15` either way - one line standing in for what used to be two near-duplicate phrases differing only in their opening. `"turn . up a little"` matches *"turn it up a little"* but not *"turn the volume up a little"* - `.` is exactly one word, `*` is zero-or-more, and this phrase is deliberately tighter for a vaguer phrasing that carries no number. The last phrase under `increase_volume_absolute` is the negative example doing real work: without it, *"turn the volume up by 15 percent"* could plausibly match the absolute intent's own first alternative too (`*` swallows nothing extra, `{{amount:number}}` captures "15", and "percent" just trails off unmatched) - the `!` phrase tells the matcher explicitly that shape belongs to the percent intent instead.
 
 A more layered example - climate control, combining a predefined entity, a dynamic capture, and an optional group in one phrase:
 
@@ -1573,13 +1584,13 @@ groups {
 # agents/.../training/climate.textproto
 intents {
   intent_name: "turn_on_vent"
-  phrases: "turn on the {zone:target_zone} vent (and increase the temperature by <number:delta>)?"
-  phrases: "{zone:target_zone} vent on"
+  phrases: "turn on the {{target_zone:zone}} vent (and increase the temperature by {{delta:number}})?"
+  phrases: "{{target_zone:zone}} vent on"
   capture_defaults { name: "delta" default_value { number_value: 0 } }   # §26 (Draft v2.7)
 }
 ```
 
-This one shape covers a lot of ground: *"turn on the front left vent"* matches with `target_zone: front_left` and no `delta` - the whole `(and increase ... )?` clause is absent. Before Draft v2.7 that meant `nlu.delta` was simply unset, and a route's executor had to check `has(nlu.delta)` in CEL (or a `customTool` handler had to treat a missing field as "no change requested") every place it read `delta`. The `capture_defaults { name: "delta" default_value { number_value: 0 } }` line above ([§26](#26-default-values-for-intent-captures)) means `nlu.delta` is `0` instead of absent whenever this intent matches without that clause - a route's `value_cel` just writes `context.cabin_temp_c + nlu.delta`, no `has()` needed, since "no change requested" and "change requested by 0" already produce the identical result for this particular field. *"turn on the driver's side front vent and increase the temperature by 5"* matches the same phrase with `target_zone: front_left` (via the synonym) and `delta: 5`, overriding the default exactly as captured. One shared `turn_on_vent` intent and one `customTool` handler cover all four zones, with or without a temperature delta, because the group-capturing `{zone:target_zone}` and the optional group both generalize instead of requiring a separate phrase - or a separate intent - per combination.
+This one shape covers a lot of ground: *"turn on the front left vent"* matches with `target_zone: front_left` and no `delta` - the whole `(and increase ... )?` clause is absent. Before Draft v2.7 that meant `nlu.delta` was simply unset, and a route's executor had to check `has(nlu.delta)` in CEL (or a `customTool` handler had to treat a missing field as "no change requested") every place it read `delta`. The `capture_defaults { name: "delta" default_value { number_value: 0 } }` line above ([§26](#26-default-values-for-intent-captures)) means `nlu.delta` is `0` instead of absent whenever this intent matches without that clause - a route's `value_cel` just writes `context.cabin_temp_c + nlu.delta`, no `has()` needed, since "no change requested" and "change requested by 0" already produce the identical result for this particular field. *"turn on the driver's side front vent and increase the temperature by 5"* matches the same phrase with `target_zone: front_left` (via the synonym) and `delta: 5`, overriding the default exactly as captured. One shared `turn_on_vent` intent and one `customTool` handler cover all four zones, with or without a temperature delta, because the group-capturing `{{target_zone:zone}}` and the optional group both generalize instead of requiring a separate phrase - or a separate intent - per combination.
 
 If instead each zone genuinely needed its own distinct handling (not just a different argument to the same tool), the bare form fits better: `intent_name: "turn_on_front_left_vent"` with `phrases: "turn on the {front_left} vent"` and no capture at all - simpler per-intent grammar, at the cost of one intent (and one set of training phrases) per zone.
 
@@ -1804,7 +1815,7 @@ Same discipline as [§23.5](#235-what-this-doesnt-do): `ContextSchema` types `co
 
 ## 25. Entity-Backed CEL Constants
 
-*Draft v2.6 - see [§0.6](#06-what-changed-in-draft-v26).* [§22](#22-nlu-training-data)'s `EntityDictionary` already gives an agent one canonical, deduplicated vocabulary - `zone`, `fan_level`, and so on - but until now, only NLU phrase matching could reach it: `{canonical}`/`{group:name}` ([§22.1](#221-phrase-grammar)) resolve a spoken phrase into `nlu.*`. A route author writing `condition_cel`/`value_cel`/`args_cel` had no way to reference that same dictionary at all - a `customTool` argument that's always exactly one fixed value, rather than whatever the caller's utterance captured, was written as a bare CEL string literal, spelled by hand, checked against nothing.
+*Draft v2.6 - see [§0.6](#06-what-changed-in-draft-v26).* [§22](#22-nlu-training-data)'s `EntityDictionary` already gives an agent one canonical, deduplicated vocabulary - `zone`, `fan_level`, and so on - but until now, only NLU phrase matching could reach it: `{canonical}`/`{{name:type}}` ([§22.1](#221-phrase-grammar)) resolve a spoken phrase into `nlu.*`. A route author writing `condition_cel`/`value_cel`/`args_cel` had no way to reference that same dictionary at all - a `customTool` argument that's always exactly one fixed value, rather than whatever the caller's utterance captured, was written as a bare CEL string literal, spelled by hand, checked against nothing.
 
 ### 25.1 The `entity.*` namespace
 
@@ -1856,7 +1867,7 @@ Renaming `zone`'s `front_left` canonical to anything else, or deleting it from `
 
 ## 26. Default Values for Intent Captures
 
-*Draft v2.7 - see [§0.7](#07-what-changed-in-draft-v27).* A `<type:name>` or `{group:name}` capture ([§22.1](#221-phrase-grammar)) inside an optional `(...)?` group is, by construction, sometimes absent - *"turn on the front left vent"* carries no `delta` at all. Before this section, "absent" meant exactly that: the key is simply missing from `NLUResult.extracted_parameters`, and every `condition_cel`/`value_cel`/`args_cel` expression reading it has to open with `has(nlu.delta) ? nlu.delta : <something>` - the same fallback value, spelled out again, at every route that happens to read that capture.
+*Draft v2.7 - see [§0.7](#07-what-changed-in-draft-v27).* A `{{name:type}}` capture ([§22.1](#221-phrase-grammar)) inside an optional `(...)?` group is, by construction, sometimes absent - *"turn on the front left vent"* carries no `delta` at all. Before this section, "absent" meant exactly that: the key is simply missing from `NLUResult.extracted_parameters`, and every `condition_cel`/`value_cel`/`args_cel` expression reading it has to open with `has(nlu.delta) ? nlu.delta : <something>` - the same fallback value, spelled out again, at every route that happens to read that capture.
 
 ### 26.1 Declaring a default
 
@@ -1865,8 +1876,8 @@ Renaming `zone`'s `front_left` canonical to anything else, or deleting it from `
 ```textproto
 intents {
   intent_name: "turn_on_vent"
-  phrases: "turn on the {zone:target_zone} vent (and increase the temperature by <number:delta>)?"
-  phrases: "{zone:target_zone} vent on"
+  phrases: "turn on the {{target_zone:zone}} vent (and increase the temperature by {{delta:number}})?"
+  phrases: "{{target_zone:zone}} vent on"
   capture_defaults { name: "delta" default_value { number_value: 0 } }
 }
 ```
