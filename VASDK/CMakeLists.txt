@@ -11,6 +11,12 @@ option(VASDK_METRICS_STATSD     "Build StatsD UDP metrics transport"           O
 option(VASDK_METRICS_INFLUX     "Build InfluxDB v2 Line Protocol transport"    OFF)
 option(VASDK_METRICS_WEBSOCKET  "Build WebSocket metrics push transport"       OFF)
 
+#  RequestFlow orchestrator module (va::orchestrator)
+# See docs/reference/requestflow-spec.md and docs/reference/requestflow-roadmap.md
+# (Milestone 0). Default OFF: this module is new/unproven and pulls protobuf as a
+# build-from-source dependency, unlike everything else in this file.
+option(VASDK_BUILD_ORCHESTRATOR "Build the RequestFlow orchestrator module (va::orchestrator)" OFF)
+
 
 add_library(VASDK SHARED
     # Core sources
@@ -159,6 +165,32 @@ if(VASDK_ENABLE_HTTP_TRANSPORT)
     message(STATUS "libcurl found - HTTP transport support enabled")
 else()
     message(STATUS "VASDK_ENABLE_HTTP_TRANSPORT=OFF - skipping libcurl, HTTP transports will stub out")
+endif()
+
+#  RequestFlow orchestrator module (va::orchestrator)
+# cel-cpp is deliberately NOT wired here - it has no CMake build of its own
+# (Bazel-only, confirmed against its repo: no CMakeLists.txt, no vcpkg/Conan
+# package). Resolving that is a tracked open decision ahead of Milestone 1.3
+# (see docs/reference/requestflow-roadmap.md); Milestone 0 only proves the
+# module skeleton and the one dependency (protobuf) that does have real CMake
+# support.
+if(VASDK_BUILD_ORCHESTRATOR)
+    fetchcontent_declare(
+        protobuf
+        GIT_REPOSITORY https://github.com/protocolbuffers/protobuf.git
+        GIT_TAG        v36.1
+        GIT_SHALLOW    TRUE
+    )
+    set(protobuf_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(protobuf_INSTALL     OFF CACHE BOOL "" FORCE)
+    fetchcontent_makeavailable(protobuf)
+
+    target_sources(VASDK PRIVATE ./src/orchestrator/OrchestratorModule.cpp)
+    target_link_libraries(VASDK PRIVATE protobuf::libprotobuf)
+    target_compile_definitions(VASDK PRIVATE VASDK_HAS_ORCHESTRATOR)
+    message(STATUS "VASDK: orchestrator module enabled (va::orchestrator) - protobuf wired, cel-cpp not yet (see requestflow-roadmap.md)")
+else()
+    message(STATUS "VASDK: orchestrator module disabled (VASDK_BUILD_ORCHESTRATOR=OFF)")
 endif()
 
 set_target_properties(VASDK PROPERTIES
