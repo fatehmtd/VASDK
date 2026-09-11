@@ -184,11 +184,44 @@ if(VASDK_BUILD_ORCHESTRATOR)
     set(protobuf_BUILD_TESTS OFF CACHE BOOL "" FORCE)
     set(protobuf_INSTALL     OFF CACHE BOOL "" FORCE)
     fetchcontent_makeavailable(protobuf)
+    # Observed on this dev machine: protobuf's own CMake resolved its Abseil
+    # dependency via find_package() against a Homebrew-installed abseil
+    # (/opt/homebrew/opt/abseil), not via FetchContent. Unverified whether
+    # protobuf_ABSL_PROVIDER falls back to fetching its own copy when no
+    # system abseil is present (e.g. on a clean CI machine) - worth confirming
+    # before relying on this option in CI.
 
-    target_sources(VASDK PRIVATE ./src/orchestrator/OrchestratorModule.cpp)
+    # M1.1 (requestflow-roadmap.md §3) - the .proto schema from requestflow-spec.md §4.
+    # Invokes protobuf::protoc directly rather than the protobuf_generate() CMake
+    # helper - that helper is NOT reliably registered by fetchcontent_makeavailable()
+    # (confirmed: "Unknown CMake command protobuf_generate" when building from
+    # source this way), so this is the verified-working path, not the documented one.
+    # The second -I (protobuf's own src/) lets `import "google/protobuf/struct.proto"`
+    # etc. resolve against the well-known-type .proto sources FetchContent just pulled.
+    set(VASDK_ORCHESTRATOR_PROTO_OUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
+    file(MAKE_DIRECTORY ${VASDK_ORCHESTRATOR_PROTO_OUT_DIR}/orchestrator)
+    set(VASDK_ORCHESTRATOR_PROTO ${CMAKE_CURRENT_SOURCE_DIR}/proto/orchestrator/domain.proto)
+    set(VASDK_ORCHESTRATOR_PROTO_SRCS
+        ${VASDK_ORCHESTRATOR_PROTO_OUT_DIR}/orchestrator/domain.pb.cc
+        ${VASDK_ORCHESTRATOR_PROTO_OUT_DIR}/orchestrator/domain.pb.h
+    )
+    add_custom_command(
+        OUTPUT  ${VASDK_ORCHESTRATOR_PROTO_SRCS}
+        COMMAND protobuf::protoc
+        ARGS    --cpp_out=${VASDK_ORCHESTRATOR_PROTO_OUT_DIR}
+                -I ${CMAKE_CURRENT_SOURCE_DIR}/proto
+                -I ${protobuf_SOURCE_DIR}/src
+                ${VASDK_ORCHESTRATOR_PROTO}
+        DEPENDS ${VASDK_ORCHESTRATOR_PROTO} protobuf::protoc
+        COMMENT "Generating C++ protobuf sources for va::orchestrator domain model"
+        VERBATIM
+    )
+
+    target_sources(VASDK PRIVATE ./src/orchestrator/OrchestratorModule.cpp ${VASDK_ORCHESTRATOR_PROTO_SRCS})
+    target_include_directories(VASDK PRIVATE ${VASDK_ORCHESTRATOR_PROTO_OUT_DIR})
     target_link_libraries(VASDK PRIVATE protobuf::libprotobuf)
     target_compile_definitions(VASDK PRIVATE VASDK_HAS_ORCHESTRATOR)
-    message(STATUS "VASDK: orchestrator module enabled (va::orchestrator) - protobuf wired, cel-cpp not yet (see requestflow-roadmap.md)")
+    message(STATUS "VASDK: orchestrator module enabled (va::orchestrator) - protobuf + domain.proto wired, cel-cpp not yet (see requestflow-roadmap.md)")
 else()
     message(STATUS "VASDK: orchestrator module disabled (VASDK_BUILD_ORCHESTRATOR=OFF)")
 endif()

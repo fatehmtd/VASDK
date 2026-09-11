@@ -1,0 +1,195 @@
+// RequestFlow domain model - transcribed from docs/reference/requestflow-spec.md §4.
+// Field names/numbers/comments are kept identical to the spec's own proto block so
+// generated code stays traceable back to the design doc. Milestone 1.1
+// (docs/reference/requestflow-roadmap.md §3) - see that section for what's
+// deliberately not here yet (NLUContext/NLUResult land with NLU in Phase 2).
+syntax = "proto3";
+package va.orchestrator;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/wrappers.proto";
+
+message Agent {
+  string id = 1;
+  string display_name = 2;
+  string default_locale = 3;   // one Agent config per locale is the supported multi-locale pattern - see spec §18
+  repeated Flow flows = 4;
+  EventHandlers global_handlers = 5;
+  repeated string interrupt_intent_names = 6;   // spec §6.2 - checked ahead of parameter extraction and generative-node input, agent-wide
+}
+
+message Flow {
+  string id = 1;
+  string display_name = 2;
+  string description = 3;
+  string start_node_id = 4;
+  repeated Node nodes = 5;
+  EventHandlers flow_handlers = 6;
+  repeated string interrupt_intent_names = 7;   // spec §6.2 - merged with Agent's list while this flow is active
+}
+
+// The actual no-match/no-input/webhook-error/user-cancel fallback mechanism -
+// see spec §0.1 for why these are not Route trigger types.
+message EventHandlers {
+  Executor no_match = 1;
+  Executor no_input = 2;
+  Executor webhook_error = 3;
+  Executor user_cancel = 4;
+  Executor permission_denied = 5;   // spec §9.8 - a required_role check failed
+  Executor webhook_deferred = 6;    // spec §9.9 - queued for offline replay rather than failed outright
+}
+
+message Node {
+  string id = 1;
+  string display_name = 2;
+  Executor entry_executor = 3;
+  repeated Parameter form = 4;
+  repeated Route routes = 5;
+  EventHandlers node_handlers = 6;
+  bool generative = 7;
+  GenerativeConfig generative_config = 8;   // required when generative is true
+  repeated string interrupt_intent_names = 9;   // spec §6.2 - merged with Agent's/Flow's list while this node is active
+  bool accepts_ambient_triggers = 10;           // spec §9.7 - true => a TriggerFrame-originated event evaluates against this node directly instead of redirecting to the flow's start_node_id
+}
+
+// The LLM-tool-loop escape hatch - see spec §9.4 for runtime mechanics, §21 for a worked example.
+message GenerativeConfig {
+  string system_prompt_template = 1;   // templated like `say` text, e.g. "{current_volume}"
+  message ToolRef {
+    string name = 1;
+    bool terminal = 2;                 // calling this tool ends the loop
+  }
+  repeated ToolRef tools = 2;          // the *only* customTool handlers exposed to the LLM for this node
+  int32 max_turns = 3;                 // 0 => use OrchestratorConfig::defaultGenerativeMaxTurns
+  string exit_event = 4;               // defaults to "generative_exit" if empty
+}
+
+message Route {
+  string id = 1;
+  int32 priority = 2;                  // lower evaluates earlier
+  Trigger trigger = 3;
+  Executor executor = 4;
+  Transition transition = 5;
+  google.protobuf.BoolValue stop_evaluation = 6;   // unset => true; see the proto3-default note in spec §4
+  string required_role = 7;            // spec §9.8 - empty = no permission check; checked against the turn's actor before this route fires
+  bool co_fireable = 8;                // spec §6.1 - true => may fire alongside another matched route in the same turn if it carries no transition
+}
+
+message Trigger {
+  oneof kind {
+    IntentTrigger intent = 1;
+    string condition_cel = 2;          // a CEL expression, compiled once at load time - see spec §8
+    EventTrigger event = 3;
+  }
+}
+
+message IntentTrigger { string intent_name = 1; float min_confidence = 2; }
+message EventTrigger  { string name = 1; }
+
+message Parameter {
+  enum Type {
+    STRING = 0; PHONE = 1; EMAIL = 2; DATE = 3; TIME = 4; DATETIME = 5;
+    NUMBER = 6; INTEGER = 7; BOOLEAN = 8; ENUM = 9; OBJECT = 10; COMPOSITE = 11;
+  }
+  string name = 1;
+  Type type = 2;
+  bool required = 3;
+  Prompts prompts = 4;
+  google.protobuf.Struct constraints = 5;   // shape depends on `type` - see spec §7
+  string condition_cel = 6;                 // optional; empty = always required
+  string validator_ref = 7;                 // optional; names a C++ validator registered on the engine
+  bool redact_in_logs = 8;
+  int32 no_input_timeout_ms = 9;            // 0 => OrchestratorConfig::defaultNoInputTimeout; see spec §9.5
+}
+
+message Prompts {
+  string initial = 1;
+  repeated string reprompts = 2;
+  string escalation = 3;
+}
+
+message Executor {
+  repeated Action actions = 1;
+}
+
+message Action {
+  oneof kind {
+    SayAction say = 1;
+    CallWebhookAction call_webhook = 2;
+    SetParameterAction set_parameter = 3;
+    ClearParameterAction clear_parameter = 4;
+    EmitEventAction emit_event = 5;
+    HandoffAction handoff = 6;
+    CustomToolAction custom_tool = 7;
+    LlmGenerateAction llm_generate = 8;
+    ExpectAction expect = 9;
+  }
+}
+
+message SayAction          { string text = 1; }                        // "{parameter_name}" substitution
+message SetParameterAction { string name = 1; string value_cel = 2; }  // CEL, evaluated against session parameters
+message ClearParameterAction { string name = 1; }
+message EmitEventAction    { string name = 1; google.protobuf.Struct params = 2; }   // spec §8.2 - surfaced to whatever handles this event via event.*
+message HandoffAction      { string reason = 1; }
+message LlmGenerateAction  { string prompt_template = 1; }
+
+// spec §9.10 - shared by CustomToolAction and CallWebhookAction only; see that
+// section for why the other Action kinds don't get one.
+enum ExecutionMode {
+  BLOCKING = 0;          // default - unchanged behavior for both action kinds, see spec §9.10
+  FIRE_AND_FORGET = 1;   // dispatch off-thread, don't wait - this turn never sees the result
+  BEST_EFFORT = 2;       // wait up to timeout_ms; expiry is not a failure - the turn proceeds anyway
+}
+
+message CustomToolAction {
+  string tool = 1;
+  map<string, string> args_cel = 2;   // each value is a CEL expression, evaluated before the tool handler runs
+  ExecutionMode execution_mode = 3;   // default BLOCKING = inline, no thread pool - see spec §9.10
+  int32 timeout_ms = 4;               // BEST_EFFORT only; 0 => OrchestratorConfig::turnExternalCallBudget
+}
+message CallWebhookAction {
+  string url = 1;
+  string method = 2;        // default POST
+  int32 timeout_ms = 3;     // 0 => use OrchestratorConfig::webhookTimeout; also governs BEST_EFFORT's wait bound
+  ExecutionMode execution_mode = 4;   // default BLOCKING = Draft v2.1's original behavior, unchanged - see spec §9.10
+}
+message ExpectAction {
+  Parameter parameter = 1;        // ephemeral - same shape as a form Parameter, never added to Node.form. Unset => a bare turn-wait, see spec §9.5
+  bool transient = 2;             // true => cleared from session parameters once the route consuming it finishes evaluating. Meaningless when parameter is unset.
+  int32 no_input_timeout_ms = 3;  // used only when parameter is unset; when parameter is set, Parameter.no_input_timeout_ms takes precedence
+}
+
+message Transition {
+  enum TargetType { NODE = 0; FLOW = 1; END_SESSION = 2; NONE = 3; }
+  TargetType target_type = 1;
+  string target_id = 2;
+  google.protobuf.BoolValue preserve_parameters = 3;   // unset => true; see the proto3-default note in spec §4
+}
+
+// Also a proto message, since it crosses the spec §10 persistence boundary.
+message SessionSnapshot {
+  string session_id = 1;
+  string active_flow_id = 2;
+  string active_node_id = 3;
+  map<string, google.protobuf.Value> parameters = 4;
+  map<string, ParameterMeta> parameter_meta = 5;
+  repeated string route_history = 6;      // bounded ring buffer, oldest-evicted at load/save time
+  map<string, int32> event_counters = 7;
+  PendingAsk pending_ask = 8;              // set by an ExpectAction, see spec §9.5
+  int64 created_at_unix_ms = 10;
+  int64 updated_at_unix_ms = 11;
+  string active_speaker_id = 12;   // spec §9.8/§9.10 - last-known actor identity, persisted so a restored session still has it for permission checks
+}
+
+message ParameterMeta {
+  int32 attempts = 1;
+  string source = 2;    // "nlu" | "prefill" | "webhook_patch" | "expect" | ...
+  int64 last_updated_unix_ms = 3;
+}
+
+message PendingAsk {
+  Parameter parameter = 1;      // the ephemeral definition - not in any node's static form, so it has to travel with the snapshot. Absent for a bare turn-wait, see spec §9.5
+  int32 attempts = 2;
+  bool transient = 3;
+  string origin_route_id = 4;   // which route's `expect` armed this - debugging/metrics only
+}
