@@ -217,7 +217,11 @@ if(VASDK_BUILD_ORCHESTRATOR)
         VERBATIM
     )
 
-    target_sources(VASDK PRIVATE ./src/orchestrator/OrchestratorModule.cpp ${VASDK_ORCHESTRATOR_PROTO_SRCS})
+    target_sources(VASDK PRIVATE
+        ./src/orchestrator/OrchestratorModule.cpp
+        ./src/orchestrator/OrchestratorConfigLoader.cpp
+        ${VASDK_ORCHESTRATOR_PROTO_SRCS}
+    )
     target_include_directories(VASDK PRIVATE ${VASDK_ORCHESTRATOR_PROTO_OUT_DIR})
     target_link_libraries(VASDK PRIVATE protobuf::libprotobuf)
     target_compile_definitions(VASDK PRIVATE VASDK_HAS_ORCHESTRATOR)
