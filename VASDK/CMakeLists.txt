@@ -198,28 +198,35 @@ if(VASDK_BUILD_ORCHESTRATOR)
     # source this way), so this is the verified-working path, not the documented one.
     # The second -I (protobuf's own src/) lets `import "google/protobuf/struct.proto"`
     # etc. resolve against the well-known-type .proto sources FetchContent just pulled.
+    #
+    # M1.3 (requestflow-roadmap.md §3) added proto/orchestrator/training.proto (spec §22)
+    # alongside domain.proto - looped rather than duplicated per-file below.
     set(VASDK_ORCHESTRATOR_PROTO_OUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
     file(MAKE_DIRECTORY ${VASDK_ORCHESTRATOR_PROTO_OUT_DIR}/orchestrator)
-    set(VASDK_ORCHESTRATOR_PROTO ${CMAKE_CURRENT_SOURCE_DIR}/proto/orchestrator/domain.proto)
-    set(VASDK_ORCHESTRATOR_PROTO_SRCS
-        ${VASDK_ORCHESTRATOR_PROTO_OUT_DIR}/orchestrator/domain.pb.cc
-        ${VASDK_ORCHESTRATOR_PROTO_OUT_DIR}/orchestrator/domain.pb.h
-    )
-    add_custom_command(
-        OUTPUT  ${VASDK_ORCHESTRATOR_PROTO_SRCS}
-        COMMAND protobuf::protoc
-        ARGS    --cpp_out=${VASDK_ORCHESTRATOR_PROTO_OUT_DIR}
-                -I ${CMAKE_CURRENT_SOURCE_DIR}/proto
-                -I ${protobuf_SOURCE_DIR}/src
-                ${VASDK_ORCHESTRATOR_PROTO}
-        DEPENDS ${VASDK_ORCHESTRATOR_PROTO} protobuf::protoc
-        COMMENT "Generating C++ protobuf sources for va::orchestrator domain model"
-        VERBATIM
-    )
+    set(VASDK_ORCHESTRATOR_PROTO_STEMS domain training)
+    set(VASDK_ORCHESTRATOR_PROTO_SRCS)   # truly empty list - set(... "") would leave a leading empty-string element
+    foreach(_vasdk_orch_proto_stem ${VASDK_ORCHESTRATOR_PROTO_STEMS})
+        set(_vasdk_orch_proto ${CMAKE_CURRENT_SOURCE_DIR}/proto/orchestrator/${_vasdk_orch_proto_stem}.proto)
+        set(_vasdk_orch_proto_cc ${VASDK_ORCHESTRATOR_PROTO_OUT_DIR}/orchestrator/${_vasdk_orch_proto_stem}.pb.cc)
+        set(_vasdk_orch_proto_h  ${VASDK_ORCHESTRATOR_PROTO_OUT_DIR}/orchestrator/${_vasdk_orch_proto_stem}.pb.h)
+        add_custom_command(
+            OUTPUT  ${_vasdk_orch_proto_cc} ${_vasdk_orch_proto_h}
+            COMMAND protobuf::protoc
+            ARGS    --cpp_out=${VASDK_ORCHESTRATOR_PROTO_OUT_DIR}
+                    -I ${CMAKE_CURRENT_SOURCE_DIR}/proto
+                    -I ${protobuf_SOURCE_DIR}/src
+                    ${_vasdk_orch_proto}
+            DEPENDS ${_vasdk_orch_proto} protobuf::protoc
+            COMMENT "Generating C++ protobuf sources for va::orchestrator ${_vasdk_orch_proto_stem} schema"
+            VERBATIM
+        )
+        list(APPEND VASDK_ORCHESTRATOR_PROTO_SRCS ${_vasdk_orch_proto_cc} ${_vasdk_orch_proto_h})
+    endforeach()
 
     target_sources(VASDK PRIVATE
         ./src/orchestrator/OrchestratorModule.cpp
         ./src/orchestrator/OrchestratorConfigLoader.cpp
+        ./src/orchestrator/PhraseGrammarMatcher.cpp
         ${VASDK_ORCHESTRATOR_PROTO_SRCS}
     )
     target_include_directories(VASDK PRIVATE ${VASDK_ORCHESTRATOR_PROTO_OUT_DIR})
