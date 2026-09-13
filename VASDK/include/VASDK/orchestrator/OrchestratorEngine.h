@@ -2,6 +2,7 @@
 
 #include "vasdk_export.h"
 #include <VASDK/Metrics/MetricHandles.h>
+#include <VASDK/llm/LLMTransport.h>
 #include <VASDK/orchestrator/ExpressionEvaluator.h>
 #include <VASDK/orchestrator/NLUProvider.h>
 #include <VASDK/orchestrator/SessionState.h>
@@ -74,11 +75,57 @@ struct VASDK_EXPORT OrchestratorConfig {
 //     (node_enter or EmitEventAction); a condition route is evaluated every
 //     time step 3 runs, regardless of what triggered it, since condition_cel
 //     isn't gated by an event name at all.
-//   - Only four Action kinds run: say, setParameter, clearParameter,
-//     emitEvent. callWebhook/customTool/llmGenerate/handoff/expect are
-//     Phase 2/3 (§9.2-§9.6, §9.9) - encountering one is a silent no-op for
-//     now rather than a guess at behavior no milestone has specified yet.
-//   - No permission gate (§9.8, Phase 4), no generative nodes (§9.4, M2.4).
+//   - Milestone 2.3 added say/setParameter/clearParameter/emitEvent plus
+//     intent-route matching. Milestone 2.4 (this milestone) added customTool
+//     (§9.6, both as an ordinary route action and as the mechanism a
+//     generative node's LLM-tool loop dispatches through) and llmGenerate
+//     (§9.3, a one-shot templated-prompt call whose raw reply becomes this
+//     turn's say output) plus generative nodes themselves (§9.4). callWebhook/
+//     handoff/expect remain Phase 2/3 (§9.2, §9.5, §9.9) - encountering one is
+//     a silent no-op for now rather than a guess at behavior no milestone has
+//     specified yet.
+//   - Generative nodes (§9.4): while the active node has generative: true,
+//     handleUtterance() skips NLUProvider.detect() and §6 steps 1-3 entirely
+//     (a generative node never touches NLUProvider) and instead runs
+//     runGenerativeTurn(), which drives _llmTransport directly - a system
+//     message (generative_config.system_prompt_template, {param}-substituted
+//     like say.text, plus a tool-calling contract this engine defines: reply
+//     with only {"tool": "<name>", "args": {...}} to call one of
+//     generative_config.tools, anything else is treated as plain spoken text)
+//     installed once per node-entry, then one user-turn's worth of
+//     tool-call/tool-result exchanges (each dispatched through the same
+//     setCustomToolHandler registry an ordinary route's CustomToolAction
+//     uses - spec §9.4 point 3's "the ordinary customTool handler") until the
+//     model produces plain text (this turn's say output) or calls a
+//     `terminal` tool, whichever ends the loop first and emits
+//     generative_config.exit_event (default "generative_exit") as a pending
+//     event, re-entering ordinary route evaluation at step 3 exactly like any
+//     other emitted event. _generativeTurnsUsed - reset whenever any node is
+//     entered - bounds how many *user* turns the loop runs before it force-
+//     exits the same way (spec's "whichever comes first"); a separate,
+//     engine-only kMaxToolCallsPerTurn (OrchestratorEngine.cpp) bounds how
+//     many back-to-back tool calls one single turn's exchange can make,
+//     since nothing in spec §9.4 bounds that and an unbounded loop would hang
+//     this synchronous call forever against a misbehaving model.
+//   - Not implemented: the off-thread thread pool/turnExternalCallBudget and
+//     ControlFrame::INTERRUPT barge-in cancellation §9.1/§9.3 describe for
+//     every external call (llmGenerate, the generative loop's LLM calls,
+//     customTool's FIRE_AND_FORGET/BEST_EFFORT modes) - this engine still has
+//     no threading infrastructure at all (OrchestratorConfig::
+//     executorThreadPoolSize stays an inert tuning field, same as M1.6 left
+//     it), so every external call here runs synchronously in BLOCKING mode
+//     only, same scope decision M2.2's LLMNLUProvider already made for its
+//     own classification round trip. That infrastructure is shared with
+//     M3.1's callWebhook reliability model - the natural place to build it
+//     once, for every off-thread action kind at once, rather than
+//     duplicating a one-off version here.
+//   - A customTool handler or an attempted llmGenerate/generative-node call
+//     against a name/transport the app never wired up throws
+//     std::runtime_error, the same "fail loudly" treatment enterNode already
+//     gives an unknown flow/node id - both are the same class of bug (config
+//     assumes wiring the app never completed), not a runtime condition worth
+//     degrading gracefully around.
+//   - No permission gate (§9.8, Phase 4).
 //     Session persistence itself (§10) landed in M1.7 as a pair: snapshot()
 //     below, plus the restoring constructor and SessionPersistence/
 //     FileSessionPersistence (VASDK/include/VASDK/orchestrator/
@@ -172,6 +219,30 @@ public:
     // dedicated-but-possibly-reused transport).
     void setNLUProvider(std::shared_ptr<va::orchestrator::NLUProvider> provider);
 
+    // Milestone 2.4 (spec §9.3/§9.4/§13) - attaches the transport llmGenerate
+    // actions and generative nodes call. Unset is a fully supported shape as
+    // long as the agent never actually reaches a node/action that needs it -
+    // same "optional until a feature needs it" pattern setNLUProvider already
+    // established; unlike that one, though, an agent that *does* declare a
+    // generative node or llmGenerate action with no transport attached throws
+    // at the point it's actually reached (see class comment), since there's
+    // no graceful degradation for "the node whose entire purpose is this
+    // call has nothing to call."
+    void setLLMTransport(std::shared_ptr<va::llm::LLMTransport> transport);
+
+    // Milestone 2.4 (spec §9.6) - registers the deterministic C++ handler
+    // behind a customTool action's `tool` name. Invoked identically whether
+    // the call came from an ordinary route's CustomToolAction (args_cel
+    // evaluated into a Struct, return value discarded - spec §9.6) or a
+    // generative node's LLM-tool loop (the model's JSON tool-call args
+    // converted to a Struct, the handler's returned Struct converted back to
+    // JSON as that tool's result - spec §9.4 point 3). A route or a
+    // generative node's tools list naming an unregistered tool throws (see
+    // class comment) rather than silently doing nothing.
+    void setCustomToolHandler(
+        std::string name,
+        std::function<google::protobuf::Struct(const google::protobuf::Struct&, SessionState&)> handler);
+
     // Spec §13 - fires once, the instant a Transition resolves to
     // END_SESSION (this milestone's reading of "flow complete").
     void setOnFlowComplete(std::function<void(const std::string& flowId, const SessionState&)> cb);
@@ -213,6 +284,16 @@ private:
     std::shared_ptr<va::orchestrator::NLUProvider> _nluProvider;
     va::orchestrator::NLUResult _lastNluResult;
 
+    // Milestone 2.4 (spec §9.3/§9.4/§9.6) - see the class comment above.
+    // _generativeTurnsUsed counts user turns consumed by the *current* node's
+    // generative loop; reset to 0 on every enterNode() call (harmless, unread
+    // for a non-generative node).
+    std::shared_ptr<va::llm::LLMTransport> _llmTransport;
+    std::unordered_map<std::string,
+                       std::function<google::protobuf::Struct(const google::protobuf::Struct&, SessionState&)>>
+        _customToolHandlers;
+    int _generativeTurnsUsed = 0;
+
     std::function<void(const std::string&, const SessionState&)> _onFlowComplete;
     std::function<void(const std::string&)> _onSay;
 
@@ -243,6 +324,17 @@ private:
     void runExecutor(const va::orchestrator::Executor& executor, const google::protobuf::Struct* eventParams);
     void runAction(const va::orchestrator::Action& action, const google::protobuf::Struct* eventParams);
     void applyTransition(const va::orchestrator::Transition& transition);
+
+    // Milestone 2.4 (spec §9.6) - looks up and invokes a registered
+    // customTool handler; throws if `toolName` was never registered (see
+    // class comment).
+    google::protobuf::Struct callCustomTool(const std::string& toolName, const google::protobuf::Struct& args);
+
+    // Milestone 2.4 (spec §9.4) - drives one external turn of a generative
+    // node's LLM-tool loop against `node`. See the class comment above for
+    // the full mechanics.
+    void runGenerativeTurn(const va::orchestrator::Node& node, const std::string& utterance);
+    std::string buildGenerativeSystemPrompt(const va::orchestrator::GenerativeConfig& config) const;
 
     // Returns true when this evaluation pass should stop (a transition fired,
     // the session ended, or the matched route's stop_evaluation - default

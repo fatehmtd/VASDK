@@ -1,8 +1,11 @@
 #include <VASDK/orchestrator/OrchestratorEngine.h>
 
+#include <VASDK/Frame.h>
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <nlohmann/json.hpp>
+#include <spdlog/spdlog.h>
 #include <sstream>
 #include <stdexcept>
 #include <vector>
@@ -40,6 +43,93 @@ std::string valueToDisplayString(const google::protobuf::Value& value) {
     case google::protobuf::Value::kNullValue:   return "";
     default:                                    return ""; // struct/list - not expected in say-text substitution
     }
+}
+
+// Milestone 2.4 - a generative node's LLM-tool loop crosses the JSON/Struct
+// boundary in both directions (a tool call's args in, a tool handler's result
+// out); a plain route's CustomToolAction never needs these, since its
+// args_cel already evaluates directly into Struct fields. Built from plain
+// generated accessors only, deliberately never
+// google::protobuf::util::JsonStringToMessage/MessageToJsonString - see
+// LLMNLUProvider.h's class comment for why that reflection-based path is
+// fragile once more than one statically-linked libprotobuf copy exists in
+// the same process.
+void jsonValueToProtoValue(const nlohmann::json& j, google::protobuf::Value& out) {
+    if (j.is_string()) {
+        out.set_string_value(j.get<std::string>());
+    } else if (j.is_number()) {
+        out.set_number_value(j.get<double>());
+    } else if (j.is_boolean()) {
+        out.set_bool_value(j.get<bool>());
+    } else if (j.is_object()) {
+        auto* s = out.mutable_struct_value();
+        for (const auto& [key, value] : j.items()) {
+            jsonValueToProtoValue(value, (*s->mutable_fields())[key]);
+        }
+    } else if (j.is_array()) {
+        auto* l = out.mutable_list_value();
+        for (const auto& value : j) {
+            jsonValueToProtoValue(value, *l->add_values());
+        }
+    } else {
+        out.set_null_value(google::protobuf::NULL_VALUE);
+    }
+}
+
+google::protobuf::Struct jsonObjectToStruct(const nlohmann::json& j) {
+    google::protobuf::Struct s;
+    if (j.is_object()) {
+        for (const auto& [key, value] : j.items()) {
+            jsonValueToProtoValue(value, (*s.mutable_fields())[key]);
+        }
+    }
+    return s;
+}
+
+nlohmann::json protoValueToJson(const google::protobuf::Value& v) {
+    switch (v.kind_case()) {
+    case google::protobuf::Value::kStringValue: return v.string_value();
+    case google::protobuf::Value::kNumberValue: return v.number_value();
+    case google::protobuf::Value::kBoolValue:   return v.bool_value();
+    case google::protobuf::Value::kStructValue: {
+        nlohmann::json obj = nlohmann::json::object();
+        for (const auto& [key, value] : v.struct_value().fields()) {
+            obj[key] = protoValueToJson(value);
+        }
+        return obj;
+    }
+    case google::protobuf::Value::kListValue: {
+        nlohmann::json arr = nlohmann::json::array();
+        for (const auto& value : v.list_value().values()) {
+            arr.push_back(protoValueToJson(value));
+        }
+        return arr;
+    }
+    case google::protobuf::Value::kNullValue:
+    default:
+        return nullptr;
+    }
+}
+
+nlohmann::json structToJson(const google::protobuf::Struct& s) {
+    nlohmann::json obj = nlohmann::json::object();
+    for (const auto& [key, value] : s.fields()) {
+        obj[key] = protoValueToJson(value);
+    }
+    return obj;
+}
+
+// Milestone 2.4 (spec §9.4) - a generative node's tools list is name+terminal
+// only (GenerativeConfig.ToolRef carries no description - see domain.proto),
+// so this is also how runGenerativeTurn enforces "the LLM cannot see or call
+// anything outside that list": a tool name absent here is refused even if a
+// customTool handler happens to be registered under that name for other
+// nodes/routes.
+const GenerativeConfig::ToolRef* findGenerativeToolRef(const GenerativeConfig& config, const std::string& name) {
+    for (const auto& tool : config.tools()) {
+        if (tool.name() == name) return &tool;
+    }
+    return nullptr;
 }
 
 } // namespace
@@ -92,8 +182,12 @@ void OrchestratorEngine::compileAllExpressions() {
         for (const auto& action : executor.actions()) {
             if (action.kind_case() == Action::kSetParameter) {
                 compile(action.set_parameter().value_cel());
+            } else if (action.kind_case() == Action::kCustomTool) {
+                for (const auto& [key, expr] : action.custom_tool().args_cel()) {
+                    compile(expr);
+                }
             }
-            // custom_tool.args_cel / call_webhook - Phase 2/3, not compiled here yet.
+            // call_webhook.args (Phase 3, M3.1) - not compiled here yet.
         }
     };
     for (const auto& flow : _agent.flows()) {
@@ -249,10 +343,52 @@ void OrchestratorEngine::runAction(const Action& action, const google::protobuf:
         _pendingEvents.push_back(std::move(ev));
         break;
     }
+    case Action::kCustomTool: {
+        // Spec §9.6 - an ordinary deterministic route's customTool call:
+        // args_cel evaluated into a Struct (rebuilt fresh for the same reason
+        // kSetParameter's activation is, above), handler invoked, return
+        // value discarded. Only BLOCKING execution_mode is implemented - see
+        // the class comment on why FIRE_AND_FORGET/BEST_EFFORT wait on M3.1's
+        // shared thread pool.
+        const auto& customTool = action.custom_tool();
+        google::protobuf::Struct args;
+        auto activation = buildActivation(eventParams);
+        for (const auto& [key, expr] : customTool.args_cel()) {
+            const auto& compiled = compiledExpression(expr);
+            (*args.mutable_fields())[key] = compiled.evaluate(activation);
+        }
+        callCustomTool(customTool.tool(), args);
+        break;
+    }
+    case Action::kLlmGenerate: {
+        // Spec §9.3 - a one-shot, stateless call (own history cleared first,
+        // same "keep it contamination-free" reasoning LLMNLUProvider's
+        // detect() already applies to its own classification call): render
+        // prompt_template like say.text ({param} substitution, not CEL - same
+        // convention generative_config.system_prompt_template documents), send
+        // it as the user turn, and speak whatever comes back verbatim - no
+        // JSON contract here, unlike the generative-node loop below, since
+        // this action's entire job is producing free-form text to say.
+        if (!_llmTransport) {
+            throw std::runtime_error("OrchestratorEngine: llmGenerate action requires an "
+                                      "LLMTransport (see setLLMTransport)");
+        }
+        std::string prompt = substituteParameters(action.llm_generate().prompt_template());
+        _llmTransport->clearHistory();
+        auto frame = std::make_shared<va::transport::TextFrame>();
+        frame->text = prompt;
+        frame->timestamp = va::transport::Frame::getCurrentTimestamp();
+        if (_llmTransport->sendFrame(frame)) {
+            const auto& history = _llmTransport->getHistory();
+            if (!history.empty() && history.back().role == va::llm::MessageRole::ASSISTANT && _onSay) {
+                _onSay(history.back().content);
+            }
+        }
+        break;
+    }
     default:
-        // call_webhook/handoff/custom_tool/llm_generate/expect - Phase 2/3
-        // (spec §9.2-§9.6, §9.9). Not yet implemented; ignored rather than
-        // guessed at.
+        // call_webhook/handoff/expect - Phase 2/3 (spec §9.2, §9.5, §9.9).
+        // Not yet implemented; ignored rather than guessed at.
         break;
     }
 }
@@ -276,6 +412,10 @@ void OrchestratorEngine::enterNode(const std::string& flowId, const std::string&
 
     _session.setActiveFlowId(flowId);
     _session.setActiveNodeId(nodeId);
+
+    // Milestone 2.4 - fresh budget/history for whatever generative loop (if
+    // any) this node runs; unread and harmless for a non-generative node.
+    _generativeTurnsUsed = 0;
 
     runExecutor(node->entry_executor(), nullptr);
 
@@ -316,6 +456,134 @@ void OrchestratorEngine::applyTransition(const Transition& transition) {
     default:
         break;
     }
+}
+
+google::protobuf::Struct OrchestratorEngine::callCustomTool(const std::string& toolName,
+                                                            const google::protobuf::Struct& args) {
+    auto it = _customToolHandlers.find(toolName);
+    if (it == _customToolHandlers.end()) {
+        throw std::runtime_error("OrchestratorEngine: no customTool handler registered for '"
+                                  + toolName + "' (see setCustomToolHandler)");
+    }
+    return it->second(args, _session);
+}
+
+std::string OrchestratorEngine::buildGenerativeSystemPrompt(const GenerativeConfig& config) const {
+    std::ostringstream ss;
+    ss << substituteParameters(config.system_prompt_template());
+    ss << "\n\nYou may call the following tools when appropriate. To call one, respond with "
+          "ONLY a JSON object of the exact shape {\"tool\": \"<name>\", \"args\": {...}} and "
+          "nothing else. Otherwise, just reply in plain text - that reply is spoken directly "
+          "to the user.\n\nAvailable tools:\n";
+    for (const auto& tool : config.tools()) {
+        ss << "- " << tool.name();
+        if (tool.terminal()) ss << " (calling this ends the interaction)";
+        ss << "\n";
+    }
+    return ss.str();
+}
+
+void OrchestratorEngine::runGenerativeTurn(const Node& node, const std::string& utterance) {
+    const GenerativeConfig& config = node.generative_config();
+    const std::string exitEventName = config.exit_event().empty() ? "generative_exit" : config.exit_event();
+    const int maxTurns = config.max_turns() > 0 ? config.max_turns() : _config.defaultGenerativeMaxTurns;
+
+    // Spec §9.4 point 4 - "the loop ends... when maxTurns is reached,
+    // whichever comes first": a turn budget already exhausted ends the loop
+    // before this turn is even forwarded to the LLM.
+    if (_generativeTurnsUsed >= maxTurns) {
+        PendingEvent exitEvent;
+        exitEvent.name = exitEventName;
+        _pendingEvents.push_back(std::move(exitEvent));
+        return;
+    }
+
+    if (!_llmTransport) {
+        throw std::runtime_error("OrchestratorEngine: node '" + node.id()
+                                  + "' is generative but no LLMTransport is attached (see setLLMTransport)");
+    }
+
+    ++_generativeTurnsUsed;
+    if (_generativeTurnsUsed == 1) {
+        // First turn since entering this node - fresh, contamination-free
+        // history (same reasoning LLMNLUProvider's detect() already applies
+        // to its own classification call), seeded with the templated system
+        // prompt plus this engine's own tool-calling contract.
+        _llmTransport->clearHistory();
+        _llmTransport->addMessageToHistory(va::llm::MessageRole::SYSTEM, buildGenerativeSystemPrompt(config));
+    }
+
+    auto frame = std::make_shared<va::transport::TextFrame>();
+    frame->text = utterance;
+    frame->timestamp = va::transport::Frame::getCurrentTimestamp();
+    if (!_llmTransport->sendFrame(frame)) {
+        spdlog::warn("[OrchestratorEngine] generative node '{}': sendFrame() failed for \"{}\"",
+                     node.id(), utterance);
+        return;
+    }
+
+    // Not specified by spec §9.4, which assumes a well-behaved model: an
+    // engine-only safety valve bounding how many back-to-back tool calls one
+    // single external turn's exchange can make, so a model that never stops
+    // calling tools can't hang this synchronous call forever.
+    static constexpr int kMaxToolCallsPerTurn = 8;
+
+    for (int i = 0; i < kMaxToolCallsPerTurn; ++i) {
+        const auto& history = _llmTransport->getHistory();
+        if (history.empty() || history.back().role != va::llm::MessageRole::ASSISTANT) {
+            spdlog::warn("[OrchestratorEngine] generative node '{}': no assistant response", node.id());
+            return;
+        }
+        const std::string raw = history.back().content;
+
+        nlohmann::json parsed;
+        bool isToolCall = false;
+        try {
+            parsed = nlohmann::json::parse(raw);
+            isToolCall = parsed.is_object() && parsed.contains("tool") && parsed["tool"].is_string();
+        } catch (const std::exception&) {
+            isToolCall = false; // not JSON at all - the ordinary "plain text reply" case
+        }
+
+        if (!isToolCall) {
+            if (_onSay) _onSay(raw);
+            return;
+        }
+
+        const std::string toolName = parsed["tool"].get<std::string>();
+        const GenerativeConfig::ToolRef* toolRef = findGenerativeToolRef(config, toolName);
+        if (!toolRef) {
+            // Spec §9.4 point 2 - "the LLM cannot see or call anything
+            // outside that list", enforced here even if the model hallucinates
+            // a name never listed in the prompt: refuse it as a tool-result
+            // error and let the model recover, rather than dispatching to a
+            // handler this node never opted into exposing.
+            spdlog::warn("[OrchestratorEngine] generative node '{}': model called unavailable tool '{}'",
+                         node.id(), toolName);
+            _llmTransport->injectToolResult(toolName, "{\"error\":\"tool not available\"}");
+            continue;
+        }
+
+        google::protobuf::Struct args;
+        if (parsed.contains("args") && parsed["args"].is_object()) {
+            args = jsonObjectToStruct(parsed["args"]);
+        }
+        google::protobuf::Struct result = callCustomTool(toolName, args);
+
+        if (toolRef->terminal()) {
+            // Spec §9.4 point 4 - ends "the instant" a terminal tool is
+            // called; no further model turn is solicited.
+            PendingEvent exitEvent;
+            exitEvent.name = exitEventName;
+            _pendingEvents.push_back(std::move(exitEvent));
+            return;
+        }
+
+        _llmTransport->injectToolResult(toolName, structToJson(result).dump());
+    }
+
+    spdlog::warn("[OrchestratorEngine] generative node '{}': exceeded {} tool calls in one turn; "
+                 "ending the turn without a reply", node.id(), kMaxToolCallsPerTurn);
 }
 
 bool OrchestratorEngine::fireRoute(const Route& route, const google::protobuf::Struct* eventParams) {
@@ -419,11 +687,19 @@ void OrchestratorEngine::handleUtterance(const std::string& text, const NLUResul
 
     _session.incrementTurnCount();
 
+    const Node* node = currentNode();
+    if (node && node->generative()) {
+        // Spec §9.4 - a generative node never touches NLUProvider and skips
+        // §6 steps 1-3 entirely; runGenerativeTurn is the whole turn.
+        runGenerativeTurn(*node, text);
+        runToQuiescence();
+        return;
+    }
+
     if (injectedResult) {
         _lastNluResult = *injectedResult;
     } else {
         _lastNluResult = NLUResult{};
-        const Node* node = currentNode();
         if (_nluProvider && node) {
             auto candidates = intentCandidateNames(*node);
             // Skip the call entirely when the active node has no intent
@@ -450,6 +726,15 @@ void OrchestratorEngine::handleUtterance(const std::string& text, const NLUResul
 
 void OrchestratorEngine::setNLUProvider(std::shared_ptr<NLUProvider> provider) {
     _nluProvider = std::move(provider);
+}
+
+void OrchestratorEngine::setLLMTransport(std::shared_ptr<va::llm::LLMTransport> transport) {
+    _llmTransport = std::move(transport);
+}
+
+void OrchestratorEngine::setCustomToolHandler(
+    std::string name, std::function<google::protobuf::Struct(const google::protobuf::Struct&, SessionState&)> handler) {
+    _customToolHandlers[std::move(name)] = std::move(handler);
 }
 
 void OrchestratorEngine::setOnFlowComplete(std::function<void(const std::string&, const SessionState&)> cb) {
