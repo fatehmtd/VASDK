@@ -6,17 +6,18 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace va {
 namespace orchestrator {
 
-// A single scripted conversation turn. Spec §12 also scripts an
-// injectedNLUResult per turn (a proto NLUResult), but nothing in M1.6/M1.7's
-// engine has an NLUProvider hook to feed it to yet (Phase 2, M2.1-M2.3) - so
-// this struct stays scoped to what OrchestratorEngine::handleUtterance
-// actually consumes today: just the utterance text. Extend this once intent
-// routes exist.
+// A single scripted conversation turn - just the utterance text.
+// setInjectedNLUResult below (Milestone 2.3, spec §12) is how a test attaches
+// an NLUResult to a specific turn, keyed by that turn's exact userText -
+// following spec §12/§20.2's own sim.setInjectedNLUResult(utterance, result)
+// shape rather than adding a field to this struct, since it lets the same
+// injected result cover a repeated utterance without re-specifying it.
 struct SimTurn {
     std::string userText;
 };
@@ -51,6 +52,20 @@ public:
     OrchestratorConversationSimulator& addTurn(SimTurn turn);
     OrchestratorConversationSimulator& addTurn(std::string userText);
 
+    // Milestone 2.3 (spec §12/§20.2) - the next call to run() will pass
+    // `result` as the injected NLUResult for any turn whose userText equals
+    // `utterance` exactly, bypassing whatever real NLUProvider is attached
+    // (see setNLUProvider below) for that turn only. This is what makes
+    // intent-route tests deterministic and model-free.
+    OrchestratorConversationSimulator& setInjectedNLUResult(const std::string& utterance,
+                                                             va::orchestrator::NLUResult result);
+
+    // Attaches a real NLUProvider (M2.1's TrainingPhraseNLUProvider, M2.2's
+    // LLMNLUProvider, or a custom one) for turns that have no injected result
+    // - passed straight through to the underlying OrchestratorEngine once
+    // run() constructs it.
+    OrchestratorConversationSimulator& setNLUProvider(std::shared_ptr<va::orchestrator::NLUProvider> provider);
+
     // Starts the session (unless this instance was constructed from a
     // snapshot - a restored session is already started) and feeds every
     // scripted turn to the engine in order, synchronously. Stops early if a
@@ -80,6 +95,8 @@ private:
     bool _ran = false;
 
     std::shared_ptr<OrchestratorEngine> _engine;
+    std::shared_ptr<va::orchestrator::NLUProvider> _nluProvider;
+    std::unordered_map<std::string, va::orchestrator::NLUResult> _injectedNluResults;
 
     void requireRan(const char* what) const;
 };

@@ -25,6 +25,18 @@ OrchestratorConversationSimulator& OrchestratorConversationSimulator::addTurn(st
     return *this;
 }
 
+OrchestratorConversationSimulator& OrchestratorConversationSimulator::setInjectedNLUResult(
+    const std::string& utterance, va::orchestrator::NLUResult result) {
+    _injectedNluResults[utterance] = std::move(result);
+    return *this;
+}
+
+OrchestratorConversationSimulator& OrchestratorConversationSimulator::setNLUProvider(
+    std::shared_ptr<va::orchestrator::NLUProvider> provider) {
+    _nluProvider = std::move(provider);
+    return *this;
+}
+
 SimulationResult OrchestratorConversationSimulator::run() {
     _ran = false;
     _result = {};
@@ -40,6 +52,7 @@ SimulationResult OrchestratorConversationSimulator::run() {
         _result.sessionEnded = true;
         _result.completedFlowId = flowId;
     });
+    _engine->setNLUProvider(_nluProvider); // fine to pass null - see OrchestratorEngine::setNLUProvider
 
     _engine->start(); // no-op if this instance was constructed from a snapshot
 
@@ -47,7 +60,10 @@ SimulationResult OrchestratorConversationSimulator::run() {
         if (_engine->sessionEnded()) break;
         spdlog::debug("[OrchestratorConversationSimulator] Turn {}/{}: \"{}\"",
                       i + 1, _turns.size(), _turns[i].userText);
-        _engine->handleUtterance(_turns[i].userText);
+        auto injected = _injectedNluResults.find(_turns[i].userText);
+        const va::orchestrator::NLUResult* injectedPtr =
+            injected != _injectedNluResults.end() ? &injected->second : nullptr;
+        _engine->handleUtterance(_turns[i].userText, injectedPtr);
     }
 
     _ran = true;

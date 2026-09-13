@@ -137,6 +137,18 @@ const Node* OrchestratorEngine::currentNode() const {
     return findNode(*flow, _session.activeNodeId());
 }
 
+std::vector<std::string> OrchestratorEngine::intentCandidateNames(const Node& node) const {
+    std::vector<std::string> names;
+    for (const auto& route : node.routes()) {
+        if (route.trigger().kind_case() != Trigger::kIntent) continue;
+        const std::string& name = route.trigger().intent().intent_name();
+        if (std::find(names.begin(), names.end(), name) == names.end()) {
+            names.push_back(name);
+        }
+    }
+    return names;
+}
+
 ExpressionEvaluator::Activation OrchestratorEngine::buildActivation(
     const google::protobuf::Struct* eventParams) const {
     ExpressionEvaluator::Activation activation;
@@ -170,6 +182,14 @@ ExpressionEvaluator::Activation OrchestratorEngine::buildActivation(
         for (const auto& [name, value] : eventParams->fields()) {
             activation.event[name] = value;
         }
+    }
+
+    // Milestone 2.3 (spec §6 step 2/§8) - this turn's cached NLUResult
+    // (empty when no provider is attached, the active node has no intent
+    // routes, or nothing matched), scoped for the whole external turn - see
+    // the class comment on handleUtterance().
+    for (const auto& [name, value] : _lastNluResult.extracted_parameters()) {
+        activation.nlu[name] = value;
     }
 
     return activation;
@@ -318,26 +338,41 @@ void OrchestratorEngine::evaluateRoutesOnce(const std::string* eventName,
     const Node* node = currentNode();
     if (!node) return;
 
-    // Spec §6 step 3's ordering: event routes first, then (Phase 2) intent
-    // routes, then condition routes, then (not implemented - see class
-    // comment) the no-match fallback. Each group is evaluated in Route
+    // Spec §6 step 3's ordering: event routes first, then intent routes
+    // (Milestone 2.3), then condition routes, then (not implemented - see
+    // class comment) the no-match fallback. Each group is evaluated in Route
     // priority order (lower first); ties keep declaration order.
     std::vector<const Route*> eventRoutes;
+    std::vector<const Route*> intentRoutes;
     std::vector<const Route*> conditionRoutes;
     for (const auto& route : node->routes()) {
         switch (route.trigger().kind_case()) {
         case Trigger::kEvent:        eventRoutes.push_back(&route); break;
+        case Trigger::kIntent:       intentRoutes.push_back(&route); break;
         case Trigger::kConditionCel: conditionRoutes.push_back(&route); break;
-        default:                     break; // intent / unset - never matches in M1.6
+        default:                     break; // unset - never matches
         }
     }
     auto byPriority = [](const Route* a, const Route* b) { return a->priority() < b->priority(); };
     std::stable_sort(eventRoutes.begin(), eventRoutes.end(), byPriority);
+    std::stable_sort(intentRoutes.begin(), intentRoutes.end(), byPriority);
     std::stable_sort(conditionRoutes.begin(), conditionRoutes.end(), byPriority);
 
     if (eventName) {
         for (const Route* route : eventRoutes) {
             if (route->trigger().event().name() != *eventName) continue;
+            if (fireRoute(*route, eventParams)) return;
+        }
+    }
+
+    // this turn's cached NLUResult (see handleUtterance) - empty top_intent
+    // means "no match" (domain.proto's own comment on the field), so an
+    // IntentTrigger can never spuriously match against it here.
+    if (!_lastNluResult.top_intent().empty()) {
+        for (const Route* route : intentRoutes) {
+            const IntentTrigger& intentTrigger = route->trigger().intent();
+            if (intentTrigger.intent_name() != _lastNluResult.top_intent()) continue;
+            if (_lastNluResult.confidence() < intentTrigger.min_confidence()) continue;
             if (fireRoute(*route, eventParams)) return;
         }
     }
@@ -377,17 +412,44 @@ void OrchestratorEngine::start() {
     runToQuiescence();
 }
 
-void OrchestratorEngine::handleUtterance(const std::string& /*text*/) {
+void OrchestratorEngine::handleUtterance(const std::string& text, const NLUResult* injectedResult) {
     if (!_started || _ended) return;
 
     va::metrics::ScopedTimer timer(_routeEvalLatencyMs.get());
 
     _session.incrementTurnCount();
-    // M1.6 has no NLUProvider (Phase 2), so nothing is extracted or
-    // classified from the utterance yet - only condition routes (never
-    // gated by an event name) are eligible on a plain re-entry like this.
+
+    if (injectedResult) {
+        _lastNluResult = *injectedResult;
+    } else {
+        _lastNluResult = NLUResult{};
+        const Node* node = currentNode();
+        if (_nluProvider && node) {
+            auto candidates = intentCandidateNames(*node);
+            // Skip the call entirely when the active node has no intent
+            // routes at all - see the class comment on setNLUProvider/
+            // handleUtterance for why this guard exists (no wasted
+            // LLMNLUProvider round trip when nothing could consult the
+            // result).
+            if (!candidates.empty()) {
+                NLUContext context;
+                context.set_locale(_agent.default_locale());
+                context.set_active_flow_id(_session.activeFlowId());
+                context.set_active_node_id(_session.activeNodeId());
+                for (const auto& name : candidates) {
+                    context.add_candidate_intent_names(name);
+                }
+                _lastNluResult = _nluProvider->detect(text, context);
+            }
+        }
+    }
+
     evaluateRoutesOnce(nullptr, nullptr);
     runToQuiescence();
+}
+
+void OrchestratorEngine::setNLUProvider(std::shared_ptr<NLUProvider> provider) {
+    _nluProvider = std::move(provider);
 }
 
 void OrchestratorEngine::setOnFlowComplete(std::function<void(const std::string&, const SessionState&)> cb) {

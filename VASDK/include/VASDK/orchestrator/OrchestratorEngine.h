@@ -3,14 +3,17 @@
 #include "vasdk_export.h"
 #include <VASDK/Metrics/MetricHandles.h>
 #include <VASDK/orchestrator/ExpressionEvaluator.h>
+#include <VASDK/orchestrator/NLUProvider.h>
 #include <VASDK/orchestrator/SessionState.h>
 #include <orchestrator/domain.pb.h>
 
 #include <chrono>
 #include <deque>
 #include <functional>
+#include <memory>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace va {
 namespace orchestrator {
@@ -33,14 +36,44 @@ struct VASDK_EXPORT OrchestratorConfig {
     int defaultGenerativeMaxTurns = 6;
 };
 
-// Milestone 1.6 (docs/reference/requestflow-roadmap.md §3) - implements spec
-// §6 steps 3-6 for `event` and `condition` routes only:
+// Milestone 1.6 (docs/reference/requestflow-roadmap.md §3) implemented spec
+// §6 steps 3-6 for `event` and `condition` routes only; Milestone 2.3 (§4)
+// added `intent` routes on top, using whichever NLUProvider (M2.1/M2.2) is
+// attached via setNLUProvider() - or none at all, which is still a fully
+// supported shape (spec §2's "LLM-optional by construction": an agent with
+// no intent routes anywhere never needs a provider, and one is never called
+// for a node that has no intent-triggered routes of its own).
 //
-//   - No `intent` routes: NLUProvider is Phase 2 (M2.1-M2.3). An event route
-//     only ever matches a named internally-emitted event (node_enter or
-//     EmitEventAction); a condition route is evaluated every time step 3 runs,
-//     regardless of what triggered it, since condition_cel isn't gated by an
-//     event name at all.
+//   - `NLUProvider.detect()` (spec §6 step 2) runs once per external
+//     handleUtterance() call, only when the active node has at least one
+//     `intent`-triggered route (candidate_intent_names gathered from exactly
+//     those routes' IntentTrigger.intent_name, deduped, declaration order) -
+//     calling a provider (an LLM API call, for LLMNLUProvider) when nothing
+//     on the node could possibly consult the result would be pure waste.
+//     expected_parameter_name is never set: that's step 2's "required
+//     parameter missing" branch, which needs the `expect`/form machinery
+//     M2.5 hasn't shipped yet, so every detect() call here is the "no
+//     pending parameter" branch. context.interrupt_intent_names (§6.2) is
+//     always left empty and NLUResult.co_intents (§6.1) is never consulted -
+//     both are Phase 4 items per the roadmap's own table, same deferral
+//     TrainingPhraseNLUProvider/LLMNLUProvider already made.
+//   - The turn's NLUResult (real or, for OrchestratorConversationSimulator,
+//     injected - spec §12) is cached for the rest of that external turn,
+//     including any node_enter/emitEvent cascade runToQuiescence() drains
+//     afterward: an `intent` route matches when its IntentTrigger.intent_name
+//     equals that cached result's top_intent and top_intent's confidence
+//     meets IntentTrigger.min_confidence, evaluated in step 3 right after
+//     event routes and before condition routes (spec §6's ordering), on
+//     every evaluateRoutesOnce() pass exactly like condition routes already
+//     are - no special-casing to restrict it to only the first pass, which
+//     would be new machinery none of spec §6's text asks for. Its
+//     extracted_parameters populate the nlu.* namespace ExpressionEvaluator
+//     already reserved for this back in M1.4, visible to condition_cel/
+//     value_cel/args_cel for the rest of the turn.
+//   - Event routes only ever match a named internally-emitted event
+//     (node_enter or EmitEventAction); a condition route is evaluated every
+//     time step 3 runs, regardless of what triggered it, since condition_cel
+//     isn't gated by an event name at all.
 //   - Only four Action kinds run: say, setParameter, clearParameter,
 //     emitEvent. callWebhook/customTool/llmGenerate/handoff/expect are
 //     Phase 2/3 (§9.2-§9.6, §9.9) - encountering one is a silent no-op for
@@ -121,11 +154,23 @@ public:
     // takes flows(0) as the entry flow.
     void start();
 
-    // Feeds one finalized utterance into route evaluation. M1.6 has no
-    // NLUProvider, so nothing is extracted or classified from `text` yet
-    // (Phase 2); only condition routes on the active node are (re-)evaluated,
-    // since an event route can never match without a named event.
-    void handleUtterance(const std::string& text);
+    // Feeds one finalized utterance into route evaluation (spec §6 step 2-3).
+    // `injectedResult`, when non-null, is used as this turn's NLUResult
+    // verbatim instead of calling the attached provider (or skipping
+    // classification if none is attached) - this is exactly what
+    // OrchestratorConversationSimulator::setInjectedNLUResult (spec §12)
+    // needs for deterministic, model-free tests of intent routes, and it
+    // applies regardless of whether the active node actually has any intent
+    // routes, unlike the real-provider path below.
+    void handleUtterance(const std::string& text, const va::orchestrator::NLUResult* injectedResult = nullptr);
+
+    // Attaches the NLUProvider `intent` routes are matched against (spec §6
+    // step 2/13). Unset (the default) is a fully supported shape: intent
+    // routes simply never match, identical to M1.6's behavior. Ownership is
+    // shared, not exclusive - the same provider instance can back more than
+    // one engine (e.g. LLMNLUProvider's own class comment already assumes a
+    // dedicated-but-possibly-reused transport).
+    void setNLUProvider(std::shared_ptr<va::orchestrator::NLUProvider> provider);
 
     // Spec §13 - fires once, the instant a Transition resolves to
     // END_SESSION (this milestone's reading of "flow complete").
@@ -160,6 +205,14 @@ private:
     std::deque<PendingEvent> _pendingEvents;
     std::unordered_map<std::string, ExpressionEvaluator> _compiledExpressions;
 
+    // Milestone 2.3 (spec §6 step 2/3) - unset provider is a valid, fully
+    // supported configuration (see setNLUProvider above); _lastNluResult is
+    // this turn's cached classification (real or injected), read by both
+    // evaluateRoutesOnce (intent-route matching) and buildActivation
+    // (nlu.* namespace) for the rest of the external turn it was produced in.
+    std::shared_ptr<va::orchestrator::NLUProvider> _nluProvider;
+    va::orchestrator::NLUResult _lastNluResult;
+
     std::function<void(const std::string&, const SessionState&)> _onFlowComplete;
     std::function<void(const std::string&)> _onSay;
 
@@ -177,6 +230,11 @@ private:
     const va::orchestrator::Flow* findFlow(const std::string& flowId) const;
     const va::orchestrator::Node* findNode(const va::orchestrator::Flow& flow, const std::string& nodeId) const;
     const va::orchestrator::Node* currentNode() const;
+
+    // Deduped, declaration-order IntentTrigger.intent_name values across
+    // `node`'s intent-triggered routes - spec §6 step 2's "candidateIntentNames
+    // = node routes".
+    std::vector<std::string> intentCandidateNames(const va::orchestrator::Node& node) const;
 
     ExpressionEvaluator::Activation buildActivation(const google::protobuf::Struct* eventParams) const;
     std::string substituteParameters(const std::string& text) const;
