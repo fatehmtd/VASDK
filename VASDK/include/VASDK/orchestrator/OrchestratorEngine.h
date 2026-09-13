@@ -1,6 +1,7 @@
 #pragma once
 
 #include "vasdk_export.h"
+#include <VASDK/Metrics/MetricHandles.h>
 #include <VASDK/orchestrator/ExpressionEvaluator.h>
 #include <VASDK/orchestrator/SessionState.h>
 #include <orchestrator/domain.pb.h>
@@ -71,6 +72,23 @@ struct VASDK_EXPORT OrchestratorConfig {
 // the outcome of an NLU classification attempt), and most nodes will have no
 // event route at all for events they don't care about - that's the ordinary
 // steady state (waiting for the next input), not an error.
+//
+// Milestone 1.8 (docs/reference/requestflow-roadmap.md §3) added spec §11's
+// per-turn metrics into the existing MetricsCollector, via
+// MetricsCollector::instance() (same default-singleton pattern as
+// va::transport::BaseTransport - no injection setter, since spec §13 lists
+// no setMetricsCollector on OrchestratorEngine). Only four of §11's metrics
+// have a real producer in M1.6/M1.7's scope, so only these four are wired:
+// route_eval_latency_ms (Sampler, one observation per external turn -
+// start() or handleUtterance() - covering that turn's whole route-eval-and-
+// cascade work), route_match_count (Counter, once per route that actually
+// fires), completion_count (Counter, once per END_SESSION transition), and
+// turns_to_completion (Sampler, session turnCount at that same moment).
+// no_match_count/no_input_count/parameter_validation_failures need Phase 2's
+// NLU/expect machinery; nlu_*/webhook_*/handoff_count/fire_and_forget_*/
+// best_effort_* need Phase 2/3/4 features this engine doesn't implement yet -
+// wiring them now would mean a counter that can never increment, which is
+// worse than not registering it at all.
 class VASDK_EXPORT OrchestratorEngine {
 public:
     explicit OrchestratorEngine(va::orchestrator::Agent agent, OrchestratorConfig config = {});
@@ -144,6 +162,14 @@ private:
 
     std::function<void(const std::string&, const SessionState&)> _onFlowComplete;
     std::function<void(const std::string&)> _onSay;
+
+    // Milestone 1.8 (spec §11) - see the class comment above for exactly
+    // which four metrics these are and why the rest aren't registered yet.
+    va::metrics::SamplerHandle _routeEvalLatencyMs;
+    va::metrics::CounterHandle _routeMatchCount;
+    va::metrics::CounterHandle _completionCount;
+    va::metrics::SamplerHandle _turnsToCompletion;
+    void initializeMetrics();
 
     void compileAllExpressions();
     const ExpressionEvaluator& compiledExpression(const std::string& text) const;

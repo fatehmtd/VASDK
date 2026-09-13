@@ -49,6 +49,7 @@ OrchestratorEngine::OrchestratorEngine(va::orchestrator::Agent agent, Orchestrat
     , _config(config)
     , _session(generateSessionId(), "", "") {
     compileAllExpressions();
+    initializeMetrics();
 }
 
 OrchestratorEngine::OrchestratorEngine(va::orchestrator::Agent agent, const SessionSnapshot& snapshot,
@@ -59,9 +60,27 @@ OrchestratorEngine::OrchestratorEngine(va::orchestrator::Agent agent, const Sess
                snapshot.created_at_unix_ms())
     , _started(true) {
     compileAllExpressions();
+    initializeMetrics();
     for (const auto& [name, value] : snapshot.parameters()) {
         _session.setParameter(name, value);
     }
+}
+
+void OrchestratorEngine::initializeMetrics() {
+    using namespace va::metrics;
+    auto& collector = MetricsCollector::instance();
+    _routeEvalLatencyMs.initialize(&collector,
+        MetricDescriptor{"route_eval_latency_ms", MetricType::Sampler,
+                         "Wall-clock time to evaluate + run one external turn's routes (spec §11)"});
+    _routeMatchCount.initialize(&collector,
+        MetricDescriptor{"route_match_count", MetricType::Counter,
+                         "Number of routes whose executor actually ran (spec §11)"});
+    _completionCount.initialize(&collector,
+        MetricDescriptor{"completion_count", MetricType::Counter,
+                         "Number of sessions that reached an END_SESSION transition (spec §11)"});
+    _turnsToCompletion.initialize(&collector,
+        MetricDescriptor{"turns_to_completion", MetricType::Sampler,
+                         "Session turnCount at the moment END_SESSION applied (spec §11)"});
 }
 
 void OrchestratorEngine::compileAllExpressions() {
@@ -268,6 +287,8 @@ void OrchestratorEngine::applyTransition(const Transition& transition) {
     }
     case Transition::END_SESSION: {
         _ended = true;
+        _completionCount.increment();
+        _turnsToCompletion.observe(static_cast<double>(_session.turnCount()));
         if (_onFlowComplete) _onFlowComplete(_session.activeFlowId(), _session);
         break;
     }
@@ -278,6 +299,7 @@ void OrchestratorEngine::applyTransition(const Transition& transition) {
 }
 
 bool OrchestratorEngine::fireRoute(const Route& route, const google::protobuf::Struct* eventParams) {
+    _routeMatchCount.increment();
     runExecutor(route.executor(), eventParams);
     if (_ended) return true;
 
@@ -345,6 +367,8 @@ void OrchestratorEngine::start() {
     if (_started) return;
     _started = true;
 
+    va::metrics::ScopedTimer timer(_routeEvalLatencyMs.get());
+
     if (_agent.flows().empty()) {
         throw std::runtime_error("OrchestratorEngine: agent '" + _agent.id() + "' has no flows");
     }
@@ -355,6 +379,9 @@ void OrchestratorEngine::start() {
 
 void OrchestratorEngine::handleUtterance(const std::string& /*text*/) {
     if (!_started || _ended) return;
+
+    va::metrics::ScopedTimer timer(_routeEvalLatencyMs.get());
+
     _session.incrementTurnCount();
     // M1.6 has no NLUProvider (Phase 2), so nothing is extracted or
     // classified from the utterance yet - only condition routes (never
