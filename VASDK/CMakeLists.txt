@@ -168,12 +168,13 @@ else()
 endif()
 
 #  RequestFlow orchestrator module (va::orchestrator)
-# cel-cpp is deliberately NOT wired here - it has no CMake build of its own
-# (Bazel-only, confirmed against its repo: no CMakeLists.txt, no vcpkg/Conan
-# package). Resolving that is a tracked open decision ahead of Milestone 1.3
-# (see docs/reference/requestflow-roadmap.md); Milestone 0 only proves the
-# module skeleton and the one dependency (protobuf) that does have real CMake
-# support.
+# cel-cpp is deliberately NOT wired here, permanently - it has no CMake build
+# of its own (Bazel-only, confirmed against its repo: no CMakeLists.txt, no
+# vcpkg/Conan package). Draft v2.10 (docs/reference/requestflow-spec.md §8)
+# dropped it as a dependency entirely in favor of a hand-rolled expression
+# evaluator (Milestone 1.4, docs/reference/requestflow-roadmap.md), the same
+# move already made for the §22.1 phrase grammar in Draft v2.9. protobuf
+# remains the only orchestrator-specific FetchContent dependency.
 if(VASDK_BUILD_ORCHESTRATOR)
     fetchcontent_declare(
         protobuf
@@ -227,12 +228,13 @@ if(VASDK_BUILD_ORCHESTRATOR)
         ./src/orchestrator/OrchestratorModule.cpp
         ./src/orchestrator/OrchestratorConfigLoader.cpp
         ./src/orchestrator/PhraseGrammarMatcher.cpp
+        ./src/orchestrator/ExpressionEvaluator.cpp
         ${VASDK_ORCHESTRATOR_PROTO_SRCS}
     )
     target_include_directories(VASDK PRIVATE ${VASDK_ORCHESTRATOR_PROTO_OUT_DIR})
     target_link_libraries(VASDK PRIVATE protobuf::libprotobuf)
     target_compile_definitions(VASDK PRIVATE VASDK_HAS_ORCHESTRATOR)
-    message(STATUS "VASDK: orchestrator module enabled (va::orchestrator) - protobuf + domain.proto wired, cel-cpp not yet (see requestflow-roadmap.md)")
+    message(STATUS "VASDK: orchestrator module enabled (va::orchestrator) - protobuf wired; expression/phrase-grammar parsers are hand-rolled, no cel-cpp dependency (see requestflow-roadmap.md)")
 else()
     message(STATUS "VASDK: orchestrator module disabled (VASDK_BUILD_ORCHESTRATOR=OFF)")
 endif()
