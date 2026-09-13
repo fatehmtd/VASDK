@@ -51,6 +51,19 @@ OrchestratorEngine::OrchestratorEngine(va::orchestrator::Agent agent, Orchestrat
     compileAllExpressions();
 }
 
+OrchestratorEngine::OrchestratorEngine(va::orchestrator::Agent agent, const SessionSnapshot& snapshot,
+                                       OrchestratorConfig config)
+    : _agent(std::move(agent))
+    , _config(config)
+    , _session(snapshot.session_id(), snapshot.active_flow_id(), snapshot.active_node_id(),
+               snapshot.created_at_unix_ms())
+    , _started(true) {
+    compileAllExpressions();
+    for (const auto& [name, value] : snapshot.parameters()) {
+        _session.setParameter(name, value);
+    }
+}
+
 void OrchestratorEngine::compileAllExpressions() {
     auto compile = [this](const std::string& text) {
         if (text.empty() || _compiledExpressions.count(text)) return;

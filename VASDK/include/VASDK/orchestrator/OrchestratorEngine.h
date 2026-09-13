@@ -44,8 +44,14 @@ struct VASDK_EXPORT OrchestratorConfig {
 //     emitEvent. callWebhook/customTool/llmGenerate/handoff/expect are
 //     Phase 2/3 (§9.2-§9.6, §9.9) - encountering one is a silent no-op for
 //     now rather than a guess at behavior no milestone has specified yet.
-//   - No permission gate (§9.8, Phase 4), no generative nodes (§9.4, M2.4),
-//     no session persistence (§10, M1.7 - see snapshot() below).
+//   - No permission gate (§9.8, Phase 4), no generative nodes (§9.4, M2.4).
+//     Session persistence itself (§10) landed in M1.7 as a pair: snapshot()
+//     below, plus the restoring constructor and SessionPersistence/
+//     FileSessionPersistence (VASDK/include/VASDK/orchestrator/
+//     SessionPersistence.h) - parameter_meta/route_history/event_counters/
+//     pending_ask still aren't tracked (nothing populates them before
+//     Phase 2's expect/webhook/NLU machinery exists), so they still travel
+//     empty through both snapshot() and restore.
 //
 // Event timing, a genuine judgment call the spec text underdetermines: a
 // node's entryExecutor is followed by an auto-emitted `node_enter` that
@@ -68,6 +74,26 @@ struct VASDK_EXPORT OrchestratorConfig {
 class VASDK_EXPORT OrchestratorEngine {
 public:
     explicit OrchestratorEngine(va::orchestrator::Agent agent, OrchestratorConfig config = {});
+
+    // Milestone 1.7 (session persistence, spec §10) - restores a session
+    // previously captured by snapshot() and round-tripped through a
+    // SessionPersistence implementation. The same Agent config the session
+    // started with must be supplied: the snapshot carries only runtime
+    // values (parameters, active flow/node, timestamps), never routes/nodes,
+    // per spec §10's "the app must supply the definition" rule (same
+    // precedent as goal/'s FileGoalStatePersistence + GoalDefinition split).
+    //
+    // Does not replay the active node's entry_executor or the node_enter
+    // cascade - the node was already entered (and its executor already ran)
+    // before the snapshot was taken, so replaying it here would re-fire
+    // say/setParameter/emitEvent side effects a resumed session never asked
+    // for. The session is marked started immediately (a second start() call
+    // afterward is the existing idempotent no-op). turnCount is not part of
+    // SessionSnapshot (spec §4) and so is not restored - it resets to 0,
+    // consistent with nothing in M1.7's done-criterion (parameters/
+    // active_node_id fidelity) depending on it.
+    OrchestratorEngine(va::orchestrator::Agent agent, const va::orchestrator::SessionSnapshot& snapshot,
+                        OrchestratorConfig config = {});
 
     // Begins the session: enters agent.flows(0)'s start_node_id (runs its
     // entry_executor, then the node_enter cascade). Idempotent - a second
@@ -97,9 +123,8 @@ public:
     bool sessionEnded() const;
 
     // Read-only projection onto the persisted proto shape (spec §4/§10) -
-    // the anchor point M1.7's FileSessionPersistence will read from. No
-    // restore() yet: nothing in M1.6 needs to rehydrate a session, so there's
-    // no caller to write or test that half against.
+    // what FileSessionPersistence::save() writes. The restoring constructor
+    // above is the other half of this round trip.
     va::orchestrator::SessionSnapshot snapshot() const;
 
 private:

@@ -32,6 +32,14 @@ class VASDK_EXPORT SessionState {
 public:
     SessionState(std::string sessionId, std::string activeFlowId, std::string activeNodeId);
 
+    // M1.7 (session persistence, spec §10) - restores a session's identity
+    // fields with a caller-supplied creation timestamp instead of "now",
+    // since a restored session's sessionElapsedMs (buildActivation()) must
+    // keep counting from the original session's start, not reset at restore
+    // time.
+    SessionState(std::string sessionId, std::string activeFlowId, std::string activeNodeId,
+                 int64_t createdAtUnixMs);
+
     const std::string& sessionId() const;
     const std::string& activeFlowId() const;
     const std::string& activeNodeId() const;

@@ -14,10 +14,14 @@ int64_t nowUnixMs() {
 } // namespace
 
 SessionState::SessionState(std::string sessionId, std::string activeFlowId, std::string activeNodeId)
+    : SessionState(std::move(sessionId), std::move(activeFlowId), std::move(activeNodeId), nowUnixMs()) {}
+
+SessionState::SessionState(std::string sessionId, std::string activeFlowId, std::string activeNodeId,
+                            int64_t createdAtUnixMs)
     : _sessionId(std::move(sessionId))
     , _activeFlowId(std::move(activeFlowId))
     , _activeNodeId(std::move(activeNodeId))
-    , _createdAtUnixMs(nowUnixMs()) {}
+    , _createdAtUnixMs(createdAtUnixMs) {}
 
 const std::string& SessionState::sessionId() const { return _sessionId; }
 const std::string& SessionState::activeFlowId() const { return _activeFlowId; }

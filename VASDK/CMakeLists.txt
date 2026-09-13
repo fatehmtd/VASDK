@@ -233,6 +233,7 @@ if(VASDK_BUILD_ORCHESTRATOR)
         ./src/orchestrator/SessionState.cpp
         ./src/orchestrator/OrchestratorEngine.cpp
         ./src/orchestrator/OrchestratorFrameProcessor.cpp
+        ./src/orchestrator/SessionPersistence.cpp
         ${VASDK_ORCHESTRATOR_PROTO_SRCS}
     )
     target_include_directories(VASDK PRIVATE ${VASDK_ORCHESTRATOR_PROTO_OUT_DIR})
