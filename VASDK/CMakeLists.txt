@@ -230,6 +230,9 @@ if(VASDK_BUILD_ORCHESTRATOR)
         ./src/orchestrator/PhraseGrammarMatcher.cpp
         ./src/orchestrator/ExpressionEvaluator.cpp
         ./src/orchestrator/ParameterValidator.cpp
+        ./src/orchestrator/SessionState.cpp
+        ./src/orchestrator/OrchestratorEngine.cpp
+        ./src/orchestrator/OrchestratorFrameProcessor.cpp
         ${VASDK_ORCHESTRATOR_PROTO_SRCS}
     )
     target_include_directories(VASDK PRIVATE ${VASDK_ORCHESTRATOR_PROTO_OUT_DIR})
