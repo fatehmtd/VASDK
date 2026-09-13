@@ -5,6 +5,7 @@
 #include <VASDK/llm/LLMTransport.h>
 #include <VASDK/orchestrator/ExpressionEvaluator.h>
 #include <VASDK/orchestrator/NLUProvider.h>
+#include <VASDK/orchestrator/ParameterValidator.h>
 #include <VASDK/orchestrator/SessionState.h>
 #include <orchestrator/domain.pb.h>
 
@@ -51,13 +52,79 @@ struct VASDK_EXPORT OrchestratorConfig {
 //     those routes' IntentTrigger.intent_name, deduped, declaration order) -
 //     calling a provider (an LLM API call, for LLMNLUProvider) when nothing
 //     on the node could possibly consult the result would be pure waste.
-//     expected_parameter_name is never set: that's step 2's "required
-//     parameter missing" branch, which needs the `expect`/form machinery
-//     M2.5 hasn't shipped yet, so every detect() call here is the "no
-//     pending parameter" branch. context.interrupt_intent_names (§6.2) is
-//     always left empty and NLUResult.co_intents (§6.1) is never consulted -
-//     both are Phase 4 items per the roadmap's own table, same deferral
+//     context.interrupt_intent_names (§6.2) is always left empty and
+//     NLUResult.co_intents (§6.1) is never consulted - both are Phase 4
+//     items per the roadmap's own table, same deferral
 //     TrainingPhraseNLUProvider/LLMNLUProvider already made.
+//   - Milestone 2.5 (spec §9.5/§7) - `expected_parameter_name` IS now set,
+//     per turn, following the exact priority chain spec §6 step 2 describes:
+//     (1) a PendingAsk (`_session.hasPendingAsk()`) - set by a prior turn's
+//     ExpectAction - wins if its `parameter` is present (a typed expect);
+//     (2) otherwise the active node's `form`, first required-and-unfilled
+//     Parameter in declaration order (findUnfilledFormParameter(), reusing
+//     ParameterValidator::isRequired() for the condition_cel check); (3)
+//     otherwise the ordinary candidate_intent_names path above. A bare
+//     PendingAsk (no `parameter`) short-circuits straight back to (2)/(3) -
+//     spec §9.5's "exactly as if the node had just started a fresh turn" -
+//     after being cleared, since there's nothing to extract for it.
+//     handleParameterExtractionTurn() does the rest: detect() (or
+//     `injectedResult`, same convention as the ordinary path) runs with
+//     `expected_parameter_name` set; a value found in
+//     NLUResult.extracted_parameters is validated via `_parameterValidator`
+//     (ParameterValidator::validateObject() when the Parameter is OBJECT-typed
+//     *and* the extracted Value is already struct-shaped - skipping a raw-
+//     string JSON round trip through the one ParameterValidator::
+//     validateAndNormalize() branch that still uses
+//     google::protobuf::util::JsonStringToMessage internally, see that file -
+//     validateAndNormalize() via valueToDisplayString() otherwise). On
+//     success: `_session.setParameter(name, normalized, source)` (source
+//     "expect" for a PendingAsk, "nlu" for a static-form parameter - spec
+//     §9.5's own `source: "expect"` tagging), the PendingAsk clears if that's
+//     what was answered (its `transient` value is removed from parameters
+//     again immediately after this turn's step-3 route evaluation, before any
+//     node_enter/emitEvent cascade - spec §9.5's own wording), and evaluation
+//     falls through to step 3 the same turn. On failure (nothing extracted,
+//     or it didn't validate): "this step does not consult routes" (spec §6
+//     step 2) - the engine picks `prompts.reprompts[attempts-1]` or
+//     `prompts.escalation` once attempts exceeds the reprompt list (a
+//     PendingAsk's attempts live on PendingAsk.attempts itself, since that
+//     value has to travel with the snapshot; a form parameter's live in
+//     SessionState's own ParameterMeta, keyed by name) and the turn ends right
+//     there - no route evaluation, no cascade. The validator's own
+//     errorMessage is logged (spdlog::debug), not spoken - spec §7 leaves the
+//     exact relationship between a validation error and the spoken reprompt
+//     underspecified, and this engine's own authored `prompts.reprompts` text
+//     is what a voice UI should actually say, the same judgment call
+//     `goal/`'s GoalManager already made logging (not speaking)
+//     SlotValidationResult::errorMessage.
+//   - Milestone 2.5 also added the `expect` action itself (runAction's
+//     Action::kExpect case): says `parameter.prompts.initial` (typed) or
+//     nothing (bare) exactly like a SayAction, arms a PendingAsk via
+//     `_session.setPendingAsk()`, and sets `_suspendTurn = true` - a new
+//     per-external-turn flag (reset at the top of start()/handleUtterance())
+//     that ends this call's processing immediately: runExecutor() stops
+//     running further actions in the same Executor (defense-in-depth -
+//     OrchestratorConfigLoader::validate() already rejects a config where
+//     `expect` isn't an Executor's last action), fireRoute() treats it like
+//     `_ended` (skips applying that route's own Transition, if any - an
+//     `expect` action ending the turn takes priority), enterNode() skips
+//     queuing `node_enter` when entry_executor itself suspended the turn, and
+//     runToQuiescence()'s cascade loop stops. checkFormParameterAsk() (called
+//     from the new finishTurn() helper, itself replacing every bare
+//     runToQuiescence() call site) is what actually says a static-form
+//     parameter's `prompts.initial` the first time it's noticed - the moment
+//     a node freshly settles (session start, or after any transition/cascade)
+//     with a required, unfilled, not-yet-asked form parameter (spec §19's
+//     collect_reason/collect_date worked example) - and is skipped whenever
+//     the turn already ended some other way (_ended or _suspendTurn).
+//   - The `no-input` half of spec §9.5 (an upstream silence timeout ending an
+//     ask via EventHandlers.no_input, `Parameter.no_input_timeout_ms`/
+//     `ControlFrame::SET_LISTEN_TIMEOUT`) is NOT implemented: there is still
+//     no OrchestratorFrameProcessor-side turn-detection integration to signal
+//     it from (the M1.6-era OrchestratorFrameProcessor only ever calls
+//     handleUtterance() with real recognized text), so this milestone only
+//     implements the validation-failure reprompt/escalation cycle, which is
+//     fully exercisable through OrchestratorConversationSimulator today.
 //   - The turn's NLUResult (real or, for OrchestratorConversationSimulator,
 //     injected - spec §12) is cached for the rest of that external turn,
 //     including any node_enter/emitEvent cascade runToQuiescence() drains
@@ -76,14 +143,15 @@ struct VASDK_EXPORT OrchestratorConfig {
 //     time step 3 runs, regardless of what triggered it, since condition_cel
 //     isn't gated by an event name at all.
 //   - Milestone 2.3 added say/setParameter/clearParameter/emitEvent plus
-//     intent-route matching. Milestone 2.4 (this milestone) added customTool
-//     (§9.6, both as an ordinary route action and as the mechanism a
-//     generative node's LLM-tool loop dispatches through) and llmGenerate
-//     (§9.3, a one-shot templated-prompt call whose raw reply becomes this
-//     turn's say output) plus generative nodes themselves (§9.4). callWebhook/
-//     handoff/expect remain Phase 2/3 (§9.2, §9.5, §9.9) - encountering one is
-//     a silent no-op for now rather than a guess at behavior no milestone has
-//     specified yet.
+//     intent-route matching. Milestone 2.4 added customTool (§9.6, both as an
+//     ordinary route action and as the mechanism a generative node's LLM-tool
+//     loop dispatches through) and llmGenerate (§9.3, a one-shot
+//     templated-prompt call whose raw reply becomes this turn's say output)
+//     plus generative nodes themselves (§9.4). Milestone 2.5 (this milestone)
+//     added `expect` (§9.5, both typed and bare - see below) and static-form
+//     parameter collection (§7). callWebhook/handoff remain Phase 3 (§9.2,
+//     §9.9) - encountering one is a silent no-op for now rather than a guess
+//     at behavior no milestone has specified yet.
 //   - Generative nodes (§9.4): while the active node has generative: true,
 //     handleUtterance() skips NLUProvider.detect() and §6 steps 1-3 entirely
 //     (a generative node never touches NLUProvider) and instead runs
@@ -129,10 +197,11 @@ struct VASDK_EXPORT OrchestratorConfig {
 //     Session persistence itself (§10) landed in M1.7 as a pair: snapshot()
 //     below, plus the restoring constructor and SessionPersistence/
 //     FileSessionPersistence (VASDK/include/VASDK/orchestrator/
-//     SessionPersistence.h) - parameter_meta/route_history/event_counters/
-//     pending_ask still aren't tracked (nothing populates them before
-//     Phase 2's expect/webhook/NLU machinery exists), so they still travel
-//     empty through both snapshot() and restore.
+//     SessionPersistence.h). Milestone 2.5 populates parameter_meta and
+//     pending_ask on both sides of that round trip (SessionState now tracks
+//     both - see its own class comment), since spec §9.5 explicitly requires
+//     a mid-ask session to survive restore; route_history/event_counters
+//     still travel empty (nothing in this milestone's scope needs them).
 //
 // Event timing, a genuine judgment call the spec text underdetermines: a
 // node's entryExecutor is followed by an auto-emitted `node_enter` that
@@ -157,16 +226,20 @@ struct VASDK_EXPORT OrchestratorConfig {
 // per-turn metrics into the existing MetricsCollector, via
 // MetricsCollector::instance() (same default-singleton pattern as
 // va::transport::BaseTransport - no injection setter, since spec §13 lists
-// no setMetricsCollector on OrchestratorEngine). Only four of §11's metrics
-// have a real producer in M1.6/M1.7's scope, so only these four are wired:
-// route_eval_latency_ms (Sampler, one observation per external turn -
-// start() or handleUtterance() - covering that turn's whole route-eval-and-
-// cascade work), route_match_count (Counter, once per route that actually
-// fires), completion_count (Counter, once per END_SESSION transition), and
-// turns_to_completion (Sampler, session turnCount at that same moment).
-// no_match_count/no_input_count/parameter_validation_failures need Phase 2's
-// NLU/expect machinery; nlu_*/webhook_*/handoff_count/fire_and_forget_*/
-// best_effort_* need Phase 2/3/4 features this engine doesn't implement yet -
+// no setMetricsCollector on OrchestratorEngine). route_eval_latency_ms
+// (Sampler, one observation per external turn - start() or handleUtterance() -
+// covering that turn's whole route-eval-and-cascade work), route_match_count
+// (Counter, once per route that actually fires), completion_count (Counter,
+// once per END_SESSION transition), and turns_to_completion (Sampler, session
+// turnCount at that same moment) are wired from M1.6/M1.7. Milestone 2.5 adds
+// parameter_validation_failures (Counter, once per failed
+// validateAndNormalize()/validateObject() call in
+// handleParameterExtractionTurn() - both the static-form and the `expect`
+// case share this one counter, since spec §11 doesn't split it by source).
+// no_match_count/no_input_count still need the no-match/no-input
+// EventHandlers fallback chain (a separate, not-yet-scheduled gap - see the
+// class comment above); nlu_*/webhook_*/handoff_count/fire_and_forget_*/
+// best_effort_* need Phase 3/4 features this engine doesn't implement yet -
 // wiring them now would mean a counter that can never increment, which is
 // worse than not registering it at all.
 class VASDK_EXPORT OrchestratorEngine {
@@ -218,6 +291,15 @@ public:
     // one engine (e.g. LLMNLUProvider's own class comment already assumes a
     // dedicated-but-possibly-reused transport).
     void setNLUProvider(std::shared_ptr<va::orchestrator::NLUProvider> provider);
+
+    // Milestone 2.5 (spec §7) - passthrough to the engine's own
+    // ParameterValidator, for a static-form or `expect` Parameter naming this
+    // `name` as its validator_ref. Optional: a Parameter that never sets
+    // validator_ref never needs one; one that does and finds nothing
+    // registered throws std::runtime_error at the point it's evaluated (see
+    // ParameterValidator::validateAndNormalize), the same "fail loudly"
+    // treatment every other missing-wiring case in this class already gets.
+    void registerParameterValidator(const std::string& name, ParameterValidator::CustomValidator fn);
 
     // Milestone 2.4 (spec §9.3/§9.4/§13) - attaches the transport llmGenerate
     // actions and generative nodes call. Unset is a fully supported shape as
@@ -273,8 +355,19 @@ private:
     bool _started = false;
     bool _ended = false;
 
+    // Milestone 2.5 - reset at the top of every start()/handleUtterance()
+    // call; set true the instant an `expect` action runs (runAction's
+    // Action::kExpect case). See the class comment above for every place this
+    // is checked to actually stop the rest of that call's processing.
+    bool _suspendTurn = false;
+
     std::deque<PendingEvent> _pendingEvents;
     std::unordered_map<std::string, ExpressionEvaluator> _compiledExpressions;
+
+    // Milestone 2.5 (spec §7) - backs both static-form and `expect` Parameter
+    // validation; registerParameterValidator() above is the only way an app
+    // adds a validator_ref entry to it.
+    ParameterValidator _parameterValidator;
 
     // Milestone 2.3 (spec §6 step 2/3) - unset provider is a valid, fully
     // supported configuration (see setNLUProvider above); _lastNluResult is
@@ -303,6 +396,7 @@ private:
     va::metrics::CounterHandle _routeMatchCount;
     va::metrics::CounterHandle _completionCount;
     va::metrics::SamplerHandle _turnsToCompletion;
+    va::metrics::CounterHandle _parameterValidationFailures;
     void initializeMetrics();
 
     void compileAllExpressions();
@@ -337,11 +431,41 @@ private:
     std::string buildGenerativeSystemPrompt(const va::orchestrator::GenerativeConfig& config) const;
 
     // Returns true when this evaluation pass should stop (a transition fired,
-    // the session ended, or the matched route's stop_evaluation - default
-    // true - says so).
+    // the session ended, the turn was suspended by an `expect` action, or the
+    // matched route's stop_evaluation - default true - says so).
     bool fireRoute(const va::orchestrator::Route& route, const google::protobuf::Struct* eventParams);
     void evaluateRoutesOnce(const std::string* eventName, const google::protobuf::Struct* eventParams);
     void runToQuiescence();
+
+    // Milestone 2.5 (spec §9.5/§7) - drains pending events (runToQuiescence())
+    // and then, unless the turn already ended (_ended) or was suspended by an
+    // `expect` action (_suspendTurn), calls checkFormParameterAsk() for
+    // whichever node the cascade settled on. Every runToQuiescence() call site
+    // in this class except the two mid-reprompt-failure early returns in
+    // handleParameterExtractionTurn() goes through this instead.
+    void finishTurn();
+
+    // First required (per ParameterValidator::isRequired), currently-unfilled
+    // (per SessionState::getParameter) Parameter in `node.form()`, in
+    // declaration order; nullptr if none. Spec §7's "one at a time" static
+    // form collection.
+    const va::orchestrator::Parameter* findUnfilledFormParameter(const va::orchestrator::Node& node) const;
+
+    // Spec §19's collect_reason/collect_date worked example: the moment a
+    // node settles with a required, unfilled form parameter never asked
+    // before, says its `prompts.initial` once (SessionState::
+    // noteParameterAskStarted marks it asked). A no-op for a generative node,
+    // a node with no such parameter, or one already mid-ask.
+    void checkFormParameterAsk();
+
+    // Milestone 2.5 (spec §6 step 2/§9.5) - the "a parameter is being asked
+    // for" turn: `parameter` is either a PendingAsk's ephemeral Parameter or a
+    // static-form one (see class comment above for the full priority chain
+    // and mechanics). Ends the turn either via a reprompt/escalation `say` (no
+    // route evaluation) or by validating, storing, and falling through to an
+    // ordinary step-3 evaluation + finishTurn().
+    void handleParameterExtractionTurn(const va::orchestrator::Parameter& parameter, const std::string& text,
+                                        const va::orchestrator::NLUResult* injectedResult);
 };
 
 } // namespace orchestrator

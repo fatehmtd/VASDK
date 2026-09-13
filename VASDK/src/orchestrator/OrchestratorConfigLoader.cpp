@@ -126,6 +126,23 @@ bool nodeHasRequiredParameter(const Node& node) {
 // `confirm_urgent`: entry says a line, then a node_enter route whose executor
 // is just `handoff`, no transition) as a dead end. A deliberate handoff ends
 // the conversation on purpose; it isn't the silent hang §9.5 is about.
+// Milestone 2.5 (spec §9.5 "Placement constraint") - `expect` ends the turn
+// the instant it runs (OrchestratorEngine::runAction's Action::kExpect case),
+// so nothing declared after it in the same Executor can ever run. Flags the
+// first offending Executor only per call site - enough to point the author at
+// the fix without drowning them in every downstream action.
+void checkExpectPlacement(const std::string& location, const Executor& ex, ValidationReport& report) {
+    for (int i = 0; i < ex.actions_size(); ++i) {
+        if (ex.actions(i).kind_case() != Action::kExpect) continue;
+        if (i != ex.actions_size() - 1) {
+            report.errors.push_back(
+                location + ": has an action after `expect`, which can never run - "
+                "expect must be the last action in its Executor (spec §9.5)");
+        }
+        break; // at most one `expect` is meaningful per Executor - anything past the first is already unreachable.
+    }
+}
+
 bool nodeIsDeadEnd(const Node& node) {
     if (node.generative()) return false;
     if (nodeHasRequiredParameter(node)) return false;
@@ -235,6 +252,17 @@ void validateFlow(const Agent& agent, const Flow& flow,
                 "Flow '" + flow.id() + "': node '" + nodeId +
                 "' is a dead end - no route has a transition, emits an event, or offers a "
                 "turn-spanning mechanism (required form parameter, expect action, or generative node)");
+        }
+    }
+
+    // spec §9.5 "Placement constraint" - expect must be the last action in
+    // its Executor, whether that's a node's entry_executor or a route's.
+    for (const auto& [nodeId, nodePtr] : nodesById) {
+        checkExpectPlacement("Flow '" + flow.id() + "', node '" + nodeId + "' entry_executor",
+                             nodePtr->entry_executor(), report);
+        for (const auto& route : nodePtr->routes()) {
+            checkExpectPlacement("Flow '" + flow.id() + "', node '" + nodeId + "', route '" + route.id() + "'",
+                                 route.executor(), report);
         }
     }
 

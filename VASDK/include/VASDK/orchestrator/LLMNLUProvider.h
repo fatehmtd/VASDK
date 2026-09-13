@@ -49,6 +49,19 @@ namespace orchestrator {
 //
 // Same Phase-4 deferrals as TrainingPhraseNLUProvider (see NLUProvider.h):
 // interrupt_intent_names isn't consulted and co_intents is never populated.
+//
+// Milestone 2.5 (spec §9.5/§6 step 2) - detect() now branches on
+// context.expected_parameter_name(): when set, it skips intent classification
+// entirely and instead runs a second, differently-shaped structured call - a
+// slot-extraction prompt naming just that one parameter, asking for
+// {"value": <extracted value, or null>} - since a classification prompt has
+// no notion of "the value for this specific named slot" (its "parameters"
+// field is keyed by whatever the winning *intent's* {{name:type}} captures
+// happen to be, not an arbitrary expected_parameter_name). This completes the
+// same NLUProvider contract TrainingPhraseNLUProvider already implements for
+// this case (see its own class comment) - without it, this provider couldn't
+// back an expect/form parameter ask at all despite NLUProvider.h documenting
+// expected_parameter_name as part of every provider's contract.
 class VASDK_EXPORT LLMNLUProvider : public NLUProvider {
 public:
     // transport must outlive this provider and must not be shared with a live
@@ -76,6 +89,12 @@ private:
 
     const IntentTrainingData* findTrainingData(const std::string& intentName) const;
     std::string buildClassificationPrompt(const std::vector<std::string>& candidateNames) const;
+
+    // Milestone 2.5 (spec §9.5) - the expected_parameter_name != "" branch of
+    // detect(); see the class comment above.
+    std::string buildExtractionPrompt(const std::string& parameterName) const;
+    va::orchestrator::NLUResult detectParameterExtraction(const std::string& utterance,
+                                                            const va::orchestrator::NLUContext& context);
 };
 
 } // namespace orchestrator

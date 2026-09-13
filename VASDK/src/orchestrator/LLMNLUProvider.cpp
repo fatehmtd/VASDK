@@ -110,6 +110,14 @@ NLUResult LLMNLUProvider::detect(const std::string& utterance, const NLUContext&
         return result;
     }
 
+    // Milestone 2.5 (spec §9.5/§6 step 2) - slot-filling for a static-form or
+    // `expect` parameter is a differently-shaped call from intent
+    // classification; see the class comment on why it can't reuse
+    // buildClassificationPrompt's "parameters" field.
+    if (!context.expected_parameter_name().empty()) {
+        return detectParameterExtraction(utterance, context);
+    }
+
     std::vector<std::string> candidates(context.candidate_intent_names().begin(),
                                          context.candidate_intent_names().end());
     if (candidates.empty()) candidates = _candidateIntents;
@@ -170,6 +178,55 @@ NLUResult LLMNLUProvider::detect(const std::string& utterance, const NLUContext&
         }
     }
 
+    return result;
+}
+
+std::string LLMNLUProvider::buildExtractionPrompt(const std::string& parameterName) const {
+    std::ostringstream ss;
+    ss << "You are a slot-filling engine for a voice assistant. The user was just asked to "
+          "provide a value for \"" << parameterName << "\". Given their reply, extract that "
+          "value if it's present - do not guess or invent one if it isn't.\n\n"
+          "Respond with ONLY a single JSON object, no other text, in exactly this shape:\n"
+          "{\"value\": <the extracted value as a string, number, or boolean, or null if the "
+          "reply doesn't provide one>}\n";
+    return ss.str();
+}
+
+NLUResult LLMNLUProvider::detectParameterExtraction(const std::string& utterance, const NLUContext& context) {
+    NLUResult result;
+    const std::string& parameterName = context.expected_parameter_name();
+
+    _transport->clearHistory();
+    _transport->addMessageToHistory(va::llm::MessageRole::SYSTEM, buildExtractionPrompt(parameterName));
+
+    auto frame = std::make_shared<transport::TextFrame>();
+    frame->text = utterance;
+    frame->timestamp = transport::Frame::getCurrentTimestamp();
+
+    if (!_transport->sendFrame(frame)) {
+        spdlog::warn("[LLMNLUProvider] sendFrame() failed for slot extraction utterance \"{}\"", utterance);
+        return result;
+    }
+
+    const auto& history = _transport->getHistory();
+    if (history.empty() || history.back().role != va::llm::MessageRole::ASSISTANT) {
+        spdlog::warn("[LLMNLUProvider] no assistant response for slot extraction utterance \"{}\"", utterance);
+        return result;
+    }
+
+    const std::string& raw = history.back().content;
+    json parsed;
+    try {
+        parsed = json::parse(raw);
+    } catch (const std::exception& e) {
+        spdlog::warn("[LLMNLUProvider] failed to parse extraction response as JSON: {} (raw: \"{}\")",
+                     e.what(), raw);
+        return result;
+    }
+
+    if (parsed.is_object() && parsed.contains("value") && !parsed["value"].is_null()) {
+        jsonToProtoValue(parsed["value"], (*result.mutable_extracted_parameters())[parameterName]);
+    }
     return result;
 }
 

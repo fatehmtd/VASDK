@@ -154,6 +154,13 @@ OrchestratorEngine::OrchestratorEngine(va::orchestrator::Agent agent, const Sess
     for (const auto& [name, value] : snapshot.parameters()) {
         _session.setParameter(name, value);
     }
+    // Milestone 2.5 (spec §9.5) - a mid-ask session must survive restore.
+    for (const auto& [name, meta] : snapshot.parameter_meta()) {
+        _session.setParameterMeta(name, meta);
+    }
+    if (snapshot.has_pending_ask()) {
+        _session.setPendingAsk(snapshot.pending_ask());
+    }
 }
 
 void OrchestratorEngine::initializeMetrics() {
@@ -171,6 +178,9 @@ void OrchestratorEngine::initializeMetrics() {
     _turnsToCompletion.initialize(&collector,
         MetricDescriptor{"turns_to_completion", MetricType::Sampler,
                          "Session turnCount at the moment END_SESSION applied (spec §11)"});
+    _parameterValidationFailures.initialize(&collector,
+        MetricDescriptor{"parameter_validation_failures", MetricType::Counter,
+                         "Number of failed static-form/expect parameter validation attempts (spec §11)"});
 }
 
 void OrchestratorEngine::compileAllExpressions() {
@@ -255,10 +265,16 @@ ExpressionEvaluator::Activation OrchestratorEngine::buildActivation(
     turnCountValue.set_number_value(_session.turnCount());
     activation.parameters["turnCount"] = turnCountValue;
 
-    // Not implemented yet - no reprompt loop until Phase 2's parameter
-    // collection lands; always 0 until then.
+    // Milestone 2.5 (spec §8/§9.5) - only a PendingAsk's attempts count here:
+    // a static-form parameter's own reprompt cycle never reaches step 3 at
+    // all (a failed extraction attempt ends the turn immediately - see
+    // handleParameterExtractionTurn), so repromptCount only ever needs to be
+    // nonzero for whatever route condition an `expect` answer's fall-through
+    // to step 3 might consult, and even then it's already back to 0 by the
+    // time that fall-through runs (the PendingAsk cleared on success, before
+    // this activation is built for route evaluation).
     google::protobuf::Value repromptCountValue;
-    repromptCountValue.set_number_value(0);
+    repromptCountValue.set_number_value(_session.hasPendingAsk() ? _session.pendingAsk().attempts() : 0);
     activation.parameters["repromptCount"] = repromptCountValue;
 
     google::protobuf::Value elapsedValue;
@@ -386,9 +402,34 @@ void OrchestratorEngine::runAction(const Action& action, const google::protobuf:
         }
         break;
     }
+    case Action::kExpect: {
+        // Spec §9.5 - says parameter.prompts.initial (typed) exactly like a
+        // SayAction, arms a PendingAsk, and ends the turn right here: nothing
+        // after `expect` in this Executor's actions runs (validate() already
+        // rejects a config where it isn't last; _suspendTurn is the runtime
+        // backstop for an unvalidated one, e.g. this milestone's own
+        // self-test configs).
+        const auto& expect = action.expect();
+        PendingAsk ask;
+        if (expect.has_parameter()) {
+            const Parameter& param = expect.parameter();
+            if (!param.prompts().initial().empty() && _onSay) {
+                _onSay(substituteParameters(param.prompts().initial()));
+            }
+            *ask.mutable_parameter() = param;
+            ask.set_transient(expect.transient());
+        }
+        // Bare turn-wait (expect.has_parameter() == false): PendingAsk.parameter
+        // stays absent, transient is meaningless per domain.proto's own comment,
+        // nothing is said - spec §9.5's "Bare turn-wait" is silent by design.
+        ask.set_attempts(0);
+        _session.setPendingAsk(std::move(ask));
+        _suspendTurn = true;
+        break;
+    }
     default:
-        // call_webhook/handoff/expect - Phase 2/3 (spec §9.2, §9.5, §9.9).
-        // Not yet implemented; ignored rather than guessed at.
+        // call_webhook/handoff - Phase 3 (spec §9.2, §9.9). Not yet
+        // implemented; ignored rather than guessed at.
         break;
     }
 }
@@ -396,6 +437,10 @@ void OrchestratorEngine::runAction(const Action& action, const google::protobuf:
 void OrchestratorEngine::runExecutor(const Executor& executor, const google::protobuf::Struct* eventParams) {
     for (const auto& action : executor.actions()) {
         runAction(action, eventParams);
+        // Milestone 2.5 - an `expect` action ends the turn; defense-in-depth
+        // against an unvalidated config where it isn't already the last
+        // action (OrchestratorConfigLoader::validate() rejects that case).
+        if (_suspendTurn) break;
     }
 }
 
@@ -418,6 +463,9 @@ void OrchestratorEngine::enterNode(const std::string& flowId, const std::string&
     _generativeTurnsUsed = 0;
 
     runExecutor(node->entry_executor(), nullptr);
+    // Milestone 2.5 - an `expect` in entry_executor already ended the turn
+    // (see runExecutor); no node_enter cascade to queue on top of that.
+    if (_ended || _suspendTurn) return;
 
     PendingEvent nodeEnter;
     nodeEnter.name = "node_enter";
@@ -589,7 +637,10 @@ void OrchestratorEngine::runGenerativeTurn(const Node& node, const std::string& 
 bool OrchestratorEngine::fireRoute(const Route& route, const google::protobuf::Struct* eventParams) {
     _routeMatchCount.increment();
     runExecutor(route.executor(), eventParams);
-    if (_ended) return true;
+    // Milestone 2.5 - an `expect` in this route's executor already ended the
+    // turn; its own Transition (if any) never applies on top of that, same as
+    // an END_SESSION reached mid-executor already short-circuits here.
+    if (_ended || _suspendTurn) return true;
 
     bool transitioned = false;
     if (route.has_transition() && route.transition().target_type() != Transition::NONE) {
@@ -598,7 +649,7 @@ bool OrchestratorEngine::fireRoute(const Route& route, const google::protobuf::S
     }
 
     bool stopEvaluation = route.has_stop_evaluation() ? route.stop_evaluation().value() : true;
-    return transitioned || stopEvaluation || _ended;
+    return transitioned || stopEvaluation || _ended || _suspendTurn;
 }
 
 void OrchestratorEngine::evaluateRoutesOnce(const std::string* eventName,
@@ -659,16 +710,122 @@ void OrchestratorEngine::evaluateRoutesOnce(const std::string* eventName,
 }
 
 void OrchestratorEngine::runToQuiescence() {
-    while (!_pendingEvents.empty() && !_ended) {
+    while (!_pendingEvents.empty() && !_ended && !_suspendTurn) {
         PendingEvent ev = std::move(_pendingEvents.front());
         _pendingEvents.pop_front();
         evaluateRoutesOnce(&ev.name, &ev.params);
     }
 }
 
+void OrchestratorEngine::finishTurn() {
+    runToQuiescence();
+    if (!_ended && !_suspendTurn) checkFormParameterAsk();
+}
+
+const Parameter* OrchestratorEngine::findUnfilledFormParameter(const Node& node) const {
+    auto activation = buildActivation(nullptr);
+    for (const auto& p : node.form()) {
+        if (_session.getParameter(p.name()).has_value()) continue;
+        if (ParameterValidator::isRequired(p, activation)) return &p;
+    }
+    return nullptr;
+}
+
+void OrchestratorEngine::checkFormParameterAsk() {
+    if (_session.hasPendingAsk()) return; // structurally shouldn't happen - see class comment
+    const Node* node = currentNode();
+    if (!node || node->generative()) return;
+
+    const Parameter* param = findUnfilledFormParameter(*node);
+    if (!param) return;
+
+    _session.noteParameterAskStarted(param->name());
+    if (!param->prompts().initial().empty() && _onSay) {
+        _onSay(substituteParameters(param->prompts().initial()));
+    }
+}
+
+void OrchestratorEngine::handleParameterExtractionTurn(const Parameter& parameter, const std::string& text,
+                                                        const NLUResult* injectedResult) {
+    NLUResult result;
+    if (injectedResult) {
+        result = *injectedResult;
+    } else if (_nluProvider) {
+        NLUContext context;
+        context.set_locale(_agent.default_locale());
+        context.set_active_flow_id(_session.activeFlowId());
+        context.set_active_node_id(_session.activeNodeId());
+        context.set_expected_parameter_name(parameter.name());
+        result = _nluProvider->detect(text, context);
+    }
+    _lastNluResult = result;
+
+    auto it = result.extracted_parameters().find(parameter.name());
+    bool hasValue = it != result.extracted_parameters().end();
+    ParameterValidationResult validation;
+    if (hasValue) {
+        const google::protobuf::Value& extracted = it->second;
+        if (parameter.type() == Parameter::OBJECT && extracted.kind_case() == google::protobuf::Value::kStructValue) {
+            validation = _parameterValidator.validateObject(parameter, extracted);
+        } else {
+            validation = _parameterValidator.validateAndNormalize(parameter, valueToDisplayString(extracted));
+        }
+    }
+
+    bool isPendingAsk = _session.hasPendingAsk();
+
+    if (hasValue && validation.valid) {
+        // Captured before any mutation below: for a typed PendingAsk,
+        // `parameter` aliases _session.pendingAsk().parameter() - clearPendingAsk()
+        // (called just below) clears that storage out from under the reference.
+        const std::string paramName = parameter.name();
+
+        std::string source = isPendingAsk ? "expect" : "nlu";
+        _session.setParameter(paramName, validation.normalizedValue, source);
+
+        bool transient = isPendingAsk && _session.pendingAsk().transient();
+        if (isPendingAsk) _session.clearPendingAsk();
+
+        // Spec §9.5 - "evaluation falls through to step 3 the same turn."
+        evaluateRoutesOnce(nullptr, nullptr);
+        // "the value is removed from parameters again immediately after the
+        // route that consumes it finishes evaluating" - before any
+        // node_enter/emitEvent cascade finishTurn() drains next.
+        if (transient) _session.clearParameter(paramName);
+        finishTurn();
+        return;
+    }
+
+    // Spec §6 step 2 - "select the next reprompt (this step does not consult
+    // routes)": nothing extracted, or it didn't validate. Both cases share one
+    // reprompt/escalation cycle; the validator's own errorMessage (when
+    // present) is diagnostic only - see the class comment on why it isn't
+    // what's spoken.
+    if (hasValue && !validation.valid) {
+        spdlog::debug("[OrchestratorEngine] parameter '{}' failed validation: {}",
+                      parameter.name(), validation.errorMessage);
+    }
+    _parameterValidationFailures.increment();
+
+    int attempts = isPendingAsk ? _session.incrementPendingAskAttempts()
+                                 : _session.incrementParameterAttempts(parameter.name());
+
+    const auto& reprompts = parameter.prompts().reprompts();
+    std::string message;
+    if (attempts <= reprompts.size()) {
+        message = reprompts[attempts - 1];
+    } else {
+        message = parameter.prompts().escalation();
+    }
+    if (!message.empty() && _onSay) {
+        _onSay(substituteParameters(message));
+    }
+}
+
 void OrchestratorEngine::start() {
     if (_started) return;
     _started = true;
+    _suspendTurn = false;
 
     va::metrics::ScopedTimer timer(_routeEvalLatencyMs.get());
 
@@ -677,7 +834,7 @@ void OrchestratorEngine::start() {
     }
     const Flow& flow = _agent.flows(0);
     enterNode(flow.id(), flow.start_node_id());
-    runToQuiescence();
+    finishTurn();
 }
 
 void OrchestratorEngine::handleUtterance(const std::string& text, const NLUResult* injectedResult) {
@@ -686,13 +843,39 @@ void OrchestratorEngine::handleUtterance(const std::string& text, const NLUResul
     va::metrics::ScopedTimer timer(_routeEvalLatencyMs.get());
 
     _session.incrementTurnCount();
+    _suspendTurn = false;
 
     const Node* node = currentNode();
     if (node && node->generative()) {
         // Spec §9.4 - a generative node never touches NLUProvider and skips
         // §6 steps 1-3 entirely; runGenerativeTurn is the whole turn.
         runGenerativeTurn(*node, text);
-        runToQuiescence();
+        finishTurn();
+        return;
+    }
+
+    // Milestone 2.5 (spec §6 step 2/§9.5) - the priority chain: a PendingAsk
+    // (an ExpectAction armed on a prior turn) first, then the active node's
+    // static form, then (falling through below) ordinary intent candidates.
+    const Parameter* expectedParameter = nullptr;
+    if (_session.hasPendingAsk()) {
+        const PendingAsk& ask = _session.pendingAsk();
+        if (ask.has_parameter()) {
+            expectedParameter = &ask.parameter();
+        } else {
+            // Bare turn-wait (spec §9.5) - nothing to extract; clear it and
+            // fall straight through to whatever a fresh turn on this node
+            // would do (form check, then ordinary classification), per spec's
+            // own "exactly as if the node had just started a fresh turn."
+            _session.clearPendingAsk();
+        }
+    }
+    if (!expectedParameter && node) {
+        expectedParameter = findUnfilledFormParameter(*node);
+    }
+
+    if (expectedParameter) {
+        handleParameterExtractionTurn(*expectedParameter, text, injectedResult);
         return;
     }
 
@@ -721,11 +904,15 @@ void OrchestratorEngine::handleUtterance(const std::string& text, const NLUResul
     }
 
     evaluateRoutesOnce(nullptr, nullptr);
-    runToQuiescence();
+    finishTurn();
 }
 
 void OrchestratorEngine::setNLUProvider(std::shared_ptr<NLUProvider> provider) {
     _nluProvider = std::move(provider);
+}
+
+void OrchestratorEngine::registerParameterValidator(const std::string& name, ParameterValidator::CustomValidator fn) {
+    _parameterValidator.registerValidator(name, std::move(fn));
 }
 
 void OrchestratorEngine::setLLMTransport(std::shared_ptr<va::llm::LLMTransport> transport) {
@@ -756,9 +943,14 @@ SessionSnapshot OrchestratorEngine::snapshot() const {
     for (const auto& [name, value] : _session.parameters().fields()) {
         (*snap.mutable_parameters())[name] = value;
     }
-    // parameter_meta/route_history/event_counters/pending_ask: nothing in
-    // M1.6 tracks parameter source/attempts, route history, or expect state
-    // (that's M1.7/Phase 2) - left empty rather than half-populated.
+    // Milestone 2.5 (spec §9.5) - route_history/event_counters still travel
+    // empty (nothing in this milestone's scope needs them).
+    for (const auto& [name, meta] : _session.parameterMetaAll()) {
+        (*snap.mutable_parameter_meta())[name] = meta;
+    }
+    if (_session.hasPendingAsk()) {
+        *snap.mutable_pending_ask() = _session.pendingAsk();
+    }
     snap.set_created_at_unix_ms(_session.createdAtUnixMs());
     snap.set_updated_at_unix_ms(nowUnixMs());
     return snap;
