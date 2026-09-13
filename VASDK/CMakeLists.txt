@@ -236,6 +236,7 @@ if(VASDK_BUILD_ORCHESTRATOR)
         ./src/orchestrator/SessionPersistence.cpp
         ./src/orchestrator/OrchestratorConversationSimulator.cpp
         ./src/orchestrator/TrainingPhraseNLUProvider.cpp
+        ./src/orchestrator/LLMNLUProvider.cpp
         ${VASDK_ORCHESTRATOR_PROTO_SRCS}
     )
     target_include_directories(VASDK PRIVATE ${VASDK_ORCHESTRATOR_PROTO_OUT_DIR})
