@@ -69,7 +69,15 @@ public:
     // against `activation`) - ports GoalState::isRequired()'s
     // `slot.required && (!slot.condition || slot.condition(state))` exactly.
     // Throws std::runtime_error if condition_cel is malformed or doesn't
-    // evaluate to a bool.
+    // evaluate to a bool. Milestone 3.4's follow-up: a condition_cel
+    // referencing a session field that isn't set yet throws
+    // FieldNotPresentError (ExpressionEvaluator.h - a std::runtime_error
+    // subtype), which this treats as "not required yet" (false) rather than
+    // letting it propagate - the same "absent field means this condition
+    // isn't satisfied" treatment OrchestratorEngine::evaluateRoutesOnce()'s
+    // condition-route loop already gives route conditions in the identical
+    // shape. Every other std::runtime_error (malformed CEL, non-bool result)
+    // still propagates and crashes loudly, unchanged.
     static bool isRequired(const Parameter& parameter, const ExpressionEvaluator::Activation& activation);
 
 private:

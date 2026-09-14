@@ -314,7 +314,16 @@ bool ParameterValidator::isRequired(const Parameter& parameter, const Expression
     if (parameter.condition_cel().empty()) return true;
 
     ExpressionEvaluator evaluator(parameter.condition_cel());
-    google::protobuf::Value result = evaluator.evaluate(activation);
+    google::protobuf::Value result;
+    try {
+        result = evaluator.evaluate(activation);
+    } catch (const FieldNotPresentError&) {
+        // Milestone 3.4 follow-up - same treatment as
+        // OrchestratorEngine::evaluateRoutesOnce()'s condition-route loop:
+        // a condition_cel referencing a session field that isn't set yet
+        // simply isn't satisfied, not a crash.
+        return false;
+    }
     if (result.kind_case() != google::protobuf::Value::kBoolValue) {
         throw std::runtime_error("condition_cel for parameter '" + parameter.name()
                                   + "' must evaluate to a boolean");
