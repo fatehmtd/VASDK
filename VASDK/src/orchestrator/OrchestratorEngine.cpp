@@ -4,10 +4,15 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <condition_variable>
+#include <future>
+#include <mutex>
 #include <nlohmann/json.hpp>
+#include <queue>
 #include <spdlog/spdlog.h>
 #include <sstream>
 #include <stdexcept>
+#include <thread>
 #include <vector>
 
 namespace va {
@@ -132,12 +137,115 @@ const GenerativeConfig::ToolRef* findGenerativeToolRef(const GenerativeConfig& c
     return nullptr;
 }
 
+// Milestone 3.1 (spec §9.2) - "one retry on transient/network errors only,
+// never on 4xx": CurlHttpProvider sets NetworkErrorCode::HttpError with
+// httpStatusCode populated for any non-2xx/3xx response (see
+// curlCodeToError in CurlHttpProvider.cpp), so a 4xx reads as HttpError with
+// httpStatusCode < 500 here - permanent, no retry. Every other NetworkError
+// (Timeout, ConnectionFailed, TlsError, SendFailed, ReceiveFailed,
+// LibraryError, ProtocolError) and a 5xx HttpError are transient.
+bool isTransientFailure(const va::network::HttpResponse& resp) {
+    if (!resp.error) return false;
+    if (resp.error.code == va::network::NetworkErrorCode::HttpError) {
+        return resp.error.httpStatusCode >= 500;
+    }
+    return true;
+}
+
+// Spec §18 leaves the exact circuit-breaker shape open ("failure-count
+// threshold opens it for a cooldown window", no numbers given) - these are
+// an engine-chosen default, the same kind of spec-silent constant
+// kMaxToolCallsPerTurn already is for the generative loop (M2.4).
+constexpr int kCircuitBreakerFailureThreshold = 3;
+constexpr std::chrono::seconds kCircuitBreakerCooldown{30};
+
+// requestflow-backend-spec.md §2 - the fixed request shape every
+// callWebhook action sends; CallWebhookAction itself carries no args/body
+// field (see domain.proto), so this is the same for every call, never
+// author-customized.
+nlohmann::json buildWebhookRequestJson(const std::string& sessionId, int turnIndex, const std::string& traceId,
+                                       const std::string& flowId, const std::string& nodeId,
+                                       const std::string& routeId, const std::string& utterance,
+                                       const google::protobuf::Struct& parameters) {
+    nlohmann::json body;
+    body["contractVersion"] = "1.0";
+    body["sessionId"] = sessionId;
+    body["turnIndex"] = turnIndex;
+    body["traceId"] = traceId;
+    body["activeFlowId"] = flowId;
+    body["activeNodeId"] = nodeId;
+    body["routeId"] = routeId;
+    if (!utterance.empty()) body["utterance"] = utterance;
+    body["parameters"] = structToJson(parameters);
+    return body;
+}
+
 } // namespace
+
+// Milestone 3.1 (spec §9.1/§9.2) - the off-thread pool callWebhook actions
+// run on, sized OrchestratorConfig::executorThreadPoolSize. Defined here in
+// va::orchestrator directly (NOT the anonymous namespace above) so it's the
+// same type OrchestratorEngine.h forward-declares for its pimpl'd unique_ptr
+// member - an anonymous-namespace definition would be a different,
+// unrelated type of the same name. submit() is only ever called from this
+// translation unit, so nothing needs it exposed in the header itself.
+class WebhookThreadPool {
+public:
+    explicit WebhookThreadPool(size_t numThreads) {
+        for (size_t i = 0; i < std::max<size_t>(1, numThreads); ++i) {
+            _workers.emplace_back([this] { workerLoop(); });
+        }
+    }
+
+    ~WebhookThreadPool() {
+        {
+            std::lock_guard<std::mutex> lock(_mutex);
+            _stop = true;
+        }
+        _cv.notify_all();
+        for (auto& worker : _workers) {
+            if (worker.joinable()) worker.join();
+        }
+    }
+
+    std::future<va::network::HttpResponse> submit(std::function<va::network::HttpResponse()> task) {
+        auto packaged = std::make_shared<std::packaged_task<va::network::HttpResponse()>>(std::move(task));
+        std::future<va::network::HttpResponse> future = packaged->get_future();
+        {
+            std::lock_guard<std::mutex> lock(_mutex);
+            _tasks.push([packaged] { (*packaged)(); });
+        }
+        _cv.notify_one();
+        return future;
+    }
+
+private:
+    void workerLoop() {
+        while (true) {
+            std::function<void()> task;
+            {
+                std::unique_lock<std::mutex> lock(_mutex);
+                _cv.wait(lock, [this] { return _stop || !_tasks.empty(); });
+                if (_stop && _tasks.empty()) return;
+                task = std::move(_tasks.front());
+                _tasks.pop();
+            }
+            task();
+        }
+    }
+
+    std::vector<std::thread> _workers;
+    std::queue<std::function<void()>> _tasks;
+    std::mutex _mutex;
+    std::condition_variable _cv;
+    bool _stop = false;
+};
 
 OrchestratorEngine::OrchestratorEngine(va::orchestrator::Agent agent, OrchestratorConfig config)
     : _agent(std::move(agent))
     , _config(config)
     , _session(generateSessionId(), "", "") {
+    _webhookThreadPool = std::make_unique<WebhookThreadPool>(_config.executorThreadPoolSize);
     compileAllExpressions();
     initializeMetrics();
 }
@@ -149,6 +257,7 @@ OrchestratorEngine::OrchestratorEngine(va::orchestrator::Agent agent, const Sess
     , _session(snapshot.session_id(), snapshot.active_flow_id(), snapshot.active_node_id(),
                snapshot.created_at_unix_ms())
     , _started(true) {
+    _webhookThreadPool = std::make_unique<WebhookThreadPool>(_config.executorThreadPoolSize);
     compileAllExpressions();
     initializeMetrics();
     for (const auto& [name, value] : snapshot.parameters()) {
@@ -162,6 +271,11 @@ OrchestratorEngine::OrchestratorEngine(va::orchestrator::Agent agent, const Sess
         _session.setPendingAsk(snapshot.pending_ask());
     }
 }
+
+// Milestone 3.1 - must be defined here (not implicitly in the header), and
+// only after WebhookThreadPool's own definition above - see the declaration
+// in OrchestratorEngine.h.
+OrchestratorEngine::~OrchestratorEngine() = default;
 
 void OrchestratorEngine::initializeMetrics() {
     using namespace va::metrics;
@@ -181,6 +295,13 @@ void OrchestratorEngine::initializeMetrics() {
     _parameterValidationFailures.initialize(&collector,
         MetricDescriptor{"parameter_validation_failures", MetricType::Counter,
                          "Number of failed static-form/expect parameter validation attempts (spec §11)"});
+    _webhookLatencyMs.initialize(&collector,
+        MetricDescriptor{"webhook_latency_ms", MetricType::Sampler,
+                         "Wall-clock time a callWebhook action waited on its result, including its one "
+                         "retry if any (spec §11)"});
+    _webhookErrorCount.initialize(&collector,
+        MetricDescriptor{"webhook_error_count", MetricType::Counter,
+                         "Number of callWebhook actions that ended in the webhook_error fallback (spec §11)"});
 }
 
 void OrchestratorEngine::compileAllExpressions() {
@@ -197,12 +318,34 @@ void OrchestratorEngine::compileAllExpressions() {
                     compile(expr);
                 }
             }
-            // call_webhook.args (Phase 3, M3.1) - not compiled here yet.
+            // CallWebhookAction has no CEL-expression field of its own (see
+            // domain.proto) - its request body is entirely engine-constructed
+            // per requestflow-backend-spec.md §2, never author-templated -
+            // so there's nothing for callWebhook to precompile here.
         }
     };
+    // Milestone 3.1 - EventHandlers.webhook_error is the first EventHandlers
+    // executor this engine ever actually runs (handleWebhookFailure); a CEL
+    // expression inside one (e.g. a setParameter reading event.status_code)
+    // needs precompiling here exactly like a route's executor does, or
+    // compiledExpression() throws "not precompiled" the first time it runs.
+    // Walking every EventHandlers field, not just webhook_error, costs
+    // nothing now and avoids the same gap for no_match/no_input/user_cancel/
+    // permission_denied/webhook_deferred once those are implemented.
+    auto walkHandlers = [&](const EventHandlers& handlers) {
+        walkExecutor(handlers.no_match());
+        walkExecutor(handlers.no_input());
+        walkExecutor(handlers.webhook_error());
+        walkExecutor(handlers.user_cancel());
+        walkExecutor(handlers.permission_denied());
+        walkExecutor(handlers.webhook_deferred());
+    };
+    walkHandlers(_agent.global_handlers());
     for (const auto& flow : _agent.flows()) {
+        walkHandlers(flow.flow_handlers());
         for (const auto& node : flow.nodes()) {
             walkExecutor(node.entry_executor());
+            walkHandlers(node.node_handlers());
             for (const auto& route : node.routes()) {
                 if (route.trigger().kind_case() == Trigger::kConditionCel) {
                     compile(route.trigger().condition_cel());
@@ -330,7 +473,8 @@ std::string OrchestratorEngine::substituteParameters(const std::string& text) co
     return out;
 }
 
-void OrchestratorEngine::runAction(const Action& action, const google::protobuf::Struct* eventParams) {
+void OrchestratorEngine::runAction(const Action& action, const google::protobuf::Struct* eventParams,
+                                   const std::string& routeId) {
     switch (action.kind_case()) {
     case Action::kSay: {
         std::string text = substituteParameters(action.say().text());
@@ -427,20 +571,33 @@ void OrchestratorEngine::runAction(const Action& action, const google::protobuf:
         _suspendTurn = true;
         break;
     }
+    case Action::kCallWebhook:
+        // Spec §9.2 - see handleWebhookAction()/class comment for the full
+        // timeout/retry/circuit-breaker/fallback mechanics.
+        handleWebhookAction(action.call_webhook(), routeId);
+        break;
     default:
-        // call_webhook/handoff - Phase 3 (spec §9.2, §9.9). Not yet
-        // implemented; ignored rather than guessed at.
+        // handoff - not yet implemented (M3.3, "handoff/escalation
+        // end-to-end"); ignored rather than guessed at, same as
+        // call_webhook was before this milestone.
         break;
     }
 }
 
-void OrchestratorEngine::runExecutor(const Executor& executor, const google::protobuf::Struct* eventParams) {
+void OrchestratorEngine::runExecutor(const Executor& executor, const google::protobuf::Struct* eventParams,
+                                     const std::string& routeId) {
     for (const auto& action : executor.actions()) {
-        runAction(action, eventParams);
+        runAction(action, eventParams, routeId);
         // Milestone 2.5 - an `expect` action ends the turn; defense-in-depth
         // against an unvalidated config where it isn't already the last
         // action (OrchestratorConfigLoader::validate() rejects that case).
-        if (_suspendTurn) break;
+        // Milestone 3.1 - _ended is now also reachable mid-executor (a
+        // webhook response's own `transition`/`endSession`, applied via
+        // applyTransition() from inside handleWebhookAction/
+        // applyWebhookResponse, nested inside this same runAction() call);
+        // _abortExecutor stops the rest of a *failing* callWebhook action's
+        // executor the same way (see handleWebhookFailure).
+        if (_ended || _suspendTurn || _abortExecutor) break;
     }
 }
 
@@ -462,10 +619,16 @@ void OrchestratorEngine::enterNode(const std::string& flowId, const std::string&
     // any) this node runs; unread and harmless for a non-generative node.
     _generativeTurnsUsed = 0;
 
-    runExecutor(node->entry_executor(), nullptr);
+    runExecutor(node->entry_executor(), nullptr, "");
     // Milestone 2.5 - an `expect` in entry_executor already ended the turn
     // (see runExecutor); no node_enter cascade to queue on top of that.
-    if (_ended || _suspendTurn) return;
+    // Milestone 3.1 - a failed callWebhook in entry_executor already ran its
+    // webhook_error fallback (handleWebhookFailure); _abortExecutor is
+    // consumed-and-reset right here, same as fireRoute does below.
+    if (_ended || _suspendTurn || _abortExecutor) {
+        _abortExecutor = false;
+        return;
+    }
 
     PendingEvent nodeEnter;
     nodeEnter.name = "node_enter";
@@ -504,6 +667,208 @@ void OrchestratorEngine::applyTransition(const Transition& transition) {
     default:
         break;
     }
+}
+
+const Executor* OrchestratorEngine::findWebhookErrorHandler() const {
+    const Node* node = currentNode();
+    if (node && node->node_handlers().has_webhook_error()) {
+        return &node->node_handlers().webhook_error();
+    }
+    const Flow* flow = findFlow(_session.activeFlowId());
+    if (flow && flow->flow_handlers().has_webhook_error()) {
+        return &flow->flow_handlers().webhook_error();
+    }
+    if (_agent.global_handlers().has_webhook_error()) {
+        return &_agent.global_handlers().webhook_error();
+    }
+    return nullptr;
+}
+
+void OrchestratorEngine::handleWebhookFailure(const std::string& url, int statusCode,
+                                              const std::string& errorMessage) {
+    _webhookErrorCount.increment();
+
+    google::protobuf::Struct params;
+    google::protobuf::Value statusCodeValue;
+    statusCodeValue.set_number_value(statusCode);
+    (*params.mutable_fields())["status_code"] = statusCodeValue;
+    google::protobuf::Value errorMessageValue;
+    errorMessageValue.set_string_value(errorMessage);
+    (*params.mutable_fields())["error_message"] = errorMessageValue;
+    google::protobuf::Value urlValue;
+    urlValue.set_string_value(url);
+    (*params.mutable_fields())["url"] = urlValue;
+
+    // Spec §9.2 - "re-enter route evaluation at step 3... so
+    // EventHandlers.webhook_error (node, then flow, then agent) decides what
+    // happens next": this handler chain *is* the fallback mechanism itself
+    // (domain.proto's own comment on EventHandlers - deliberately not
+    // something a Route.trigger.event could ever match), not an ordinary
+    // emitted event. Running its Executor here, synchronously, stands in for
+    // step 4 ("execute the matched executor's actions") on this re-entered
+    // pass; EventHandlers has no Transition of its own, so there's no step 5
+    // to apply here - an author reaches one only indirectly, via an
+    // emitEvent a real node Route can catch, drained by the same
+    // runToQuiescence() this whole external call already returns into (no
+    // recursive draining added here).
+    const Executor* handler = findWebhookErrorHandler();
+    if (handler) {
+        runExecutor(*handler, &params, "");
+    }
+    _abortExecutor = true;
+}
+
+void OrchestratorEngine::applyWebhookResponse(const std::string& rawJsonBody) {
+    // requestflow-backend-spec.md §3 - "an empty {} is a valid, no-op
+    // response"; extended here to "unparseable is also a no-op" rather than
+    // treating a malformed body as a harder failure spec never describes.
+    nlohmann::json parsed;
+    try {
+        parsed = rawJsonBody.empty() ? nlohmann::json::object() : nlohmann::json::parse(rawJsonBody);
+    } catch (const std::exception& e) {
+        spdlog::warn("[OrchestratorEngine] webhook response was not valid JSON: {} (raw: \"{}\")",
+                     e.what(), rawJsonBody);
+        return;
+    }
+    if (!parsed.is_object()) return;
+
+    // "messages... before anything else in the response is applied."
+    if (parsed.contains("messages") && parsed["messages"].is_array()) {
+        for (const auto& message : parsed["messages"]) {
+            if (message.is_string() && _onSay) _onSay(message.get<std::string>());
+        }
+    }
+    if (parsed.contains("parameterPatches") && parsed["parameterPatches"].is_object()) {
+        for (const auto& [key, value] : parsed["parameterPatches"].items()) {
+            google::protobuf::Value protoValue;
+            jsonValueToProtoValue(value, protoValue);
+            // "webhook_patch" - ParameterMeta.source's own proto comment
+            // already names this exact string.
+            _session.setParameter(key, protoValue, "webhook_patch");
+        }
+    }
+    if (parsed.contains("emitEvents") && parsed["emitEvents"].is_array()) {
+        for (const auto& eventName : parsed["emitEvents"]) {
+            if (!eventName.is_string()) continue;
+            // backend-spec §3 - "a webhook response cannot attach event.*
+            // params the way a customTool handler can" - name only.
+            PendingEvent ev;
+            ev.name = eventName.get<std::string>();
+            _pendingEvents.push_back(std::move(ev));
+        }
+    }
+    if (parsed.contains("transition") && parsed["transition"].is_object()) {
+        const auto& t = parsed["transition"];
+        std::string targetType = t.value("targetType", "");
+        Transition transition;
+        if (targetType == "NODE") {
+            transition.set_target_type(Transition::NODE);
+        } else if (targetType == "FLOW") {
+            transition.set_target_type(Transition::FLOW);
+        } else if (targetType == "END_SESSION") {
+            transition.set_target_type(Transition::END_SESSION);
+        } else {
+            transition.set_target_type(Transition::NONE);
+        }
+        transition.set_target_id(t.value("targetId", ""));
+        if (transition.target_type() != Transition::NONE) applyTransition(transition);
+    }
+    if (parsed.value("endSession", false) && !_ended) {
+        // Reuses applyTransition's own END_SESSION case (completion metrics,
+        // onFlowComplete) rather than duplicating it here.
+        Transition endTransition;
+        endTransition.set_target_type(Transition::END_SESSION);
+        applyTransition(endTransition);
+    }
+    // `handoff` (backend-spec §3's `{reason}` object) - deliberately not
+    // implemented: "fires setOnHandoff the same as a HandoffAction" needs
+    // setOnHandoff/HandoffAction wiring this engine doesn't have yet (M3.3,
+    // "handoff/escalation end-to-end") - ignored the same "not yet
+    // specified, not guessed at" way HandoffAction's own runAction case
+    // still is.
+}
+
+void OrchestratorEngine::handleWebhookAction(const CallWebhookAction& webhook, const std::string& routeId) {
+    if (!_httpInterface) {
+        throw std::runtime_error("OrchestratorEngine: callWebhook action requires an "
+                                  "HttpInterface (see setHttpInterface)");
+    }
+
+    const std::string url = webhook.url();
+    const std::string method = webhook.method().empty() ? "POST" : webhook.method();
+    const int perCallTimeoutMs =
+        webhook.timeout_ms() > 0 ? webhook.timeout_ms() : static_cast<int>(_config.webhookTimeout.count());
+
+    // Spec §9.2 - a small circuit breaker per endpoint. See the class
+    // comment for why kCircuitBreakerFailureThreshold/kCircuitBreakerCooldown
+    // are engine-chosen constants rather than something spec gives a number
+    // for.
+    auto& circuit = _webhookCircuits[url];
+    auto now = std::chrono::steady_clock::now();
+    if (circuit.consecutiveFailures >= kCircuitBreakerFailureThreshold && now < circuit.openUntil) {
+        throw std::runtime_error("OrchestratorEngine: circuit breaker open for webhook endpoint '"
+                                  + url + "' (spec §9.2) - an unrecoverable failure, the same "
+                                  "'fail loudly' treatment this class already gives a missing "
+                                  "LLMTransport/customTool handler/HttpInterface");
+    }
+
+    std::string requestBody = buildWebhookRequestJson(_session.sessionId(), _session.turnCount(),
+                                                       _session.sessionId() + ":" + std::to_string(_session.turnCount()),
+                                                       _session.activeFlowId(), _session.activeNodeId(), routeId,
+                                                       _lastUtterance, _session.parameters())
+                                   .dump();
+
+    auto attemptOnce = [this, url, method, requestBody, perCallTimeoutMs]() -> va::network::HttpResponse {
+        std::map<std::string, std::string> headers{{"Content-Type", "application/json"}};
+        if (method == "GET") return _httpInterface->get(url, headers, perCallTimeoutMs);
+        return _httpInterface->post(url, headers, requestBody, perCallTimeoutMs);
+    };
+
+    // Spec §9.2 - "one retry on transient/network errors only, never on
+    // 4xx" - the whole attempt(+retry) sequence is one submitted task, so
+    // waiting on its single future below bounds both attempts together by
+    // turnExternalCallBudget, not just the first.
+    const int maxRetries = _config.webhookMaxRetries;
+    std::future<va::network::HttpResponse> future = _webhookThreadPool->submit([attemptOnce, maxRetries]() {
+        va::network::HttpResponse response = attemptOnce();
+        int retriesLeft = maxRetries;
+        while (retriesLeft > 0 && isTransientFailure(response)) {
+            response = attemptOnce();
+            --retriesLeft;
+        }
+        return response;
+    });
+
+    va::metrics::ScopedTimer webhookTimer(_webhookLatencyMs.get());
+    std::future_status status = future.wait_for(_config.turnExternalCallBudget);
+
+    if (status != std::future_status::ready) {
+        // Outer turnExternalCallBudget exceeded - distinct from a per-call
+        // timeout_ms expiry (already covered by isTransientFailure/retry
+        // above). The task keeps running to completion on the pool thread;
+        // its result is simply discarded - the same "abandon the in-flight
+        // future" precedent §9.3 already establishes for a barge-in
+        // interrupt, applied here to a budget expiry instead.
+        circuit.consecutiveFailures++;
+        if (circuit.consecutiveFailures >= kCircuitBreakerFailureThreshold) {
+            circuit.openUntil = std::chrono::steady_clock::now() + kCircuitBreakerCooldown;
+        }
+        handleWebhookFailure(url, 0, "turnExternalCallBudget exceeded");
+        return;
+    }
+
+    va::network::HttpResponse response = future.get();
+    if (!response.error) {
+        circuit.consecutiveFailures = 0;
+        applyWebhookResponse(response.body);
+        return;
+    }
+
+    circuit.consecutiveFailures++;
+    if (circuit.consecutiveFailures >= kCircuitBreakerFailureThreshold) {
+        circuit.openUntil = std::chrono::steady_clock::now() + kCircuitBreakerCooldown;
+    }
+    handleWebhookFailure(url, response.statusCode, response.error.message);
 }
 
 google::protobuf::Struct OrchestratorEngine::callCustomTool(const std::string& toolName,
@@ -636,11 +1001,19 @@ void OrchestratorEngine::runGenerativeTurn(const Node& node, const std::string& 
 
 bool OrchestratorEngine::fireRoute(const Route& route, const google::protobuf::Struct* eventParams) {
     _routeMatchCount.increment();
-    runExecutor(route.executor(), eventParams);
+    runExecutor(route.executor(), eventParams, route.id());
     // Milestone 2.5 - an `expect` in this route's executor already ended the
     // turn; its own Transition (if any) never applies on top of that, same as
     // an END_SESSION reached mid-executor already short-circuits here.
-    if (_ended || _suspendTurn) return true;
+    // Milestone 3.1 - a failed callWebhook already ran the webhook_error
+    // fallback chain (handleWebhookFailure) and decided what happens next
+    // itself; this route's own Transition is skipped the same way, and
+    // _abortExecutor is consumed-and-reset right here (see class comment -
+    // unlike _suspendTurn, it never needs to propagate past this point).
+    if (_ended || _suspendTurn || _abortExecutor) {
+        _abortExecutor = false;
+        return true;
+    }
 
     bool transitioned = false;
     if (route.has_transition() && route.transition().target_type() != Transition::NONE) {
@@ -826,6 +1199,7 @@ void OrchestratorEngine::start() {
     if (_started) return;
     _started = true;
     _suspendTurn = false;
+    _abortExecutor = false;
 
     va::metrics::ScopedTimer timer(_routeEvalLatencyMs.get());
 
@@ -844,6 +1218,10 @@ void OrchestratorEngine::handleUtterance(const std::string& text, const NLUResul
 
     _session.incrementTurnCount();
     _suspendTurn = false;
+    _abortExecutor = false;
+    // Milestone 3.1 - requestflow-backend-spec.md §2's `utterance` request
+    // field for any callWebhook action reached during this external turn.
+    _lastUtterance = text;
 
     const Node* node = currentNode();
     if (node && node->generative()) {
@@ -917,6 +1295,10 @@ void OrchestratorEngine::registerParameterValidator(const std::string& name, Par
 
 void OrchestratorEngine::setLLMTransport(std::shared_ptr<va::llm::LLMTransport> transport) {
     _llmTransport = std::move(transport);
+}
+
+void OrchestratorEngine::setHttpInterface(std::shared_ptr<va::network::HttpInterface> http) {
+    _httpInterface = std::move(http);
 }
 
 void OrchestratorEngine::setCustomToolHandler(

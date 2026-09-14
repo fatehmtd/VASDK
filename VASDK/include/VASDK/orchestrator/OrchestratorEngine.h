@@ -3,6 +3,7 @@
 #include "vasdk_export.h"
 #include <VASDK/Metrics/MetricHandles.h>
 #include <VASDK/llm/LLMTransport.h>
+#include <VASDK/network/HttpInterface.h>
 #include <VASDK/orchestrator/ExpressionEvaluator.h>
 #include <VASDK/orchestrator/NLUProvider.h>
 #include <VASDK/orchestrator/ParameterValidator.h>
@@ -19,6 +20,12 @@
 
 namespace va {
 namespace orchestrator {
+
+// Milestone 3.1 (spec §9.2) - the off-thread pool callWebhook actions run on.
+// Forward-declared/pimpl'd here (full definition lives in OrchestratorEngine.cpp,
+// the only translation unit that ever calls submit()) so this header doesn't
+// need <future>/<thread> just to declare the unique_ptr member below.
+class WebhookThreadPool;
 
 // Plain C++ struct - in-process engine tuning, never serialized, so it stays
 // outside the proto schema. Spec §13, quoted in full even though M1.6 only
@@ -147,11 +154,100 @@ struct VASDK_EXPORT OrchestratorConfig {
 //     ordinary route action and as the mechanism a generative node's LLM-tool
 //     loop dispatches through) and llmGenerate (§9.3, a one-shot
 //     templated-prompt call whose raw reply becomes this turn's say output)
-//     plus generative nodes themselves (§9.4). Milestone 2.5 (this milestone)
-//     added `expect` (§9.5, both typed and bare - see below) and static-form
-//     parameter collection (§7). callWebhook/handoff remain Phase 3 (§9.2,
-//     §9.9) - encountering one is a silent no-op for now rather than a guess
-//     at behavior no milestone has specified yet.
+//     plus generative nodes themselves (§9.4). Milestone 2.5 added `expect`
+//     (§9.5, both typed and bare - see below) and static-form parameter
+//     collection (§7). Milestone 3.1 (this milestone) added callWebhook
+//     (§9.2) - see below. `handoff` remains unimplemented (§9.9's offline
+//     store-and-forward and, more immediately, M3.3's "handoff/escalation
+//     end-to-end" - a webhook response's own `handoff` field is parsed and
+//     silently ignored for the same reason: there is no setOnHandoff to fire
+//     yet).
+//   - Milestone 3.1 (spec §9.2) - callWebhook (runAction's Action::kCallWebhook
+//     case, handleWebhookAction()) is the first action kind that actually runs
+//     off the calling thread: a WebhookThreadPool (sized
+//     OrchestratorConfig::executorThreadPoolSize, owned via a pimpl'd
+//     unique_ptr so this header stays free of <future>/<thread>) runs the
+//     blocking HttpInterface::post()/get() call - and, per spec, its one
+//     permitted retry - as a single submitted task, while the calling thread
+//     waits on the returned std::future bounded by
+//     OrchestratorConfig::turnExternalCallBudget (shared across whatever
+//     external calls happen in one turn - simplified here to apply in full to
+//     each individual callWebhook action, since nothing in spec §9.2
+//     describes sub-dividing it across multiple calls in the same turn, and
+//     multiple callWebhook actions in one Executor is an edge case, not the
+//     documented scenario). A per-endpoint circuit breaker
+//     (kCircuitBreakerFailureThreshold consecutive failures opens it for
+//     kCircuitBreakerCooldown - both engine-chosen constants, since spec §18
+//     leaves the exact retry/backoff/circuit-breaker shape open beyond "one
+//     retry on transient errors") refuses a call outright once open, throwing
+//     std::runtime_error - spec's own "unrecoverable failures... surface as
+//     ErrorFrame upstream," the same "fail loudly" treatment this class
+//     already gives a missing LLMTransport/customTool handler/HttpInterface,
+//     since OrchestratorFrameProcessor has no ErrorFrame-wrapping of its own
+//     yet to route it through (a pre-existing gap, not new to this
+//     milestone). isTransientFailure() (OrchestratorEngine.cpp anonymous
+//     namespace) is what spec's "never on 4xx" rule is built on: a 4xx
+//     HttpResponse::error (NetworkErrorCode::HttpError with
+//     httpStatusCode < 500) is permanent and never retried; a 5xx, or any
+//     other NetworkError (timeout, connection failure, TLS, ...), is
+//     transient and gets the one retry OrchestratorConfig::webhookMaxRetries
+//     allows.
+//   - On success, applyWebhookResponse() parses the JSON body per
+//     requestflow-backend-spec.md §3 (`messages`, `parameterPatches`,
+//     `transition`, `emitEvents`, `endSession` - `handoff` deliberately
+//     ignored, see above) and applies each field in that order, reusing
+//     existing machinery throughout: `messages` become `_onSay()` calls
+//     verbatim (no {param} substitution - this is backend-authored text, not
+//     flow config), `parameterPatches` become `_session.setParameter(name,
+//     value, "webhook_patch")` (that literal source string is already named
+//     in ParameterMeta's own proto comment), `emitEvents` become bare-named
+//     PendingEvents (backend-spec §3: a webhook response cannot attach
+//     event.* params the way a customTool handler can), and `transition`/
+//     `endSession` both go through the existing applyTransition() (endSession
+//     builds a synthetic Transition{END_SESSION} rather than duplicating
+//     applyTransition's own completion-metrics/onFlowComplete logic). An
+//     empty or malformed JSON body is a no-op (backend-spec §3's own "empty
+//     {} is a valid no-op response" rule, extended to "can't parse it either"
+//     rather than treating a malformed response as a harder failure spec
+//     never describes).
+//   - On failure - retries exhausted, or the outer turnExternalCallBudget
+//     wait timed out (the task itself is left running to completion on the
+//     pool and its result discarded, the same "abandon the in-flight future"
+//     precedent §9.3 already establishes for a barge-in interrupt, just
+//     applied to a budget expiry instead) - handleWebhookFailure() runs
+//     whatever Executor findWebhookErrorHandler() resolves via the node ->
+//     flow -> agent EventHandlers.webhook_error chain (domain.proto's own
+//     comment on EventHandlers: this is a distinct fallback mechanism, not
+//     something an ordinary Route.trigger.event could ever match), with
+//     `event.status_code`/`error_message`/`url` populated per spec's own
+//     table (§8.2). This *is* spec's "re-enter route evaluation at step 3" -
+//     EventHandlers.webhook_error's Executor stands in for "the matched
+//     executor" that step would otherwise run; it has no Transition of its
+//     own (EventHandlers isn't Route-shaped), so an author reaches one from
+//     here only indirectly, by emitEvent-ing something a real node Route can
+//     catch - drained by the same runToQuiescence() this whole external call
+//     already returns into, no recursive draining added. A new per-call
+//     `_abortExecutor` flag (reset at the top of every start()/
+//     handleUtterance(), exactly like `_suspendTurn`, though unlike
+//     `_suspendTurn` it never needs to propagate past the immediately
+//     enclosing runExecutor()/fireRoute()/enterNode() - both consume and
+//     reset it the instant they see it) is what stops the *failing* route's
+//     own remaining actions and skips its own Transition, without ending the
+//     turn or suspending it the way `_ended`/`_suspendTurn` do - the session
+//     stays live, the fallback chain decided what happens next instead.
+//   - setHttpInterface() attaches the va::network::HttpInterface callWebhook
+//     dispatches through - unset is not a valid configuration for an agent
+//     that actually reaches a callWebhook action (throws, same "wiring never
+//     completed" class of error as a missing LLMTransport); a fake
+//     HttpInterface is exactly what OrchestratorConversationSimulator/
+//     self-tests inject for deterministic, no-live-endpoint webhook_error/
+//     retry/circuit-breaker coverage (spec §16's own acceptance criterion).
+//   - routeId now threads through runExecutor()/runAction() (previously just
+//     `eventParams`) - the one new piece of per-call context callWebhook's
+//     request body needs (requestflow-backend-spec.md §2's `routeId` field)
+//     that nothing before this milestone required. Empty for entry_executor
+//     calls (no "matched route" exists yet) and for the webhook_error
+//     handler's own executor (same reasoning).
 //   - Generative nodes (§9.4): while the active node has generative: true,
 //     handleUtterance() skips NLUProvider.detect() and §6 steps 1-3 entirely
 //     (a generative node never touches NLUProvider) and instead runs
@@ -236,15 +332,28 @@ struct VASDK_EXPORT OrchestratorConfig {
 // validateAndNormalize()/validateObject() call in
 // handleParameterExtractionTurn() - both the static-form and the `expect`
 // case share this one counter, since spec §11 doesn't split it by source).
-// no_match_count/no_input_count still need the no-match/no-input
-// EventHandlers fallback chain (a separate, not-yet-scheduled gap - see the
-// class comment above); nlu_*/webhook_*/handoff_count/fire_and_forget_*/
-// best_effort_* need Phase 3/4 features this engine doesn't implement yet -
-// wiring them now would mean a counter that can never increment, which is
-// worse than not registering it at all.
+// Milestone 3.1 adds webhook_latency_ms (Sampler, one observation per
+// callWebhook action - the whole wait, including its one retry if any - not
+// per individual HTTP attempt) and webhook_error_count (Counter, once per
+// callWebhook action that ends in the webhook_error fallback, whether from
+// exhausted retries or a turnExternalCallBudget expiry - not incremented for
+// a circuit-breaker refusal, which throws before there's a "webhook_error
+// outcome" to count). no_match_count/no_input_count still need the
+// no-match/no-input EventHandlers fallback chain (a separate,
+// not-yet-scheduled gap - see the class comment above); nlu_*/handoff_count/
+// fire_and_forget_*/best_effort_* need Phase 3/4 features this engine
+// doesn't implement yet - wiring them now would mean a counter that can
+// never increment, which is worse than not registering it at all.
 class VASDK_EXPORT OrchestratorEngine {
 public:
     explicit OrchestratorEngine(va::orchestrator::Agent agent, OrchestratorConfig config = {});
+
+    // Milestone 3.1 - declared (rather than implicitly defaulted) because
+    // _webhookThreadPool is a unique_ptr<WebhookThreadPool>, and this header
+    // only forward-declares WebhookThreadPool; the implicit destructor would
+    // need its complete definition right here to compile. Defined `= default`
+    // in OrchestratorEngine.cpp, after that class's full definition.
+    ~OrchestratorEngine();
 
     // Milestone 1.7 (session persistence, spec §10) - restores a session
     // previously captured by snapshot() and round-tripped through a
@@ -312,6 +421,15 @@ public:
     // call has nothing to call."
     void setLLMTransport(std::shared_ptr<va::llm::LLMTransport> transport);
 
+    // Milestone 3.1 (spec §9.2) - attaches the HttpInterface callWebhook
+    // actions dispatch through (off the calling thread - see class comment).
+    // Unset is not a supported configuration for an agent that actually
+    // reaches a callWebhook action: it throws at that point, the same
+    // "wiring never completed" treatment setLLMTransport's own missing case
+    // already gets. Inject a fake implementation here for deterministic,
+    // no-live-endpoint tests (spec §16).
+    void setHttpInterface(std::shared_ptr<va::network::HttpInterface> http);
+
     // Milestone 2.4 (spec §9.6) - registers the deterministic C++ handler
     // behind a customTool action's `tool` name. Invoked identically whether
     // the call came from an ordinary route's CustomToolAction (args_cel
@@ -361,6 +479,17 @@ private:
     // is checked to actually stop the rest of that call's processing.
     bool _suspendTurn = false;
 
+    // Milestone 3.1 - reset at the top of every start()/handleUtterance()
+    // call alongside _suspendTurn; set true by handleWebhookFailure(). Unlike
+    // _suspendTurn, always consumed-and-reset the instant runExecutor()/
+    // fireRoute()/enterNode() sees it - see class comment.
+    bool _abortExecutor = false;
+
+    // Milestone 3.1 - the current external turn's utterance, if any (empty
+    // for a start()-triggered turn); requestflow-backend-spec.md §2's
+    // `utterance` request field.
+    std::string _lastUtterance;
+
     std::deque<PendingEvent> _pendingEvents;
     std::unordered_map<std::string, ExpressionEvaluator> _compiledExpressions;
 
@@ -397,7 +526,27 @@ private:
     va::metrics::CounterHandle _completionCount;
     va::metrics::SamplerHandle _turnsToCompletion;
     va::metrics::CounterHandle _parameterValidationFailures;
+    // Milestone 3.1 (spec §11) - see the class comment above.
+    va::metrics::SamplerHandle _webhookLatencyMs;
+    va::metrics::CounterHandle _webhookErrorCount;
     void initializeMetrics();
+
+    // Milestone 3.1 (spec §9.2) - see the class comment above. _httpInterface
+    // unset + a reached callWebhook action throws, same "wiring never
+    // completed" treatment as a missing LLMTransport. _webhookCircuits is
+    // keyed by CallWebhookAction.url; kCircuitBreakerFailureThreshold/
+    // kCircuitBreakerCooldown are defined next to their one use in
+    // OrchestratorEngine.cpp. _webhookThreadPool is declared last in this
+    // class deliberately - reverse member-destruction order means it's torn
+    // down (draining/joining every in-flight task) *before* _httpInterface,
+    // _session, _agent, or anything else a still-running task's captured
+    // lambda might dereference.
+    std::shared_ptr<va::network::HttpInterface> _httpInterface;
+    struct WebhookCircuitState {
+        int consecutiveFailures = 0;
+        std::chrono::steady_clock::time_point openUntil{};
+    };
+    std::unordered_map<std::string, WebhookCircuitState> _webhookCircuits;
 
     void compileAllExpressions();
     const ExpressionEvaluator& compiledExpression(const std::string& text) const;
@@ -415,8 +564,14 @@ private:
     std::string substituteParameters(const std::string& text) const;
 
     void enterNode(const std::string& flowId, const std::string& nodeId);
-    void runExecutor(const va::orchestrator::Executor& executor, const google::protobuf::Struct* eventParams);
-    void runAction(const va::orchestrator::Action& action, const google::protobuf::Struct* eventParams);
+    // Milestone 3.1 - routeId is new (see class comment): the one piece of
+    // per-call context callWebhook's request body needs that nothing before
+    // this milestone required. Empty from enterNode (no matched route) and
+    // from handleWebhookFailure's own fallback-executor run.
+    void runExecutor(const va::orchestrator::Executor& executor, const google::protobuf::Struct* eventParams,
+                      const std::string& routeId);
+    void runAction(const va::orchestrator::Action& action, const google::protobuf::Struct* eventParams,
+                    const std::string& routeId);
     void applyTransition(const va::orchestrator::Transition& transition);
 
     // Milestone 2.4 (spec §9.6) - looks up and invokes a registered
@@ -466,6 +621,39 @@ private:
     // ordinary step-3 evaluation + finishTurn().
     void handleParameterExtractionTurn(const va::orchestrator::Parameter& parameter, const std::string& text,
                                         const va::orchestrator::NLUResult* injectedResult);
+
+    // Milestone 3.1 (spec §9.2) - dispatches `webhook` (routeId - see
+    // runExecutor above - for the request body's routeId field) to
+    // _webhookThreadPool, waits bounded by turnExternalCallBudget, and either
+    // applies a successful JSON response (applyWebhookResponse) or runs the
+    // webhook_error fallback chain (handleWebhookFailure). Throws if
+    // _httpInterface is unset or this endpoint's circuit breaker is open -
+    // see class comment.
+    void handleWebhookAction(const va::orchestrator::CallWebhookAction& webhook, const std::string& routeId);
+
+    // Runs findWebhookErrorHandler()'s resolved Executor (if any) with
+    // event.status_code/error_message/url populated, then sets
+    // _abortExecutor - spec §9.2's "re-enter route evaluation at step 3 so
+    // EventHandlers.webhook_error... decides what happens next." See class
+    // comment for why this isn't an ordinary emitted/pending event.
+    void handleWebhookFailure(const std::string& url, int statusCode, const std::string& errorMessage);
+
+    // requestflow-backend-spec.md §3 - parses `rawJsonBody` and applies
+    // `messages`/`parameterPatches`/`transition`/`emitEvents`/`endSession` in
+    // that order (`handoff` intentionally not implemented yet - see class
+    // comment). Malformed or non-object JSON is a no-op, same as an
+    // explicitly empty `{}` response.
+    void applyWebhookResponse(const std::string& rawJsonBody);
+
+    // node_handlers -> flow_handlers -> global_handlers, first one whose
+    // has_webhook_error() is true; nullptr if none anywhere in that chain.
+    const va::orchestrator::Executor* findWebhookErrorHandler() const;
+
+    // See the class comment above for why this is declared last: reverse
+    // member-destruction order tears it down - draining/joining every
+    // in-flight task - before any other member a queued task's captured
+    // lambda could still dereference.
+    std::unique_ptr<WebhookThreadPool> _webhookThreadPool;
 };
 
 } // namespace orchestrator
