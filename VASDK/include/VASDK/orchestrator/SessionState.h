@@ -31,9 +31,11 @@ namespace orchestrator {
 // by OrchestratorEngine's slot-filling logic (a static Node.form parameter or
 // an ExpectAction's ephemeral one): noteParameterAskStarted/
 // incrementParameterAttempts back a form parameter's reprompt/escalation
-// cycle (ParameterMeta.attempts, keyed by parameter name, surviving
-// clearParameter/clearAllParameters since a cleared parameter's next ask
-// should start over); the 3-arg setParameter overload additionally records
+// cycle (ParameterMeta.attempts, keyed by parameter name, cleared alongside
+// the value by clearParameter/clearAllParameters - Milestone 3.4 confirmed
+// this via a cross-flow preserveParameters=false test - since a cleared
+// parameter's next ask should start over); the 3-arg setParameter overload
+// additionally records
 // source/last_updated_unix_ms on a successful slot fill (attempts
 // deliberately untouched - it's a historical failed-attempt count, not reset
 // by success). PendingAsk is a single slot, not a map, since spec §9.5 is

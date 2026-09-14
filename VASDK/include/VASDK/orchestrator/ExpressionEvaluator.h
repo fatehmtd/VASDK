@@ -6,10 +6,27 @@
 
 #include <map>
 #include <memory>
+#include <stdexcept>
 #include <string>
 
 namespace va {
 namespace orchestrator {
+
+// Milestone 3.4 - a distinguishable subtype of the "field not present"
+// std::runtime_error lookupField() already threw as of M1.4. Every existing
+// catch (const std::runtime_error&) site keeps working unchanged (this IS
+// one); the one new catch (const FieldNotPresentError&) site
+// (OrchestratorEngine::evaluateRoutesOnce()'s condition-route loop) can now
+// tell "this route's condition references a session value that simply isn't
+// set yet" - the ordinary, expected state of an unguarded condition_cel on a
+// node whose own node_enter cascade runs before step 2 has filled anything,
+// e.g. spec §14/§19.1's own urgent_to_triage: visit_reason == "urgent" - apart
+// from a genuine author bug (unknown namespace, a type mismatch), which still
+// propagates and crashes loudly, unchanged.
+class VASDK_EXPORT FieldNotPresentError : public std::runtime_error {
+public:
+    using std::runtime_error::runtime_error;
+};
 
 // Milestone 1.4 (docs/reference/requestflow-roadmap.md §3) - a standalone
 // hand-rolled parser/evaluator for spec §8's expression language:
@@ -43,11 +60,13 @@ public:
     };
 
     // Evaluates the compiled expression against `activation`. Throws
-    // std::runtime_error at evaluation time for a reference to a field that
-    // isn't present (unless guarded by has()) or a type mismatch (e.g. adding
-    // a string to a number) - this evaluator does not static-type-check
-    // against a declared environment the way real CEL does; that's a
-    // documented scope reduction, not an oversight.
+    // FieldNotPresentError (a std::runtime_error subtype, see above) at
+    // evaluation time for a reference to a field that isn't present (unless
+    // guarded by has()); throws plain std::runtime_error for a type mismatch
+    // (e.g. adding a string to a number) or an unknown namespace - this
+    // evaluator does not static-type-check against a declared environment the
+    // way real CEL does; that's a documented scope reduction, not an
+    // oversight.
     google::protobuf::Value evaluate(const Activation& activation) const;
 
 private:

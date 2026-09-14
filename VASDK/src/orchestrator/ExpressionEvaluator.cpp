@@ -358,8 +358,12 @@ google::protobuf::Value lookupField(const std::string& path, const Activation& a
     }
     auto it = map->find(key);
     if (it == map->end()) {
-        throw std::runtime_error("[ExpressionEvaluator] '" + path +
-                                  "' is not present - guard with has(" + path + ") first if it may be absent");
+        // Milestone 3.4 - FieldNotPresentError (not plain std::runtime_error)
+        // so OrchestratorEngine::evaluateRoutesOnce()'s condition-route loop
+        // can treat this specific case as "doesn't match" rather than crashing
+        // the turn; see ExpressionEvaluator.h's class comment on the type.
+        throw FieldNotPresentError("[ExpressionEvaluator] '" + path +
+                                    "' is not present - guard with has(" + path + ") first if it may be absent");
     }
     return it->second;
 }

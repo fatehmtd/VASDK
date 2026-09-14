@@ -1130,7 +1130,24 @@ void OrchestratorEngine::evaluateRoutesOnce(const std::string* eventName,
     for (const Route* route : conditionRoutes) {
         const auto& compiled = compiledExpression(route->trigger().condition_cel());
         auto activation = buildActivation(eventParams);
-        auto result = compiled.evaluate(activation);
+        google::protobuf::Value result;
+        try {
+            result = compiled.evaluate(activation);
+        } catch (const FieldNotPresentError&) {
+            // Milestone 3.4 - an unguarded condition_cel referencing a session
+            // value that simply isn't set yet (e.g. spec §14/§19.1's own
+            // urgent_to_triage: visit_reason == "urgent", evaluated during
+            // collect_reason's own node_enter cascade before step 2 has ever
+            // filled visit_reason) is the ordinary, expected state of a
+            // not-yet-relevant route - treat it as "doesn't match" and move on
+            // to the next route, the same outcome an explicit has(...) guard
+            // would produce. A genuine author bug (unknown namespace, a type
+            // mismatch) is a different std::runtime_error and still
+            // propagates uncaught, unchanged.
+            spdlog::debug("[OrchestratorEngine] route '{}' condition_cel references an unset field; "
+                          "treating as no-match", route->id());
+            continue;
+        }
         if (result.kind_case() != google::protobuf::Value::kBoolValue) {
             throw std::runtime_error("OrchestratorEngine: route '" + route->id()
                                       + "' condition_cel must evaluate to a boolean");
