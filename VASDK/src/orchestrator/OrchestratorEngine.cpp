@@ -302,6 +302,12 @@ void OrchestratorEngine::initializeMetrics() {
     _webhookErrorCount.initialize(&collector,
         MetricDescriptor{"webhook_error_count", MetricType::Counter,
                          "Number of callWebhook actions that ended in the webhook_error fallback (spec §11)"});
+    _handoffCount.initialize(&collector,
+        MetricDescriptor{"handoff_count", MetricType::Counter,
+                         "Number of HandoffAction/webhook-response handoffs fired (spec §11)"});
+    _noMatchCount.initialize(&collector,
+        MetricDescriptor{"no_match_count", MetricType::Counter,
+                         "Number of step-3 route evaluations that matched no route (spec §11)"});
 }
 
 void OrchestratorEngine::compileAllExpressions() {
@@ -576,10 +582,12 @@ void OrchestratorEngine::runAction(const Action& action, const google::protobuf:
         // timeout/retry/circuit-breaker/fallback mechanics.
         handleWebhookAction(action.call_webhook(), routeId);
         break;
+    case Action::kHandoff:
+        // Spec §13/§20.1 - see fireHandoff()/class comment.
+        fireHandoff(action.handoff().reason());
+        break;
     default:
-        // handoff - not yet implemented (M3.3, "handoff/escalation
-        // end-to-end"); ignored rather than guessed at, same as
-        // call_webhook was before this milestone.
+        // Action::KIND_NOT_SET - proto3 oneof's unset sentinel, nothing to do.
         break;
     }
 }
@@ -618,6 +626,9 @@ void OrchestratorEngine::enterNode(const std::string& flowId, const std::string&
     // Milestone 2.4 - fresh budget/history for whatever generative loop (if
     // any) this node runs; unread and harmless for a non-generative node.
     _generativeTurnsUsed = 0;
+    // Milestone 3.3 - fresh no-match streak for the node just entered; see
+    // class comment on _noMatchAttempts.
+    _noMatchAttempts = 0;
 
     runExecutor(node->entry_executor(), nullptr, "");
     // Milestone 2.5 - an `expect` in entry_executor already ended the turn
@@ -682,6 +693,47 @@ const Executor* OrchestratorEngine::findWebhookErrorHandler() const {
         return &_agent.global_handlers().webhook_error();
     }
     return nullptr;
+}
+
+const Executor* OrchestratorEngine::findNoMatchHandler() const {
+    const Node* node = currentNode();
+    if (node && node->node_handlers().has_no_match()) {
+        return &node->node_handlers().no_match();
+    }
+    const Flow* flow = findFlow(_session.activeFlowId());
+    if (flow && flow->flow_handlers().has_no_match()) {
+        return &flow->flow_handlers().no_match();
+    }
+    if (_agent.global_handlers().has_no_match()) {
+        return &_agent.global_handlers().no_match();
+    }
+    return nullptr;
+}
+
+void OrchestratorEngine::handleNoMatch() {
+    _noMatchCount.increment();
+    ++_noMatchAttempts;
+
+    google::protobuf::Struct params;
+    google::protobuf::Value attemptsValue;
+    attemptsValue.set_number_value(_noMatchAttempts);
+    (*params.mutable_fields())["attempts"] = attemptsValue;
+
+    const Executor* handler = findNoMatchHandler();
+    if (handler) runExecutor(*handler, &params, "");
+}
+
+void OrchestratorEngine::fireHandoff(const std::string& reason) {
+    _handoffCount.increment();
+    if (!_onHandoff) return;
+
+    HandoffContext ctx;
+    ctx.set_session_id(_session.sessionId());
+    ctx.set_reason(reason);
+    ctx.set_active_flow_id(_session.activeFlowId());
+    ctx.set_active_node_id(_session.activeNodeId());
+    *ctx.mutable_parameters() = _session.parameters();
+    _onHandoff(ctx);
 }
 
 void OrchestratorEngine::handleWebhookFailure(const std::string& url, int statusCode,
@@ -773,6 +825,10 @@ void OrchestratorEngine::applyWebhookResponse(const std::string& rawJsonBody) {
         transition.set_target_id(t.value("targetId", ""));
         if (transition.target_type() != Transition::NONE) applyTransition(transition);
     }
+    if (parsed.contains("handoff") && parsed["handoff"].is_object()) {
+        // backend-spec §3 - "fires setOnHandoff the same as a HandoffAction."
+        fireHandoff(parsed["handoff"].value("reason", ""));
+    }
     if (parsed.value("endSession", false) && !_ended) {
         // Reuses applyTransition's own END_SESSION case (completion metrics,
         // onFlowComplete) rather than duplicating it here.
@@ -780,12 +836,6 @@ void OrchestratorEngine::applyWebhookResponse(const std::string& rawJsonBody) {
         endTransition.set_target_type(Transition::END_SESSION);
         applyTransition(endTransition);
     }
-    // `handoff` (backend-spec §3's `{reason}` object) - deliberately not
-    // implemented: "fires setOnHandoff the same as a HandoffAction" needs
-    // setOnHandoff/HandoffAction wiring this engine doesn't have yet (M3.3,
-    // "handoff/escalation end-to-end") - ignored the same "not yet
-    // specified, not guessed at" way HandoffAction's own runAction case
-    // still is.
 }
 
 void OrchestratorEngine::handleWebhookAction(const CallWebhookAction& webhook, const std::string& routeId) {
@@ -1050,9 +1100,16 @@ void OrchestratorEngine::evaluateRoutesOnce(const std::string* eventName,
     std::stable_sort(intentRoutes.begin(), intentRoutes.end(), byPriority);
     std::stable_sort(conditionRoutes.begin(), conditionRoutes.end(), byPriority);
 
+    // Milestone 3.3 - tracks whether any route actually fired across all
+    // three groups below, regardless of whether it stopped evaluation (a
+    // co_fireable/stop_evaluation=false route still counts as "matched" - see
+    // handleNoMatch()).
+    bool anyRouteFired = false;
+
     if (eventName) {
         for (const Route* route : eventRoutes) {
             if (route->trigger().event().name() != *eventName) continue;
+            anyRouteFired = true;
             if (fireRoute(*route, eventParams)) return;
         }
     }
@@ -1065,6 +1122,7 @@ void OrchestratorEngine::evaluateRoutesOnce(const std::string* eventName,
             const IntentTrigger& intentTrigger = route->trigger().intent();
             if (intentTrigger.intent_name() != _lastNluResult.top_intent()) continue;
             if (_lastNluResult.confidence() < intentTrigger.min_confidence()) continue;
+            anyRouteFired = true;
             if (fireRoute(*route, eventParams)) return;
         }
     }
@@ -1078,7 +1136,15 @@ void OrchestratorEngine::evaluateRoutesOnce(const std::string* eventName,
                                       + "' condition_cel must evaluate to a boolean");
         }
         if (!result.bool_value()) continue;
+        anyRouteFired = true;
         if (fireRoute(*route, eventParams)) return;
+    }
+
+    // Spec §6 step 3's no-match fallback (M3.3) - only for the ordinary
+    // step-3 entry point (eventName == nullptr); an internally-cascaded event
+    // matching nothing stays a silent no-op (see class comment).
+    if (!anyRouteFired && !eventName) {
+        handleNoMatch();
     }
 }
 
@@ -1304,6 +1370,10 @@ void OrchestratorEngine::setHttpInterface(std::shared_ptr<va::network::HttpInter
 void OrchestratorEngine::setCustomToolHandler(
     std::string name, std::function<google::protobuf::Struct(const google::protobuf::Struct&, SessionState&)> handler) {
     _customToolHandlers[std::move(name)] = std::move(handler);
+}
+
+void OrchestratorEngine::setOnHandoff(std::function<void(const HandoffContext&)> cb) {
+    _onHandoff = std::move(cb);
 }
 
 void OrchestratorEngine::setOnFlowComplete(std::function<void(const std::string&, const SessionState&)> cb) {

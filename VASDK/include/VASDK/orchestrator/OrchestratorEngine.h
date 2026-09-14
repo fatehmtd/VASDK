@@ -156,12 +156,9 @@ struct VASDK_EXPORT OrchestratorConfig {
 //     templated-prompt call whose raw reply becomes this turn's say output)
 //     plus generative nodes themselves (§9.4). Milestone 2.5 added `expect`
 //     (§9.5, both typed and bare - see below) and static-form parameter
-//     collection (§7). Milestone 3.1 (this milestone) added callWebhook
-//     (§9.2) - see below. `handoff` remains unimplemented (§9.9's offline
-//     store-and-forward and, more immediately, M3.3's "handoff/escalation
-//     end-to-end" - a webhook response's own `handoff` field is parsed and
-//     silently ignored for the same reason: there is no setOnHandoff to fire
-//     yet).
+//     collection (§7). Milestone 3.1 added callWebhook (§9.2) - see below.
+//     Milestone 3.3 (this milestone) added `handoff`/escalation event
+//     handlers end-to-end - see below.
 //   - Milestone 3.1 (spec §9.2) - callWebhook (runAction's Action::kCallWebhook
 //     case, handleWebhookAction()) is the first action kind that actually runs
 //     off the calling thread: a WebhookThreadPool (sized
@@ -194,8 +191,8 @@ struct VASDK_EXPORT OrchestratorConfig {
 //     allows.
 //   - On success, applyWebhookResponse() parses the JSON body per
 //     requestflow-backend-spec.md §3 (`messages`, `parameterPatches`,
-//     `transition`, `emitEvents`, `endSession` - `handoff` deliberately
-//     ignored, see above) and applies each field in that order, reusing
+//     `transition`, `emitEvents`, `handoff`, `endSession`) and applies each
+//     field in that order, reusing
 //     existing machinery throughout: `messages` become `_onSay()` calls
 //     verbatim (no {param} substitution - this is backend-authored text, not
 //     flow config), `parameterPatches` become `_session.setParameter(name,
@@ -248,6 +245,48 @@ struct VASDK_EXPORT OrchestratorConfig {
 //     that nothing before this milestone required. Empty for entry_executor
 //     calls (no "matched route" exists yet) and for the webhook_error
 //     handler's own executor (same reasoning).
+//   - Milestone 3.3 (spec §13/§20.1, roadmap "handoff/escalation event
+//     handlers end-to-end") adds two things, both synchronous - neither needs
+//     the WebhookThreadPool or any new threading infrastructure:
+//     (1) `handoff` end-to-end: runAction's new Action::kHandoff case and
+//     applyWebhookResponse's new `handoff` field both call the same
+//     fireHandoff(reason) - increments handoff_count, then builds a
+//     HandoffContext (session_id/reason/active_flow_id/active_node_id/a copy
+//     of the current session parameters - fields spec's own §20.1 example
+//     doesn't enumerate beyond sessionId/reason, but a handoff callback with
+//     nothing but those two is of little use to an app actually routing to a
+//     human agent) and invokes _onHandoff if one is attached (setOnHandoff
+//     above) - same "increments the metric either way, callback is the only
+//     optional part" pattern _webhookErrorCount already establishes.
+//     (2) EventHandlers.no_match, spec §6 step 3's "the node's no-match
+//     fallback (falling back to the flow's, then the agent's)" - the "not-yet-
+//     scheduled gap" M2.5's own class comment flagged. evaluateRoutesOnce()
+//     tracks whether any route actually fired across its three groups; if
+//     none did *and* this is the ordinary step-3 entry point (eventName ==
+//     nullptr - ordinary intent/condition evaluation immediately following
+//     step 2, not an internally-cascaded node_enter/emitEvent pass, which
+//     stays a silent no-op per the class comment further below), handleNoMatch()
+//     runs findNoMatchHandler()'s resolved Executor (same node -> flow ->
+//     agent chain shape as findWebhookErrorHandler, kept as a separate
+//     near-duplicate rather than a shared helper - only two of these exist)
+//     with event.attempts populated from _noMatchAttempts (spec §8.2's table:
+//     "the reprompt count at the moment the fallback fired" - reset on
+//     enterNode() like _generativeTurnsUsed, otherwise a historical count not
+//     reset by an intervening successful match, matching ParameterMeta.
+//     attempts' own precedent). No _abortExecutor involved here (unlike
+//     handleWebhookFailure) - nothing is mid-executor at the point no_match
+//     fires, since it's detected only after every route in the node has
+//     already been tried and none matched.
+//   - Deliberately NOT implemented this milestone, both explicitly later
+//     items: the no-input half of EventHandlers (`no_input`, spec §9.5) -
+//     still blocked on the same missing OrchestratorFrameProcessor-side
+//     turn-detection integration M2.5's class comment already flagged, no
+//     closer to existing now than it was then; and `user_cancel`/
+//     `permission_denied`/`webhook_deferred`'s own trigger paths (interrupt
+//     intents, the permission gate, PendingActionStore respectively) - all
+//     three are Phase 4 roadmap items with their own prerequisite machinery
+//     this milestone doesn't add, so there is nothing yet that could ever
+//     resolve their EventHandlers chain even if one were added.
 //   - Generative nodes (§9.4): while the active node has generative: true,
 //     handleUtterance() skips NLUProvider.detect() and §6 steps 1-3 entirely
 //     (a generative node never touches NLUProvider) and instead runs
@@ -316,7 +355,11 @@ struct VASDK_EXPORT OrchestratorConfig {
 // intent was recognized" (spec §6's step 3 fallback chain reads naturally as
 // the outcome of an NLU classification attempt), and most nodes will have no
 // event route at all for events they don't care about - that's the ordinary
-// steady state (waiting for the next input), not an error.
+// steady state (waiting for the next input), not an error. Milestone 3.3
+// implements no_match itself (see above) exactly along this boundary:
+// evaluateRoutesOnce()'s eventName == nullptr check is what distinguishes
+// "the ordinary step-3 pass this rule is about" from "an internal cascade
+// this rule says stays silent."
 //
 // Milestone 1.8 (docs/reference/requestflow-roadmap.md §3) added spec §11's
 // per-turn metrics into the existing MetricsCollector, via
@@ -338,10 +381,13 @@ struct VASDK_EXPORT OrchestratorConfig {
 // callWebhook action that ends in the webhook_error fallback, whether from
 // exhausted retries or a turnExternalCallBudget expiry - not incremented for
 // a circuit-breaker refusal, which throws before there's a "webhook_error
-// outcome" to count). no_match_count/no_input_count still need the
-// no-match/no-input EventHandlers fallback chain (a separate,
-// not-yet-scheduled gap - see the class comment above); nlu_*/handoff_count/
-// fire_and_forget_*/best_effort_* need Phase 3/4 features this engine
+// outcome" to count). Milestone 3.3 adds handoff_count (Counter, once per
+// fireHandoff() call - a HandoffAction or a webhook response's `handoff`
+// field, whether or not setOnHandoff is attached) and no_match_count
+// (Counter, once per handleNoMatch() call - see the class comment above).
+// no_input_count still needs the no_input half of EventHandlers, still
+// blocked on the same missing turn-detection integration M2.5 flagged;
+// nlu_*/fire_and_forget_*/best_effort_* need Phase 3/4 features this engine
 // doesn't implement yet - wiring them now would mean a counter that can
 // never increment, which is worse than not registering it at all.
 class VASDK_EXPORT OrchestratorEngine {
@@ -447,6 +493,14 @@ public:
     // END_SESSION (this milestone's reading of "flow complete").
     void setOnFlowComplete(std::function<void(const std::string& flowId, const SessionState&)> cb);
 
+    // Milestone 3.3 (spec §13/§20.1) - fires once per HandoffAction that runs
+    // (runAction's Action::kHandoff case) or webhook response `handoff` field
+    // (requestflow-backend-spec.md §3) that's applied. Unset is a fully
+    // supported shape, same as setOnFlowComplete - handoff_count still
+    // increments either way (see class comment), it's only the app-visible
+    // callback that's a no-op.
+    void setOnHandoff(std::function<void(const va::orchestrator::HandoffContext&)> cb);
+
     // Every `say` action's already-{parameter}-substituted text, in firing
     // order. OrchestratorFrameProcessor is the real consumer (turns this into
     // downstream TextFrames); exposed as a callback here so the engine itself
@@ -518,6 +572,16 @@ private:
 
     std::function<void(const std::string&, const SessionState&)> _onFlowComplete;
     std::function<void(const std::string&)> _onSay;
+    // Milestone 3.3 - see setOnHandoff above.
+    std::function<void(const va::orchestrator::HandoffContext&)> _onHandoff;
+
+    // Milestone 3.3 (spec §6 step 3/§8.2) - consecutive no-match fallback
+    // firings on the *current* node, reset on enterNode() the same way
+    // _generativeTurnsUsed is - a historical count, not reset by an
+    // intervening successful match, matching ParameterMeta.attempts' own
+    // "historical failed-attempt count" precedent. Surfaced as event.attempts
+    // per spec §8.2's table.
+    int _noMatchAttempts = 0;
 
     // Milestone 1.8 (spec §11) - see the class comment above for exactly
     // which four metrics these are and why the rest aren't registered yet.
@@ -529,6 +593,9 @@ private:
     // Milestone 3.1 (spec §11) - see the class comment above.
     va::metrics::SamplerHandle _webhookLatencyMs;
     va::metrics::CounterHandle _webhookErrorCount;
+    // Milestone 3.3 (spec §11) - see the class comment above.
+    va::metrics::CounterHandle _handoffCount;
+    va::metrics::CounterHandle _noMatchCount;
     void initializeMetrics();
 
     // Milestone 3.1 (spec §9.2) - see the class comment above. _httpInterface
@@ -648,6 +715,27 @@ private:
     // node_handlers -> flow_handlers -> global_handlers, first one whose
     // has_webhook_error() is true; nullptr if none anywhere in that chain.
     const va::orchestrator::Executor* findWebhookErrorHandler() const;
+
+    // Milestone 3.3 (spec §6 step 3) - same node -> flow -> agent chain as
+    // findWebhookErrorHandler, but for EventHandlers.no_match; kept as a
+    // separate near-duplicate rather than a shared member-pointer-templated
+    // helper, since there are only two of these and the duplication is small.
+    const va::orchestrator::Executor* findNoMatchHandler() const;
+
+    // Milestone 3.3 (spec §6 step 3/§8.2) - runs findNoMatchHandler()'s
+    // resolved Executor (if any) with event.attempts populated
+    // (_noMatchAttempts, pre-increment), then increments no_match_count.
+    // Called from evaluateRoutesOnce() when the ordinary step-3 pass
+    // (eventName == nullptr) matches no route at all - an internally-cascaded
+    // event matching nothing stays a silent no-op (see class comment above).
+    void handleNoMatch();
+
+    // Milestone 3.3 (spec §13/§20.1) - the shared path both a HandoffAction
+    // (runAction's Action::kHandoff case) and a webhook response's `handoff`
+    // field (applyWebhookResponse) fire through: increments handoff_count,
+    // builds a HandoffContext from current session state, and invokes
+    // _onHandoff if one is attached.
+    void fireHandoff(const std::string& reason);
 
     // See the class comment above for why this is declared last: reverse
     // member-destruction order tears it down - draining/joining every
