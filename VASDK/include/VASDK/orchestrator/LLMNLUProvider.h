@@ -47,8 +47,17 @@ namespace orchestrator {
 // loop, M2.4) - give this provider its own instance, same as
 // va::goal::IntentRouter expects its own attached transport.
 //
-// Same Phase-4 deferrals as TrainingPhraseNLUProvider (see NLUProvider.h):
-// interrupt_intent_names isn't consulted and co_intents is never populated.
+// Spec §6.2 - interrupt_intent_names is now consulted, differently in each of
+// detect()'s two shapes: the classification call folds interrupt names into
+// the same candidate list buildClassificationPrompt() already sends (they're
+// just more intents the model can pick as top_intent, deduped against
+// whatever candidates the caller supplied - see detect()); the extraction
+// call (detectParameterExtraction()) can't reuse that trick, since its prompt
+// has no notion of intents at all, so buildExtractionPrompt() gets a second,
+// optional section asking the model to name an interrupt instead of
+// extracting a value when one applies - see its own comment. Same Phase-4
+// deferral as TrainingPhraseNLUProvider for the other item: co_intents is
+// never populated (multi-intent co-firing, §6.1, not yet built).
 //
 // Milestone 2.5 (spec §9.5/§6 step 2) - detect() now branches on
 // context.expected_parameter_name(): when set, it skips intent classification
@@ -91,8 +100,12 @@ private:
     std::string buildClassificationPrompt(const std::vector<std::string>& candidateNames) const;
 
     // Milestone 2.5 (spec §9.5) - the expected_parameter_name != "" branch of
-    // detect(); see the class comment above.
-    std::string buildExtractionPrompt(const std::string& parameterName) const;
+    // detect(); see the class comment above. `interruptIntentNames` (spec
+    // §6.2, added alongside the interrupt-intents milestone) is empty on most
+    // calls - when non-empty, the prompt gains a second section asking the
+    // model to name one instead of extracting a value, if the reply applies.
+    std::string buildExtractionPrompt(const std::string& parameterName,
+                                       const std::vector<std::string>& interruptIntentNames) const;
     va::orchestrator::NLUResult detectParameterExtraction(const std::string& utterance,
                                                             const va::orchestrator::NLUContext& context);
 };

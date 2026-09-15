@@ -1,6 +1,7 @@
 #include <VASDK/orchestrator/LLMNLUProvider.h>
 
 #include <VASDK/Frame.h>
+#include <algorithm>
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 #include <sstream>
@@ -122,6 +123,18 @@ NLUResult LLMNLUProvider::detect(const std::string& utterance, const NLUContext&
                                          context.candidate_intent_names().end());
     if (candidates.empty()) candidates = _candidateIntents;
 
+    // Spec §6.2 - interrupt names are always eligible for classification too,
+    // even on a node whose own routes wouldn't otherwise offer them (that's
+    // exactly the generative-node interrupt-prelude call's shape: empty
+    // ordinary candidates, interrupt names only). The model just sees them as
+    // more entries in "available intents" - the engine, not this prompt,
+    // treats a matched interrupt specially once detect() returns.
+    for (const auto& name : context.interrupt_intent_names()) {
+        if (std::find(candidates.begin(), candidates.end(), name) == candidates.end()) {
+            candidates.push_back(name);
+        }
+    }
+
     _transport->clearHistory();
     _transport->addMessageToHistory(va::llm::MessageRole::SYSTEM, buildClassificationPrompt(candidates));
 
@@ -181,12 +194,36 @@ NLUResult LLMNLUProvider::detect(const std::string& utterance, const NLUContext&
     return result;
 }
 
-std::string LLMNLUProvider::buildExtractionPrompt(const std::string& parameterName) const {
+std::string LLMNLUProvider::buildExtractionPrompt(const std::string& parameterName,
+                                                    const std::vector<std::string>& interruptIntentNames) const {
     std::ostringstream ss;
     ss << "You are a slot-filling engine for a voice assistant. The user was just asked to "
           "provide a value for \"" << parameterName << "\". Given their reply, extract that "
-          "value if it's present - do not guess or invent one if it isn't.\n\n"
-          "Respond with ONLY a single JSON object, no other text, in exactly this shape:\n"
+          "value if it's present - do not guess or invent one if it isn't.\n";
+
+    // Spec §6.2 - the extraction prompt has no other notion of intents, so
+    // interrupt checking needs its own section here rather than reusing
+    // buildClassificationPrompt's candidate list the way the plain
+    // classification call does (see detect()). An interrupt match takes
+    // priority over extraction - "no parameter is extracted or stored" when
+    // one applies.
+    if (!interruptIntentNames.empty()) {
+        ss << "\nBefore extracting, check whether the reply instead expresses one of these "
+              "unrelated requests, which take priority over answering the question:\n";
+        for (const auto& name : interruptIntentNames) {
+            ss << "- " << name << "\n";
+            const IntentTrainingData* data = findTrainingData(name);
+            if (!data) continue;
+            for (const auto& phrase : data->phrases()) {
+                if (!phrase.empty() && phrase.front() == '!') continue;
+                ss << "  Example: \"" << phrase << "\"\n";
+            }
+        }
+        ss << "If one of these applies, respond with ONLY {\"interrupt_intent\": \"<name>\"} "
+              "and nothing else.\n";
+    }
+
+    ss << "\nOtherwise respond with ONLY a single JSON object, no other text, in exactly this shape:\n"
           "{\"value\": <the extracted value as a string, number, or boolean, or null if the "
           "reply doesn't provide one>}\n";
     return ss.str();
@@ -195,9 +232,12 @@ std::string LLMNLUProvider::buildExtractionPrompt(const std::string& parameterNa
 NLUResult LLMNLUProvider::detectParameterExtraction(const std::string& utterance, const NLUContext& context) {
     NLUResult result;
     const std::string& parameterName = context.expected_parameter_name();
+    std::vector<std::string> interruptNames(context.interrupt_intent_names().begin(),
+                                             context.interrupt_intent_names().end());
 
     _transport->clearHistory();
-    _transport->addMessageToHistory(va::llm::MessageRole::SYSTEM, buildExtractionPrompt(parameterName));
+    _transport->addMessageToHistory(va::llm::MessageRole::SYSTEM,
+                                     buildExtractionPrompt(parameterName, interruptNames));
 
     auto frame = std::make_shared<transport::TextFrame>();
     frame->text = utterance;
@@ -221,6 +261,12 @@ NLUResult LLMNLUProvider::detectParameterExtraction(const std::string& utterance
     } catch (const std::exception& e) {
         spdlog::warn("[LLMNLUProvider] failed to parse extraction response as JSON: {} (raw: \"{}\")",
                      e.what(), raw);
+        return result;
+    }
+
+    if (parsed.is_object() && parsed.contains("interrupt_intent") && parsed["interrupt_intent"].is_string()) {
+        result.set_top_intent(parsed["interrupt_intent"].get<std::string>());
+        result.set_confidence(1.0f);
         return result;
     }
 

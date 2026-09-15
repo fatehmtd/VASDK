@@ -27,9 +27,11 @@ namespace orchestrator {
 // one method: context.expected_parameter_name set means "extract a value for
 // this parameter from free text" (slot-filling, spec §9.5); unset means "classify
 // an intent among context.candidate_intent_names" (spec §6 step 2). Checking
-// context.interrupt_intent_names first (spec §6.2) and populating
-// NLUResult.co_intents (spec §6.1) are both Phase 4 concerns per the roadmap's
-// §5 table, not required of a conforming provider yet.
+// context.interrupt_intent_names first (spec §6.2) is now required of a
+// conforming provider - both v1 implementations do it (see their own class
+// comments for how). Populating NLUResult.co_intents (spec §6.1, multi-intent
+// co-firing) remains a separate, not-yet-built Phase 4 item per the roadmap's
+// §5 table.
 class VASDK_EXPORT NLUProvider {
 public:
     virtual ~NLUProvider() = default;

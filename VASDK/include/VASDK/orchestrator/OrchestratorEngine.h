@@ -58,11 +58,16 @@ struct VASDK_EXPORT OrchestratorConfig {
 //     `intent`-triggered route (candidate_intent_names gathered from exactly
 //     those routes' IntentTrigger.intent_name, deduped, declaration order) -
 //     calling a provider (an LLM API call, for LLMNLUProvider) when nothing
-//     on the node could possibly consult the result would be pure waste.
-//     context.interrupt_intent_names (§6.2) is always left empty and
-//     NLUResult.co_intents (§6.1) is never consulted - both are Phase 4
-//     items per the roadmap's own table, same deferral
-//     TrainingPhraseNLUProvider/LLMNLUProvider already made.
+//     on the node could possibly consult the result would be pure waste -
+//     except the call is no longer skippable purely on that ground: spec
+//     §6.2's interrupt-intents milestone widened the guard to "candidates OR
+//     mergedInterruptIntentNames(*node) is non-empty", since a node with no
+//     intent routes of its own can still have an agent/flow/node-scoped
+//     interrupt set worth checking. context.interrupt_intent_names is now
+//     always populated with that merged set on this call (see
+//     mergedInterruptIntentNames()); NLUResult.co_intents (§6.1) remains
+//     unconsulted - multi-intent co-firing is a separate, not-yet-built
+//     Phase 4 item.
 //   - Milestone 2.5 (spec §9.5/§7) - `expected_parameter_name` IS now set,
 //     per turn, following the exact priority chain spec §6 step 2 describes:
 //     (1) a PendingAsk (`_session.hasPendingAsk()`) - set by a prior turn's
@@ -132,6 +137,35 @@ struct VASDK_EXPORT OrchestratorConfig {
 //     handleUtterance() with real recognized text), so this milestone only
 //     implements the validation-failure reprompt/escalation cycle, which is
 //     fully exercisable through OrchestratorConversationSimulator today.
+//   - Spec §6.2 (interrupt intents / mid-task cancel, resolving the Draft
+//     v2.1 §18 open item on EventHandlers.user_cancel having no trigger
+//     path): mergedInterruptIntentNames(node) - Agent.interrupt_intent_names
+//     ∪ active Flow's ∪ node's - is populated into
+//     NLUContext.interrupt_intent_names on every detect() call this class
+//     makes: handleParameterExtractionTurn()'s slot-filling call (both the
+//     static-form and pending-ask case), the ordinary classification call
+//     above (whose "skip when nothing could consult it" guard now also
+//     checks this merged set, not just candidate_intent_names), and a new
+//     interrupt-only prelude call runGenerativeTurn() makes ahead of a
+//     generative node's LLM turn (see its own comment). Both v1 NLUProvider
+//     implementations check this set first, regardless of what else a given
+//     call is for (see their own class comments) - so when the returned
+//     NLUResult.top_intent is itself a member, handleParameterExtractionTurn()
+//     skips extraction/storage entirely (clearing a PendingAsk first, if one
+//     was active, so it can't go stale across whatever transition the
+//     matched route applies) and falls straight through to an ordinary step-3
+//     evaluateRoutesOnce() pass with that intent as the winner - "just a
+//     normal route like any other" per spec, so an ordinary node-level
+//     intent-triggered Route catches it exactly like any other intent match.
+//     If nothing does (evaluateRoutesOnce()'s existing anyRouteFired tracking,
+//     M3.3, stays false), evaluateRoutesOnce() calls handleUserCancel()
+//     instead of handleNoMatch() for that one pass - the merged set is
+//     re-derived there too, to tell "no route caught the matched interrupt"
+//     apart from "nothing matched at all" (the latter still routes to
+//     no_match, unchanged). This is what finally gives
+//     EventHandlers.user_cancel a trigger path. NLUResult.co_intents (§6.1,
+//     multi-intent co-firing) is a separate, still-unbuilt mechanism -
+//     nothing above touches it.
 //   - The turn's NLUResult (real or, for OrchestratorConversationSimulator,
 //     injected - spec §12) is cached for the rest of that external turn,
 //     including any node_enter/emitEvent cascade runToQuiescence() drains
@@ -281,19 +315,24 @@ struct VASDK_EXPORT OrchestratorConfig {
 //     items: the no-input half of EventHandlers (`no_input`, spec §9.5) -
 //     still blocked on the same missing OrchestratorFrameProcessor-side
 //     turn-detection integration M2.5's class comment already flagged, no
-//     closer to existing now than it was then; and `user_cancel`/
-//     `permission_denied`/`webhook_deferred`'s own trigger paths (interrupt
-//     intents, the permission gate, PendingActionStore respectively) - all
-//     three are Phase 4 roadmap items with their own prerequisite machinery
-//     this milestone doesn't add, so there is nothing yet that could ever
-//     resolve their EventHandlers chain even if one were added.
+//     closer to existing now than it was then; and `permission_denied`/
+//     `webhook_deferred`'s own trigger paths (the permission gate,
+//     PendingActionStore respectively) - both remain Phase 4 roadmap items
+//     with their own prerequisite machinery this milestone doesn't add, so
+//     there is nothing yet that could ever resolve their EventHandlers chain
+//     even if one were added. `user_cancel`'s own trigger path - interrupt
+//     intents - is no longer in this category; see the §6.2 bullet earlier
+//     in this comment and findUserCancelHandler()/handleUserCancel() below.
 //   - Generative nodes (§9.4): while the active node has generative: true,
 //     handleUtterance() skips NLUProvider.detect() and §6 steps 1-3 entirely
-//     (a generative node never touches NLUProvider) and instead runs
-//     runGenerativeTurn(), which drives _llmTransport directly - a system
-//     message (generative_config.system_prompt_template, {param}-substituted
-//     like say.text, plus a tool-calling contract this engine defines: reply
-//     with only {"tool": "<name>", "args": {...}} to call one of
+//     (a generative node never touches NLUProvider for the LLM turn itself -
+//     though runGenerativeTurn() does now make one interrupt-only detect()
+//     call ahead of it, spec §6.2, see the §6.2 bullet earlier in this
+//     comment) and instead runs runGenerativeTurn(), which drives
+//     _llmTransport directly - a system message
+//     (generative_config.system_prompt_template, {param}-substituted like
+//     say.text, plus a tool-calling contract this engine defines: reply with
+//     only {"tool": "<name>", "args": {...}} to call one of
 //     generative_config.tools, anything else is treated as plain spoken text)
 //     installed once per node-entry, then one user-turn's worth of
 //     tool-call/tool-result exchanges (each dispatched through the same
@@ -302,8 +341,10 @@ struct VASDK_EXPORT OrchestratorConfig {
 //     model produces plain text (this turn's say output) or calls a
 //     `terminal` tool, whichever ends the loop first and emits
 //     generative_config.exit_event (default "generative_exit") as a pending
-//     event, re-entering ordinary route evaluation at step 3 exactly like any
-//     other emitted event. _generativeTurnsUsed - reset whenever any node is
+//     event carrying event.exit_reason ("terminal_tool" | "max_turns" |
+//     "interrupt" - spec §8.2's table), re-entering ordinary route evaluation
+//     at step 3 exactly like any other emitted event. _generativeTurnsUsed -
+//     reset whenever any node is
 //     entered - bounds how many *user* turns the loop runs before it force-
 //     exits the same way (spec's "whichever comes first"); a separate,
 //     engine-only kMaxToolCallsPerTurn (OrchestratorEngine.cpp) bounds how
@@ -627,6 +668,17 @@ private:
     // = node routes".
     std::vector<std::string> intentCandidateNames(const va::orchestrator::Node& node) const;
 
+    // Spec §6.2 - Agent.interrupt_intent_names ∪ (active flow's) ∪
+    // (node's), deduped, agent-first order. Populated into
+    // NLUContext.interrupt_intent_names on every detect() call (see class
+    // comment above) and re-derived here (not cached) to check
+    // _lastNluResult.top_intent() membership after the fact - both
+    // evaluateRoutesOnce() and the two handleUtterance()/
+    // handleParameterExtractionTurn() call sites need it independently, and
+    // it's cheap enough (three short repeated-field scans) not to bother
+    // threading a precomputed copy between them.
+    std::vector<std::string> mergedInterruptIntentNames(const va::orchestrator::Node& node) const;
+
     ExpressionEvaluator::Activation buildActivation(const google::protobuf::Struct* eventParams) const;
     std::string substituteParameters(const std::string& text) const;
 
@@ -648,8 +700,14 @@ private:
 
     // Milestone 2.4 (spec §9.4) - drives one external turn of a generative
     // node's LLM-tool loop against `node`. See the class comment above for
-    // the full mechanics.
-    void runGenerativeTurn(const va::orchestrator::Node& node, const std::string& utterance);
+    // the full mechanics. `injectedResult` (spec §6.2, added alongside the
+    // interrupt-intents milestone) is the same simulator convention
+    // handleUtterance()/handleParameterExtractionTurn() already use - it
+    // stands in for the new interrupt-check prelude's detect() call, letting
+    // a scripted test drive an interrupt mid-generative-loop without a real
+    // NLUProvider attached; nullptr means "call the real provider" as usual.
+    void runGenerativeTurn(const va::orchestrator::Node& node, const std::string& utterance,
+                            const va::orchestrator::NLUResult* injectedResult);
     std::string buildGenerativeSystemPrompt(const va::orchestrator::GenerativeConfig& config) const;
 
     // Returns true when this evaluation pass should stop (a transition fired,
@@ -729,6 +787,24 @@ private:
     // (eventName == nullptr) matches no route at all - an internally-cascaded
     // event matching nothing stays a silent no-op (see class comment above).
     void handleNoMatch();
+
+    // Spec §6.2 - same node -> flow -> agent chain as findWebhookErrorHandler/
+    // findNoMatchHandler, but for EventHandlers.user_cancel; a third
+    // near-duplicate rather than a shared helper, same "only a few of these
+    // exist" reasoning findNoMatchHandler's own comment already gives.
+    const va::orchestrator::Executor* findUserCancelHandler() const;
+
+    // Spec §6.2's fallback half of the interrupt-intents mechanism: called
+    // from evaluateRoutesOnce() in place of handleNoMatch() when the ordinary
+    // step-3 pass matches no route at all (anyRouteFired stays false) *and*
+    // this turn's winning top_intent is itself an interrupt match - i.e. the
+    // author wrote no ordinary intent-triggered Route to catch it, so
+    // EventHandlers.user_cancel is the resolved trigger path spec §18 flagged
+    // as an open decision in Draft v2.1 and resolved in Draft v2.2. Unlike
+    // handleNoMatch(), no event.* payload is documented for this fallback
+    // (spec §8.2's table has no row for it) - runs findUserCancelHandler()'s
+    // resolved Executor (if any) with no eventParams.
+    void handleUserCancel();
 
     // Milestone 3.3 (spec §13/§20.1) - the shared path both a HandoffAction
     // (runAction's Action::kHandoff case) and a webhook response's `handoff`

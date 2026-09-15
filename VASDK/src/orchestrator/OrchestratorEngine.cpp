@@ -402,6 +402,23 @@ std::vector<std::string> OrchestratorEngine::intentCandidateNames(const Node& no
     return names;
 }
 
+std::vector<std::string> OrchestratorEngine::mergedInterruptIntentNames(const Node& node) const {
+    std::vector<std::string> names(_agent.interrupt_intent_names().begin(),
+                                    _agent.interrupt_intent_names().end());
+    auto appendUnique = [&names](const auto& source) {
+        for (const auto& name : source) {
+            if (std::find(names.begin(), names.end(), name) == names.end()) {
+                names.push_back(name);
+            }
+        }
+    };
+    if (const Flow* flow = findFlow(_session.activeFlowId())) {
+        appendUnique(flow->interrupt_intent_names());
+    }
+    appendUnique(node.interrupt_intent_names());
+    return names;
+}
+
 ExpressionEvaluator::Activation OrchestratorEngine::buildActivation(
     const google::protobuf::Struct* eventParams) const {
     ExpressionEvaluator::Activation activation;
@@ -723,6 +740,26 @@ void OrchestratorEngine::handleNoMatch() {
     if (handler) runExecutor(*handler, &params, "");
 }
 
+const Executor* OrchestratorEngine::findUserCancelHandler() const {
+    const Node* node = currentNode();
+    if (node && node->node_handlers().has_user_cancel()) {
+        return &node->node_handlers().user_cancel();
+    }
+    const Flow* flow = findFlow(_session.activeFlowId());
+    if (flow && flow->flow_handlers().has_user_cancel()) {
+        return &flow->flow_handlers().user_cancel();
+    }
+    if (_agent.global_handlers().has_user_cancel()) {
+        return &_agent.global_handlers().user_cancel();
+    }
+    return nullptr;
+}
+
+void OrchestratorEngine::handleUserCancel() {
+    const Executor* handler = findUserCancelHandler();
+    if (handler) runExecutor(*handler, nullptr, "");
+}
+
 void OrchestratorEngine::fireHandoff(const std::string& reason) {
     _handoffCount.increment();
     if (!_onHandoff) return;
@@ -946,18 +983,66 @@ std::string OrchestratorEngine::buildGenerativeSystemPrompt(const GenerativeConf
     return ss.str();
 }
 
-void OrchestratorEngine::runGenerativeTurn(const Node& node, const std::string& utterance) {
+void OrchestratorEngine::runGenerativeTurn(const Node& node, const std::string& utterance,
+                                            const NLUResult* injectedResult) {
     const GenerativeConfig& config = node.generative_config();
     const std::string exitEventName = config.exit_event().empty() ? "generative_exit" : config.exit_event();
     const int maxTurns = config.max_turns() > 0 ? config.max_turns() : _config.defaultGenerativeMaxTurns;
+
+    // Spec §8.2's table - generative_exit's params carry exit_reason, one of
+    // "terminal_tool" | "max_turns" | "interrupt".
+    auto queueExitEvent = [this, &exitEventName](const std::string& reason) {
+        PendingEvent exitEvent;
+        exitEvent.name = exitEventName;
+        google::protobuf::Value reasonValue;
+        reasonValue.set_string_value(reason);
+        (*exitEvent.params.mutable_fields())["exit_reason"] = reasonValue;
+        _pendingEvents.push_back(std::move(exitEvent));
+    };
+
+    // Spec §6.2 - a cheap classification gate ahead of the LLM turn, checking
+    // only the merged interrupt set (empty expected_parameter_name/
+    // candidate_intent_names - this call exists purely to check for a
+    // mid-task cancel), run even before the maxTurns check below ("without
+    // waiting for maxTurns or a terminal tool call"). Skipped entirely when
+    // nothing is configured to interrupt, same "no wasted call" precedent
+    // handleUtterance()'s own ordinary classification call already
+    // established.
+    auto interruptNames = mergedInterruptIntentNames(node);
+    if (!interruptNames.empty()) {
+        NLUResult interruptResult;
+        if (injectedResult) {
+            interruptResult = *injectedResult;
+        } else if (_nluProvider) {
+            NLUContext context;
+            context.set_locale(_agent.default_locale());
+            context.set_active_flow_id(_session.activeFlowId());
+            context.set_active_node_id(_session.activeNodeId());
+            for (const auto& name : interruptNames) {
+                context.add_interrupt_intent_names(name);
+            }
+            interruptResult = _nluProvider->detect(utterance, context);
+        }
+        if (!interruptResult.top_intent().empty()
+            && std::find(interruptNames.begin(), interruptNames.end(), interruptResult.top_intent())
+                   != interruptNames.end()) {
+            // Spec §9.4 point 4 / §6.2 - "ends the generative loop
+            // immediately ... without waiting for maxTurns or a terminal tool
+            // call." _lastNluResult is set so the re-entered step-3
+            // evaluation (this event's own pass, via runToQuiescence()) sees
+            // the interrupt intent as the turn's winning top_intent, same as
+            // the static-form/pending-ask case in handleParameterExtractionTurn().
+            _lastNluResult = interruptResult;
+            queueExitEvent("interrupt");
+            return;
+        }
+    }
 
     // Spec §9.4 point 4 - "the loop ends... when maxTurns is reached,
     // whichever comes first": a turn budget already exhausted ends the loop
     // before this turn is even forwarded to the LLM.
     if (_generativeTurnsUsed >= maxTurns) {
-        PendingEvent exitEvent;
-        exitEvent.name = exitEventName;
-        _pendingEvents.push_back(std::move(exitEvent));
+        queueExitEvent("max_turns");
         return;
     }
 
@@ -1036,9 +1121,7 @@ void OrchestratorEngine::runGenerativeTurn(const Node& node, const std::string& 
         if (toolRef->terminal()) {
             // Spec §9.4 point 4 - ends "the instant" a terminal tool is
             // called; no further model turn is solicited.
-            PendingEvent exitEvent;
-            exitEvent.name = exitEventName;
-            _pendingEvents.push_back(std::move(exitEvent));
+            queueExitEvent("terminal_tool");
             return;
         }
 
@@ -1159,9 +1242,22 @@ void OrchestratorEngine::evaluateRoutesOnce(const std::string* eventName,
 
     // Spec §6 step 3's no-match fallback (M3.3) - only for the ordinary
     // step-3 entry point (eventName == nullptr); an internally-cascaded event
-    // matching nothing stays a silent no-op (see class comment).
+    // matching nothing stays a silent no-op (see class comment). Spec §6.2 -
+    // an interrupt match that no ordinary route caught (the author wrote none
+    // for it) resolves EventHandlers.user_cancel instead of the generic
+    // no_match fallback; re-deriving the merged set here (rather than
+    // threading a bool through from wherever _lastNluResult was set) is what
+    // tells the two cases apart.
     if (!anyRouteFired && !eventName) {
-        handleNoMatch();
+        auto interruptNames = mergedInterruptIntentNames(*node);
+        bool wasInterrupt = !_lastNluResult.top_intent().empty()
+            && std::find(interruptNames.begin(), interruptNames.end(), _lastNluResult.top_intent())
+                   != interruptNames.end();
+        if (wasInterrupt) {
+            handleUserCancel();
+        } else {
+            handleNoMatch();
+        }
     }
 }
 
@@ -1203,6 +1299,9 @@ void OrchestratorEngine::checkFormParameterAsk() {
 
 void OrchestratorEngine::handleParameterExtractionTurn(const Parameter& parameter, const std::string& text,
                                                         const NLUResult* injectedResult) {
+    const Node* node = currentNode();
+    auto interruptNames = node ? mergedInterruptIntentNames(*node) : std::vector<std::string>{};
+
     NLUResult result;
     if (injectedResult) {
         result = *injectedResult;
@@ -1212,9 +1311,30 @@ void OrchestratorEngine::handleParameterExtractionTurn(const Parameter& paramete
         context.set_active_flow_id(_session.activeFlowId());
         context.set_active_node_id(_session.activeNodeId());
         context.set_expected_parameter_name(parameter.name());
+        for (const auto& name : interruptNames) {
+            context.add_interrupt_intent_names(name);
+        }
         result = _nluProvider->detect(text, context);
     }
     _lastNluResult = result;
+
+    bool isPendingAsk = _session.hasPendingAsk();
+
+    // Spec §6.2 - checked ahead of extraction, regardless of whether this
+    // turn was a static-form or pending-ask ask: "no parameter is extracted
+    // or stored this turn" when the winning top_intent is itself an
+    // interrupt. A PendingAsk (if any) is cleared here, not left for
+    // clearPendingAsk() further down (which only runs on a successful
+    // extraction) - otherwise it would go stale across whatever transition
+    // the matched route below applies, and next turn's handleUtterance()
+    // would wrongly still treat this as a slot-filling turn.
+    if (!result.top_intent().empty()
+        && std::find(interruptNames.begin(), interruptNames.end(), result.top_intent()) != interruptNames.end()) {
+        if (isPendingAsk) _session.clearPendingAsk();
+        evaluateRoutesOnce(nullptr, nullptr);
+        finishTurn();
+        return;
+    }
 
     auto it = result.extracted_parameters().find(parameter.name());
     bool hasValue = it != result.extracted_parameters().end();
@@ -1227,8 +1347,6 @@ void OrchestratorEngine::handleParameterExtractionTurn(const Parameter& paramete
             validation = _parameterValidator.validateAndNormalize(parameter, valueToDisplayString(extracted));
         }
     }
-
-    bool isPendingAsk = _session.hasPendingAsk();
 
     if (hasValue && validation.valid) {
         // Captured before any mutation below: for a typed PendingAsk,
@@ -1308,9 +1426,13 @@ void OrchestratorEngine::handleUtterance(const std::string& text, const NLUResul
 
     const Node* node = currentNode();
     if (node && node->generative()) {
-        // Spec §9.4 - a generative node never touches NLUProvider and skips
-        // §6 steps 1-3 entirely; runGenerativeTurn is the whole turn.
-        runGenerativeTurn(*node, text);
+        // Spec §9.4 - a generative node never touches NLUProvider for the LLM
+        // turn itself and skips §6 steps 1-3 entirely; runGenerativeTurn is
+        // the whole turn. It does now make its own interrupt-only detect()
+        // call ahead of the LLM (spec §6.2) - injectedResult threads through
+        // for that, same simulator convention as every other detect() call
+        // site in this class.
+        runGenerativeTurn(*node, text, injectedResult);
         finishTurn();
         return;
     }
@@ -1346,18 +1468,24 @@ void OrchestratorEngine::handleUtterance(const std::string& text, const NLUResul
         _lastNluResult = NLUResult{};
         if (_nluProvider && node) {
             auto candidates = intentCandidateNames(*node);
+            auto interruptNames = mergedInterruptIntentNames(*node);
             // Skip the call entirely when the active node has no intent
-            // routes at all - see the class comment on setNLUProvider/
+            // routes at all AND no interrupt intents are configured anywhere
+            // in scope - see the class comment on setNLUProvider/
             // handleUtterance for why this guard exists (no wasted
             // LLMNLUProvider round trip when nothing could consult the
-            // result).
-            if (!candidates.empty()) {
+            // result). Spec §6.2 widened this: a node with no intent routes
+            // of its own can still have an interrupt set worth checking.
+            if (!candidates.empty() || !interruptNames.empty()) {
                 NLUContext context;
                 context.set_locale(_agent.default_locale());
                 context.set_active_flow_id(_session.activeFlowId());
                 context.set_active_node_id(_session.activeNodeId());
                 for (const auto& name : candidates) {
                     context.add_candidate_intent_names(name);
+                }
+                for (const auto& name : interruptNames) {
+                    context.add_interrupt_intent_names(name);
                 }
                 _lastNluResult = _nluProvider->detect(text, context);
             }
