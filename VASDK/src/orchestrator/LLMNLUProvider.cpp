@@ -94,11 +94,16 @@ std::string LLMNLUProvider::buildClassificationPrompt(const std::vector<std::str
         }
     }
 
-    ss << "\nRespond with ONLY a single JSON object, no other text, in exactly this shape:\n"
+    ss << "\nThe utterance may independently express more than one of the intents above at once "
+          "(e.g. \"play some jazz and turn up the AC\" naming two unrelated requests) - list any "
+          "such additional intents, besides your single top pick, in \"co_intents\". Leave it "
+          "empty if the utterance only expresses one request.\n"
+          "\nRespond with ONLY a single JSON object, no other text, in exactly this shape:\n"
           "{\"intent\": \"<one of the intent names above, or empty string if none apply>\", "
           "\"confidence\": <number 0.0-1.0>, "
           "\"parameters\": {<captured values, keyed by the {{name:type}} names shown above>}, "
-          "\"alternatives\": [{\"name\": \"<intent name>\", \"confidence\": <number>}, ...]}\n";
+          "\"alternatives\": [{\"name\": \"<intent name>\", \"confidence\": <number>}, ...], "
+          "\"co_intents\": [{\"name\": \"<another intent name>\", \"confidence\": <number>}, ...]}\n";
 
     return ss.str();
 }
@@ -187,6 +192,21 @@ NLUResult LLMNLUProvider::detect(const std::string& utterance, const NLUContext&
             }
             if (alt.contains("confidence") && alt["confidence"].is_number()) {
                 ranked->set_confidence(alt["confidence"].get<float>());
+            }
+        }
+    }
+    // Spec §6.1 - co_intents, this provider's own top_intent excluded (it's
+    // "additional intents beyond top_intent" per spec §5) in case the model
+    // repeats its own pick despite the prompt asking for "additional" ones.
+    if (parsed.contains("co_intents") && parsed["co_intents"].is_array()) {
+        for (const auto& co : parsed["co_intents"]) {
+            if (!co.is_object() || !co.contains("name") || !co["name"].is_string()) continue;
+            std::string name = co["name"].get<std::string>();
+            if (name.empty() || name == result.top_intent()) continue;
+            auto* coIntent = result.add_co_intents();
+            coIntent->set_name(name);
+            if (co.contains("confidence") && co["confidence"].is_number()) {
+                coIntent->set_confidence(co["confidence"].get<float>());
             }
         }
     }

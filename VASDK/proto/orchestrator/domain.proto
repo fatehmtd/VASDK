@@ -93,7 +93,7 @@ message NLUContext {
   string active_node_id = 3;
   optional string expected_parameter_name = 4;   // set during slot-filling
   repeated string candidate_intent_names = 5;    // from the active node's intent routes
-  repeated string interrupt_intent_names = 6;    // spec §6.2 - the merged agent/flow/node interrupt set, checked first (Phase 4 - not yet consulted by TrainingPhraseNLUProvider)
+  repeated string interrupt_intent_names = 6;    // spec §6.2 - the merged agent/flow/node interrupt set, checked first by both v1 providers
   optional string speaker_id = 7;                // spec §9.8/§9.10 - app-supplied actor identity, opaque to the provider, passed through for CEL/permission use
 }
 
@@ -105,7 +105,7 @@ message NLUResult {
   repeated RankedIntent ranked_intents = 3;
   map<string, google.protobuf.Value> extracted_parameters = 4;
   google.protobuf.Struct raw_metadata = 5;
-  repeated RankedIntent co_intents = 6;   // spec §6.1 - additional independently-actionable intents beyond top_intent (Phase 4 - not yet populated by TrainingPhraseNLUProvider)
+  repeated RankedIntent co_intents = 6;   // spec §6.1 - additional independently-actionable intents beyond top_intent, populated by both v1 providers on a plain classification call
 }
 
 message Parameter {

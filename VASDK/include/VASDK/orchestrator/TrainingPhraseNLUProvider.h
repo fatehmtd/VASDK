@@ -20,9 +20,27 @@ namespace orchestrator {
 // this provider needs config supplied through initialize()'s generic Struct.
 //
 // NLUContext.interrupt_intent_names (§6.2) is now consulted - see detect()'s
-// own comment below. Still deliberately out of scope here (see NLUProvider.h
-// and roadmap §5's Phase 4 table): NLUResult.co_intents is never populated -
-// multi-intent co-firing (§6.1) waits on being scheduled separately.
+// own comment below. NLUResult.co_intents (§6.1) is also populated, for a
+// plain classification call only (context.expected_parameter_name empty):
+// spec §5 suggests "running its phrase matcher against the remainder of the
+// utterance after the top match's span is consumed (splitting on
+// conjunctions is the common case)" - since PhraseGrammarMatcher only ever
+// matches a whole string (no span/substring concept - see its own header),
+// this implements that literally by splitting the utterance into clauses (on
+// " and ", ", and ", "," and a couple of common variants -
+// splitOnConjunctions() in the .cpp) and matching each clause independently
+// as its own tiny "utterance", rather than teaching the matcher itself about
+// substrings. Because of that same "whole string only" constraint, a
+// genuinely multi-intent utterance essentially never matches as a whole in
+// the first place - so when it doesn't, detect() also uses the clause split
+// to *find* top_intent itself (the best match across all clauses), not just
+// co_intents; an utterance that DOES match as a whole (the ordinary,
+// single-intent case) is unaffected, since that whole-utterance winner is
+// always preferred first. A clause's own best match becomes a co_intent if
+// it differs from top_intent, isn't already an interrupt intent, and isn't a
+// duplicate of an earlier clause's pick. This is a heuristic, not a real
+// span/parse: an utterance with no recognized conjunction never gets split,
+// and co_intents stays empty - exactly Draft v2.1's behavior.
 // capture_defaults (spec §26) are a Phase 4 concern applied by the engine, not
 // this provider - detect() returns exactly what the phrase matched, nothing
 // filled in for absent optional captures.
@@ -44,9 +62,11 @@ public:
     // 2 was otherwise doing. Otherwise: if context.expected_parameter_name is
     // set, prefers the highest-confidence match that actually captured that
     // name (falling back to the overall best match if none did); otherwise
-    // just returns the best match as top_intent. All candidate matches -
-    // restricted to setCandidateIntents()'s set, if one was given - are
-    // returned in ranked_intents, descending confidence, exactly as
+    // just returns the best match as top_intent, plus (see the class comment)
+    // any additional distinct intents found by splitting the utterance on
+    // conjunctions, in co_intents. All candidate matches - restricted to
+    // setCandidateIntents()'s set, if one was given - are returned in
+    // ranked_intents, descending confidence, exactly as
     // PhraseGrammarMatcher::match() produced them.
     va::orchestrator::NLUResult detect(const std::string& utterance,
                                         const va::orchestrator::NLUContext& context) override;

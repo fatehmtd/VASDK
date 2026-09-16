@@ -155,6 +155,45 @@ bool nodeIsDeadEnd(const Node& node) {
     return true;
 }
 
+// spec §6.1's conflict rule - "at most one of the routes that fire this
+// turn...may carry a non-empty Transition" - is a runtime fact (which
+// intents actually co-fire depends on the turn's NLUResult), but validate()
+// has to catch it statically, at load time, without knowing what any future
+// turn's co_intents will be. The conservative-but-exact static
+// over-approximation: top_intent's own route is unrestricted (any intent
+// route on the node, co_fireable or not, can end up being it), so a
+// co_fireable route carrying a Transition could, in some turn, end up firing
+// alongside *any other* intent route on the same node that also carries one
+// - whether that other route is itself co_fireable (another co-fired route)
+// or not (it was top_intent's own route that turn). So: only nodes with more
+// than one Transition-carrying intent route, where at least one of them is
+// co_fireable, are flagged - a node where every Transition-carrying intent
+// route is non-co_fireable is unaffected (mutually exclusive as top_intent
+// candidates, exactly as Draft v2.1 already guaranteed).
+void checkCoFireTransitionConflict(const std::string& flowId, const std::string& nodeId,
+                                    const Node& node, ValidationReport& report) {
+    std::vector<const Route*> transitioning;
+    bool anyCoFireable = false;
+    for (const auto& route : node.routes()) {
+        if (route.trigger().kind_case() != Trigger::kIntent) continue;
+        if (!route.has_transition() || route.transition().target_type() == Transition::NONE) continue;
+        transitioning.push_back(&route);
+        if (route.co_fireable()) anyCoFireable = true;
+    }
+    if (transitioning.size() > 1 && anyCoFireable) {
+        std::ostringstream ids;
+        for (size_t i = 0; i < transitioning.size(); ++i) {
+            if (i) ids << ", ";
+            ids << "'" << transitioning[i]->id() << "'";
+        }
+        report.errors.push_back(
+            "Flow '" + flowId + "', node '" + nodeId + "': routes " + ids.str() +
+            " each carry a Transition and at least one is co_fireable - spec §6.1 allows at "
+            "most one Transition among the routes that fire in a single turn, and any two of "
+            "these could co-fire together");
+    }
+}
+
 void validateFlow(const Agent& agent, const Flow& flow,
                    const std::unordered_set<std::string>& flowIds, ValidationReport& report) {
     std::unordered_map<std::string, const Node*> nodesById;
@@ -243,6 +282,11 @@ void validateFlow(const Agent& agent, const Flow& flow,
                                        "' via any static transition (may still be reachable via an "
                                        "ambient trigger or a webhook response's dynamic transition)");
         }
+    }
+
+    // spec §6.1 - the co-fireable Transition conflict rule.
+    for (const auto& [nodeId, nodePtr] : nodesById) {
+        checkCoFireTransitionConflict(flow.id(), nodeId, *nodePtr, report);
     }
 
     // spec §9.5 dead-end check.

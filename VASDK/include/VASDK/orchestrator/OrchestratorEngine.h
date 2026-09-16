@@ -65,9 +65,10 @@ struct VASDK_EXPORT OrchestratorConfig {
 //     intent routes of its own can still have an agent/flow/node-scoped
 //     interrupt set worth checking. context.interrupt_intent_names is now
 //     always populated with that merged set on this call (see
-//     mergedInterruptIntentNames()); NLUResult.co_intents (§6.1) remains
-//     unconsulted - multi-intent co-firing is a separate, not-yet-built
-//     Phase 4 item.
+//     mergedInterruptIntentNames()). NLUResult.co_intents (spec 6.1, multi-
+//     intent co-firing) is consulted too, but only inside evaluateRoutesOnce()
+//     - see that method's own comment for why it's a separate per-co_intent
+//     loop rather than something threaded through detect()'s guard here.
 //   - Milestone 2.5 (spec §9.5/§7) - `expected_parameter_name` IS now set,
 //     per turn, following the exact priority chain spec §6 step 2 describes:
 //     (1) a PendingAsk (`_session.hasPendingAsk()`) - set by a prior turn's
@@ -163,9 +164,33 @@ struct VASDK_EXPORT OrchestratorConfig {
 //     re-derived there too, to tell "no route caught the matched interrupt"
 //     apart from "nothing matched at all" (the latter still routes to
 //     no_match, unchanged). This is what finally gives
-//     EventHandlers.user_cancel a trigger path. NLUResult.co_intents (§6.1,
-//     multi-intent co-firing) is a separate, still-unbuilt mechanism -
-//     nothing above touches it.
+//     EventHandlers.user_cancel a trigger path.
+//   - Spec §6.1 (multi-intent co-firing) inserts a second loop into
+//     evaluateRoutesOnce() right after top_intent's own intentRoutes group
+//     and before conditionRoutes - spec §6 step 3's own ordering ("then
+//     intent routes (including any co_intents...), then condition routes"):
+//     one independent route search per entry in NLUResult.co_intents
+//     (populated by the provider, empty by default - Draft v2.1's own
+//     behavior when it's unpopulated), against this node's
+//     Route.co_fireable-flagged intent routes only, in co_intents order.
+//     This loop always runs, even when top_intent's own group already said
+//     to stop looking further (its default stop_evaluation - previously
+//     that meant "return from evaluateRoutesOnce() immediately", which would
+//     have skipped this loop entirely; now that early return is deferred via
+//     a local stopAfterTopIntentGroup flag, checked again only once this
+//     loop is done, so condition routes/no-match still get skipped exactly
+//     when they always did, but co_intents can never be silently skipped by
+//     it). Each co_intent's own search is deliberately independent of the
+//     others' stop_evaluation outcome too - see the loop's own comment for
+//     why - so co_fireable routes on unrelated intents all get a chance to
+//     fire in the same turn, the entire point of the feature ("play some
+//     jazz and turn up the AC" firing both routes off one utterance rather
+//     than forcing two turns). OrchestratorConfigLoader::validate() rejects,
+//     at load time, any node where more than one intent route that could
+//     co-fire together (at least one of them Route.co_fireable) also carries
+//     a Transition - spec's "at most one...may carry a non-empty Transition"
+//     conflict rule is a static config error, not something this loop has to
+//     detect at runtime.
 //   - The turn's NLUResult (real or, for OrchestratorConversationSimulator,
 //     injected - spec §12) is cached for the rest of that external turn,
 //     including any node_enter/emitEvent cascade runToQuiescence() drains

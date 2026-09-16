@@ -55,9 +55,20 @@ namespace orchestrator {
 // call (detectParameterExtraction()) can't reuse that trick, since its prompt
 // has no notion of intents at all, so buildExtractionPrompt() gets a second,
 // optional section asking the model to name an interrupt instead of
-// extracting a value when one applies - see its own comment. Same Phase-4
-// deferral as TrainingPhraseNLUProvider for the other item: co_intents is
-// never populated (multi-intent co-firing, §6.1, not yet built).
+// extracting a value when one applies - see its own comment.
+//
+// Spec §6.1 - NLUResult.co_intents is populated too, only on the
+// classification call (no expected_parameter_name): spec §5's suggested
+// approach for an LLM-backed provider is "asking its classification prompt to
+// return a list instead of a single label", so buildClassificationPrompt()
+// gained a "co_intents" array alongside its existing "alternatives" one -
+// alternatives stays purely informational (ranked_intents, never acted on),
+// co_intents is the model's own opinion on which OTHER candidates the
+// utterance also independently expresses (e.g. "play jazz and turn up the
+// AC" naming both a music-control and an HVAC intent), parsed straight into
+// NLUResult.co_intents with no post-processing - unlike
+// TrainingPhraseNLUProvider's clause-splitting, this provider just asks the
+// model directly.
 //
 // Milestone 2.5 (spec §9.5/§6 step 2) - detect() now branches on
 // context.expected_parameter_name(): when set, it skips intent classification

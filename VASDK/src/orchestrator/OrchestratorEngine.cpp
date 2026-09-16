@@ -1200,15 +1200,76 @@ void OrchestratorEngine::evaluateRoutesOnce(const std::string* eventName,
     // this turn's cached NLUResult (see handleUtterance) - empty top_intent
     // means "no match" (domain.proto's own comment on the field), so an
     // IntentTrigger can never spuriously match against it here.
+    //
+    // stopAfterTopIntentGroup replaces this group's own former `return` on a
+    // stopping match (default stop_evaluation, no transition): spec §6.1
+    // inserts the co_intents loop right after this group and before
+    // conditionRoutes ("then intent routes (including any co_intents...),
+    // then condition routes" - spec §6 step 3), so a plain stop_evaluation
+    // stop here must no longer skip that loop, only condition
+    // routes/no-match below it - see the loop's own comment for why an
+    // actual Transition (or _ended/_suspendTurn) still returns immediately,
+    // same as before this milestone.
+    bool stopAfterTopIntentGroup = false;
     if (!_lastNluResult.top_intent().empty()) {
         for (const Route* route : intentRoutes) {
             const IntentTrigger& intentTrigger = route->trigger().intent();
             if (intentTrigger.intent_name() != _lastNluResult.top_intent()) continue;
             if (_lastNluResult.confidence() < intentTrigger.min_confidence()) continue;
             anyRouteFired = true;
-            if (fireRoute(*route, eventParams)) return;
+            bool hadTransition = route->has_transition()
+                && route->transition().target_type() != Transition::NONE;
+            bool stop = fireRoute(*route, eventParams);
+            if (_ended || _suspendTurn || hadTransition) return;
+            if (stop) {
+                stopAfterTopIntentGroup = true;
+                break;
+            }
         }
     }
+
+    // Spec §6.1 - multi-intent co-firing: each entry in this turn's
+    // NLUResult.co_intents (populated by the provider, or left empty - "an
+    // empty list is exactly Draft v2.1's behavior", spec §5) gets its own,
+    // independent route search among this node's co_fireable-flagged intent
+    // routes, evaluated right after top_intent's own group above and before
+    // conditionRoutes (spec §6 step 3's ordering), in co_intents order.
+    // Deliberately NOT gated on stopAfterTopIntentGroup above: that flag
+    // only means "top_intent's own group had nothing further to check, and
+    // condition routes/no-match shouldn't run either" (Draft v2.1's existing
+    // meaning for it, unchanged) - it says nothing about co_intents, which
+    // spec introduces as an unconditional extra step in between. Likewise, a
+    // fired co-fired route's own default stop_evaluation does NOT truncate
+    // the rest of the turn's co_intents - spec's "then *separately*
+    // evaluates routes for each co_intent" reads as each co_intent's search
+    // being its own group, independent of the others, not one shared group
+    // an author has to remember to opt every route out of via
+    // stop_evaluation:false. Only _ended/_suspendTurn (an expect, an
+    // END_SESSION, a webhook_error fallback chain already having decided the
+    // turn's fate - _abortExecutor itself never needs to propagate past
+    // fireRoute(), per the comment on that field) or a route actually
+    // applying a Transition stop the whole loop (and this function, same as
+    // above) - the latter both because intentRoutes is now stale against
+    // whatever node a transition just moved to, and because
+    // OrchestratorConfigLoader::validate() already guarantees at most one
+    // fired route per turn can carry one (spec §6.1's conflict rule), so
+    // there is never a second one worth continuing to look for.
+    for (const auto& coIntent : _lastNluResult.co_intents()) {
+        for (const Route* route : intentRoutes) {
+            if (!route->co_fireable()) continue;
+            const IntentTrigger& intentTrigger = route->trigger().intent();
+            if (intentTrigger.intent_name() != coIntent.name()) continue;
+            if (coIntent.confidence() < intentTrigger.min_confidence()) continue;
+            anyRouteFired = true;
+            bool hadTransition = route->has_transition()
+                && route->transition().target_type() != Transition::NONE;
+            fireRoute(*route, eventParams);
+            if (_ended || _suspendTurn || hadTransition) return;
+            break;
+        }
+    }
+
+    if (stopAfterTopIntentGroup) return;
 
     for (const Route* route : conditionRoutes) {
         const auto& compiled = compiledExpression(route->trigger().condition_cel());
