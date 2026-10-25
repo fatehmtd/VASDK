@@ -102,6 +102,10 @@
 #include "PocketTTS/PocketVoiceSynthesisProvider.hpp"
 #endif
 
+#ifdef VASDK_HAS_PHONON_TTS
+#include "PhononTTS/PhononVoiceSynthesisProvider.hpp"
+#endif
+
 #ifdef VASDK_HAS_SONIOXPP_TTS
 #include "SonioxppVoiceSynthesis/SonioxppVoiceSynthesisProvider.h"
 #endif
@@ -246,6 +250,7 @@ struct CliArgs {
     std::string llmEndpoint;
     std::string llmApiKey;
     std::string llmModel;
+    std::string llmReasoningEffort;
     std::string systemPromptFile;
     std::string formatInstructionFile;
     std::string envFile = ".env";
@@ -275,6 +280,12 @@ static std::string resolveModel(const std::string& fromCli) {
     return "";
 }
 
+static std::string resolveReasoningEffort(const std::string& fromCli) {
+    if (!fromCli.empty()) return fromCli;
+    if (const char* v = std::getenv("LLM_REASONING_EFFORT")) return v;
+    return "";
+}
+
 CliArgs parseCliArgs(int argc, char* argv[]) {
     CliArgs args;
     CLI::App app("VASDK Call Center Pipeline - goal-oriented voice AI showcase");
@@ -284,6 +295,8 @@ CliArgs parseCliArgs(int argc, char* argv[]) {
     app.add_option("--llm-endpoint", args.llmEndpoint, "OpenAI-compatible LLM endpoint URL");
     app.add_option("--llm-api-key", args.llmApiKey, "LLM API key (falls back to LLM_API_KEY / OPENROUTER_API_KEY / OPENAI_API_KEY env vars)");
     app.add_option("--llm-model", args.llmModel, "LLM model name (falls back to LLM_MODEL env var)");
+    app.add_option("--llm-reasoning-effort", args.llmReasoningEffort,
+        "reasoning_effort sent to the LLM, e.g. none for a thinking model (falls back to LLM_REASONING_EFFORT env var)");
     app.add_option("--system-prompt", args.systemPromptFile,
         "Path to a text file containing the call center system prompt (overrides built-in default)");
     app.add_option("--format-instruction", args.formatInstructionFile,
@@ -707,6 +720,15 @@ std::optional<AudioBundle> setupAudioProviders(const std::string& modelsPath, in
     b.ttsProvider = std::make_shared<va::thirdparty::CartesiappVoiceSynthesisProvider>(
         std::getenv("CARTESIA_API_KEY") ? std::getenv("CARTESIA_API_KEY") : "",
         std::getenv("CARTESIA_VOICE_ID") ? std::getenv("CARTESIA_VOICE_ID") : "");
+#elif defined(VASDK_HAS_PHONON_TTS)
+    // Local/offline: opt-in (VASDK_BUILD_PHONON_TTS), so it wins over PocketTTS when built.
+    auto phonon = std::make_shared<PhononVoiceSynthesisProvider>(
+        modelsPath + "/phonon_tts",
+        std::getenv("PHONON_TTS_VOICE") ? std::getenv("PHONON_TTS_VOICE") : "Easton",
+        std::getenv("PHONON_TTS_LANG") ? std::getenv("PHONON_TTS_LANG") : "en");
+    if (const char* rules = std::getenv("PHONON_TTS_RULES")) phonon->setNormalizationRules(rules);
+    phonon->setSilenceDuration(0.3f);
+    b.ttsProvider = phonon;
 #elif defined(VASDK_HAS_POCKET_TTS)
     // Local/offline fallback: only used when no cloud TTS provider is compiled in.
     auto pocket = std::make_shared<PocketVoiceSynthesisProvider>(
@@ -716,7 +738,7 @@ std::optional<AudioBundle> setupAudioProviders(const std::string& modelsPath, in
     pocket->setSilenceDuration(0.3f);
     b.ttsProvider = pocket;
 #else
-#error "No TTS provider - enable VASDK_BUILD_SONIOXPP_TTS, VASDK_BUILD_POCKET_TTS, VASDK_BUILD_SUPERTONIC_TTS, VASDK_BUILD_DEEPGRAMPP_TTS, VASDK_BUILD_CARTESIAPP_TTS, VASDK_BUILD_FISHAUDIOPP_TTS, or VASDK_BUILD_GRADIUMPP_TTS"
+#error "No TTS provider - enable VASDK_BUILD_SONIOXPP_TTS, VASDK_BUILD_POCKET_TTS, VASDK_BUILD_PHONON_TTS, VASDK_BUILD_SUPERTONIC_TTS, VASDK_BUILD_DEEPGRAMPP_TTS, VASDK_BUILD_CARTESIAPP_TTS, VASDK_BUILD_FISHAUDIOPP_TTS, or VASDK_BUILD_GRADIUMPP_TTS"
 #endif
     b.ttsProvider->setAudioConfiguration(b.outputConfig);
 
@@ -732,6 +754,7 @@ GoalLLMBundle setupGoalLLMStack(const CliArgs& args) {
     goalLLMBundle.config.endpoint = args.llmEndpoint;
     goalLLMBundle.config.apiKey = args.llmApiKey;
     goalLLMBundle.config.model = args.llmModel;
+    goalLLMBundle.config.reasoningEffort = args.llmReasoningEffort;
 
     goalLLMBundle.config.temperature = 0.15f;
     goalLLMBundle.config.maxTokens = 512;
@@ -1012,6 +1035,7 @@ int main(int argc, char* argv[]) {
     args.llmEndpoint = resolveEndpoint(args.llmEndpoint);
     args.llmApiKey = resolveApiKey(args.llmApiKey);
     args.llmModel = resolveModel(args.llmModel);
+    args.llmReasoningEffort = resolveReasoningEffort(args.llmReasoningEffort);
 
     spdlog::set_level(args.debug ? spdlog::level::debug : spdlog::level::info);
     spdlog::info("VASDK Call Center Pipeline - goal-oriented voice AI showcase");
@@ -1019,6 +1043,7 @@ int main(int argc, char* argv[]) {
     spdlog::info("  Persist dir: {}", args.persistenceDir.empty() ? "(disabled)" : args.persistenceDir);
     spdlog::info("  LLM model:   {}", args.llmModel.empty() ? "(not set)" : args.llmModel);
     spdlog::info("  LLM endpoint:{}", args.llmEndpoint);
+    if (!args.llmReasoningEffort.empty()) spdlog::info("  Reasoning:   {}", args.llmReasoningEffort);
 
     if (args.llmApiKey.empty()) {
         spdlog::error("No LLM API key found. Set LLM_API_KEY, OPENROUTER_API_KEY, or OPENAI_API_KEY "

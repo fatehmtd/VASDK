@@ -26,6 +26,10 @@ option(VASDK_BUILD_EXAMPLES "Build examples" OFF)
 option(VASDK_BUILD_APP "Build VASDK application" ON)
 option(VASDK_BUILD_THIRDPARTY_IMPL "Build third-party provider implementations" ON)
 option(VASDK_THIRDPARTY_SHARED_LIBS "Build third-party provider libraries as shared (ON) or static (OFF)" OFF)
+option(VASDK_BUILD_TESTS "Build unit tests (run with ctest)" OFF)
+if(VASDK_BUILD_TESTS)
+    enable_testing()
+endif()
 
 #  Common dependencies 
 

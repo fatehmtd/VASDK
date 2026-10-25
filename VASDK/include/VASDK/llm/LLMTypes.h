@@ -17,6 +17,10 @@ struct LLMConfig {
     int maxTokens = 1000;
     int timeoutMs = 30000;
     bool streaming = false;
+    /// OpenAI-style "reasoning_effort" ("none", "low", "medium", "high"), sent only when set.
+    /// "none" stops a thinking model (Qwen3, gpt-oss, ...) from spending the token budget and
+    /// the caller's time on a hidden reasoning trace before it answers.
+    std::string reasoningEffort;
     std::map<std::string, std::string> headers;
     int nCtx = 4096;
     int nGpuLayers = 99;
