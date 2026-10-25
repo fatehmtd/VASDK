@@ -102,6 +102,10 @@
 #include "PocketTTS/PocketVoiceSynthesisProvider.hpp"
 #endif
 
+#ifdef VASDK_HAS_PHONON_TTS
+#include "PhononTTS/PhononVoiceSynthesisProvider.hpp"
+#endif
+
 #ifdef VASDK_HAS_SONIOXPP_TTS
 #include "SonioxppVoiceSynthesis/SonioxppVoiceSynthesisProvider.h"
 #endif
@@ -707,6 +711,15 @@ std::optional<AudioBundle> setupAudioProviders(const std::string& modelsPath, in
     b.ttsProvider = std::make_shared<va::thirdparty::CartesiappVoiceSynthesisProvider>(
         std::getenv("CARTESIA_API_KEY") ? std::getenv("CARTESIA_API_KEY") : "",
         std::getenv("CARTESIA_VOICE_ID") ? std::getenv("CARTESIA_VOICE_ID") : "");
+#elif defined(VASDK_HAS_PHONON_TTS)
+    // Local/offline: opt-in (VASDK_BUILD_PHONON_TTS), so it wins over PocketTTS when built.
+    auto phonon = std::make_shared<PhononVoiceSynthesisProvider>(
+        modelsPath + "/phonon_tts",
+        std::getenv("PHONON_TTS_VOICE") ? std::getenv("PHONON_TTS_VOICE") : "Easton",
+        std::getenv("PHONON_TTS_LANG") ? std::getenv("PHONON_TTS_LANG") : "en");
+    if (const char* rules = std::getenv("PHONON_TTS_RULES")) phonon->setNormalizationRules(rules);
+    phonon->setSilenceDuration(0.3f);
+    b.ttsProvider = phonon;
 #elif defined(VASDK_HAS_POCKET_TTS)
     // Local/offline fallback: only used when no cloud TTS provider is compiled in.
     auto pocket = std::make_shared<PocketVoiceSynthesisProvider>(
@@ -716,7 +729,7 @@ std::optional<AudioBundle> setupAudioProviders(const std::string& modelsPath, in
     pocket->setSilenceDuration(0.3f);
     b.ttsProvider = pocket;
 #else
-#error "No TTS provider - enable VASDK_BUILD_SONIOXPP_TTS, VASDK_BUILD_POCKET_TTS, VASDK_BUILD_SUPERTONIC_TTS, VASDK_BUILD_DEEPGRAMPP_TTS, VASDK_BUILD_CARTESIAPP_TTS, VASDK_BUILD_FISHAUDIOPP_TTS, or VASDK_BUILD_GRADIUMPP_TTS"
+#error "No TTS provider - enable VASDK_BUILD_SONIOXPP_TTS, VASDK_BUILD_POCKET_TTS, VASDK_BUILD_PHONON_TTS, VASDK_BUILD_SUPERTONIC_TTS, VASDK_BUILD_DEEPGRAMPP_TTS, VASDK_BUILD_CARTESIAPP_TTS, VASDK_BUILD_FISHAUDIOPP_TTS, or VASDK_BUILD_GRADIUMPP_TTS"
 #endif
     b.ttsProvider->setAudioConfiguration(b.outputConfig);
 

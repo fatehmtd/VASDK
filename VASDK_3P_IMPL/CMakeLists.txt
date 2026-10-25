@@ -36,6 +36,7 @@ option(VASDK_BUILD_GRADIUMPP_TTS "Build GradiumPP voice synthesis provider" ON)
 option(VASDK_BUILD_SONIOXPP_TTS "Build SonioxPP voice synthesis provider" OFF)
 option(VASDK_BUILD_SUPERTONIC_TTS "Build Supertonic TTS provider" OFF)
 option(VASDK_BUILD_POCKET_TTS "Build Pocket TTS provider (flow-matching ONNX TTS at 24 kHz)" ON)
+option(VASDK_BUILD_PHONON_TTS "Build Phonon TTS provider (flow-matching GGUF TTS at 24 kHz on ggml)" OFF)
 
 # Audio processing
 option(VASDK_BUILD_RNNOISE "Build RNNoise noise-suppression DSP provider" ON)
@@ -105,6 +106,10 @@ endif()
 
 if(VASDK_BUILD_POCKET_TTS AND NOT ANDROID)
     include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/DownloadPocketTTSModels.cmake)
+endif()
+
+if(VASDK_BUILD_PHONON_TTS AND NOT ANDROID)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/DownloadPhononTTSModel.cmake)
 endif()
 
 if(VASDK_BUILD_MOONSHINE_STT)
@@ -443,6 +448,10 @@ endif()
 
 if(VASDK_BUILD_POCKET_TTS)
     add_subdirectory(PocketTTS)
+endif()
+
+if(VASDK_BUILD_PHONON_TTS)
+    add_subdirectory(PhononTTS)
 endif()
 
 if(VASDK_BUILD_RNNOISE)

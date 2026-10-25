@@ -17,6 +17,7 @@ Library and provider dependencies (spdlog, nlohmann/json, llama.cpp, whisper.cpp
 | Whisper (ggml conversions) | Speech-to-text | [ggerganov/whisper.cpp](https://huggingface.co/ggerganov/whisper.cpp) | MIT |
 | Pocket TTS (ONNX) | Text-to-speech | [KevinAHM/pocket-tts-web](https://huggingface.co/spaces/KevinAHM/pocket-tts-web), converted from [kyutai/pocket-tts](https://huggingface.co/kyutai/pocket-tts) | CC BY 4.0 |
 | Supertonic 2 | Text-to-speech | [Supertone/supertonic-2](https://huggingface.co/Supertone/supertonic-2) | OpenRAIL |
+| Phonon 40m multilingual (GGUF) + voices | Text-to-speech (opt-in, `VASDK_BUILD_PHONON_TTS`) | [gradium/phonon-40m-multilingual](https://huggingface.co/gradium/phonon-40m-multilingual) (gated), voices from [gradium/phonon-voices](https://huggingface.co/gradium/phonon-voices) | CC BY-NC 4.0 |
 | LFM2.5 1.2B Instruct (GGUF) | Default local LLM (desktop apps) | [LiquidAI/LFM2.5-1.2B-Instruct-GGUF](https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct-GGUF) | LFM Open License v1.0 |
 | LFM2.5 230M (GGUF) | Default local LLM (Android app) | [LiquidAI/LFM2.5-230M-GGUF](https://huggingface.co/LiquidAI/LFM2.5-230M-GGUF) | LFM Open License v1.0 |
 | RNNoise weights | Noise suppression | [xiph/rnnoise](https://github.com/xiph/rnnoise) (weights ship with the fetched source) | BSD 3-Clause |
@@ -24,6 +25,7 @@ Library and provider dependencies (spdlog, nlohmann/json, llama.cpp, whisper.cpp
 Points worth knowing before you ship a product on top of these:
 
 - **CC BY 4.0** (Parakeet, Pocket TTS) requires attribution to the original model authors if you redistribute the weights or derivatives of them.
+- **CC BY-NC 4.0** (Phonon 40m models and voices) forbids commercial use. The model is off by default. For a commercial product, license the weights from Gradium or look at the Apache 2.0 [gradium/phonon-31m-en](https://huggingface.co/gradium/phonon-31m-en) (not yet tested with VASDK's Phonon provider).
 - **OpenRAIL** (Supertonic 2) is a responsible-AI license with use restrictions. Read the [license text on the model page](https://huggingface.co/Supertone/supertonic-2) before commercial use.
 - **LFM Open License v1.0** (both LFM2.5 GGUF models - the 1.2B desktop default and the 230M Android default) is Liquid AI's custom license with its own commercial terms. Read the LICENSE file in the respective model repository ([1.2B](https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct-GGUF/blob/main/LICENSE), [230M](https://huggingface.co/LiquidAI/LFM2.5-230M-GGUF)) before commercial use, or swap in a different GGUF via `-DVASDK_LLAMACPP_MODEL_URL` (desktop) or a different `LLMModelMeta` preset (Android).
 
@@ -42,7 +44,8 @@ Every VAD/STT/TTS/LLM/audio provider under `VASDK_3P_IMPL/`, plus the core libra
 | [fatehmtd/gladiapp](https://github.com/fatehmtd/gladiapp) | STT (Gladia, cloud) | GitHub | MIT |
 | [fatehmtd/SonioxPP](https://github.com/fatehmtd/SonioxPP) | STT/TTS (Soniox, cloud) | GitHub | Apache 2.0 |
 | [supertone-inc/supertonic](https://github.com/supertone-inc/supertonic) | TTS (Supertonic inference code) | GitHub | MIT |
-| [google/sentencepiece](https://github.com/google/sentencepiece) | TTS (PocketTTS tokenizer) | GitHub | Apache 2.0 |
+| [google/sentencepiece](https://github.com/google/sentencepiece) | TTS (PocketTTS and Phonon tokenizer) | GitHub | Apache 2.0 |
+| [ggml-org/ggml](https://github.com/ggml-org/ggml) | TTS (Phonon tensor ops, in-repo port of [gradium-ai/xn-ptts](https://github.com/gradium-ai/xn-ptts) (MIT OR Apache 2.0); shared with llama.cpp's copy when that is built) | GitHub | MIT |
 | [fatehmtd/deepgrampp](https://github.com/fatehmtd/deepgrampp) | STT/TTS (Deepgram, cloud) | GitHub | Apache 2.0 |
 | [fatehmtd/CartesiaPP](https://github.com/fatehmtd/CartesiaPP) | STT/TTS (Cartesia, cloud) | GitHub | Apache 2.0 |
 | [fatehmtd/fishaudiopp](https://github.com/fatehmtd/fishaudiopp) | STT/TTS (Fish Audio, cloud) | GitHub | Apache 2.0 |

@@ -235,7 +235,7 @@ Every row is an independent target under `VASDK_3P_IMPL/`. Enable only what you 
 | Turn detection | SmartTurn v3 | - |
 | Noise suppression | RNNoise | - |
 | STT | Parakeet, Moonshine (WIP), Whisper.cpp (WIP) (all ONNX/GGUF) | Gladia (WIP), Gradium, Soniox, Deepgram, Cartesia, Fish Audio |
-| TTS | Supertonic (WIP), PocketTTS (ONNX) | Gradium, Soniox, Deepgram, Cartesia, Fish Audio |
+| TTS | Supertonic (WIP), PocketTTS (ONNX), Phonon (GGUF, opt-in) | Gradium, Soniox, Deepgram, Cartesia, Fish Audio |
 | LLM | llama.cpp, or any OpenAI-compatible local server | OpenAI, Anthropic |
 | File / batch audio | FFmpeg-backed file transport | - |
 | Visualization | VizAnim (audio feature extraction for UI animation) | - |
@@ -263,6 +263,7 @@ Where each provider's underlying code or API actually comes from, and under what
 | <a href="https://soniox.com"><img src="assets/logos/soniox.png" width="48" alt=""></a> | Soniox (cloud STT/TTS) | [soniox.com](https://soniox.com) · [API docs](https://soniox.com/docs) | [fatehmtd/SonioxPP](https://github.com/fatehmtd/SonioxPP) (VASDK's own client, not Soniox's official SDK) | Apache 2.0 (SonioxPP) |
 | <a href="https://github.com/supertone-inc/supertonic"><img src="assets/logos/supertone-inc.png" width="48" alt=""></a> | Supertonic | - | [supertone-inc/supertonic](https://github.com/supertone-inc/supertonic) (inference code) | MIT (code) · OpenRAIL (model weights) |
 | <a href="https://kyutai.org"><img src="assets/logos/kyutai-labs.png" width="48" alt=""></a> | PocketTTS | - | [kyutai/pocket-tts](https://huggingface.co/kyutai/pocket-tts) (model) · [google/sentencepiece](https://github.com/google/sentencepiece) (tokenizer) | CC BY 4.0 (model) · Apache 2.0 (sentencepiece) |
+| | Phonon | [gradium.ai/phonon](https://gradium.ai/phonon) | in-repo C++ port on [ggml-org/ggml](https://github.com/ggml-org/ggml) of [gradium-ai/xn-ptts](https://github.com/gradium-ai/xn-ptts) · [gradium/phonon-40m-multilingual](https://huggingface.co/gradium/phonon-40m-multilingual) (model) · [google/sentencepiece](https://github.com/google/sentencepiece) (tokenizer) | Apache 2.0 (VASDK) · MIT (ggml) · CC BY-NC 4.0 (40m models) |
 | <a href="https://deepgram.com"><img src="assets/logos/deepgram.svg" width="48" height="48" alt=""></a> | Deepgram (cloud STT/TTS) | [deepgram.com](https://deepgram.com) · [API docs](https://developers.deepgram.com) | [fatehmtd/deepgrampp](https://github.com/fatehmtd/deepgrampp) (VASDK's own client, not Deepgram's official SDK) | Apache 2.0 (deepgrampp) |
 | | Cartesia (cloud STT/TTS) | [cartesia.ai](https://cartesia.ai) | [fatehmtd/CartesiaPP](https://github.com/fatehmtd/CartesiaPP) (VASDK's own client, not Cartesia's official SDK) | Apache 2.0 (CartesiaPP) |
 | | Fish Audio (cloud STT/TTS) | [fish.audio](https://fish.audio) | [fatehmtd/fishaudiopp](https://github.com/fatehmtd/fishaudiopp) (VASDK's own client, not Fish Audio's official SDK) | Apache 2.0 (fishaudiopp) |
@@ -308,6 +309,16 @@ cmake -B build -S . -DVASDK_DOWNLOAD_PARAKEET_MODEL=OFF
 # Swap the default llama.cpp model (default: LFM2.5 1.2B Instruct Q4_K_M, ~731 MB)
 cmake -B build -S . -DVASDK_LLAMACPP_MODEL_URL=https://huggingface.co/.../model.gguf
 ```
+
+Phonon TTS is off by default because its 40m models are gated on HuggingFace and licensed CC BY-NC 4.0 (non-commercial use only). Accept the terms on the [model page](https://huggingface.co/gradium/phonon-40m-multilingual) first, then export `HF_TOKEN` (or run `hf auth login`) before configuring. The provider loads the Hugging Face checkpoint files as published (`config.json`, `tokenizer.model`, `model.q8.gguf`, voice `.safetensors`) with an in-repo C++ port of Gradium's inference on ggml: it shares llama.cpp's ggml when `VASDK_BUILD_LLAMACPP` is on and fetches a pinned ggml otherwise. In the showcase apps a cloud TTS takes priority, so turn Gradium TTS off to hear Phonon:
+
+```bash
+cmake -B build -S . -DVASDK_BUILD_PHONON_TTS=ON -DVASDK_BUILD_GRADIUMPP_TTS=OFF
+# Pick voices from gradium/phonon-voices (default: Easton;Zoey;Augustin;Anton;Marcos;Davi)
+cmake -B build -S . -DPHONON_TTS_VOICES="Zoey;Augustin"
+```
+
+At runtime, `PHONON_TTS_VOICE` (in `.env`) picks the voice and `PHONON_TTS_LANG` (`en`, `fr`, `de`, `es`, `pt` or `none`) the language text is normalized as: numbers, amounts, symbols, emails, URLs and abbreviations are spelled out exactly as Gradium's runtime does. Long replies are then split as that runtime splits them: whole sentences grouped into pieces of up to 50 tokens, with any sentence over 200 tokens cut at a clause, because the model stops early and drops words when it is given much more at once. The C++ normalizer and splitter are checked against the reference implementation by golden-file parity tests (`-DVASDK_BUILD_TESTS=ON`, then `ctest`; see `VASDK_3P_IMPL/PhononTTS/tests/golden-gen`). `PHONON_TTS_RULES=all` also reads phone numbers, times and dates, which are opt-in there too. Android isn't wired up yet.
 
 For air-gapped builds, turn the downloads off and place the files in `build/VASDK_3P_IMPL/models/` yourself; each `VASDK_3P_IMPL/cmake/Download*.cmake` script documents the exact filenames its provider expects.
 

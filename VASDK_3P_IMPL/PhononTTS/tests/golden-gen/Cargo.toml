@@ -1,0 +1,13 @@
+[package]
+name = "phonon-normgen"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Generates the Unicode tables and golden files VASDK's C++ port of the Phonon text normalizer and chunker is tested against"
+
+[dependencies]
+# The reference implementation, pinned to the release the C++ port follows.
+ptts = { git = "https://github.com/gradium-ai/xn-ptts.git", tag = "v0.4.1", default-features = false, features = ["hf"] }
+serde_json = "1"
+
+[workspace]
