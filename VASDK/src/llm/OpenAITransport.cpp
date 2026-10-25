@@ -26,6 +26,7 @@ std::string OpenAITransport::buildRequestPayload(const std::string& userMessage)
     payload["model"] = _config.model;
     payload["temperature"] = _config.temperature;
     payload["max_tokens"] = _config.maxTokens;
+    if (!_config.reasoningEffort.empty()) payload["reasoning_effort"] = _config.reasoningEffort;
 
     // render() owns the format logic; parse the resulting array as the base messages
     std::string rendered = renderTemplate();
@@ -46,6 +47,26 @@ std::string OpenAITransport::buildRequestPayload(const std::string& userMessage)
 
     // Note: userMessage is already in _conversationHistory (added by processIncomingFrame
     // before sendLLMRequest is called), so we do NOT append it again here.
+
+    // The template sends each system part (prompt, format instruction, tools, goal context) as
+    // its own message. Merge the leading run into one: the same text to the model, and chat
+    // templates that allow a single system message first (Qwen-family on LM Studio, vLLM,
+    // llama.cpp) reject the request otherwise.
+    size_t leadingSystem = 0;
+    while (leadingSystem < messages.size() && messages[leadingSystem].value("role", "") == "system")
+        ++leadingSystem;
+    if (leadingSystem > 1) {
+        std::string merged;
+        for (size_t i = 0; i < leadingSystem; ++i) {
+            const auto& content = messages[i]["content"];
+            if (!content.is_string() || content.get<std::string>().empty()) continue;
+            if (!merged.empty()) merged += "\n\n";
+            merged += content.get<std::string>();
+        }
+        json rest = json::array({{{"role", "system"}, {"content", merged}}});
+        for (size_t i = leadingSystem; i < messages.size(); ++i) rest.push_back(messages[i]);
+        messages = std::move(rest);
+    }
 
     payload["messages"] = messages;
     if (_config.streaming) payload["stream"] = true;

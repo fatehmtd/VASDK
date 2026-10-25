@@ -250,6 +250,7 @@ struct CliArgs {
     std::string llmEndpoint;
     std::string llmApiKey;
     std::string llmModel;
+    std::string llmReasoningEffort;
     std::string systemPromptFile;
     std::string formatInstructionFile;
     std::string envFile = ".env";
@@ -279,6 +280,12 @@ static std::string resolveModel(const std::string& fromCli) {
     return "";
 }
 
+static std::string resolveReasoningEffort(const std::string& fromCli) {
+    if (!fromCli.empty()) return fromCli;
+    if (const char* v = std::getenv("LLM_REASONING_EFFORT")) return v;
+    return "";
+}
+
 CliArgs parseCliArgs(int argc, char* argv[]) {
     CliArgs args;
     CLI::App app("VASDK Call Center Pipeline - goal-oriented voice AI showcase");
@@ -288,6 +295,8 @@ CliArgs parseCliArgs(int argc, char* argv[]) {
     app.add_option("--llm-endpoint", args.llmEndpoint, "OpenAI-compatible LLM endpoint URL");
     app.add_option("--llm-api-key", args.llmApiKey, "LLM API key (falls back to LLM_API_KEY / OPENROUTER_API_KEY / OPENAI_API_KEY env vars)");
     app.add_option("--llm-model", args.llmModel, "LLM model name (falls back to LLM_MODEL env var)");
+    app.add_option("--llm-reasoning-effort", args.llmReasoningEffort,
+        "reasoning_effort sent to the LLM, e.g. none for a thinking model (falls back to LLM_REASONING_EFFORT env var)");
     app.add_option("--system-prompt", args.systemPromptFile,
         "Path to a text file containing the call center system prompt (overrides built-in default)");
     app.add_option("--format-instruction", args.formatInstructionFile,
@@ -745,6 +754,7 @@ GoalLLMBundle setupGoalLLMStack(const CliArgs& args) {
     goalLLMBundle.config.endpoint = args.llmEndpoint;
     goalLLMBundle.config.apiKey = args.llmApiKey;
     goalLLMBundle.config.model = args.llmModel;
+    goalLLMBundle.config.reasoningEffort = args.llmReasoningEffort;
 
     goalLLMBundle.config.temperature = 0.15f;
     goalLLMBundle.config.maxTokens = 512;
@@ -1025,6 +1035,7 @@ int main(int argc, char* argv[]) {
     args.llmEndpoint = resolveEndpoint(args.llmEndpoint);
     args.llmApiKey = resolveApiKey(args.llmApiKey);
     args.llmModel = resolveModel(args.llmModel);
+    args.llmReasoningEffort = resolveReasoningEffort(args.llmReasoningEffort);
 
     spdlog::set_level(args.debug ? spdlog::level::debug : spdlog::level::info);
     spdlog::info("VASDK Call Center Pipeline - goal-oriented voice AI showcase");
@@ -1032,6 +1043,7 @@ int main(int argc, char* argv[]) {
     spdlog::info("  Persist dir: {}", args.persistenceDir.empty() ? "(disabled)" : args.persistenceDir);
     spdlog::info("  LLM model:   {}", args.llmModel.empty() ? "(not set)" : args.llmModel);
     spdlog::info("  LLM endpoint:{}", args.llmEndpoint);
+    if (!args.llmReasoningEffort.empty()) spdlog::info("  Reasoning:   {}", args.llmReasoningEffort);
 
     if (args.llmApiKey.empty()) {
         spdlog::error("No LLM API key found. Set LLM_API_KEY, OPENROUTER_API_KEY, or OPENAI_API_KEY "
