@@ -97,6 +97,10 @@
 #include "WhisperCpp/WhisperCppTranscriptionProvider.hpp"
 #endif
 
+#ifdef VASDK_HAS_WHISTLE_STT
+#include "WhistleSTT/WhistleTranscriptionProvider.hpp"
+#endif
+
 // TTS
 #ifdef VASDK_HAS_POCKET_TTS
 #include "PocketTTS/PocketVoiceSynthesisProvider.hpp"
@@ -671,6 +675,16 @@ std::optional<AudioBundle> setupAudioProviders(const std::string& modelsPath, in
     auto cartesiaStt = std::make_shared<va::thirdparty::CartesiappTranscriptionProvider>(
         std::getenv("CARTESIA_API_KEY") ? std::getenv("CARTESIA_API_KEY") : "");
     b.transcriptionProvider = cartesiaStt;
+#elif defined(VASDK_HAS_WHISTLE_STT)
+    auto whistle = std::make_shared<WhistleTranscriptionProvider>(modelsPath + "/whistle");
+    WhistleTranscriptionProvider::InferenceConfig sttCfg;
+    sttCfg.idleTimeoutMs = 550;
+    sttCfg.partialIntervalMs = 250;
+    sttCfg.minNewSamplesForPartial = b.inputConfig.sampleRate / 4;
+    sttCfg.minNewSamplesForFinal = frameSize;
+    if (const char* lang = std::getenv("WHISTLE_LANGUAGE")) sttCfg.language = lang;
+    whistle->setInferenceConfig(sttCfg);
+    b.transcriptionProvider = whistle;
 #elif defined(VASDK_HAS_MOONSHINE_STT)
     auto moonshine = std::make_shared<MoonshineSttProvider>(modelsPath + "/moonshine");
     MoonshineSttProvider::InferenceConfig sttCfg;
@@ -692,7 +706,7 @@ std::optional<AudioBundle> setupAudioProviders(const std::string& modelsPath, in
     parakeet->setInferenceConfig(sttCfg);
     b.transcriptionProvider = parakeet;
 #else
-#error "No STT provider - enable VASDK_HAS_SONIOXPP_STT, VASDK_HAS_DEEPGRAMPP_STT, VASDK_HAS_CARTESIAPP_STT, VASDK_HAS_FISHAUDIOPP_STT, VASDK_HAS_GRADIUMPP_STT, VASDK_HAS_MOONSHINE_STT, VASDK_HAS_PARAKEET, or VASDK_HAS_WHISPERCPP"
+#error "No STT provider - enable VASDK_HAS_SONIOXPP_STT, VASDK_HAS_DEEPGRAMPP_STT, VASDK_HAS_CARTESIAPP_STT, VASDK_HAS_FISHAUDIOPP_STT, VASDK_HAS_GRADIUMPP_STT, VASDK_HAS_WHISTLE_STT, VASDK_HAS_MOONSHINE_STT, VASDK_HAS_PARAKEET, or VASDK_HAS_WHISPERCPP"
 #endif
     b.transcriptionProvider->setAudioConfiguration(b.inputConfig);
 
@@ -757,7 +771,7 @@ GoalLLMBundle setupGoalLLMStack(const CliArgs& args) {
     goalLLMBundle.config.reasoningEffort = args.llmReasoningEffort;
 
     goalLLMBundle.config.temperature = 0.15f;
-    goalLLMBundle.config.maxTokens = 512;
+    goalLLMBundle.config.maxTokens = 512*8;
     goalLLMBundle.config.timeoutMs = 15000;
     goalLLMBundle.config.streaming = true;
 

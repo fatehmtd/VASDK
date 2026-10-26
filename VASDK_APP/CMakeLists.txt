@@ -22,9 +22,9 @@ if(NOT VASDK_BUILD_SILERO_VAD)
 endif()
 
 # Require at least one transcription provider
-if(NOT (VASDK_BUILD_GLADIAPP OR VASDK_BUILD_SONIOXPP_STT OR VASDK_BUILD_DEEPGRAMPP_STT OR VASDK_BUILD_CARTESIAPP_STT OR VASDK_BUILD_FISHAUDIOPP_STT OR VASDK_BUILD_GRADIUMPP_STT OR VASDK_BUILD_PARAKEET OR VASDK_BUILD_WHISPERCPP OR VASDK_BUILD_MOONSHINE_STT))
+if(NOT (VASDK_BUILD_GLADIAPP OR VASDK_BUILD_SONIOXPP_STT OR VASDK_BUILD_DEEPGRAMPP_STT OR VASDK_BUILD_CARTESIAPP_STT OR VASDK_BUILD_FISHAUDIOPP_STT OR VASDK_BUILD_GRADIUMPP_STT OR VASDK_BUILD_PARAKEET OR VASDK_BUILD_WHISPERCPP OR VASDK_BUILD_MOONSHINE_STT OR VASDK_BUILD_WHISTLE_STT))
     set(VASDK_PIPELINE_REQUIRED_MODULES_ENABLED FALSE)
-    list(APPEND VASDK_PIPELINE_MISSING_MODULES "At least one transcription provider (GLADIAPP, SONIOXPP_STT, DEEPGRAMPP_STT, CARTESIAPP_STT, FISHAUDIOPP_STT, GRADIUMPP_STT, PARAKEET, WHISPERCPP, or MOONSHINE_STT)")
+    list(APPEND VASDK_PIPELINE_MISSING_MODULES "At least one transcription provider (GLADIAPP, SONIOXPP_STT, DEEPGRAMPP_STT, CARTESIAPP_STT, FISHAUDIOPP_STT, GRADIUMPP_STT, PARAKEET, WHISPERCPP, MOONSHINE_STT, or WHISTLE_STT)")
 endif()
 
 # Require at least one TTS provider
@@ -124,6 +124,12 @@ if(VASDK_BUILD_MOONSHINE_STT AND TARGET vasdk_moonshine_stt)
     target_link_libraries(VASDK_Pipeline PRIVATE vasdk_moonshine_stt)
     target_compile_definitions(VASDK_Pipeline PRIVATE VASDK_HAS_MOONSHINE_STT)
     message(STATUS "[VASDK_Pipeline] Moonshine STT provider enabled")
+endif()
+
+if(VASDK_BUILD_WHISTLE_STT AND TARGET vasdk_whistle_stt)
+    target_link_libraries(VASDK_Pipeline PRIVATE vasdk_whistle_stt)
+    target_compile_definitions(VASDK_Pipeline PRIVATE VASDK_HAS_WHISTLE_STT)
+    message(STATUS "[VASDK_Pipeline] Whistle STT provider enabled")
 endif()
 
 if(VASDK_BUILD_DEEPGRAMPP_TTS AND TARGET vasdk_deepgrampp_tts)
@@ -258,16 +264,21 @@ if(WIN32)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
         $<TARGET_FILE:VASDK>
         $<TARGET_FILE_DIR:VASDK_Pipeline>
-        # Copy libcurl (debug: libcurl-d.dll, release: libcurl.dll)
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "$<TARGET_FILE_DIR:VASDK>/$<IF:$<CONFIG:Debug>,libcurl-d.dll,libcurl.dll>"
-        $<TARGET_FILE_DIR:VASDK_Pipeline>
-        # Copy zlib (debug: zlibd1.dll, release: zlib1.dll)
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "$<TARGET_FILE_DIR:VASDK>/$<IF:$<CONFIG:Debug>,zlibd1.dll,zlib1.dll>"
-        $<TARGET_FILE_DIR:VASDK_Pipeline>
-        COMMAND_EXPAND_LISTS
     )
+    # An installed (e.g. vcpkg) libcurl is a DLL that VASDK.dll imports, along with
+    # zlib; a libcurl built from source (VASDK_CURL_BUNDLED) is linked statically.
+    if(VASDK_ENABLE_HTTP_TRANSPORT AND NOT VASDK_CURL_BUNDLED)
+        add_custom_command(TARGET VASDK_Pipeline POST_BUILD
+            # debug: libcurl-d.dll, release: libcurl.dll
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "$<TARGET_FILE_DIR:VASDK>/$<IF:$<CONFIG:Debug>,libcurl-d.dll,libcurl.dll>"
+                $<TARGET_FILE_DIR:VASDK_Pipeline>
+            # debug: zlibd1.dll, release: zlib1.dll
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "$<TARGET_FILE_DIR:VASDK>/$<IF:$<CONFIG:Debug>,zlibd1.dll,zlib1.dll>"
+                $<TARGET_FILE_DIR:VASDK_Pipeline>
+        )
+    endif()
 endif()
 
 if(VASDK_ENABLE_CTRACK AND TARGET vasdk_ctrack_iface)

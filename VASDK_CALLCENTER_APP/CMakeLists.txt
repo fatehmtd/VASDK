@@ -22,9 +22,9 @@ if(NOT VASDK_BUILD_SILERO_VAD)
     list(APPEND CC_MISSING "SILERO_VAD")
 endif()
 
-if(NOT (VASDK_BUILD_PARAKEET OR VASDK_BUILD_MOONSHINE_STT OR VASDK_BUILD_WHISPERCPP OR VASDK_BUILD_GLADIAPP OR VASDK_BUILD_SONIOXPP_STT OR VASDK_BUILD_DEEPGRAMPP_STT OR VASDK_BUILD_CARTESIAPP_STT OR VASDK_BUILD_FISHAUDIOPP_STT OR VASDK_BUILD_GRADIUMPP_STT))
+if(NOT (VASDK_BUILD_PARAKEET OR VASDK_BUILD_MOONSHINE_STT OR VASDK_BUILD_WHISPERCPP OR VASDK_BUILD_WHISTLE_STT OR VASDK_BUILD_GLADIAPP OR VASDK_BUILD_SONIOXPP_STT OR VASDK_BUILD_DEEPGRAMPP_STT OR VASDK_BUILD_CARTESIAPP_STT OR VASDK_BUILD_FISHAUDIOPP_STT OR VASDK_BUILD_GRADIUMPP_STT))
     set(CC_REQUIRED_ENABLED FALSE)
-    list(APPEND CC_MISSING "At least one STT provider (PARAKEET, MOONSHINE_STT, WHISPERCPP, GLADIAPP, SONIOXPP_STT, DEEPGRAMPP_STT, CARTESIAPP_STT, FISHAUDIOPP_STT, GRADIUMPP_STT)")
+    list(APPEND CC_MISSING "At least one STT provider (PARAKEET, MOONSHINE_STT, WHISPERCPP, WHISTLE_STT, GLADIAPP, SONIOXPP_STT, DEEPGRAMPP_STT, CARTESIAPP_STT, FISHAUDIOPP_STT, GRADIUMPP_STT)")
 endif()
 
 if(NOT (VASDK_BUILD_POCKET_TTS OR VASDK_BUILD_PHONON_TTS OR VASDK_BUILD_SUPERTONIC_TTS OR VASDK_BUILD_DEEPGRAMPP_TTS OR VASDK_BUILD_CARTESIAPP_TTS OR VASDK_BUILD_FISHAUDIOPP_TTS OR VASDK_BUILD_GRADIUMPP_TTS OR VASDK_BUILD_SONIOXPP_TTS))
@@ -87,6 +87,12 @@ if(VASDK_BUILD_WHISPERCPP AND TARGET vasdk_whispercpp)
     target_link_libraries(VASDK_CallCenter PRIVATE vasdk_whispercpp)
     target_compile_definitions(VASDK_CallCenter PRIVATE VASDK_HAS_WHISPERCPP)
     message(STATUS "[VASDK_CallCenter] Whisper.cpp STT enabled")
+endif()
+
+if(VASDK_BUILD_WHISTLE_STT AND TARGET vasdk_whistle_stt)
+    target_link_libraries(VASDK_CallCenter PRIVATE vasdk_whistle_stt)
+    target_compile_definitions(VASDK_CallCenter PRIVATE VASDK_HAS_WHISTLE_STT)
+    message(STATUS "[VASDK_CallCenter] Whistle STT enabled")
 endif()
 
 if(VASDK_BUILD_GLADIAPP AND TARGET vasdk_gladiapp_transcription)
@@ -227,8 +233,21 @@ if(WIN32)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             $<TARGET_FILE:VASDK>
             $<TARGET_FILE_DIR:VASDK_CallCenter>
-        COMMAND_EXPAND_LISTS
     )
+    # An installed (e.g. vcpkg) libcurl is a DLL that VASDK.dll imports, along with
+    # zlib; a libcurl built from source (VASDK_CURL_BUNDLED) is linked statically.
+    if(VASDK_ENABLE_HTTP_TRANSPORT AND NOT VASDK_CURL_BUNDLED)
+        add_custom_command(TARGET VASDK_CallCenter POST_BUILD
+            # debug: libcurl-d.dll, release: libcurl.dll
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "$<TARGET_FILE_DIR:VASDK>/$<IF:$<CONFIG:Debug>,libcurl-d.dll,libcurl.dll>"
+                $<TARGET_FILE_DIR:VASDK_CallCenter>
+            # debug: zlibd1.dll, release: zlib1.dll
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "$<TARGET_FILE_DIR:VASDK>/$<IF:$<CONFIG:Debug>,zlibd1.dll,zlib1.dll>"
+                $<TARGET_FILE_DIR:VASDK_CallCenter>
+        )
+    endif()
 endif()
 
 #  Install 
