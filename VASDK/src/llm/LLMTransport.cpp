@@ -378,6 +378,7 @@ std::string LLMTransport::sendLLMRequest(const std::string& userMessage) {
         auto t0 = std::chrono::steady_clock::now();
         std::string streamedText;
         std::string sseLineBuffer;
+        bool sawSseData = false;
 
         const auto emitPartialFrame = [this](const std::string& delta) {
             if (delta.empty()) return;
@@ -390,11 +391,12 @@ std::string LLMTransport::sendLLMRequest(const std::string& userMessage) {
             enqueueReceivedFrame(partialFrame);
         };
 
-        const auto processSseLine = [this, &streamedText, &emitPartialFrame](const std::string& rawLine) {
+        const auto processSseLine = [this, &streamedText, &sawSseData, &emitPartialFrame](const std::string& rawLine) {
             std::string line = rawLine;
             if (!line.empty() && line.back() == '\r') line.pop_back();
             if (line.empty()) return;
             if (line.rfind("data:", 0) != 0) return;
+            sawSseData = true;
 
             std::string data = line.substr(5);
             size_t firstNonSpace = 0;
@@ -449,6 +451,15 @@ std::string LLMTransport::sendLLMRequest(const std::string& userMessage) {
             terminalFrame->sourceId = getName();
             enqueueReceivedFrame(terminalFrame);
             return streamedText;
+        }
+
+        // A stream that carried no content (e.g. max_tokens spent entirely on reasoning) must
+        // not fall through to parseResponse: the body is SSE text, not a JSON document.
+        // Bodies without SSE lines still do, for servers that ignore "stream": true.
+        if (_config.streaming && sawSseData) {
+            fireOnError(static_cast<int>(LLMErrorCode::EmptyResponse),
+                        "LLM stream ended without any content");
+            return "";
         }
 
         if (resp.body.empty()) {

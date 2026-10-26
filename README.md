@@ -37,7 +37,7 @@ The project is still young and moving fast. There are no tagged releases yet, an
 
 - CMake 3.16+ and a C++17 compiler.
 - Git on your `PATH` - needed both to clone the repo and by CMake's `FetchContent` to pull every C++ dependency at configure time.
-- libcurl development files. VASDK links against system libcurl for every HTTP-based transport (OpenAI/Anthropic/OpenRouter LLM calls, Gladia/Deepgram/Cartesia/Fish Audio cloud STT/TTS) via `find_package(CURL REQUIRED)`, so configure fails without it unless you pass `-DVASDK_ENABLE_HTTP_TRANSPORT=OFF` (which also disables every cloud provider, leaving only local/offline ones). Usually already present on Linux/macOS (`apt install libcurl4-openssl-dev` / `brew install curl` if not); on Windows, the simplest path is `vcpkg install curl` plus `-DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake` on the configure line below. Gradium builds its own libcurl from source instead of using the system one, unless another enabled provider's system-curl lookup already claimed the shared `libcurl` target first.
+- libcurl, for every HTTP-based transport (OpenAI/Anthropic/OpenRouter LLM calls, Gladia/Deepgram/Cartesia/Fish Audio cloud STT/TTS). No install is needed: configure uses an installed libcurl when CMake finds one (system package, Homebrew, or a vcpkg toolchain if you pass one), and otherwise builds curl 8.21 from source as a static library. On Windows that build uses Schannel, the OS TLS stack, so neither vcpkg nor OpenSSL is required. Pass `-DVASDK_FETCH_CURL=ON` to always build it from source, or `-DVASDK_ENABLE_HTTP_TRANSPORT=OFF` to drop it (which also disables every cloud provider, leaving only local/offline ones). On Linux/macOS a from-source build picks up OpenSSL (`apt install libssl-dev` / `brew install openssl`). Note that CMake also reads `CMAKE_TOOLCHAIN_FILE` from the environment, so a machine-wide vcpkg setting applies to every new build directory.
 - A network connection and ~1.5 GB free disk for the first configure - everything else (C++ deps and model files) is fetched for you, and re-configures skip anything already downloaded.
 
 ```bash
@@ -234,7 +234,7 @@ Every row is an independent target under `VASDK_3P_IMPL/`. Enable only what you 
 | VAD | Silero (ONNX), Energy+ZCR | - |
 | Turn detection | SmartTurn v3 | - |
 | Noise suppression | RNNoise | - |
-| STT | Parakeet, Moonshine (WIP), Whisper.cpp (WIP) (all ONNX/GGUF) | Gladia (WIP), Gradium, Soniox, Deepgram, Cartesia, Fish Audio |
+| STT | Parakeet, Moonshine (WIP), Whisper.cpp (WIP) (all ONNX/GGUF), Whistle (opt-in, prebuilt engine) | Gladia (WIP), Gradium, Soniox, Deepgram, Cartesia, Fish Audio |
 | TTS | Supertonic (WIP), PocketTTS (ONNX), Phonon (GGUF, opt-in) | Gradium, Soniox, Deepgram, Cartesia, Fish Audio |
 | LLM | llama.cpp, or any OpenAI-compatible local server | OpenAI, Anthropic |
 | File / batch audio | FFmpeg-backed file transport | - |
@@ -259,6 +259,7 @@ Where each provider's underlying code or API actually comes from, and under what
 | <a href="https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3"><img src="assets/logos/nvidia.svg" width="48" height="48" alt=""></a> | Parakeet TDT | - | [istupakov/parakeet-tdt-0.6b-v3-onnx](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx) (model) · [microsoft/onnxruntime](https://github.com/microsoft/onnxruntime) (runtime) | CC BY 4.0 (model) · MIT (ONNX Runtime) |
 | <a href="https://github.com/moonshine-ai/moonshine"><img src="assets/logos/moonshine-ai.png" width="48"  alt=""></a> | Moonshine | - | [moonshine-ai/moonshine](https://github.com/moonshine-ai/moonshine) | MIT (English models; other languages ship under the non-commercial Moonshine Community License) |
 | <a href="https://github.com/ggml-org/whisper.cpp"><img src="assets/logos/ggml-org.jpg" width="48" alt=""></a> | Whisper.cpp | - | [ggml-org/whisper.cpp](https://github.com/ggml-org/whisper.cpp) | MIT |
+| | Whistle | [cactuscompute.com/whistle](https://cactuscompute.com/whistle) | [Cactus-Compute/whistle](https://huggingface.co/Cactus-Compute/whistle) (model) · [Cactus-Compute/needle3](https://huggingface.co/Cactus-Compute/needle3) (prebuilt engine, no source) · [cactus-compute/needle](https://github.com/cactus-compute/needle) | Apache 2.0 (model and engine binaries) |
 | <a href="https://www.gladia.io"><img src="assets/logos/gladiaio.jpg" width="48" alt=""></a> | Gladia (cloud STT) | [gladia.io](https://www.gladia.io) · [API docs](https://docs.gladia.io) | [fatehmtd/gladiapp](https://github.com/fatehmtd/gladiapp) (VASDK's own client, not Gladia's official SDK) | MIT (gladiapp) |
 | <a href="https://soniox.com"><img src="assets/logos/soniox.png" width="48" alt=""></a> | Soniox (cloud STT/TTS) | [soniox.com](https://soniox.com) · [API docs](https://soniox.com/docs) | [fatehmtd/SonioxPP](https://github.com/fatehmtd/SonioxPP) (VASDK's own client, not Soniox's official SDK) | Apache 2.0 (SonioxPP) |
 | <a href="https://github.com/supertone-inc/supertonic"><img src="assets/logos/supertone-inc.png" width="48" alt=""></a> | Supertonic | - | [supertone-inc/supertonic](https://github.com/supertone-inc/supertonic) (inference code) | MIT (code) · OpenRAIL (model weights) |
@@ -319,6 +320,16 @@ cmake -B build -S . -DPHONON_TTS_VOICES="Zoey;Augustin"
 ```
 
 At runtime, `PHONON_TTS_VOICE` (in `.env`) picks the voice and `PHONON_TTS_LANG` (`en`, `fr`, `de`, `es`, `pt` or `none`) the language text is normalized as: numbers, amounts, symbols, emails, URLs and abbreviations are spelled out exactly as Gradium's runtime does. Long replies are then split as that runtime splits them: whole sentences grouped into pieces of up to 50 tokens, with any sentence over 200 tokens cut at a clause, because the model stops early and drops words when it is given much more at once. The C++ normalizer and splitter are checked against the reference implementation by golden-file parity tests (`-DVASDK_BUILD_TESTS=ON`, then `ctest`; see `VASDK_3P_IMPL/PhononTTS/tests/golden-gen`). `PHONON_TTS_RULES=all` also reads phone numbers, times and dates, which are opt-in there too. Android isn't wired up yet.
+
+Whistle STT ([Cactus Compute](https://huggingface.co/Cactus-Compute/whistle), Apache 2.0) is a 17 MB CPU model for English, German, French, Spanish, Italian, Dutch and Polish, with word timestamps and keyword biasing. It is off by default because it runs on Cactus's closed-source needle engine, which is only published as prebuilt binaries. Configure downloads `whistle.cact`, `needle.h` and the engine, each pinned by revision and SHA-256. On Windows, Linux and macOS the engine is the self-contained `libneedle3.dll`/`.so`/`.dylib` from the `cactus-needle` wheel, placed next to the model and loaded at runtime. The repo's static `libneedle.a` for those platforms is built with clang/libc++, so MSVC and GCC can't link it. On Android the NDK-built `libneedle.a` links in directly. In the showcase apps a cloud STT takes priority, so turn Gradium STT off to use Whistle:
+
+```bash
+cmake -B build -S . -DVASDK_BUILD_WHISTLE_STT=ON -DVASDK_BUILD_GRADIUMPP_STT=OFF
+```
+
+`WHISTLE_LANGUAGE` (in `.env`; `en`, `de`, `fr`, `es`, `it`, `nl` or `pl`) pins the language. Without it, the language is detected per utterance. The engine holds one speech model per process, so every Whistle provider instance shares it and their inference calls are serialised. The Android app doesn't offer Whistle yet.
+
+The [ManniX-ITA/whistle-GGUF](https://huggingface.co/ManniX-ITA/whistle-GGUF) repackaging uses custom ggml tensor types (CQ2_0/CQ4_0) that only the opencoti llamafile fork loads, so the provider uses the original `.cact` and engine instead.
 
 For air-gapped builds, turn the downloads off and place the files in `build/VASDK_3P_IMPL/models/` yourself; each `VASDK_3P_IMPL/cmake/Download*.cmake` script documents the exact filenames its provider expects.
 

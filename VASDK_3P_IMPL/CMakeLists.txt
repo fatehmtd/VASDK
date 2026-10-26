@@ -23,28 +23,29 @@ option(VASDK_BUILD_SONIOXPP_STT "Build SonioxPP transcription provider" OFF)
 option(VASDK_BUILD_DEEPGRAMPP_STT "Build Deepgrampp transcription provider" OFF)
 option(VASDK_BUILD_CARTESIAPP_STT "Build CartesiaPP transcription provider" OFF)
 option(VASDK_BUILD_FISHAUDIOPP_STT "Build FishAudioPP transcription provider" OFF)
-option(VASDK_BUILD_GRADIUMPP_STT "Build GradiumPP transcription provider" ON)
-option(VASDK_BUILD_PARAKEET "Build Parakeet transcription provider" ON)
+option(VASDK_BUILD_GRADIUMPP_STT "Build GradiumPP transcription provider" OFF)
+option(VASDK_BUILD_PARAKEET "Build Parakeet transcription provider" OFF)
 option(VASDK_BUILD_MOONSHINE_STT "Build Moonshine STT provider" OFF)
 option(VASDK_BUILD_WHISPERCPP "Build WhisperCpp transcription provider" OFF)
+option(VASDK_BUILD_WHISTLE_STT "Build Whistle STT provider (Cactus Compute, prebuilt needle engine)" ON)
 
 # Voice Synthesis
 option(VASDK_BUILD_DEEPGRAMPP_TTS "Build Deepgrampp voice synthesis provider" OFF)
 option(VASDK_BUILD_CARTESIAPP_TTS "Build CartesiaPP voice synthesis provider" OFF)
 option(VASDK_BUILD_FISHAUDIOPP_TTS "Build FishAudioPP voice synthesis provider" OFF)
-option(VASDK_BUILD_GRADIUMPP_TTS "Build GradiumPP voice synthesis provider" ON)
+option(VASDK_BUILD_GRADIUMPP_TTS "Build GradiumPP voice synthesis provider" OFF)
 option(VASDK_BUILD_SONIOXPP_TTS "Build SonioxPP voice synthesis provider" OFF)
 option(VASDK_BUILD_SUPERTONIC_TTS "Build Supertonic TTS provider" OFF)
 option(VASDK_BUILD_POCKET_TTS "Build Pocket TTS provider (flow-matching ONNX TTS at 24 kHz)" ON)
-option(VASDK_BUILD_PHONON_TTS "Build Phonon TTS provider (flow-matching GGUF TTS at 24 kHz on ggml)" OFF)
+option(VASDK_BUILD_PHONON_TTS "Build Phonon TTS provider (flow-matching GGUF TTS at 24 kHz on ggml)" ON)
 
 # Audio processing
 option(VASDK_BUILD_RNNOISE "Build RNNoise noise-suppression DSP provider" ON)
 option(VASDK_BUILD_VIZANIM "Build VizAnim audio features for live animations" ON)
 
 # LLM inference
-option(VASDK_BUILD_LLAMACPP "Build llama.cpp local LLM provider (offline GGUF inference)" ON)
-option(VASDK_DOWNLOAD_LLAMACPP_MODEL "Download the GGUF model file for llama.cpp during configure" ON)
+option(VASDK_BUILD_LLAMACPP "Build llama.cpp local LLM provider (offline GGUF inference)" OFF)
+option(VASDK_DOWNLOAD_LLAMACPP_MODEL "Download the GGUF model file for llama.cpp during configure" OFF)
 
 # NNAPI execution provider (Android only)
 if(ANDROID)
@@ -119,6 +120,10 @@ endif()
 if(VASDK_BUILD_WHISPERCPP AND NOT ANDROID)
     set(VASDK_DOWNLOAD_WHISPERCPP_MODEL ON CACHE BOOL "Download whisper.cpp GGML model file")
     include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/DownloadWhisperCppModel.cmake)
+endif()
+
+if(VASDK_BUILD_WHISTLE_STT)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/DownloadWhistleSTT.cmake)
 endif()
 
 if(VASDK_BUILD_SMART_TURN_V3 AND NOT ANDROID)
@@ -420,6 +425,10 @@ endif()
 
 if(VASDK_BUILD_MOONSHINE_STT)
     add_subdirectory(MoonshineSTT)
+endif()
+
+if(VASDK_BUILD_WHISTLE_STT)
+    add_subdirectory(WhistleSTT)
 endif()
 
 if(VASDK_BUILD_DEEPGRAMPP_TTS)

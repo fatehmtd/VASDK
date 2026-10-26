@@ -119,6 +119,10 @@
 #include "WhisperCpp/WhisperCppTranscriptionProvider.hpp"
 #endif
 
+#ifdef VASDK_HAS_WHISTLE_STT
+#include "WhistleSTT/WhistleTranscriptionProvider.hpp"
+#endif
+
 // TTS providers
 #ifdef VASDK_HAS_DEEPGRAMPP_TTS
 #include "DeepgramppVoiceSynthesis/DeepgramppVoiceSynthesisProvider.h"
@@ -629,6 +633,17 @@ std::optional<AudioBundle> setupAudioProviders(const std::string& modelsPath, in
     auto fishaudioStt = std::make_shared<va::thirdparty::FishaudioppTranscriptionProvider>(
         std::getenv("FISHAUDIO_API_KEY") ? std::getenv("FISHAUDIO_API_KEY") : "");
     b.transcriptionProvider = fishaudioStt;
+#elif defined(VASDK_HAS_WHISTLE_STT)
+    // Local/offline: opt-in (VASDK_BUILD_WHISTLE_STT), so it wins over Moonshine/Parakeet when built.
+    auto whistle = std::make_shared<WhistleTranscriptionProvider>(modelsPath + "/whistle");
+    WhistleTranscriptionProvider::InferenceConfig inferenceConfig;
+    inferenceConfig.idleTimeoutMs           = 550;
+    inferenceConfig.partialIntervalMs       = 250;
+    inferenceConfig.minNewSamplesForPartial = b.inputConfig.sampleRate / 4;
+    inferenceConfig.minNewSamplesForFinal   = frameSize;
+    if (const char* lang = std::getenv("WHISTLE_LANGUAGE")) inferenceConfig.language = lang;
+    whistle->setInferenceConfig(inferenceConfig);
+    b.transcriptionProvider = whistle;
 #elif defined(VASDK_HAS_MOONSHINE_STT)
     auto moonshine = std::make_shared<MoonshineSttProvider>(modelsPath + "/moonshine");
     MoonshineSttProvider::InferenceConfig inferenceConfig;
@@ -650,7 +665,7 @@ std::optional<AudioBundle> setupAudioProviders(const std::string& modelsPath, in
     parakeet->setInferenceConfig(inferenceConfig);
     b.transcriptionProvider = parakeet;
 #else
-#error "No transcription provider available - enable VASDK_HAS_SONIOXPP_STT, VASDK_HAS_DEEPGRAMPP_STT, VASDK_HAS_CARTESIAPP_STT, VASDK_HAS_FISHAUDIOPP_STT, VASDK_HAS_GRADIUMPP_STT, VASDK_HAS_MOONSHINE_STT, VASDK_HAS_PARAKEET, or VASDK_HAS_WHISPERCPP"
+#error "No transcription provider available - enable VASDK_HAS_SONIOXPP_STT, VASDK_HAS_DEEPGRAMPP_STT, VASDK_HAS_CARTESIAPP_STT, VASDK_HAS_FISHAUDIOPP_STT, VASDK_HAS_GRADIUMPP_STT, VASDK_HAS_WHISTLE_STT, VASDK_HAS_MOONSHINE_STT, VASDK_HAS_PARAKEET, or VASDK_HAS_WHISPERCPP"
 #endif
     b.transcriptionProvider->setAudioConfiguration(b.inputConfig);
 
