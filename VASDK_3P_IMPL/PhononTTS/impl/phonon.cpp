@@ -51,7 +51,7 @@ namespace gradium::tts {
 
         // Wrap x as a no-alloc tensor view — ggml_mul_mat only reads it, so the
         // input never needs to be copied into the compute context.
-        uint8_t hdr_buf[4096];
+        alignas(GGML_MEM_ALIGN) uint8_t hdr_buf[4096];
         ggml_context* hctx = ggml_init({ sizeof(hdr_buf), hdr_buf, /*no_alloc=*/true });
         ggml_tensor* xt = ggml_new_tensor_2d(hctx, GGML_TYPE_F32, in, seq);
         xt->data = const_cast<float*>(x);
