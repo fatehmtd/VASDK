@@ -95,7 +95,7 @@ std::vector<float> mimi_decode_stream(const std::vector<std::vector<float>>& lat
     std::vector<float> projected(N * md);
     {
         constexpr size_t kHdrSz = 4 * 1024;
-        uint8_t hdr_buf[kHdrSz];
+        alignas(GGML_MEM_ALIGN) uint8_t hdr_buf[kHdrSz];
         auto& tc = ThreadContext::current();
         ggml_context* hctx = ggml_init({kHdrSz, hdr_buf, true});
         ggml_tensor* W_t   = ggml_new_tensor_2d(hctx, GGML_TYPE_F32, ld, md);

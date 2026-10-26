@@ -107,7 +107,7 @@ namespace conv {
 
         // Wrap W and col as no-alloc tensor views (no data copy for weights).
         auto& tc = gradium::tts::ThreadContext::current();
-        uint8_t hdr_buf[4096];
+        alignas(GGML_MEM_ALIGN) uint8_t hdr_buf[4096];
         ggml_context* hctx = ggml_init({ sizeof(hdr_buf), hdr_buf, /*no_alloc=*/true });
         ggml_tensor* W_t = ggml_new_tensor_2d(hctx, GGML_TYPE_F32, col_w, out_ch);
         W_t->data = const_cast<float*>(W);
