@@ -31,7 +31,9 @@ namespace va {
             ERROR,            // Error information
             AUDIO_FEATURES,   // Extracted audio feature vector (VizAnim)
             TOOL_CALL,        // LLM-requested tool invocation
-            TOOL_RESULT       // Result returned by a tool handler
+            TOOL_RESULT,      // Result returned by a tool handler
+            SPEAKER_ENROLLMENT,     // Speaker enrollment request / outcome
+            SPEAKER_IDENTIFICATION  // Which enrolled speaker produced an utterance
         };
 
         inline std::string toString(FrameType type) {
@@ -52,6 +54,8 @@ namespace va {
             case FrameType::AUDIO_FEATURES:   return "AUDIO_FEATURES";
             case FrameType::TOOL_CALL:        return "TOOL_CALL";
             case FrameType::TOOL_RESULT:      return "TOOL_RESULT";
+            case FrameType::SPEAKER_ENROLLMENT:     return "SPEAKER_ENROLLMENT";
+            case FrameType::SPEAKER_IDENTIFICATION: return "SPEAKER_IDENTIFICATION";
             }
             return "UNKNOWN";
         }
@@ -696,6 +700,75 @@ namespace va {
             /// Confidence of the event that triggered this transition (0–1).
             /// For USER_STOPPED_SPEAKING this is the turn-detection model probability.
             float                triggerConfidence{ 0.0f };
+        };
+
+        /**
+         * @brief Speaker enrollment frame.
+         *
+         * REQUESTED asks SpeakerIdentificationProcessor to enroll the next utterance under
+         * speakerId; the processor answers downstream with ENROLLED or FAILED.
+         */
+        enum class SpeakerEnrollmentStatus {
+            REQUESTED,  // Enroll the next utterance as speakerId
+            ENROLLED,   // speakerId was enrolled
+            FAILED      // Enrollment failed, see errorMessage
+        };
+
+        inline std::string toString(SpeakerEnrollmentStatus status) {
+            switch (status) {
+            case SpeakerEnrollmentStatus::REQUESTED: return "REQUESTED";
+            case SpeakerEnrollmentStatus::ENROLLED:  return "ENROLLED";
+            case SpeakerEnrollmentStatus::FAILED:    return "FAILED";
+            }
+            return "UNKNOWN";
+        }
+
+        class VASDK_EXPORT SpeakerEnrollmentFrame : public Frame {
+        public:
+            FrameType getType() const override { return FrameType::SPEAKER_ENROLLMENT; }
+
+            std::shared_ptr<Frame> clone() const override {
+                auto cloned = std::make_shared<SpeakerEnrollmentFrame>();
+                cloned->timestamp    = timestamp;
+                cloned->sequenceId   = sequenceId;
+                cloned->frameId      = frameId;
+                cloned->sourceId     = sourceId;
+                cloned->speakerId    = speakerId;
+                cloned->status       = status;
+                cloned->errorMessage = errorMessage;
+                return cloned;
+            }
+
+            std::string             speakerId;
+            SpeakerEnrollmentStatus status{ SpeakerEnrollmentStatus::REQUESTED };
+            std::string             errorMessage;  // populated on FAILED only
+        };
+
+        /**
+         * @brief Speaker identification frame - emitted downstream by SpeakerIdentificationProcessor
+         *        for every utterance long enough to embed, before the utterance's transcription.
+         */
+        class VASDK_EXPORT SpeakerIdentificationFrame : public Frame {
+        public:
+            FrameType getType() const override { return FrameType::SPEAKER_IDENTIFICATION; }
+
+            std::shared_ptr<Frame> clone() const override {
+                auto cloned = std::make_shared<SpeakerIdentificationFrame>();
+                cloned->timestamp  = timestamp;
+                cloned->sequenceId = sequenceId;
+                cloned->frameId    = frameId;
+                cloned->sourceId   = sourceId;
+                cloned->speakerId  = speakerId;
+                cloned->confidence = confidence;
+                cloned->isNewSpeaker = isNewSpeaker;
+                cloned->trackedSimilarity = trackedSimilarity;
+                return cloned;
+            }
+
+            std::string speakerId;                  // Best-matching enrolled speaker; empty = unknown speaker
+            float       confidence{ -1.0f };        // Cosine similarity of the best enrolled match (-1.0 = none enrolled)
+            bool        isNewSpeaker{ true };       // Speaker differs from the previously tracked one
+            float       trackedSimilarity{ 0.0f };  // Cosine similarity to the previously tracked speaker
         };
 
     } // namespace transport

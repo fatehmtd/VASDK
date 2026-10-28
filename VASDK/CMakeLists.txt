@@ -46,6 +46,7 @@ add_library(VASDK SHARED
     ./src/AudioDSPProcessor.cpp
     ./src/Pipeline.cpp
     ./src/TurnDetectionProcessor.cpp
+    ./src/SpeakerIdentificationProcessor.cpp
     ./src/AgentStateProcessor.cpp
     # Goal-oriented call center framework (va::goal namespace)
     ./src/goal/GoalState.cpp

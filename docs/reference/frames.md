@@ -68,6 +68,8 @@ Every `FrameType`, its concrete class, and what carries it:
 | `ERROR` | `ErrorFrame` | severity (`WARNING`/`ERROR`/`FATAL`) + code + message - flows **upstream** | any failing stage → `RecoveryProcessor`, app |
 | `SYSTEM` | *(reserved)* | high-priority control category | - |
 | `AUDIO_FEATURES` | *(VizAnim provider)* | extracted feature vector for UI visualization | audio analysis → UI |
+| `SPEAKER_ENROLLMENT` | `SpeakerEnrollmentFrame` | speaker id + `REQUESTED` / `ENROLLED` / `FAILED` + error message | app/tool → `SpeakerIdentificationProcessor` (`REQUESTED`), which answers downstream |
+| `SPEAKER_IDENTIFICATION` | `SpeakerIdentificationFrame` | best-matching enrolled speaker id (empty = unknown) + cosine similarity | `SpeakerIdentificationProcessor` → LLM, app |
 
 Note the asymmetry that trips people up: **`AudioFrame` (mic side) carries no audio; `SynthesisFrame` (TTS side) does.** Mic audio is a continuous firehose shared by several consumers, so it lives once in a ring buffer and frames carry offsets. Synthesized audio is bursty and single-consumer, so it rides in the frame. The [root README's ring buffer section](../../README.md#the-audio-ring-buffer) explains the design in depth.
 

@@ -12,6 +12,7 @@ flowchart LR
         TTSP["TTSFrameProcessor"]
         DSPP["AudioDSPProcessor"]
         TDP["TurnDetectionProcessor"]
+        SIP["SpeakerIdentificationProcessor"]
         LT["LocalTransport"]
     end
     subgraph Providers["provider interfaces (this page)"]
@@ -20,6 +21,7 @@ flowchart LR
         TTS["GenericVoiceSynthesisProvider"]
         DSP["GenericAudioDSPProvider"]
         TD["TurnDetectionProvider"]
+        SE["SpeakerEmbeddingProvider"]
         SRC["GenericAudioSource"]
         SNK["GenericAudioSink"]
     end
@@ -29,6 +31,7 @@ flowchart LR
         I3["Supertonic · PocketTTS · Phonon · Soniox · Deepgram · Cartesia · Fish Audio · Gradium"]
         I4["RNNoise"]
         I5["SmartTurn v3"]
+        I7["pyannote (WeSpeaker ResNet34)"]
         I6["MiniAudio · SDL3 · FFmpeg"]
     end
     VADP --> VAD --> I1
@@ -36,6 +39,7 @@ flowchart LR
     TTSP --> TTS --> I3
     DSPP --> DSP --> I4
     TDP --> TD --> I5
+    SIP --> SE --> I7
     LT --> SRC & SNK --> I6
 ```
 
@@ -161,6 +165,17 @@ virtual TurnEvaluation evaluate(const std::shared_ptr<transport::Frame> frame,
 ```
 
 `evaluate()` is called per frame (VAD state frames and others); return `NONE` to stay silent, or a `TURN_START`/`TURN_END` decision and `TurnDetectionProcessor` emits the corresponding `TurnStateFrame`. `agentIsSpeaking` is how you classify `INTERRUPT` (user barged in over TTS) vs `NORMAL`. The built-in fallback (no provider) maps VAD `STARTING`→start, `ENDED`→end at VAD confidence; the SmartTurn v3 implementation in `VASDK_3P_IMPL` adds a semantic end-of-turn model, thresholds, rolling averages, and minimum-duration suppression.
+
+## SpeakerEmbeddingProvider
+
+([`SpeakerEmbeddingProvider.h`](../../VASDK/include/VASDK/SpeakerEmbeddingProvider.h)) Turns one utterance into a fixed-size voice print. Enrollment and matching (cosine similarity) live in `SpeakerIdentificationProcessor`, so a provider only wraps the model.
+
+```cpp
+virtual std::vector<float> computeEmbedding(const float* samples, size_t numSamples) = 0;  // mono, [-1, 1]
+AudioConfig getAudioConfig() const;  // format of the pipeline audio, set by the implementation's initialize()
+```
+
+Return an empty vector on failure. The `PyannoteSpeaker` implementation in `VASDK_3P_IMPL` (`-DVASDK_BUILD_PYANNOTE_SPEAKER=ON`) runs the embedding model of [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) (WeSpeaker ResNet34-LM, ONNX export downloaded at configure time) with a Kaldi fbank front end matched to torchaudio; it needs 16 kHz mono.
 
 ---
 
