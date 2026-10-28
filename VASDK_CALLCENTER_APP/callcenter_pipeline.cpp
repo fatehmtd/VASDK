@@ -139,6 +139,12 @@
 #include "SmartTurnV3/SmartTurnV3Provider.h"
 #endif
 
+// Speaker tracking / identification (optional)
+#ifdef VASDK_HAS_PYANNOTE_SPEAKER
+#include <VASDK/SpeakerIdentificationProcessor.h>
+#include "PyannoteSpeaker/PyannoteEmbeddingProvider.h"
+#endif
+
 #include <CLI/CLI.hpp>
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
@@ -523,6 +529,9 @@ struct ProcessorBundle {
     std::shared_ptr<va::pipeline::TransportOutputProcessor>      transportOutput;
     std::shared_ptr<va::pipeline::VADFrameProcessor>             vadProcessor;
     std::shared_ptr<va::pipeline::TurnDetectionProcessor>        turnDetection;
+#ifdef VASDK_HAS_PYANNOTE_SPEAKER
+    std::shared_ptr<va::pipeline::SpeakerIdentificationProcessor> speakerId;
+#endif
     std::shared_ptr<va::pipeline::TranscriptionFrameProcessor>   transcription;
     std::shared_ptr<va::pipeline::AgentStateProcessor>           agentState;
     std::shared_ptr<va::llm::LLMProcessor>                       llmProcessor;
@@ -953,6 +962,19 @@ std::optional<ProcessorBundle> setupProcessors(
     b.turnDetection = std::make_shared<va::pipeline::TurnDetectionProcessor>();
 #endif
 
+    // Speaker tracking
+#ifdef VASDK_HAS_PYANNOTE_SPEAKER
+    auto speakerProvider = std::make_shared<va::thirdparty::PyannoteEmbeddingProvider>(
+        modelsPath + "/pyannote_embedding.onnx");
+    if (speakerProvider->initialize(audio.inputConfig)) {
+        b.speakerId = std::make_shared<va::pipeline::SpeakerIdentificationProcessor>(speakerProvider);
+        b.speakerId->setRingBuffer(transport.sharedRingBuffer);
+    }
+    else {
+        spdlog::warn("[CallCenter] PyannoteEmbeddingProvider init failed - speaker tracking disabled");
+    }
+#endif
+
     // Agent state machine
     b.agentState = std::make_shared<va::pipeline::AgentStateProcessor>();
     b.agentState->setAlwaysOn(true);
@@ -996,9 +1018,13 @@ std::shared_ptr<va::pipeline::Pipeline> buildAndStartPipeline(
 {
     auto pipeline = std::make_shared<va::pipeline::Pipeline>();
 
-    pipeline->addProcessor(procs.transportInput)
+    auto& chain = pipeline->addProcessor(procs.transportInput)
         .addProcessor(procs.vadProcessor)
-        .addProcessor(procs.turnDetection)
+        .addProcessor(procs.turnDetection);
+#ifdef VASDK_HAS_PYANNOTE_SPEAKER
+    if (procs.speakerId) chain.addProcessor(procs.speakerId);
+#endif
+    chain
         .addProcessor(procs.transcription)
         .addProcessor(procs.recovery)       // observes ErrorFrames upstream
         .addProcessor(procs.agentState)
