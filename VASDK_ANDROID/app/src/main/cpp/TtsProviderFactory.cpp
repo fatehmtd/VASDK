@@ -30,7 +30,26 @@
 #include "GradiumppVoiceSynthesis/GradiumppVoiceSynthesisProvider.h"
 #endif
 
+#ifdef VASDK_HAS_PHONON_TTS
+#include "PhononTTS/PhononVoiceSynthesisProvider.hpp"
+#endif
+
 namespace {
+
+std::shared_ptr<va::audio::GenericVoiceSynthesisProvider>
+makePhononTts(const TtsProviderParams &params) {
+#if defined(VASDK_HAS_PHONON_TTS)
+    // The app downloads the public phonon-31m-en checkpoint, whose only voice is "default".
+    auto provider = std::make_shared<PhononVoiceSynthesisProvider>(params.modelDir, "default", "en");
+    provider->setAudioConfiguration(params.outputAudioConfig);
+    provider->setSilenceDuration(0.3f);
+    spdlog::info("[VASDK] Phonon TTS provider configured (modelDir={})", params.modelDir);
+    return provider;
+#else
+    (void) params;
+    return nullptr;
+#endif
+}
 
 std::shared_ptr<va::audio::GenericVoiceSynthesisProvider>
 makePocketTts(const TtsProviderParams &params) {
@@ -160,6 +179,8 @@ createSynthesisProvider(const TtsProviderParams &params) {
         provider = makeCartesiaTts(params);
     } else if (params.providerId == "fishaudio") {
         provider = makeFishaudioTts(params);
+    } else if (params.providerId == "phonon") {
+        provider = makePhononTts(params);
     } else {
         provider = makePocketTts(params);
     }

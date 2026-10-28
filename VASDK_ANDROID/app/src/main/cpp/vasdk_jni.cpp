@@ -23,6 +23,10 @@
 #endif
 
 // Llama cpp LLM integration
+#ifdef VASDK_HAS_PYANNOTE_SPEAKER
+#include "PyannoteSpeaker/PyannoteEmbeddingProvider.h"
+#endif
+
 #ifdef VASDK_HAS_LLAMACPP
 #include "LlamaCpp/LlamaCppTransport.h"
 #endif
@@ -61,7 +65,8 @@ extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void * /*reserved*/) {
 
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_vasdk_android_VasdkEngine_nativeInit(JNIEnv *env, jobject thiz, jstring vadModelPath,
-                                              jstring turnDetectionModelPath, jstring nativeLibDir,
+                                              jstring turnDetectionModelPath,
+                                              jstring speakerModelPath, jstring nativeLibDir,
                                               jstring sttProviderId, jboolean sttStreaming,
                                               jstring sttModelDir,
                                               jstring llmModelPath, jstring llmChatFormat,
@@ -203,6 +208,22 @@ Java_com_vasdk_android_VasdkEngine_nativeInit(JNIEnv *env, jobject thiz, jstring
 
     session->turnDetectionFrameProcessor = std::make_shared<va::pipeline::TurnDetectionProcessor>(/* provider = */
             turnDetectionProvider);
+
+#ifdef VASDK_HAS_PYANNOTE_SPEAKER
+    // Optional: logs SAME/NEW speaker per utterance; skipped when the model is missing.
+    const std::string speakerModelPathStr = jstringToStdString(env, speakerModelPath);
+    if (!speakerModelPathStr.empty()) {
+        auto speakerProvider = std::make_shared<va::thirdparty::PyannoteEmbeddingProvider>(speakerModelPathStr);
+        if (speakerProvider->initialize(audioConfig)) {
+            session->speakerIdProcessor = std::make_shared<va::pipeline::SpeakerIdentificationProcessor>(speakerProvider);
+            session->speakerIdProcessor->setRingBuffer(audioRingBuffer);
+        } else {
+            spdlog::error("[VASDK] Failed to initialize PyannoteEmbeddingProvider - speaker tracking disabled");
+        }
+    }
+#else
+    (void) speakerModelPath;
+#endif
 
     // Configure transcription parameters - the provider is chosen at runtime (see
     // VasdkEngine's Settings UI / sttProviderId), falling back to whichever STT
@@ -496,7 +517,12 @@ Java_com_vasdk_android_VasdkEngine_nativeInit(JNIEnv *env, jobject thiz, jstring
     // absorb or queue them. Matches reference pipeline order in main_pipeline.cpp.
     auto &chain = session->pipeline->addProcessor(transportInput).addProcessor(
             session->triggerProcessor).addProcessor(session->vadFrameProcessor).addProcessor(
-            session->turnDetectionFrameProcessor).addProcessor(session->agentStateProcessor);
+            session->turnDetectionFrameProcessor);
+#ifdef VASDK_HAS_PYANNOTE_SPEAKER
+    // Before transcription so the identification precedes the utterance's TRANSCRIPTION frame.
+    if (session->speakerIdProcessor) chain.addProcessor(session->speakerIdProcessor);
+#endif
+    chain.addProcessor(session->agentStateProcessor);
 
 #ifdef VASDK_HAS_VIZANIM
     if (session->micAnimProcessor) {

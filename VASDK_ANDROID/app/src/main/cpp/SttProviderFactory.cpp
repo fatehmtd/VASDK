@@ -30,7 +30,30 @@
 #include "GradiumppTranscription/GradiumppTranscriptionProvider.h"
 #endif
 
+#ifdef VASDK_HAS_WHISTLE_STT
+#include "WhistleSTT/WhistleTranscriptionProvider.hpp"
+#endif
+
 namespace {
+
+std::shared_ptr<va::audio::GenericTranscriptionProvider>
+makeWhistleStt(const SttProviderParams &params) {
+#if defined(VASDK_HAS_WHISTLE_STT)
+    auto whistle = std::make_shared<WhistleTranscriptionProvider>(params.modelDir);
+    WhistleTranscriptionProvider::InferenceConfig whistleConfig;
+    whistleConfig.idleTimeoutMs = 550;
+    whistleConfig.partialIntervalMs = 250;
+    whistleConfig.minNewSamplesForPartial = params.audioConfig.sampleRate / 4;
+    whistleConfig.minNewSamplesForFinal = params.frameSize;
+    whistle->setInferenceConfig(whistleConfig);
+    whistle->setAudioConfiguration(params.audioConfig);
+    spdlog::info("[VASDK] Whistle STT provider configured (modelDir={})", params.modelDir);
+    return whistle;
+#else
+    (void) params;
+    return nullptr;
+#endif
+}
 
 std::shared_ptr<va::audio::GenericTranscriptionProvider>
 makeParakeetStt(const SttProviderParams &params) {
@@ -162,6 +185,8 @@ createTranscriptionProvider(const SttProviderParams &params) {
         provider = makeCartesiaStt(params);
     } else if (params.providerId == "fishaudio") {
         provider = makeFishaudioStt(params);
+    } else if (params.providerId == "whistle") {
+        provider = makeWhistleStt(params);
     } else {
         provider = makeParakeetStt(params);
     }

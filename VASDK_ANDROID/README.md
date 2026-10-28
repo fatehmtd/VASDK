@@ -18,7 +18,7 @@ flowchart TB
         Bridge["builds the pipeline, bridges callbacks both ways<br/>(incl. nativeGetPromptPreview for model info)"]
     end
     subgraph Native["VASDK core + providers (C++, per-ABI)"]
-        Providers["MiniAudio · SileroVAD · Parakeet · PocketTTS<br/>SmartTurnV3 · llama.cpp (local LLM)<br/>SonioxPP · DeepgramPP · GladiaPP (cloud STT/TTS)"]
+        Providers["MiniAudio · SileroVAD · Parakeet · Whistle · PocketTTS · Phonon<br/>SmartTurnV3 · pyannote speaker · llama.cpp (local LLM)<br/>SonioxPP · DeepgramPP · GladiaPP (cloud STT/TTS)"]
     end
 
     Kotlin <--> Engine
@@ -129,15 +129,15 @@ stateDiagram-v2
 
 `Header.kt` exposes four actions beyond the status pill: animation test (`GraphicEq`), model info (`Info`), new conversation (`RestartAlt`), and settings (`Settings`) - the LLM mode toggle that used to live directly in the header was folded into the settings overlay instead. `SettingsOverlay.kt` lets you swap STT/TTS/LLM providers at runtime, no rebuild required:
 
-- **Speech-to-Text** - `SttProvider`: `PARAKEET` (on-device) · `SONIOX` · `DEEPGRAM` · `GLADIA` (cloud), plus a streaming/one-shot toggle.
-- **Text-to-Speech** - `TtsProvider`: `POCKET` (on-device) · `SONIOX` · `DEEPGRAM` (cloud).
+- **Speech-to-Text** - `SttProvider`: `PARAKEET` · `WHISTLE` (on-device, arm64 only) · `SONIOX` · `DEEPGRAM` · `GLADIA` (cloud), plus a streaming/one-shot toggle.
+- **Text-to-Speech** - `TtsProvider`: `POCKET` · `PHONON` (on-device, `gradium/phonon-31m-en`, CC BY-NC 4.0) · `SONIOX` · `DEEPGRAM` (cloud).
 - **Language Model** - on-device/cloud toggle; on-device exposes the same presets as `VasdkEngine.LOCAL_LLM_MODELS`.
 
-"Apply Config" tears down and re-initializes the native pipeline with the newly selected providers. `sttModelDir`/`ttsModelDir` (the `parakeet/` and `pocket_tts/` dirs under `cacheDir`) are only meaningful for the currently selected on-device provider - the native side ignores them when a cloud provider is active instead. Choices persist across restarts via `ProviderPreferences`.
+"Apply Config" tears down and re-initializes the native pipeline with the newly selected providers. `sttModelDir`/`ttsModelDir` (`parakeet/` or `whistle/`, `pocket_tts/` or `phonon_tts/` under `cacheDir`) are only meaningful for the currently selected on-device provider - the native side ignores them when a cloud provider is active instead. Choices persist across restarts via `ProviderPreferences`.
 
 ## Local LLM on-device
 
-The app runs GGUF models on-device through llama.cpp. Models aren't bundled in the APK; `ModelDownloadService` (a foreground service with notification progress) downloads them on first run, driven by `VasdkEngine`'s download callbacks, alongside the on-device STT (Parakeet) and TTS (PocketTTS) model files - VAD (Silero) and turn detection (SmartTurn v3) ship embedded as raw resources instead and are extracted to disk at `init()`. The default model is `LFM2_5Meta` (LFM2.5 230M, chat format `"lfm2.5"`); `Llama-3.2-1B-Instruct` (`"llama3"`), `Qwen2.5-1.5B-Instruct` (`"chatml"`), and `google_gemma-3-1b-it` (`"gemma"`) are also declared as presets in `VasdkEngine.Companion`. The engine needs to know the model's chat format so the native side renders prompts and tool descriptions correctly for that model; cloud mode (`useLocalLLM = false`) always reports `"openai"` regardless of the actual backing model.
+The app runs GGUF models on-device through llama.cpp. Models aren't bundled in the APK; `ModelDownloadService` (a foreground service with notification progress) downloads them on first run, driven by `VasdkEngine`'s download callbacks, alongside the on-device STT (Parakeet/Whistle) and TTS (PocketTTS/Phonon) model files and the pyannote speaker-embedding model (`pyannote/`, always on: `SpeakerIdentificationProcessor` logs SAME/NEW speaker per utterance) - VAD (Silero) and turn detection (SmartTurn v3) ship embedded as raw resources instead and are extracted to disk at `init()`. The default model is `LFM2_5Meta` (LFM2.5 230M, chat format `"lfm2.5"`); `Llama-3.2-1B-Instruct` (`"llama3"`), `Qwen2.5-1.5B-Instruct` (`"chatml"`), and `google_gemma-3-1b-it` (`"gemma"`) are also declared as presets in `VasdkEngine.Companion`. The engine needs to know the model's chat format so the native side renders prompts and tool descriptions correctly for that model; cloud mode (`useLocalLLM = false`) always reports `"openai"` regardless of the actual backing model.
 
 ## Building
 

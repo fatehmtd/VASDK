@@ -14,6 +14,9 @@
 #include <VASDK/VADFrameProcessor.h>
 #include <VASDK/llm/LLMProcessor.h>
 #include <VASDK/llm/ToolDispatchProcessor.h>
+#ifdef VASDK_HAS_PYANNOTE_SPEAKER
+#include <VASDK/SpeakerIdentificationProcessor.h>
+#endif
 
 #include <jni.h>
 #include <memory>
@@ -30,6 +33,9 @@ struct VasdkSession {
     std::shared_ptr<va::pipeline::TriggerProcessor> triggerProcessor;
     std::shared_ptr<va::pipeline::VADFrameProcessor> vadFrameProcessor;
     std::shared_ptr<va::pipeline::TurnDetectionProcessor> turnDetectionFrameProcessor;
+#ifdef VASDK_HAS_PYANNOTE_SPEAKER
+    std::shared_ptr<va::pipeline::SpeakerIdentificationProcessor> speakerIdProcessor;
+#endif
     std::shared_ptr<va::pipeline::AgentStateProcessor> agentStateProcessor;
     std::shared_ptr<va::pipeline::TranscriptionFrameProcessor> transcriptionProcessor;
     std::shared_ptr<va::llm::LLMProcessor> llmProcessor;
