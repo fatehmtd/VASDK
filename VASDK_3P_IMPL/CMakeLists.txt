@@ -17,6 +17,9 @@ option(VASDK_BUILD_ENERGY_ZCR_VAD "Build Energy/ZCR VAD provider" OFF)
 # Turn detection
 option(VASDK_BUILD_SMART_TURN_V3 "Build SmartTurn v3 provider" ON)
 
+# Speaker identification
+option(VASDK_BUILD_PYANNOTE_SPEAKER "Build pyannote speaker embedding provider (speaker enrollment / identification)" ON)
+
 # Transcription
 option(VASDK_BUILD_GLADIAPP "Build Gladiapp transcription provider" OFF)
 option(VASDK_BUILD_SONIOXPP_STT "Build SonioxPP transcription provider" OFF)
@@ -61,7 +64,7 @@ endif()
 
 # Check if ONNX Runtime is needed by any enabled module
 set(VASDK_NEEDS_ONNXRUNTIME OFF)
-if(VASDK_BUILD_SILERO_VAD OR VASDK_BUILD_PARAKEET OR VASDK_BUILD_MOONSHINE_STT OR VASDK_BUILD_SUPERTONIC_TTS OR VASDK_BUILD_SMART_TURN_V3 OR VASDK_BUILD_POCKET_TTS)
+if(VASDK_BUILD_SILERO_VAD OR VASDK_BUILD_PARAKEET OR VASDK_BUILD_MOONSHINE_STT OR VASDK_BUILD_SUPERTONIC_TTS OR VASDK_BUILD_SMART_TURN_V3 OR VASDK_BUILD_POCKET_TTS OR VASDK_BUILD_PYANNOTE_SPEAKER)
     set(VASDK_NEEDS_ONNXRUNTIME ON)
 endif()
 
@@ -129,6 +132,10 @@ endif()
 if(VASDK_BUILD_SMART_TURN_V3 AND NOT ANDROID)
     set(VASDK_DOWNLOAD_SMARTTURN_V3_MODEL ON CACHE BOOL "Download SmartTurn V3 ONNX model file")
     include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/DownloadSmartTurnModel.cmake)
+endif()
+
+if(VASDK_BUILD_PYANNOTE_SPEAKER AND NOT ANDROID)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/DownloadPyannoteEmbeddingModel.cmake)
 endif()
 
 if(VASDK_BUILD_LLAMACPP AND NOT ANDROID)
@@ -469,6 +476,10 @@ endif()
 
 if(VASDK_BUILD_SMART_TURN_V3)
     add_subdirectory(SmartTurnV3)
+endif()
+
+if(VASDK_BUILD_PYANNOTE_SPEAKER)
+    add_subdirectory(PyannoteSpeaker)
 endif()
 
 if(VASDK_BUILD_LLAMACPP)
