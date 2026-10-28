@@ -53,6 +53,19 @@ namespace va {
              */
             float processAudio(const float* buffer, int offset, int numSamples);
 
+            /**
+             * @brief Pre-compute FFT setup, window, mel filterbank and buffers (called by initialize(); no model needed).
+             */
+            bool initializeFeatures();
+
+            /**
+             * @brief Left-pad / truncate to maxBufferSize, normalize and compute the Whisper log-mel features,
+             *        as pipecat smart-turn does before inference.
+             * @return Number of feature frames in getFeatures() ([frames x nMels], time-major), or <= 0 on error.
+             */
+            int computeFeatures(const float* buffer, int offset, int numSamples);
+            const std::vector<float>& getFeatures() const { return _featuresBuffer; }
+
             // RAII deleters for PFFFT resources
             struct PFFTSetupDeleter {
                 void operator()(PFFFT_Setup* s) const { if (s) pffft_destroy_setup(s); }
@@ -80,7 +93,6 @@ namespace va {
 
             // Pre-computed during initialize() - zero per-call heap allocation in hot path
             int _nFreqs = 0;
-            int _fftPaddedSize = 0;
             int _maxNumFrames = 0;
             std::vector<float> _melFilterBankFlat;       // [_nMels × nFreqs], row-major
             std::vector<float> _hannWindow;               // [_nFFT]
@@ -96,7 +108,7 @@ namespace va {
              * @brief Compute features from the audio frame using Whisper's feature extraction algorithm.
              */
             int computeWhisperFeatures(const float* audioData, int numSamples,
-                int nFFT, int fftPaddedSize, int hopLength, int nMels,
+                int nFFT, int hopLength, int nMels,
                 float* featuresBuffer, int featuresBufferSize);
         };
 
@@ -187,32 +199,37 @@ namespace va {
             _inputName = inputNameAlloc.get();
             _outputName = outputNameAlloc.get();
 
-            _workingBuffer.reserve(_maxBufferSize);
-            _workingBuffer.resize(_maxBufferSize, 0.0f);
+            return initializeFeatures();
+        }
+
+        bool SmartTurnV3Impl::initializeFeatures()
+        {
+            _workingBuffer.assign(_maxBufferSize, 0.0f);
 
             // Center-padded formula to match HuggingFace: numFrames = 1 + maxBufferSize / _hopLength.
             _numFrames = 1 + _maxBufferSize / _hopLength;
-            const int featuresBufferSize = _numFrames * _nMels;
+            _featuresBuffer.assign(_numFrames * _nMels, 0.0f);
 
-            _featuresBuffer.reserve(featuresBufferSize);
-            _featuresBuffer.resize(featuresBufferSize, 0.0f);
+            // HuggingFace takes an n_fft-point DFT (201 bins for 400). pffft's real transform needs a multiple
+            // of 32, so run the complex transform (multiple of 16) on real input rather than zero-padding,
+            // which would move every bin's frequency.
+            _nFreqs       = _nFFT / 2 + 1;
+            _maxNumFrames = _numFrames;
 
-            // Pre-compute FFT setup, Hann window, mel filterbank, and scratch buffers (done once)
-            _fftPaddedSize = 480;
-            _nFreqs        = _fftPaddedSize / 2 + 1;
-            _maxNumFrames  = _numFrames; // 1 + _maxBufferSize / _hopLength
-
-            _pffftSetup.reset(pffft_new_setup(_fftPaddedSize, PFFFT_REAL));
-            if (!_pffftSetup) { return false; }
-            _fftInput.reset(static_cast<float*>(pffft_aligned_malloc(_fftPaddedSize * sizeof(float))));
-            _fftOutput.reset(static_cast<float*>(pffft_aligned_malloc(_fftPaddedSize * sizeof(float))));
-            _fftWork.reset(static_cast<float*>(pffft_aligned_malloc(_fftPaddedSize * sizeof(float))));
+            _pffftSetup.reset(pffft_new_setup(_nFFT, PFFFT_COMPLEX));
+            if (!_pffftSetup) {
+                spdlog::error("[SmartTurnV3] pffft does not support a complex FFT of size {}", _nFFT);
+                return false;
+            }
+            _fftInput.reset(static_cast<float*>(pffft_aligned_malloc(2 * _nFFT * sizeof(float))));
+            _fftOutput.reset(static_cast<float*>(pffft_aligned_malloc(2 * _nFFT * sizeof(float))));
+            _fftWork.reset(static_cast<float*>(pffft_aligned_malloc(2 * _nFFT * sizeof(float))));
             if (!_fftInput || !_fftOutput || !_fftWork) { return false; }
 
-            // Hann window (_nFFT samples)
+            // Periodic Hann window (transformers window_function default)
             _hannWindow.resize(_nFFT);
             for (int i = 0; i < _nFFT; ++i)
-                _hannWindow[i] = 0.5f * (1.0f - std::cos(2.0f * static_cast<float>(M_PI) * i / (_nFFT - 1)));
+                _hannWindow[i] = 0.5f * (1.0f - std::cos(2.0f * static_cast<float>(M_PI) * i / _nFFT));
 
             // Mel filterbank - Slaney normalization, row-major [_nMels x nFreqs]
             _melFilterBankFlat.assign(_nMels * _nFreqs, 0.0f);
@@ -228,7 +245,7 @@ namespace va {
                     float lHz = hzPts[m], cHz = hzPts[m+1], rHz = hzPts[m+2];
                     float enorm = 2.0f / (rHz - lHz);
                     for (int k = 0; k < _nFreqs; ++k) {
-                        float freq = k * kSR / (_fftPaddedSize + 1);
+                        float freq = k * kSR / _nFFT;
                         float v = 0.0f;
                         if (freq >= lHz && freq <= cHz && cHz > lHz)
                             v = (freq - lHz) / (cHz - lHz) * enorm;
@@ -256,36 +273,7 @@ namespace va {
 
             std::lock_guard<std::mutex> lock(_inferenceMutex);
 
-            // truncate input if it exceeds max buffer size, keeping the most recent audio
-            if (numSamples > _maxBufferSize) {
-                offset += numSamples - _maxBufferSize; // Adjust offset to get the last maxBufferSize samples
-                numSamples = _maxBufferSize;
-            }
-
-            int internalOffset = _maxBufferSize - numSamples; // Where to place the new audio in the working buffer
-
-            // copy the relevant portion of the input buffer into our working buffer for feature extraction
-            memset(_workingBuffer.data(), 0, internalOffset * sizeof(float)); // Clear previous data
-            memcpy(_workingBuffer.data() + internalOffset, buffer + offset, numSamples * sizeof(float));
-
-            // Zero-mean unit-variance normalization, matching HuggingFace WhisperFeatureExtractor do_normalize=True.
-            // Mean and variance are computed over the actual audio samples only (not the zero-padded region),
-            // matching HuggingFace's use of attention_mask in zero_mean_unit_var_norm.
-            // The zero-padded region at [0..internalOffset-1] is left as 0.0 (padding_value).
-            {
-                float* actualAudio = _workingBuffer.data() + internalOffset;
-                meanNormalize(actualAudio, numSamples);
-            }
-
-            // Compute features using Whisper's algorithm (uses pre-computed member resources).
-            int computedSize = computeWhisperFeatures(_workingBuffer.data(),
-                _maxBufferSize,
-                _nFFT,
-                _fftPaddedSize,
-                _hopLength,
-                _nMels,
-                _featuresBuffer.data(),
-                static_cast<int>(_featuresBuffer.size()));
+            int computedSize = computeFeatures(buffer, offset, numSamples);
 
             // compute inference using ONNX Runtime with the computed features
             // Model expects input_features of shape [1, _nMels, numFrames], matching HuggingFace WhisperFeatureExtractor output.
@@ -294,6 +282,7 @@ namespace va {
             if (computedSize <= 0) {
                 return 0.0f;
             }
+
 
             // Transpose features from [numFrames, _nMels] to [_nMels, numFrames] - reuse pre-allocated cache
             if (static_cast<size_t>(_nMels) * static_cast<size_t>(computedSize) > _transposedFeaturesCache.size()) {
@@ -332,9 +321,39 @@ namespace va {
             return probability;
         }
 
+        int SmartTurnV3Impl::computeFeatures(const float* buffer, int offset, int numSamples)
+        {
+            if (numSamples <= 0 || offset < 0 || buffer == nullptr) {
+                return -1;
+            }
+
+            // truncate input if it exceeds max buffer size, keeping the most recent audio
+            if (numSamples > _maxBufferSize) {
+                offset += numSamples - _maxBufferSize; // Adjust offset to get the last maxBufferSize samples
+                numSamples = _maxBufferSize;
+            }
+
+            // Left-pad with zeros to maxBufferSize, as smart-turn's truncate_audio_to_last_n_seconds does.
+            int internalOffset = _maxBufferSize - numSamples;
+            memset(_workingBuffer.data(), 0, internalOffset * sizeof(float));
+            memcpy(_workingBuffer.data() + internalOffset, buffer + offset, numSamples * sizeof(float));
+
+            // Zero-mean unit-variance normalization (WhisperFeatureExtractor do_normalize=True). smart-turn pads
+            // to 8 s before the extractor, so its attention mask covers the zero padding too: normalize it all.
+            meanNormalize(_workingBuffer.data(), _maxBufferSize);
+
+            return computeWhisperFeatures(_workingBuffer.data(),
+                _maxBufferSize,
+                _nFFT,
+                _hopLength,
+                _nMels,
+                _featuresBuffer.data(),
+                static_cast<int>(_featuresBuffer.size()));
+        }
+
         int va::thirdparty::SmartTurnV3Impl::computeWhisperFeatures(
             const float* audioData, int numSamples,
-            int nFFT, int fftPaddedSize, int hopLength, int nMels,
+            int nFFT, int hopLength, int nMels,
             float* featuresBuffer, int featuresBufferSize)
         {
             if (!audioData || !featuresBuffer || numSamples <= 0 || featuresBufferSize <= 0) {
@@ -355,8 +374,7 @@ namespace va {
             }
 
             // Constants for Whisper mel-spectrogram (matching HuggingFace implementation)
-            const float sampleRate = 16000.0f;
-            const int   nFreqs     = fftPaddedSize / 2 + 1;
+            const int   nFreqs     = nFFT / 2 + 1;
 
             // All expensive resources are pre-computed in initialize(): no per-call heap allocation.
             float*       fftInput  = _fftInput.get();
@@ -368,30 +386,22 @@ namespace va {
             for (int frameIdx = 0; frameIdx < numFrames; ++frameIdx) {
                 int frameStart = frameIdx * hopLength;
 
-                // Extract and window the frame (center=True zero-padding).
+                // Extract and window the frame (center=True with reflect padding, as numpy pad mode "reflect").
                 const int centerOffset = nFFT / 2;
                 for (int i = 0; i < nFFT; ++i) {
                     int sampleIdx = frameStart + i - centerOffset;
-                    if (sampleIdx >= 0 && sampleIdx < numSamples) {
-                        fftInput[i] = audioData[sampleIdx] * _hannWindow[i];
-                    }
-                    else {
-                        fftInput[i] = 0.0f;
-                    }
+                    if (sampleIdx < 0) sampleIdx = -sampleIdx;
+                    if (sampleIdx >= numSamples) sampleIdx = 2 * (numSamples - 1) - sampleIdx;
+                    fftInput[2 * i]     = audioData[sampleIdx] * _hannWindow[i];
+                    fftInput[2 * i + 1] = 0.0f;
                 }
-                // Zero-pad from _nFFT to fftPaddedSize for a valid PFFFT transform
-                for (int i = nFFT; i < fftPaddedSize; ++i)
-                    fftInput[i] = 0.0f;
 
-                // Compute FFT
+                // Complex FFT, ordered output: interleaved (re, im) per bin.
                 pffft_transform_ordered(fftSetup, fftInput, fftOutput, work, PFFFT_FORWARD);
 
-                // Power spectrum (PFFFT ordered layout)
-                _powerSpectrumBuf[0]               = fftOutput[0]               * fftOutput[0];
-                _powerSpectrumBuf[fftPaddedSize/2] = fftOutput[fftPaddedSize/2] * fftOutput[fftPaddedSize/2];
-                for (int k = 1; k < fftPaddedSize / 2; ++k) {
-                    float re = fftOutput[k];
-                    float im = fftOutput[fftPaddedSize - k];
+                for (int k = 0; k < nFreqs; ++k) {
+                    float re = fftOutput[2 * k];
+                    float im = fftOutput[2 * k + 1];
                     _powerSpectrumBuf[k] = re * re + im * im;
                 }
 

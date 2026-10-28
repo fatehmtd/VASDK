@@ -39,6 +39,15 @@ target_link_libraries(vasdk_smartturn_v3
     PRIVATE PFFFT
 )
 
+#  Tests
+if(VASDK_BUILD_TESTS)
+    add_executable(smartturn_features_test tests/features_test.cpp)
+    target_include_directories(smartturn_features_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_BINARY_DIR})
+    target_link_libraries(smartturn_features_test PRIVATE onnxruntime_lib spdlog::spdlog VASDK PFFFT)
+    add_test(NAME smartturn_features_parity
+             COMMAND smartturn_features_test ${CMAKE_CURRENT_SOURCE_DIR}/tests/golden/features_golden.txt)
+endif()
+
 install(TARGETS vasdk_smartturn_v3
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
