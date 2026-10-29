@@ -26,6 +26,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -52,12 +53,13 @@ internal fun SettingsOverlay(
     onUseLocalLlmChange: (Boolean) -> Unit,
     onLlmModelChange: (String) -> Unit,
     onApplyClick: () -> Unit,
+    onRunSetupClick: () -> Unit,
     onCloseClick: () -> Unit
 ) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(BgDark)
+            .background(BgColor)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             Row(
@@ -75,7 +77,7 @@ internal fun SettingsOverlay(
                     modifier = Modifier.weight(1f)
                 )
                 IconButton(onClick = onCloseClick) {
-                    Icon(imageVector = Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                    Icon(imageVector = Icons.Default.Close, contentDescription = "Close", tint = TextPrimary)
                 }
             }
 
@@ -144,13 +146,20 @@ internal fun SettingsOverlay(
                     fontSize = 11.sp,
                     modifier = Modifier.padding(top = 8.dp)
                 )
+                TextButton(
+                    onClick = onRunSetupClick,
+                    enabled = !applyInProgress,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Run setup again", color = Accent)
+                }
             }
         }
     }
 }
 
 @Composable
-private fun SectionHeader(text: String) {
+internal fun SectionHeader(text: String) {
     Text(
         text = text.uppercase(),
         color = Accent,
@@ -162,11 +171,12 @@ private fun SectionHeader(text: String) {
 }
 
 @Composable
-private fun <T> ProviderPicker(
+internal fun <T> ProviderPicker(
     options: List<T>,
     selected: T?,
     label: (T) -> String,
-    onSelect: (T) -> Unit
+    onSelect: (T) -> Unit,
+    caption: (T) -> String? = { null }
 ) {
     Column {
         options.forEachIndexed { index, option ->
@@ -190,12 +200,12 @@ private fun <T> ProviderPicker(
                         onClick = { onSelect(option) },
                         colors = RadioButtonDefaults.colors(selectedColor = Accent, unselectedColor = TextSecondary)
                     )
-                    Text(
-                        text = label(option),
-                        color = TextPrimary,
-                        fontSize = 14.sp,
-                        modifier = Modifier.padding(start = 4.dp)
-                    )
+                    Column(modifier = Modifier.padding(start = 4.dp)) {
+                        Text(text = label(option), color = TextPrimary, fontSize = 14.sp)
+                        caption(option)?.let {
+                            Text(text = it, color = BurnoutColor, fontSize = 11.sp)
+                        }
+                    }
                 }
             }
         }
@@ -203,7 +213,7 @@ private fun <T> ProviderPicker(
 }
 
 @Composable
-private fun SttStreamingRow(streaming: Boolean, onToggle: (Boolean) -> Unit) {
+internal fun SttStreamingRow(streaming: Boolean, onToggle: (Boolean) -> Unit) {
     Surface(color = SurfaceElevated, shape = RoundedCornerShape(12.dp)) {
         Row(
             modifier = Modifier
@@ -221,8 +231,8 @@ private fun SttStreamingRow(streaming: Boolean, onToggle: (Boolean) -> Unit) {
                 checked = streaming,
                 onCheckedChange = onToggle,
                 colors = SwitchDefaults.colors(
-                    checkedThumbColor = Accent,
-                    checkedTrackColor = Accent.copy(alpha = 0.5f)
+                    checkedThumbColor = Color.White,
+                    checkedTrackColor = Accent
                 )
             )
         }
@@ -230,7 +240,7 @@ private fun SttStreamingRow(streaming: Boolean, onToggle: (Boolean) -> Unit) {
 }
 
 @Composable
-private fun LlmModeRow(useLocalLlm: Boolean, onToggle: (Boolean) -> Unit) {
+internal fun LlmModeRow(useLocalLlm: Boolean, onToggle: (Boolean) -> Unit) {
     Surface(color = SurfaceElevated, shape = RoundedCornerShape(12.dp)) {
         Row(
             modifier = Modifier
@@ -248,8 +258,8 @@ private fun LlmModeRow(useLocalLlm: Boolean, onToggle: (Boolean) -> Unit) {
                 checked = useLocalLlm,
                 onCheckedChange = onToggle,
                 colors = SwitchDefaults.colors(
-                    checkedThumbColor = Accent,
-                    checkedTrackColor = Accent.copy(alpha = 0.5f)
+                    checkedThumbColor = Color.White,
+                    checkedTrackColor = Accent
                 )
             )
         }

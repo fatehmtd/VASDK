@@ -205,6 +205,13 @@ if(VASDK_BUILD_SMART_TURN_V3 AND TARGET vasdk_smartturn_v3)
     message(STATUS "[VASDK_Pipeline] SmartTurn v3 turn detection enabled")
 endif()
 
+# Link the pyannote speaker embedding provider if it was built
+if(VASDK_BUILD_PYANNOTE_SPEAKER AND TARGET vasdk_pyannote_speaker)
+    target_link_libraries(VASDK_Pipeline PRIVATE vasdk_pyannote_speaker)
+    target_compile_definitions(VASDK_Pipeline PRIVATE VASDK_HAS_PYANNOTE_SPEAKER)
+    message(STATUS "[VASDK_Pipeline] pyannote speaker tracking enabled")
+endif()
+
 if(VASDK_BUILD_TUI AND TARGET ftxui::component)
     target_link_libraries(VASDK_Pipeline PRIVATE ftxui::component ftxui::dom ftxui::screen)
     target_compile_definitions(VASDK_Pipeline PRIVATE VASDK_HAS_FTXUI)

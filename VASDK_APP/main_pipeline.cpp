@@ -166,6 +166,12 @@
 #include "SmartTurnV3/SmartTurnV3Provider.h"
 #endif
 
+// Speaker identification
+#ifdef VASDK_HAS_PYANNOTE_SPEAKER
+#include <VASDK/SpeakerIdentificationProcessor.h>
+#include "PyannoteSpeaker/PyannoteEmbeddingProvider.h"
+#endif
+
 #ifdef VASDK_HAS_LLAMACPP
 #include "LlamaCpp/LlamaCppTransport.h"
 #endif
@@ -440,6 +446,9 @@ struct ProcessorBundle {
     std::shared_ptr<va::pipeline::AudioDSPProcessor>                  dspProcessor;
     std::shared_ptr<va::pipeline::VADFrameProcessor>                  vadProcessor;
     std::shared_ptr<va::pipeline::TurnDetectionProcessor>             turnDetection;
+#ifdef VASDK_HAS_PYANNOTE_SPEAKER
+    std::shared_ptr<va::pipeline::SpeakerIdentificationProcessor>     speakerId;
+#endif
     std::shared_ptr<va::pipeline::TranscriptionFrameProcessor>        transcription;
     std::shared_ptr<STTDebugProcessor>                                sttDebug;
     std::shared_ptr<va::pipeline::AgentStateProcessor>                agentState;
@@ -933,6 +942,17 @@ std::optional<ProcessorBundle> setupProcessors(
     b.turnDetection = std::make_shared<va::pipeline::TurnDetectionProcessor>();
 #endif
 
+#ifdef VASDK_HAS_PYANNOTE_SPEAKER
+    auto speakerProvider = std::make_shared<va::thirdparty::PyannoteEmbeddingProvider>(
+        modelsPath + "/pyannote_embedding.onnx");
+    if (speakerProvider->initialize(audio.inputConfig)) {
+        b.speakerId = std::make_shared<va::pipeline::SpeakerIdentificationProcessor>(speakerProvider);
+        b.speakerId->setRingBuffer(audioRingBufferForVAD);
+    } else {
+        spdlog::error("Failed to initialize PyannoteEmbeddingProvider - speaker tracking disabled");
+    }
+#endif
+
     b.agentState = std::make_shared<va::pipeline::AgentStateProcessor>();
     b.agentState->setAlwaysOn(true);
 
@@ -994,7 +1014,11 @@ std::shared_ptr<va::pipeline::Pipeline> buildAndStartPipeline(
 #endif
     chain
         .addProcessor(procs.vadProcessor)
-        .addProcessor(procs.turnDetection)
+        .addProcessor(procs.turnDetection);
+#ifdef VASDK_HAS_PYANNOTE_SPEAKER
+    if (procs.speakerId) chain.addProcessor(procs.speakerId);
+#endif
+    chain
         .addProcessor(procs.micAnimProcessor)
         .addProcessor(procs.transcription)
         .addProcessor(procs.sttDebug)

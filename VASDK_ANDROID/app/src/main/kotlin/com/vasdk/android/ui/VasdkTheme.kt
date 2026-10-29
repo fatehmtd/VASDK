@@ -1,23 +1,29 @@
 package com.vasdk.android.ui
 
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
-private val VasdkDarkColors = darkColorScheme(
-    primary = Color(0xFF00C9A7),
-    onPrimary = Color.Black,
-    secondary = Color(0xFF6C63FF),
-    background = Color(0xFF0B0D14),
-    surface = Color(0xFF141720),
-    onSurface = Color(0xFFF2F3FF)
+private val VasdkLightColors = lightColorScheme(
+    primary = Accent,
+    onPrimary = Color.White,
+    secondary = Accent,
+    onSecondary = Color.White,
+    background = BgColor,
+    onBackground = TextPrimary,
+    surface = SurfaceColor,
+    onSurface = TextPrimary,
+    surfaceVariant = SurfaceElevated,
+    onSurfaceVariant = TextSecondary,
+    outline = Separator,
+    error = ErrorAccent
 )
 
 @Composable
 fun VasdkTheme(content: @Composable () -> Unit) {
     MaterialTheme(
-        colorScheme = VasdkDarkColors,
+        colorScheme = VasdkLightColors,
         content = content
     )
 }

@@ -74,8 +74,20 @@ data class MainUiState(
     val settingsSttStreaming: Boolean = true,
     val settingsTtsProvider: TtsProvider = TtsProvider.POCKET,
     val settingsUseLocalLlm: Boolean = false,
-    val settingsLlmModelName: String = VasdkEngine.LFM2_5Meta.modelName
+    val settingsLlmModelName: String = VasdkEngine.LFM2_5Meta.modelName,
+    // First-run wizard: edits the same settings* selections as the Settings screen, but
+    // nothing is downloaded until the user confirms the last step.
+    val setupWizardVisible: Boolean = false,
+    val setupStep: SetupStep = SetupStep.WELCOME
 )
+
+enum class SetupStep {
+    WELCOME,
+    STT,
+    TTS,
+    LLM,
+    REVIEW
+}
 
 class MainViewModel : ViewModel() {
     companion object {
@@ -174,6 +186,42 @@ class MainViewModel : ViewModel() {
 
     fun onSettingsLlmModelChanged(modelName: String) {
         _uiState.update { it.copy(settingsLlmModelName = modelName) }
+    }
+
+    // Shown instead of the download overlay until the user has picked providers, so the
+    // first launch doesn't pull models for defaults they may not want. Idempotent so that
+    // onStart() re-firing (rotation, returning from background) keeps the current step.
+    fun onSetupRequired() {
+        _uiState.update { state ->
+            if (state.setupWizardVisible) return@update state
+            state.copy(
+                setupWizardVisible = true,
+                setupStep = SetupStep.WELCOME,
+                downloadOverlayVisible = false,
+                initOverlayVisible = false,
+                settingsVisible = false,
+                statusText = "Setup required"
+            )
+        }
+    }
+
+    fun onSetupNext() {
+        _uiState.update { state ->
+            val steps = SetupStep.entries
+            state.copy(setupStep = steps[(state.setupStep.ordinal + 1).coerceAtMost(steps.lastIndex)])
+        }
+    }
+
+    fun onSetupBack() {
+        _uiState.update { state ->
+            state.copy(setupStep = SetupStep.entries[(state.setupStep.ordinal - 1).coerceAtLeast(0)])
+        }
+    }
+
+    // The download overlay itself is brought up by onConfigApplyRequested(), which the
+    // activity's apply path calls right after this.
+    fun onSetupFinished() {
+        _uiState.update { it.copy(setupWizardVisible = false) }
     }
 
     fun onModelInfoRequested(info: ModelInfo) {

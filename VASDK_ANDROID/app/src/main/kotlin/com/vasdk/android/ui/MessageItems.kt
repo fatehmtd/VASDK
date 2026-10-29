@@ -33,7 +33,7 @@ internal fun UserMessageItem(message: MainMessage) {
             ) {
                 Text(
                     text = message.text,
-                    color = if (message.isPartial) Color(0xFFA8A0FF) else Color.White,
+                    color = if (message.isPartial) Color.White.copy(alpha = 0.7f) else Color.White,
                     fontSize = 15.sp,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 11.dp)
                 )
@@ -58,7 +58,7 @@ internal fun AssistantMessageItem(message: MainMessage) {
             .padding(start = 16.dp, end = 14.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.Top
     ) {
-        Avatar(text = "AI", size = 28.dp)
+        LogoAvatar(size = 28.dp)
         Column(modifier = Modifier.padding(start = 10.dp).widthIn(max = 360.dp)) {
             Surface(color = SurfaceElevated, shape = RoundedCornerShape(22.dp)) {
                 Text(
@@ -88,7 +88,7 @@ internal fun ThinkingMessageItem() {
             .padding(start = 16.dp, end = 14.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.Top
     ) {
-        Avatar(text = "AI", size = 28.dp)
+        LogoAvatar(size = 28.dp)
         Surface(
             modifier = Modifier.padding(start = 10.dp),
             color = SurfaceElevated,

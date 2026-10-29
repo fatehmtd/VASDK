@@ -76,15 +76,7 @@ android {
                           "-DGGML_OPENMP=ON",
                           "-DGGML_LLAMAFILE=OFF",
                           "-DGGML_SYSTEM_ARCH=ARM",
-                          "-DGGML_CPU_KLEIDIAI=OFF",
-                          // TEMP: verify local (unpushed) Android/mbedTLS fix in the
-                          // sibling SonioxPP checkout before pushing it upstream.
-                          "-DFETCHCONTENT_SOURCE_DIR_SONIOXPP=/Users/fateh/Documents/GitHub/SonioxPP",
-                          // TEMP: same reason - deepgrampp's CA-path setter (mirrors
-                          // sonioxpp's) and gladiapp's Android CURL::libcurl reuse fix
-                          // are only in the local checkouts so far.
-                          "-DFETCHCONTENT_SOURCE_DIR_DEEPGRAMPP=/Users/fateh/Documents/GitHub/deepgrampp",
-                          "-DFETCHCONTENT_SOURCE_DIR_GLADIAPP=/Users/fateh/Documents/GitHub/gladiapp"
+                          "-DGGML_CPU_KLEIDIAI=OFF"
             }
         }
     }

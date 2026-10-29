@@ -9,30 +9,30 @@
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
 
-    <!--  Dark Neural Theme  -->
-    <color name="bg_dark">#0B0D14</color>
-    <color name="surface">#141720</color>
-    <color name="surface_elevated">#1C1F2C</color>
-    <color name="surface_border">#252840</color>
+    <!-- Light theme (mirrors ui/Palette.kt) -->
+    <color name="bg_dark">#FFFFFF</color>
+    <color name="surface">#F8F9FA</color>
+    <color name="surface_elevated">#F1F3F4</color>
+    <color name="surface_border">#DADCE0</color>
 
     <!-- Accent -->
-    <color name="primary">#6C63FF</color>
-    <color name="primary_end">#9B59B6</color>
-    <color name="accent">#00C9A7</color>
-    <color name="mic_active_color">#FF3B5C</color>
+    <color name="primary">#1A73E8</color>
+    <color name="primary_end">#4285F4</color>
+    <color name="accent">#1A73E8</color>
+    <color name="mic_active_color">#D93025</color>
 
     <!-- Text -->
-    <color name="text_primary">#F2F3FF</color>
-    <color name="text_secondary">#8A8FAE</color>
+    <color name="text_primary">#202124</color>
+    <color name="text_secondary">#5F6368</color>
 
     <!-- Chat UI (referenced from XML) -->
-    <color name="chat_bg">#0B0D14</color>
-    <color name="bubble_user">#6C63FF</color>
+    <color name="chat_bg">#FFFFFF</color>
+    <color name="bubble_user">#1A73E8</color>
     <color name="bubble_user_text">#FFFFFFFF</color>
-    <color name="bubble_assistant">#1C1F2C</color>
-    <color name="bubble_assistant_text">#F2F3FF</color>
-    <color name="status_text">#8A8FAE</color>
-    <color name="divider">#252840</color>
-    <color name="mic_idle">#6C63FF</color>
-    <color name="mic_active">#FF3B5C</color>
+    <color name="bubble_assistant">#F1F3F4</color>
+    <color name="bubble_assistant_text">#202124</color>
+    <color name="status_text">#5F6368</color>
+    <color name="divider">#DADCE0</color>
+    <color name="mic_idle">#1A73E8</color>
+    <color name="mic_active">#D93025</color>
 </resources>

@@ -21,7 +21,7 @@ struct SttProviderParams {
 };
 
 // Builds the transcription provider matching params.providerId ("soniox", "deepgram",
-// "gladia", "cartesia", "fishaudio", "gradium", anything else -> Parakeet). If the
+// "gladia", "cartesia", "fishaudio", "gradium", "whistle", anything else -> Parakeet). If the
 // requested provider isn't compiled in, falls back through the rest in priority order
 // (Parakeet, Soniox, Deepgram, Gladia, Cartesia, Fish Audio, Gradium). Returns nullptr
 // only if none of the providers are compiled in at all.

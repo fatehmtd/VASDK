@@ -189,6 +189,14 @@ if(VASDK_BUILD_SMART_TURN_V3 AND TARGET vasdk_smartturn_v3)
     message(STATUS "[VASDK_CallCenter] SmartTurn v3 enabled")
 endif()
 
+#  Optional: Speaker tracking / identification
+
+if(VASDK_BUILD_PYANNOTE_SPEAKER AND TARGET vasdk_pyannote_speaker)
+    target_link_libraries(VASDK_CallCenter PRIVATE vasdk_pyannote_speaker)
+    target_compile_definitions(VASDK_CallCenter PRIVATE VASDK_HAS_PYANNOTE_SPEAKER)
+    message(STATUS "[VASDK_CallCenter] pyannote speaker tracking enabled")
+endif()
+
 #  Optional: RNNoise noise suppression 
 
 if(VASDK_BUILD_RNNOISE AND TARGET vasdk_rnnoise)

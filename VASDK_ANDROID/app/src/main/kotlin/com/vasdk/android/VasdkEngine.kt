@@ -25,7 +25,8 @@ enum class SttProvider(val id: String, val label: String) {
     GLADIA("gladia", "Gladia (cloud)"),
     CARTESIA("cartesia", "Cartesia (cloud)"),
     FISHAUDIO("fishaudio", "Fish Audio (cloud)"),
-    GRADIUM("gradium", "Gradium (cloud)")
+    GRADIUM("gradium", "Gradium (cloud)"),
+    WHISTLE("whistle", "Whistle (on-device)")
 }
 
 /** On-device vs cloud TTS provider choice, exposed via the Settings UI. */
@@ -35,7 +36,8 @@ enum class TtsProvider(val id: String, val label: String) {
     DEEPGRAM("deepgram", "Deepgram (cloud)"),
     CARTESIA("cartesia", "Cartesia (cloud)"),
     FISHAUDIO("fishaudio", "Fish Audio (cloud)"),
-    GRADIUM("gradium", "Gradium (cloud)")
+    GRADIUM("gradium", "Gradium (cloud)"),
+    PHONON("phonon", "Phonon (on-device)")
 }
 
 /**
@@ -188,6 +190,38 @@ class VasdkEngine private constructor(
                 )
             )
         }
+        if (sttProvider == SttProvider.WHISTLE) {
+            modelRequests.add(
+                ModelDownloadRequest(
+                    targetDir = File(contextWrapper.cacheDir, "whistle"),
+                    baseUrl = "https://huggingface.co/Cactus-Compute/whistle/resolve/741118687e1f008f06d1351a402a731274789790",
+                    files = listOf("whistle.cact")
+                )
+            )
+        }
+        if (ttsProvider == TtsProvider.PHONON) {
+            // phonon-31m-en: the public (non-gated) English checkpoint, CC BY-NC 4.0.
+            modelRequests.add(
+                ModelDownloadRequest(
+                    targetDir = File(contextWrapper.cacheDir, "phonon_tts"),
+                    baseUrl = "https://huggingface.co/gradium/phonon-31m-en/resolve/92741c5b07d085ff840e26fea8ce43110b87852f",
+                    files = listOf(
+                        "config.json",
+                        "tokenizer.model",
+                        "model.q8.gguf",
+                        "default-voice.safetensors"
+                    )
+                )
+            )
+        }
+        // pyannote 3.1 speaker embedding (WeSpeaker ResNet34-LM), always on like the desktop app.
+        modelRequests.add(
+            ModelDownloadRequest(
+                targetDir = File(contextWrapper.cacheDir, "pyannote"),
+                baseUrl = "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models",
+                files = listOf(SPEAKER_MODEL_FILE)
+            )
+        )
         if (ttsProvider == TtsProvider.POCKET) {
             modelRequests.add(
                 ModelDownloadRequest(
@@ -260,8 +294,11 @@ class VasdkEngine private constructor(
 
             // Model dirs are only meaningful for the currently selected on-device provider;
             // the native side ignores them when the cloud (Soniox) provider is active.
-            val sttModelDir = File(contextWrapper.cacheDir, "parakeet")
-            val ttsModelDir = File(contextWrapper.cacheDir, "pocket_tts")
+            val sttModelDir = File(contextWrapper.cacheDir,
+                if (sttProvider == SttProvider.WHISTLE) "whistle" else "parakeet")
+            val ttsModelDir = File(contextWrapper.cacheDir,
+                if (ttsProvider == TtsProvider.PHONON) "phonon_tts" else "pocket_tts")
+            val speakerModelFile = File(contextWrapper.cacheDir, "pyannote/$SPEAKER_MODEL_FILE")
 
             // sonioxpp's TLS backend on Android (mbedTLS) has no visibility into the
             // system trust store, so WSS/HTTPS handshakes fail cert verification unless
@@ -275,6 +312,7 @@ class VasdkEngine private constructor(
             isNativeInitialized = nativeInit(
                 vadModelPath = modelMap[R.raw.silero_vad]!!,
                 turnDetectionModelPath = modelMap[R.raw.smart_turn_v3]!!,
+                speakerModelPath = if (speakerModelFile.exists()) speakerModelFile.absolutePath else "",
                 nativeLibDir = contextWrapper.applicationInfo.nativeLibraryDir,
                 sttProvider = sttProvider.id,
                 sttStreaming = sttStreaming,
@@ -642,6 +680,7 @@ class VasdkEngine private constructor(
 
     private external fun nativeInit(vadModelPath: String,
                                     turnDetectionModelPath: String,
+                                    speakerModelPath: String,
                                     nativeLibDir: String,
                                     sttProvider: String,
                                     sttStreaming: Boolean,
@@ -677,6 +716,7 @@ class VasdkEngine private constructor(
 
     companion object {
         val TAG = VasdkEngine::class.java.name
+        private const val SPEAKER_MODEL_FILE = "wespeaker_en_voxceleb_resnet34_LM.onnx"
         private var instance: VasdkEngine? = null
         // Written from the init/download worker threads, read from the main thread
         @Volatile private var isNativeInitialized = false
