@@ -13,6 +13,15 @@ object ProviderPreferences {
     private const val KEY_STT_STREAMING = "stt_streaming"
     private const val KEY_TTS_PROVIDER = "tts_provider"
     private const val KEY_LOCAL_LLM_MODEL = "local_llm_model_name"
+    private const val KEY_SETUP_COMPLETED = "setup_completed"
+
+    /** Whether the first-run setup wizard has been completed; until then nothing is downloaded. */
+    fun isSetupCompleted(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_SETUP_COMPLETED, false)
+
+    fun setSetupCompleted(context: Context, completed: Boolean) {
+        prefs(context).edit().putBoolean(KEY_SETUP_COMPLETED, completed).apply()
+    }
 
     fun getSttProvider(context: Context): SttProvider {
         val id = prefs(context).getString(KEY_STT_PROVIDER, SttProvider.PARAKEET.id)

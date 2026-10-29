@@ -40,6 +40,10 @@ fun MainScreen(
     onUseLocalLlmChange: (Boolean) -> Unit = {},
     onLlmModelChange: (String) -> Unit = {},
     onApplyConfig: () -> Unit = {},
+    onRunSetup: () -> Unit = {},
+    onSetupNext: () -> Unit = {},
+    onSetupBack: () -> Unit = {},
+    onSetupFinish: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val listState = rememberLazyListState()
@@ -74,7 +78,8 @@ fun MainScreen(
                 onNewConversation = onNewConversation,
                 settingsEnabled = !state.configApplyInProgress &&
                     !state.downloadOverlayVisible &&
-                    !state.initOverlayVisible
+                    !state.initOverlayVisible &&
+                    !state.setupWizardVisible
             )
 
             PermissionsBanner(
@@ -160,7 +165,31 @@ fun MainScreen(
                 onUseLocalLlmChange = onUseLocalLlmChange,
                 onLlmModelChange = onLlmModelChange,
                 onApplyClick = onApplyConfig,
+                onRunSetupClick = onRunSetup,
                 onCloseClick = onSettingsDismiss
+            )
+        }
+
+        AnimatedVisibility(
+            visible = state.setupWizardVisible,
+            enter = fadeIn(),
+            exit = fadeOut()
+        ) {
+            SetupWizard(
+                step = state.setupStep,
+                sttProvider = state.settingsSttProvider,
+                sttStreaming = state.settingsSttStreaming,
+                ttsProvider = state.settingsTtsProvider,
+                useLocalLlm = state.settingsUseLocalLlm,
+                llmModelName = state.settingsLlmModelName,
+                onSttProviderChange = onSttProviderChange,
+                onSttStreamingChange = onSttStreamingChange,
+                onTtsProviderChange = onTtsProviderChange,
+                onUseLocalLlmChange = onUseLocalLlmChange,
+                onLlmModelChange = onLlmModelChange,
+                onNext = onSetupNext,
+                onBack = onSetupBack,
+                onFinish = onSetupFinish
             )
         }
     }

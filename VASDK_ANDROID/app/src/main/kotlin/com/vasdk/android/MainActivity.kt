@@ -131,8 +131,9 @@ class MainActivity : ComponentActivity(), VasdkEngine.Listener {
         )
         ConfirmationSignal.setListener { awaiting -> viewModel.onAwaitingConfirmationChanged(awaiting) }
 
-        if (!hasMicPermission()) {
-            // First run: ask for everything up front; only the mic result is binding.
+        // On a fresh install this is deferred to finishSetup(), so the wizard comes first.
+        if (ProviderPreferences.isSetupCompleted(this) && !hasMicPermission()) {
+            // Ask for everything up front; only the mic result is binding.
             requestPermissions.launch(runtimePermissions)
         }
 
@@ -155,15 +156,11 @@ class MainActivity : ComponentActivity(), VasdkEngine.Listener {
                     onTtsProviderChange = { provider -> viewModel.onSettingsTtsProviderChanged(provider) },
                     onUseLocalLlmChange = { useLocal -> viewModel.onSettingsUseLocalLlmChanged(useLocal) },
                     onLlmModelChange = { modelName -> viewModel.onSettingsLlmModelChanged(modelName) },
-                    onApplyConfig = {
-                        applyConfig(
-                            sttProvider = uiState.settingsSttProvider,
-                            sttStreaming = uiState.settingsSttStreaming,
-                            ttsProvider = uiState.settingsTtsProvider,
-                            useLocalLlm = uiState.settingsUseLocalLlm,
-                            llmModelName = uiState.settingsLlmModelName
-                        )
-                    }
+                    onApplyConfig = { applyPendingConfig() },
+                    onRunSetup = { onRunSetupClicked() },
+                    onSetupNext = { viewModel.onSetupNext() },
+                    onSetupBack = { viewModel.onSetupBack() },
+                    onSetupFinish = { finishSetup() }
                 )
             }
         }
@@ -175,6 +172,9 @@ class MainActivity : ComponentActivity(), VasdkEngine.Listener {
         if (engine.isReady()) {
             // Models already downloaded and initialized on a previous run
             onEngineInitialized()
+        } else if (!ProviderPreferences.isSetupCompleted(this)) {
+            // Nothing is downloaded until the user has picked providers in the wizard.
+            viewModel.onSetupRequired()
         } else {
             registerDownloadReceiver()
             startForegroundService(Intent(this, ModelDownloadService::class.java))
@@ -259,6 +259,35 @@ class MainActivity : ComponentActivity(), VasdkEngine.Listener {
         startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
     }
 
+    // Re-opens the wizard from Settings. The running pipeline is paused (not released) so the
+    // assistant doesn't listen behind the wizard; finishSetup() then rebuilds it. The
+    // setup-completed flag stays set, so if the app is closed mid-wizard the next launch
+    // simply resumes with the previous configuration.
+    private fun onRunSetupClicked() {
+        engine.stop()
+        viewModel.onSetupRequired()
+    }
+
+    private fun finishSetup() {
+        ProviderPreferences.setSetupCompleted(this, true)
+        viewModel.onSetupFinished()
+        if (!hasMicPermission()) {
+            requestPermissions.launch(runtimePermissions)
+        }
+        applyPendingConfig()
+    }
+
+    private fun applyPendingConfig() {
+        val state = viewModel.uiState.value
+        applyConfig(
+            sttProvider = state.settingsSttProvider,
+            sttStreaming = state.settingsSttStreaming,
+            ttsProvider = state.settingsTtsProvider,
+            useLocalLlm = state.settingsUseLocalLlm,
+            llmModelName = state.settingsLlmModelName
+        )
+    }
+
     // Tears down the current pipeline and re-runs the download-init-start flow used on first
     // launch, this time with the newly selected providers. ACTION_MODELS_READY (handled by
     // downloadReceiver) drives the rest, eventually reaching onEngineInitialized() again.
@@ -299,10 +328,12 @@ class MainActivity : ComponentActivity(), VasdkEngine.Listener {
         }
     }
 
-    // The engine starts once models are downloaded and initialized AND the mic is granted.
+    // The engine starts once models are downloaded and initialized AND the mic is granted,
+    // and stays paused while the setup wizard is open.
     private fun startEngineIfReady() {
         if (!engine.isReady() || engine.isStarted()) return
         if (!hasMicPermission()) return
+        if (viewModel.uiState.value.setupWizardVisible) return
         onPermissionGranted()
     }
 
