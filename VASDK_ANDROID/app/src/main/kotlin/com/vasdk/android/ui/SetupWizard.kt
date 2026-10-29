@@ -203,7 +203,7 @@ private fun WelcomeStep() {
             .padding(top = 40.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Avatar(text = "VA", size = 80.dp)
+        LogoAvatar(size = 80.dp)
         Text(
             text = "Welcome to VASDK Assistant",
             color = TextPrimary,

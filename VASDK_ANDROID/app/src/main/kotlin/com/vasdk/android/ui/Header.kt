@@ -42,7 +42,7 @@ internal fun Header(
             .padding(horizontal = 20.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Avatar(text = "VA", size = 40.dp)
+        LogoAvatar(size = 40.dp)
 
         Column(modifier = Modifier.weight(1f).padding(start = 14.dp)) {
             Text(

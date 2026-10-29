@@ -33,7 +33,7 @@ internal fun DownloadOverlay(fileName: String, filePercent: Int, overallPercent:
                 .padding(horizontal = 40.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Avatar(text = "VA", size = 80.dp)
+            LogoAvatar(size = 80.dp)
             Text(
                 text = "VASDK Assistant",
                 color = TextPrimary,
@@ -111,7 +111,7 @@ internal fun InitOverlay() {
             modifier = Modifier.align(Alignment.Center),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Avatar(text = "VA", size = 80.dp, modifier = Modifier.scale(logoScale))
+            LogoAvatar(size = 80.dp, modifier = Modifier.scale(logoScale))
             Text(
                 text = "Preparing your assistant...",
                 color = TextPrimary,

@@ -58,7 +58,7 @@ internal fun AssistantMessageItem(message: MainMessage) {
             .padding(start = 16.dp, end = 14.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.Top
     ) {
-        Avatar(text = "AI", size = 28.dp)
+        LogoAvatar(size = 28.dp)
         Column(modifier = Modifier.padding(start = 10.dp).widthIn(max = 360.dp)) {
             Surface(color = SurfaceElevated, shape = RoundedCornerShape(22.dp)) {
                 Text(
@@ -88,7 +88,7 @@ internal fun ThinkingMessageItem() {
             .padding(start = 16.dp, end = 14.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.Top
     ) {
-        Avatar(text = "AI", size = 28.dp)
+        LogoAvatar(size = 28.dp)
         Surface(
             modifier = Modifier.padding(start = 10.dp),
             color = SurfaceElevated,

@@ -6,6 +6,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -22,10 +23,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.vasdk.android.R
 
 @Composable
 internal fun Avatar(text: String, size: Dp, modifier: Modifier = Modifier) {
@@ -41,6 +44,24 @@ internal fun Avatar(text: String, size: Dp, modifier: Modifier = Modifier) {
             color = Color.White,
             fontSize = if (size > 40.dp) 22.sp else if (size > 30.dp) 13.sp else 9.sp,
             fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+/** The VASDK mark in a circular badge - used wherever the app or the assistant is shown. */
+@Composable
+internal fun LogoAvatar(size: Dp, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(SurfaceElevated),
+        contentAlignment = Alignment.Center
+    ) {
+        Image(
+            painter = painterResource(R.drawable.ic_vasdk_logo),
+            contentDescription = "VASDK",
+            modifier = Modifier.size(size * 0.6f)
         )
     }
 }
