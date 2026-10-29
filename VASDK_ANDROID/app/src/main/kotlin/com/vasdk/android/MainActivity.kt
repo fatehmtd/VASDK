@@ -112,12 +112,12 @@ class MainActivity : ComponentActivity(), VasdkEngine.Listener {
         // it stops applying as soon as the app leaves the foreground.
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
-        // Match status/nav bar to the dark theme surface colour
+        // Match status/nav bar to the light theme surface colour (dark icons on top)
         window.statusBarColor = getColor(R.color.surface)
         window.navigationBarColor = getColor(R.color.surface)
         WindowCompat.getInsetsController(window, window.decorView).apply {
-            isAppearanceLightStatusBars = false
-            isAppearanceLightNavigationBars = false
+            isAppearanceLightStatusBars = true
+            isAppearanceLightNavigationBars = true
         }
 
         engine = VasdkEngine.getInstance(this)

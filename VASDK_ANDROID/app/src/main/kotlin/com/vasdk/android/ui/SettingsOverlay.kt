@@ -59,7 +59,7 @@ internal fun SettingsOverlay(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(BgDark)
+            .background(BgColor)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             Row(
@@ -77,7 +77,7 @@ internal fun SettingsOverlay(
                     modifier = Modifier.weight(1f)
                 )
                 IconButton(onClick = onCloseClick) {
-                    Icon(imageVector = Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                    Icon(imageVector = Icons.Default.Close, contentDescription = "Close", tint = TextPrimary)
                 }
             }
 
@@ -231,8 +231,8 @@ internal fun SttStreamingRow(streaming: Boolean, onToggle: (Boolean) -> Unit) {
                 checked = streaming,
                 onCheckedChange = onToggle,
                 colors = SwitchDefaults.colors(
-                    checkedThumbColor = Accent,
-                    checkedTrackColor = Accent.copy(alpha = 0.5f)
+                    checkedThumbColor = Color.White,
+                    checkedTrackColor = Accent
                 )
             )
         }
@@ -258,8 +258,8 @@ internal fun LlmModeRow(useLocalLlm: Boolean, onToggle: (Boolean) -> Unit) {
                 checked = useLocalLlm,
                 onCheckedChange = onToggle,
                 colors = SwitchDefaults.colors(
-                    checkedThumbColor = Accent,
-                    checkedTrackColor = Accent.copy(alpha = 0.5f)
+                    checkedThumbColor = Color.White,
+                    checkedTrackColor = Accent
                 )
             )
         }

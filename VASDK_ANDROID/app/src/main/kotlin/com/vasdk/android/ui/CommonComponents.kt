@@ -55,7 +55,7 @@ internal fun LogoAvatar(size: Dp, modifier: Modifier = Modifier) {
         modifier = modifier
             .size(size)
             .clip(CircleShape)
-            .background(SurfaceElevated),
+            .background(Accent),
         contentAlignment = Alignment.Center
     ) {
         Image(

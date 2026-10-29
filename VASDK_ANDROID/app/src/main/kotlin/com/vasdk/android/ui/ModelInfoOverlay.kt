@@ -34,7 +34,7 @@ internal fun ModelInfoOverlay(info: ModelInfo?, onCloseClick: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(BgDark)
+            .background(BgColor)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             Row(
@@ -52,7 +52,7 @@ internal fun ModelInfoOverlay(info: ModelInfo?, onCloseClick: () -> Unit) {
                     modifier = Modifier.weight(1f)
                 )
                 IconButton(onClick = onCloseClick) {
-                    Icon(imageVector = Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                    Icon(imageVector = Icons.Default.Close, contentDescription = "Close", tint = TextPrimary)
                 }
             }
 

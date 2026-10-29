@@ -33,7 +33,7 @@ internal fun UserMessageItem(message: MainMessage) {
             ) {
                 Text(
                     text = message.text,
-                    color = if (message.isPartial) Color(0xFFA8A0FF) else Color.White,
+                    color = if (message.isPartial) Color.White.copy(alpha = 0.7f) else Color.White,
                     fontSize = 15.sp,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 11.dp)
                 )

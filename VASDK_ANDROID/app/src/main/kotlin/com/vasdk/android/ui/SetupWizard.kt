@@ -59,7 +59,7 @@ internal fun SetupWizard(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(BgDark)
+            .background(BgColor)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             StepIndicator(step = step)

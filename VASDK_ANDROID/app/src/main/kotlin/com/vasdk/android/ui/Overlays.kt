@@ -24,7 +24,7 @@ internal fun DownloadOverlay(fileName: String, filePercent: Int, overallPercent:
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(BgDark)
+            .background(BgColor)
     ) {
         Column(
             modifier = Modifier
@@ -105,7 +105,7 @@ internal fun InitOverlay() {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(BgDark)
+            .background(BgColor)
     ) {
         Column(
             modifier = Modifier.align(Alignment.Center),

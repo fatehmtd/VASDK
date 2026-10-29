@@ -70,7 +70,7 @@ internal fun Header(
             Icon(
                 imageVector = Icons.Default.GraphicEq,
                 contentDescription = "Test animations",
-                tint = Color.White
+                tint = TextPrimary
             )
         }
 
@@ -78,7 +78,7 @@ internal fun Header(
             Icon(
                 imageVector = Icons.Default.Info,
                 contentDescription = "Model info",
-                tint = Color.White
+                tint = TextPrimary
             )
         }
 
@@ -86,7 +86,7 @@ internal fun Header(
             Icon(
                 imageVector = Icons.Default.RestartAlt,
                 contentDescription = "New conversation",
-                tint = Color.White
+                tint = TextPrimary
             )
         }
 
@@ -98,7 +98,7 @@ internal fun Header(
             Icon(
                 imageVector = Icons.Default.Settings,
                 contentDescription = "Settings",
-                tint = if (settingsEnabled) Color.White else TextSecondary.copy(alpha = 0.4f)
+                tint = if (settingsEnabled) TextPrimary else TextSecondary.copy(alpha = 0.4f)
             )
         }
     }

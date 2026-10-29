@@ -66,7 +66,7 @@ fun MainScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(BgDark)
+            .background(BgColor)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             Header(

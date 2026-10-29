@@ -18,7 +18,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.center
-import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
@@ -27,10 +26,13 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /**
- * ChatGPT-voice-style orb: 8 additively-blended blobs (5 driven by individual
- * VizAnim bands bass→treble, 3 by weighted combinations - body/voice/air), each
- * with its own orbit speed/phase and size/brightness/colour tied to its drive
- * energy. [palette] tells the two sides apart (blue mic / red TTS agent).
+ * Voice orb: 8 alpha-blended blobs (5 driven by individual VizAnim bands
+ * bass→treble, 3 by weighted combinations - body/voice/air), each with its own
+ * orbit speed/phase and size/brightness/colour tied to its drive energy, in
+ * a four-hue blue/red/yellow/green scheme. [palette] tells the two sides
+ * apart (blue/green mic, red/yellow TTS agent). Blending is normal SrcOver
+ * rather than additive so the colours stay saturated on the light background
+ * instead of summing to white.
  *
  * [level] is 0..1 overall loudness, [bars] the per-band scales from the
  * ViewModel. [thinking] swaps the audio drive for a shared pulse (the
@@ -136,8 +138,8 @@ internal fun VoiceOrb(
         )
 
         // One blob per drive: five single bands (bass big/slow/deep → treble
-        // small/quick/bright) plus three band combinations. Additive blending
-        // fuses them into one living sphere.
+        // small/quick/bright) plus three band combinations. Their soft radial
+        // edges overlap into one living sphere.
         OrbLayers.forEachIndexed { index, layer ->
             // Drive energy = weighted mix of the band energies; while thinking
             // every blob follows the shared pulse instead.
@@ -177,25 +179,9 @@ internal fun VoiceOrb(
                     radius = blobR
                 ),
                 radius = blobR,
-                center = blobCenter,
-                blendMode = BlendMode.Plus
+                center = blobCenter
             )
         }
-
-        // Core highlight pulsing with overall loudness keeps a bright heart.
-        drawCircle(
-            brush = Brush.radialGradient(
-                colors = listOf(
-                    Color.White.copy(alpha = 0.25f + 0.40f * effectiveLevel),
-                    Color.Transparent
-                ),
-                center = c,
-                radius = orbR * 0.55f
-            ),
-            radius = orbR * 0.55f,
-            center = c,
-            blendMode = BlendMode.Plus
-        )
     }
 }
 
@@ -215,39 +201,45 @@ internal class OrbPalette(
     val layers: List<OrbLayerColors>
 )
 
-/** User's mic: cool blues that brighten toward cyan/white as the voice rises. */
+// Core orb hues plus lighter tints and deeper shades of each.
+private val OrbBlue = Color(0xFF4285F4)
+private val OrbRed = Color(0xFFEA4335)
+private val OrbYellow = Color(0xFFFBBC04)
+private val OrbGreen = Color(0xFF34A853)
+
+/** User's mic: blue that shifts toward green/cyan as the voice rises. */
 internal val MicOrbPalette = OrbPalette(
-    halo = Color(0xFF2979FF),
+    halo = OrbBlue,
     layers = listOf(
         // Single bands (bass, lowMid, mid, hiMid, treble)
-        OrbLayerColors(Color(0xFF0D47A1), Color(0xFF2979FF)),
-        OrbLayerColors(Color(0xFF1565C0), Color(0xFF40C4FF)),
-        OrbLayerColors(Color(0xFF1E88E5), Color(0xFF00E5FF)),
-        OrbLayerColors(Color(0xFF42A5F5), Color(0xFF80D8FF)),
-        OrbLayerColors(Color(0xFFB3E5FC), Color(0xFFFFFFFF)),
-        // Combinations: body flushes violet, voice shifts to electric cyan,
-        // air blushes pink on sibilance.
-        OrbLayerColors(Color(0xFF0A3D91), Color(0xFF7C4DFF)),
-        OrbLayerColors(Color(0xFF1976D2), Color(0xFF18FFFF)),
-        OrbLayerColors(Color(0xFF90CAF9), Color(0xFFF2B8FF))
+        OrbLayerColors(Color(0xFF1967D2), OrbBlue),
+        OrbLayerColors(Color(0xFF185ABC), Color(0xFF12B5CB)),
+        OrbLayerColors(OrbBlue, OrbGreen),
+        OrbLayerColors(Color(0xFF8AB4F8), Color(0xFF81C995)),
+        OrbLayerColors(Color(0xFFAECBFA), Color(0xFFA8DAB5)),
+        // Combinations: body flushes purple, voice shifts to cyan, air sparks
+        // yellow on sibilance.
+        OrbLayerColors(Color(0xFF174EA6), Color(0xFFA142F4)),
+        OrbLayerColors(Color(0xFF1A73E8), Color(0xFF12B5CB)),
+        OrbLayerColors(Color(0xFF8AB4F8), OrbYellow)
     )
 )
 
-/** Agent's TTS: warm reds that heat toward orange/gold as the voice rises. */
+/** Agent's TTS: red that heats toward orange/yellow as the voice rises. */
 internal val SynthOrbPalette = OrbPalette(
-    halo = Color(0xFFFF5252),
+    halo = OrbRed,
     layers = listOf(
         // Single bands (bass, lowMid, mid, hiMid, treble)
-        OrbLayerColors(Color(0xFF8E1E1E), Color(0xFFFF5252)),
-        OrbLayerColors(Color(0xFFB71C1C), Color(0xFFFF7043)),
-        OrbLayerColors(Color(0xFFD32F2F), Color(0xFFFF8A65)),
-        OrbLayerColors(Color(0xFFEF5350), Color(0xFFFFAB91)),
-        OrbLayerColors(Color(0xFFFFCDD2), Color(0xFFFFFFFF)),
-        // Combinations: body deepens to magenta, voice glows amber, air
-        // sparkles gold on sibilance.
-        OrbLayerColors(Color(0xFF7A1030), Color(0xFFE040FB)),
-        OrbLayerColors(Color(0xFFC62828), Color(0xFFFF9E40)),
-        OrbLayerColors(Color(0xFFFFB3C1), Color(0xFFFFD180))
+        OrbLayerColors(Color(0xFFC5221F), OrbRed),
+        OrbLayerColors(Color(0xFFD93025), Color(0xFFFA7B17)),
+        OrbLayerColors(OrbRed, OrbYellow),
+        OrbLayerColors(Color(0xFFF28B82), Color(0xFFFDD663)),
+        OrbLayerColors(Color(0xFFFAD2CF), Color(0xFFFDE293)),
+        // Combinations: body deepens to purple, voice glows yellow, air sparks
+        // blue on sibilance - so all four core hues show while it speaks.
+        OrbLayerColors(Color(0xFFA50E0E), Color(0xFFA142F4)),
+        OrbLayerColors(Color(0xFFD93025), OrbYellow),
+        OrbLayerColors(Color(0xFFF28B82), OrbBlue)
     )
 )
 
