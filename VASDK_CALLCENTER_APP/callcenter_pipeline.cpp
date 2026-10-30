@@ -936,7 +936,7 @@ std::optional<ProcessorBundle> setupProcessors(
 
     // VAD
     b.vadProcessor = std::make_shared<va::pipeline::VADFrameProcessor>(
-        audio.vadProvider, 2.0f);
+        audio.vadProvider, 5.0f);
     b.vadProcessor->setMinFrameSize(audio.frameSize);
     va::pipeline::VADConfig vadCfg;
     vadCfg.vadThresholdMs = 150;

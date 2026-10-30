@@ -918,7 +918,7 @@ std::optional<ProcessorBundle> setupProcessors(
 
     auto audioRingBufferForVAD = b.dspProcessor ? transport.cleanRingBuffer : transport.sharedRingBuffer;
 
-    float vadLoopBackFrameMultiplier = 2.0f;
+    float vadLoopBackFrameMultiplier = 3.0f;
     b.vadProcessor = std::make_shared<va::pipeline::VADFrameProcessor>(audio.vadProvider, vadLoopBackFrameMultiplier);
     b.vadProcessor->setMinFrameSize(audio.frameSize);
 

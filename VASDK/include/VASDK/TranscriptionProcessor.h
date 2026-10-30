@@ -96,8 +96,15 @@ protected:
     void processVADFrameNonStreaming(std::shared_ptr<transport::VADStateFrame> vadFrame);
 
 private:
+    // Streaming: sends ring-buffer audio from the pending speech start up to audioFrame's start.
+    void flushPendingPreSpeech(const transport::AudioFrame& audioFrame);
+
     std::shared_ptr<audio::GenericTranscriptionProvider> _transcriptionProvider;
     bool _collectingAudio{false};
+    // Streaming: lookback speech start from the STARTING frame, flushed on the next AUDIO
+    // frame so the pre-speech context is contiguous with the incrementally-fed audio.
+    bool     _hasPendingPreSpeech{false};
+    uint64_t _pendingPreSpeechOffset{0};
 
     // Ring buffer for reading audio
     std::shared_ptr<AudioRingBuffer> _ringBuffer;
