@@ -193,7 +193,9 @@ Java_com_vasdk_android_VasdkEngine_nativeInit(JNIEnv *env, jobject thiz, jstring
     vadConfig.maxSpeechPauseDurationMs = 500; // Max pause before considering speech ended
     vadConfig.maxSpeechEndDurationMs = 250;  // Max time in ending state before fully ended
 
-    session->vadFrameProcessor = std::make_shared<va::pipeline::VADFrameProcessor>(vadProvider);
+    // Lookback 5x frame (~500 ms before the detecting frame) so soft word onsets that precede
+    // Silero's trigger still reach the STT.
+    session->vadFrameProcessor = std::make_shared<va::pipeline::VADFrameProcessor>(vadProvider, 5.0f);
     session->vadFrameProcessor->setMinFrameSize(frameSize);
     session->vadFrameProcessor->setConfig(vadConfig);
     session->vadFrameProcessor->setRingBuffer(audioRingBuffer);

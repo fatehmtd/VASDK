@@ -90,9 +90,40 @@ namespace va {
                 finalAudioData.size());
         }
 
+        void TranscriptionFrameProcessor::flushPendingPreSpeech(const transport::AudioFrame& audioFrame)
+        {
+            _hasPendingPreSpeech = false;
+            const long preSpeechSamples = _ringBuffer->computeDeltaOffset(
+                static_cast<long>(_pendingPreSpeechOffset),
+                static_cast<long>(audioFrame.ringbufferOffset));
+            // A delta over half the ring means the start is ahead of the frame
+            // (offset mismatch) - skip rather than send a huge stale chunk.
+            if (preSpeechSamples <= 0 || preSpeechSamples >= _ringBuffer->getCapacity() / 2) {
+                return;
+            }
+            const size_t preBytes = static_cast<size_t>(preSpeechSamples) * audioFrame.sampleSizeInBytes;
+            _transcriptionBuffer.resize(preBytes);
+            if (_ringBuffer->readAbsolute(static_cast<long>(_pendingPreSpeechOffset),
+                _transcriptionBuffer.data(), 0,
+                static_cast<int>(preSpeechSamples)) > 0) {
+                _transcriptionProvider->writeAudioData(
+                    reinterpret_cast<const uint8_t*>(_transcriptionBuffer.data()),
+                    preBytes);
+            }
+            else {
+                spdlog::warn("[TranscriptionFrameProcessor] Could not read pre-speech "
+                    "audio from ring buffer (offset={}, length={})",
+                    _pendingPreSpeechOffset, preSpeechSamples);
+            }
+        }
+
         void TranscriptionFrameProcessor::processAudioFrame(std::shared_ptr<transport::AudioFrame> audioFrame)
         {
             if (audioFrame && _transcriptionProvider && _ringBuffer) {
+                if (_hasPendingPreSpeech) {
+                    flushPendingPreSpeech(*audioFrame);
+                }
+
                 size_t bytesToRead = audioFrame->getSizeInBytes();
                 _transcriptionBuffer.resize(bytesToRead);
 
@@ -129,28 +160,14 @@ namespace va {
                     _latestPartialText.clear();
                     _latestPartialConfidence = 0.0f;
                 }
-                // Speech started: send pre-speech context captured retroactively in the ring
-                // buffer. After this, AUDIO frames feed the provider incrementally - don't
-                // re-read here on later VAD frames or samples get duplicated.
-                if (vadFrame->totalSpeechLength > 0 && _ringBuffer && _transcriptionProvider) {
-                    const size_t bytesPerSample =
-                        _transcriptionProvider->getAudioConfiguration().getSampleSizeInBytes();
-                    _transcriptionBuffer.resize(vadFrame->totalSpeechLength * bytesPerSample);
-                    int numSamplesRead = _ringBuffer->readAbsolute(
-                        vadFrame->speechStartOffset,
-                        _transcriptionBuffer.data(), 0,
-                        vadFrame->totalSpeechLength);
-                    if (numSamplesRead > 0) {
-                        _transcriptionProvider->writeAudioData(
-                            reinterpret_cast<const uint8_t*>(_transcriptionBuffer.data()),
-                            numSamplesRead * bytesPerSample);
-                    }
-                    else {
-                        spdlog::warn("[TranscriptionFrameProcessor] Could not read retroactive "
-                            "speech from ring buffer (offset={}, length={})",
-                            vadFrame->speechStartOffset, vadFrame->totalSpeechLength);
-                    }
-                }
+                // Speech started: the pre-speech context (lookback) lives in the ring buffer
+                // from speechStartOffset up to the AUDIO frame that triggered detection, which
+                // arrives right after this VAD frame. Defer the read until then so we send
+                // [speechStart, frameStart) followed by the frame itself - contiguous audio.
+                // (totalSpeechLength only covers the detected speech, not the lookback gap,
+                // so reading it here dropped the audio right before the onset.)
+                _hasPendingPreSpeech = true;
+                _pendingPreSpeechOffset = vadFrame->speechStartOffset;
                 _collectingAudio = true;
             } break;
 
@@ -163,6 +180,7 @@ namespace va {
             } break;
 
             case transport::VADState::QUIET: {
+                _hasPendingPreSpeech = false;
                 if (_collectingAudio) {
                     _collectingAudio = false;
                     if (_transcriptionProvider) {
