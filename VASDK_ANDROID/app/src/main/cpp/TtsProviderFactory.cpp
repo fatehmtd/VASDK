@@ -34,6 +34,10 @@
 #include "PhononTTS/PhononVoiceSynthesisProvider.hpp"
 #endif
 
+#ifdef VASDK_HAS_MOSS_TTS
+#include "MossTTS/MossVoiceSynthesisProvider.hpp"
+#endif
+
 namespace {
 
 std::shared_ptr<va::audio::GenericVoiceSynthesisProvider>
@@ -44,6 +48,23 @@ makePhononTts(const TtsProviderParams &params) {
     provider->setAudioConfiguration(params.outputAudioConfig);
     provider->setSilenceDuration(0.3f);
     spdlog::info("[VASDK] Phonon TTS provider configured (modelDir={})", params.modelDir);
+    return provider;
+#else
+    (void) params;
+    return nullptr;
+#endif
+}
+
+std::shared_ptr<va::audio::GenericVoiceSynthesisProvider>
+makeMossTts(const TtsProviderParams &params) {
+#if defined(VASDK_HAS_MOSS_TTS)
+    // modelDir holds MOSS-TTS-Nano-100M-ONNX/ and MOSS-Audio-Tokenizer-Nano-ONNX/.
+    auto provider = std::make_shared<MossVoiceSynthesisProvider>(params.modelDir, "Ava", 4);
+    provider->setAudioConfiguration(params.outputAudioConfig);
+    provider->setSilenceDuration(0.3f);
+    // Phones run the 100M model near real time; buffer a little against thermal throttling.
+    provider->setPreBufferedSamplesMS(400);
+    spdlog::info("[VASDK] MOSS-TTS-Nano provider configured (modelDir={})", params.modelDir);
     return provider;
 #else
     (void) params;
@@ -181,6 +202,8 @@ createSynthesisProvider(const TtsProviderParams &params) {
         provider = makeFishaudioTts(params);
     } else if (params.providerId == "phonon") {
         provider = makePhononTts(params);
+    } else if (params.providerId == "moss") {
+        provider = makeMossTts(params);
     } else {
         provider = makePocketTts(params);
     }

@@ -19,6 +19,7 @@ Library and provider dependencies (spdlog, nlohmann/json, llama.cpp, whisper.cpp
 | Pocket TTS (ONNX) | Text-to-speech | [KevinAHM/pocket-tts-web](https://huggingface.co/spaces/KevinAHM/pocket-tts-web), converted from [kyutai/pocket-tts](https://huggingface.co/kyutai/pocket-tts) | CC BY 4.0 |
 | Supertonic 2 | Text-to-speech | [Supertone/supertonic-2](https://huggingface.co/Supertone/supertonic-2) | OpenRAIL |
 | Phonon 40m multilingual (GGUF) + voices | Text-to-speech (opt-in, `VASDK_BUILD_PHONON_TTS`) | [gradium/phonon-40m-multilingual](https://huggingface.co/gradium/phonon-40m-multilingual) (gated), voices from [gradium/phonon-voices](https://huggingface.co/gradium/phonon-voices) | CC BY-NC 4.0 |
+| MOSS-TTS-Nano 100M (ONNX) + MOSS-Audio-Tokenizer-Nano decoder | Text-to-speech (opt-in, `VASDK_BUILD_MOSS_TTS`) | [Supbatomic/moss-tts-nano-100m-onnx-model](https://huggingface.co/Supbatomic/moss-tts-nano-100m-onnx-model), exported from [OpenMOSS-Team/MOSS-TTS-Nano](https://huggingface.co/OpenMOSS-Team/MOSS-TTS-Nano); codec from [OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano-ONNX](https://huggingface.co/OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano-ONNX) | Apache 2.0 |
 | LFM2.5 1.2B Instruct (GGUF) | Default local LLM (desktop apps) | [LiquidAI/LFM2.5-1.2B-Instruct-GGUF](https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct-GGUF) | LFM Open License v1.0 |
 | LFM2.5 230M (GGUF) | Default local LLM (Android app) | [LiquidAI/LFM2.5-230M-GGUF](https://huggingface.co/LiquidAI/LFM2.5-230M-GGUF) | LFM Open License v1.0 |
 | RNNoise weights | Noise suppression | [xiph/rnnoise](https://github.com/xiph/rnnoise) (weights ship with the fetched source) | BSD 3-Clause |
@@ -46,7 +47,7 @@ Every VAD/STT/TTS/LLM/audio provider under `VASDK_3P_IMPL/`, plus the core libra
 | [fatehmtd/gladiapp](https://github.com/fatehmtd/gladiapp) | STT (Gladia, cloud) | GitHub | MIT |
 | [fatehmtd/SonioxPP](https://github.com/fatehmtd/SonioxPP) | STT/TTS (Soniox, cloud) | GitHub | Apache 2.0 |
 | [supertone-inc/supertonic](https://github.com/supertone-inc/supertonic) | TTS (Supertonic inference code) | GitHub | MIT |
-| [google/sentencepiece](https://github.com/google/sentencepiece) | TTS (PocketTTS and Phonon tokenizer) | GitHub | Apache 2.0 |
+| [google/sentencepiece](https://github.com/google/sentencepiece) | TTS (PocketTTS, Phonon and MOSS-TTS-Nano tokenizer) | GitHub | Apache 2.0 |
 | [ggml-org/ggml](https://github.com/ggml-org/ggml) | TTS (Phonon tensor ops, in-repo port of [gradium-ai/xn-ptts](https://github.com/gradium-ai/xn-ptts) (MIT OR Apache 2.0); shared with llama.cpp's copy when that is built) | GitHub | MIT |
 | [fatehmtd/deepgrampp](https://github.com/fatehmtd/deepgrampp) | STT/TTS (Deepgram, cloud) | GitHub | Apache 2.0 |
 | [fatehmtd/CartesiaPP](https://github.com/fatehmtd/CartesiaPP) | STT/TTS (Cartesia, cloud) | GitHub | Apache 2.0 |

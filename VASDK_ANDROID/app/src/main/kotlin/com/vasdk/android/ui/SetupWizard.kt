@@ -270,7 +270,7 @@ private fun SttProvider.isOnDevice(): Boolean =
     this == SttProvider.PARAKEET || this == SttProvider.WHISTLE
 
 private fun TtsProvider.isOnDevice(): Boolean =
-    this == TtsProvider.POCKET || this == TtsProvider.PHONON
+    this == TtsProvider.POCKET || this == TtsProvider.PHONON || this == TtsProvider.MOSS
 
 private fun SttProvider.isMissingApiKey(): Boolean = when (this) {
     SttProvider.SONIOX -> BuildConfig.SONIOX_API_KEY.isEmpty()
@@ -288,5 +288,5 @@ private fun TtsProvider.isMissingApiKey(): Boolean = when (this) {
     TtsProvider.CARTESIA -> BuildConfig.CARTESIA_API_KEY.isEmpty()
     TtsProvider.FISHAUDIO -> BuildConfig.FISHAUDIO_API_KEY.isEmpty()
     TtsProvider.GRADIUM -> BuildConfig.GRADIUM_API_KEY.isEmpty()
-    TtsProvider.POCKET, TtsProvider.PHONON -> false
+    TtsProvider.POCKET, TtsProvider.PHONON, TtsProvider.MOSS -> false
 }
