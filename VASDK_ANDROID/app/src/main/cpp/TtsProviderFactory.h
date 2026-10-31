@@ -23,7 +23,7 @@ struct TtsProviderParams {
 };
 
 // Builds the synthesis provider matching params.providerId ("soniox", "supertonic",
-// "deepgram", "cartesia", "fishaudio", "gradium", "phonon", anything else -> Pocket TTS). If the
+// "deepgram", "cartesia", "fishaudio", "gradium", "phonon", "moss", anything else -> Pocket TTS). If the
 // requested provider isn't compiled in, falls back through the rest in priority order
 // (Pocket, Soniox, Supertonic, Deepgram, Cartesia, Fish Audio, Gradium). Returns nullptr
 // only if none of the providers are compiled in at all.

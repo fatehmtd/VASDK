@@ -28,7 +28,7 @@ flowchart LR
     subgraph Impls["implementations (VASDK_3P_IMPL - pick per build)"]
         I1["Silero · Energy+ZCR"]
         I2["Parakeet · Moonshine · Whisper.cpp · Gladia · Soniox · Deepgram · Cartesia · Fish Audio · Gradium"]
-        I3["Supertonic · PocketTTS · Phonon · Soniox · Deepgram · Cartesia · Fish Audio · Gradium"]
+        I3["Supertonic · PocketTTS · Phonon · MOSS-TTS-Nano · Soniox · Deepgram · Cartesia · Fish Audio · Gradium"]
         I4["RNNoise"]
         I5["SmartTurn v3"]
         I7["pyannote (WeSpeaker ResNet34)"]
@@ -133,7 +133,7 @@ virtual void cancelSynthesis() {}   // optional but important - see below
 
 The **`cancelSynthesis()` contract** is what makes barge-in work: it must be non-blocking, stop audio emission promptly, and still fire `onSynthesisCompleted()` (or `onSynthesisError()`) once cancellation is confirmed - that completion is what lets `TTSFrameProcessor` emit `SynthesisStateFrame{INTERRUPTED}` upstream and unblock the agent state machine. A provider that can't cancel leaves the assistant talking over the user.
 
-Implementations: Supertonic and PocketTTS (local ONNX), Phonon (local GGUF on ggml), Soniox, Deepgram, Cartesia, Fish Audio, and Gradium (cloud).
+Implementations: Supertonic, PocketTTS and MOSS-TTS-Nano (local ONNX), Phonon (local GGUF on ggml), Soniox, Deepgram, Cartesia, Fish Audio, and Gradium (cloud).
 
 ## GenericAudioDSPProvider
 

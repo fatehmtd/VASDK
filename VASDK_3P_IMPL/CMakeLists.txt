@@ -41,6 +41,7 @@ option(VASDK_BUILD_SONIOXPP_TTS "Build SonioxPP voice synthesis provider" OFF)
 option(VASDK_BUILD_SUPERTONIC_TTS "Build Supertonic TTS provider" OFF)
 option(VASDK_BUILD_POCKET_TTS "Build Pocket TTS provider (flow-matching ONNX TTS at 24 kHz)" ON)
 option(VASDK_BUILD_PHONON_TTS "Build Phonon TTS provider (flow-matching GGUF TTS at 24 kHz on ggml)" ON)
+option(VASDK_BUILD_MOSS_TTS "Build MOSS-TTS-Nano provider (multilingual autoregressive ONNX TTS at 48 kHz, ~710 MB models)" OFF)
 
 # Audio processing
 option(VASDK_BUILD_RNNOISE "Build RNNoise noise-suppression DSP provider" ON)
@@ -64,7 +65,7 @@ endif()
 
 # Check if ONNX Runtime is needed by any enabled module
 set(VASDK_NEEDS_ONNXRUNTIME OFF)
-if(VASDK_BUILD_SILERO_VAD OR VASDK_BUILD_PARAKEET OR VASDK_BUILD_MOONSHINE_STT OR VASDK_BUILD_SUPERTONIC_TTS OR VASDK_BUILD_SMART_TURN_V3 OR VASDK_BUILD_POCKET_TTS OR VASDK_BUILD_PYANNOTE_SPEAKER)
+if(VASDK_BUILD_SILERO_VAD OR VASDK_BUILD_PARAKEET OR VASDK_BUILD_MOONSHINE_STT OR VASDK_BUILD_SUPERTONIC_TTS OR VASDK_BUILD_SMART_TURN_V3 OR VASDK_BUILD_POCKET_TTS OR VASDK_BUILD_MOSS_TTS OR VASDK_BUILD_PYANNOTE_SPEAKER)
     set(VASDK_NEEDS_ONNXRUNTIME ON)
 endif()
 
@@ -114,6 +115,10 @@ endif()
 
 if(VASDK_BUILD_PHONON_TTS AND NOT ANDROID)
     include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/DownloadPhononTTSModel.cmake)
+endif()
+
+if(VASDK_BUILD_MOSS_TTS AND NOT ANDROID)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/DownloadMossTTSModels.cmake)
 endif()
 
 if(VASDK_BUILD_MOONSHINE_STT)
@@ -361,6 +366,7 @@ if(VASDK_ENABLE_CTRACK AND TARGET vasdk_ctrack_iface)
         vasdk_silero_vad
         vasdk_parakeet
         vasdk_pocket_tts
+        vasdk_moss_tts
         vasdk_smartturn_v3
     )
         if(TARGET ${_tgt})
@@ -468,6 +474,10 @@ endif()
 
 if(VASDK_BUILD_PHONON_TTS)
     add_subdirectory(PhononTTS)
+endif()
+
+if(VASDK_BUILD_MOSS_TTS)
+    add_subdirectory(MossTTS)
 endif()
 
 if(VASDK_BUILD_RNNOISE)

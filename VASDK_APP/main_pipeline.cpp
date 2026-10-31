@@ -156,6 +156,10 @@
 #include "PhononTTS/PhononVoiceSynthesisProvider.hpp"
 #endif
 
+#ifdef VASDK_HAS_MOSS_TTS
+#include "MossTTS/MossVoiceSynthesisProvider.hpp"
+#endif
+
 // DSP providers
 #ifdef VASDK_HAS_RNNOISE
 #include "RNNoise/RNNoiseDSPProvider.h"
@@ -703,6 +707,13 @@ std::optional<AudioBundle> setupAudioProviders(const std::string& modelsPath, in
     b.ttsProvider = std::make_shared<va::thirdparty::FishaudioppVoiceSynthesisProvider>(
         std::getenv("FISHAUDIO_API_KEY") ? std::getenv("FISHAUDIO_API_KEY") : "",
         std::getenv("FISHAUDIO_VOICE_ID") ? std::getenv("FISHAUDIO_VOICE_ID") : "");
+#elif defined(VASDK_HAS_MOSS_TTS)
+    // Local/offline: opt-in (VASDK_BUILD_MOSS_TTS), so it wins over Phonon/PocketTTS when built.
+    auto moss = std::make_shared<MossVoiceSynthesisProvider>(
+        modelsPath + "/moss_tts",
+        std::getenv("MOSS_TTS_VOICE") ? std::getenv("MOSS_TTS_VOICE") : "Ava");
+    moss->setSilenceDuration(0.3f);
+    b.ttsProvider = moss;
 #elif defined(VASDK_HAS_PHONON_TTS)
     // Local/offline: opt-in (VASDK_BUILD_PHONON_TTS), so it wins over PocketTTS when built.
     auto phonon = std::make_shared<PhononVoiceSynthesisProvider>(
@@ -721,7 +732,7 @@ std::optional<AudioBundle> setupAudioProviders(const std::string& modelsPath, in
     pocket->setSilenceDuration(0.3f);
     b.ttsProvider = pocket;
 #else
-#error "No TTS provider available - enable VASDK_BUILD_SONIOXPP_TTS, VASDK_BUILD_POCKET_TTS, VASDK_BUILD_PHONON_TTS, VASDK_BUILD_SUPERTONIC_TTS, VASDK_BUILD_DEEPGRAMPP_TTS, VASDK_BUILD_CARTESIAPP_TTS, VASDK_BUILD_FISHAUDIOPP_TTS, or VASDK_BUILD_GRADIUMPP_TTS"
+#error "No TTS provider available - enable VASDK_BUILD_SONIOXPP_TTS, VASDK_BUILD_POCKET_TTS, VASDK_BUILD_PHONON_TTS, VASDK_BUILD_MOSS_TTS, VASDK_BUILD_SUPERTONIC_TTS, VASDK_BUILD_DEEPGRAMPP_TTS, VASDK_BUILD_CARTESIAPP_TTS, VASDK_BUILD_FISHAUDIOPP_TTS, or VASDK_BUILD_GRADIUMPP_TTS"
 #endif
     b.ttsProvider->setAudioConfiguration(b.outputConfig);
 

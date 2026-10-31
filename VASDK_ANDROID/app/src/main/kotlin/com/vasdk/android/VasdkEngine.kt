@@ -37,7 +37,8 @@ enum class TtsProvider(val id: String, val label: String) {
     CARTESIA("cartesia", "Cartesia (cloud)"),
     FISHAUDIO("fishaudio", "Fish Audio (cloud)"),
     GRADIUM("gradium", "Gradium (cloud)"),
-    PHONON("phonon", "Phonon (on-device)")
+    PHONON("phonon", "Phonon (on-device)"),
+    MOSS("moss", "MOSS-TTS-Nano (on-device, ~710 MB)")
 }
 
 /**
@@ -214,6 +215,38 @@ class VasdkEngine private constructor(
                 )
             )
         }
+        if (ttsProvider == TtsProvider.MOSS) {
+            // MOSS-TTS-Nano 100M (Apache 2.0) and the streaming decoder of its audio tokenizer,
+            // side by side as the manifest expects (it points at ../MOSS-Audio-Tokenizer-Nano-ONNX).
+            val mossDir = File(contextWrapper.cacheDir, "moss_tts")
+            modelRequests.add(
+                ModelDownloadRequest(
+                    targetDir = File(mossDir, "MOSS-TTS-Nano-100M-ONNX"),
+                    baseUrl = "https://huggingface.co/Supbatomic/moss-tts-nano-100m-onnx-model/resolve/ec4afe55ae63d93fa15a1aed3730ccfd38e6bb86",
+                    files = listOf(
+                        "browser_poc_manifest.json",
+                        "tts_browser_onnx_meta.json",
+                        "tokenizer.model",
+                        "moss_tts_prefill.onnx",
+                        "moss_tts_decode_step.onnx",
+                        "moss_tts_global_shared.data",
+                        "moss_tts_local_fixed_sampled_frame.onnx",
+                        "moss_tts_local_shared.data"
+                    )
+                )
+            )
+            modelRequests.add(
+                ModelDownloadRequest(
+                    targetDir = File(mossDir, "MOSS-Audio-Tokenizer-Nano-ONNX"),
+                    baseUrl = "https://huggingface.co/OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano-ONNX/resolve/ceff0d0749bfb3fa2d61149794ec6feef0d1e1ae",
+                    files = listOf(
+                        "codec_browser_onnx_meta.json",
+                        "moss_audio_tokenizer_decode_step.onnx",
+                        "moss_audio_tokenizer_decode_shared.data"
+                    )
+                )
+            )
+        }
         // pyannote 3.1 speaker embedding (WeSpeaker ResNet34-LM), always on like the desktop app.
         modelRequests.add(
             ModelDownloadRequest(
@@ -297,7 +330,11 @@ class VasdkEngine private constructor(
             val sttModelDir = File(contextWrapper.cacheDir,
                 if (sttProvider == SttProvider.WHISTLE) "whistle" else "parakeet")
             val ttsModelDir = File(contextWrapper.cacheDir,
-                if (ttsProvider == TtsProvider.PHONON) "phonon_tts" else "pocket_tts")
+                when (ttsProvider) {
+                    TtsProvider.PHONON -> "phonon_tts"
+                    TtsProvider.MOSS -> "moss_tts"
+                    else -> "pocket_tts"
+                })
             val speakerModelFile = File(contextWrapper.cacheDir, "pyannote/$SPEAKER_MODEL_FILE")
 
             // sonioxpp's TLS backend on Android (mbedTLS) has no visibility into the
