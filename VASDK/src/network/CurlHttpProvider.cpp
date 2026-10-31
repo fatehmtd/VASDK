@@ -149,6 +149,9 @@ static HttpResponse performRequest(const std::string& url,
     result.statusCode = static_cast<int>(httpStatus);
 
     result.error = curlCodeToError(res, httpStatus);
+    // Providers explain HTTP errors in the body (e.g. "Insufficient credits"); capped to keep logs sane.
+    if (result.error.code == NetworkErrorCode::HttpError && !result.body.empty())
+        result.error.message += ": " + result.body.substr(0, 1000);
     if (res == CURLE_UNSUPPORTED_PROTOCOL) {
         const std::string_view urlView(url);
         if (startsWith(urlView, "https://") && !supportsProtocol("https")) {
