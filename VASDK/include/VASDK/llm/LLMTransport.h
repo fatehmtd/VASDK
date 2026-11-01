@@ -41,6 +41,10 @@ public:
     const LLMConfig& getConfig() const { return _config; }
 
     virtual void addMessageToHistory(MessageRole role, const std::string& content);
+
+    // Removes the most recent USER message equal to userMessage and everything after it (the
+    // reply, tool results). Used to undo a speculative request. Returns false if not found.
+    bool rollbackExchange(const std::string& userMessage);
     virtual void clearHistory();
 
     const std::vector<ConversationMessage>& getHistory() const { return _conversationHistory; }

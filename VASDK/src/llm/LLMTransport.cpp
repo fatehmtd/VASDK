@@ -151,6 +151,17 @@ void LLMTransport::addMessageToHistory(MessageRole role, const std::string& cont
     }
 }
 
+bool LLMTransport::rollbackExchange(const std::string& userMessage) {
+    std::lock_guard<std::mutex> lock(_historyMutex);
+    for (auto it = _conversationHistory.rbegin(); it != _conversationHistory.rend(); ++it) {
+        if (it->role == MessageRole::USER && it->content == userMessage) {
+            _conversationHistory.erase(std::next(it).base(), _conversationHistory.end());
+            return true;
+        }
+    }
+    return false;
+}
+
 void LLMTransport::clearHistory() {
     std::lock_guard<std::mutex> lock(_historyMutex);
     _conversationHistory.clear();

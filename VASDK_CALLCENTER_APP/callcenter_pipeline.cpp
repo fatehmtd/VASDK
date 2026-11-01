@@ -815,6 +815,8 @@ GoalLLMBundle setupGoalLLMStack(const CliArgs& args) {
     goalLLMBundle.processor->setStreamSpeech(true);  // speak each sentence as the LLM streams it
     // Covers the tool round trip (slot updates, lookups) instead of leaving the caller in silence.
     goalLLMBundle.processor->setToolFillerPhrases({"One moment.", "Let me check that.", "Just a second."});
+    // Fire on the streaming partial at a sustained pause; held until the final transcript matches.
+    goalLLMBundle.processor->setSpeculativeFiring(true, 3);
 
     //  Tool dispatcher 
     goalLLMBundle.toolDispatcher = std::make_shared<va::llm::ToolDispatchProcessor>();

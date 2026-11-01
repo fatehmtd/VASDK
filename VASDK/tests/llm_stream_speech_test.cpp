@@ -7,7 +7,10 @@
 //   - a tool-call reply speaks nothing;
 //   - the same streaming works through AnthropicTransport's SSE events, which send the user turn once;
 //   - a tool call speaks the filler phrase at once and the turn stays open through the tool round
-//     trip until the follow-up reply's final frame.
+//     trip until the follow-up reply's final frame;
+//   - speculative firing: the request starts on the partial at a VAD pause, its speech is held until
+//     the final transcript confirms it, and is cancelled + rolled back when the user resumes, when
+//     the final differs, or when the speculative reply wants a tool.
 
 #include <VASDK/llm/LLMProcessor.h>
 #include <VASDK/llm/AnthropicTransport.h>
@@ -157,6 +160,33 @@ struct Rig {
         recorder->stop();
     }
 
+    void send(std::shared_ptr<transport::Frame> f) { llm->processFrame(f, pipeline::FlowDirection::DOWNSTREAM); }
+
+    // Agent listening, streaming STT partial cached, then the VAD reports a sustained pause.
+    void userPausesAfter(const std::string& partialText) {
+        auto listening = std::make_shared<transport::AgentStateFrame>();
+        listening->currentState = transport::AgentState::LISTENING;
+        listening->transition   = transport::AgentStateTransition::PIPELINE_START;
+        send(listening);
+        auto partial = std::make_shared<transport::TranscriptionFrame>();
+        partial->isFinal = false;
+        partial->transcriptionResult.text = partialText;
+        partial->transcriptionResult.confidence = 0.9f;
+        send(partial);
+        vad(transport::VADState::ENDING);
+    }
+    void vad(transport::VADState state) {
+        auto f = std::make_shared<transport::VADStateFrame>();
+        f->state = state;
+        send(f);
+    }
+    std::vector<std::string> userTurnsInHistory() const {
+        std::vector<std::string> out;
+        for (const auto& m : transport->getHistory())
+            if (m.role == llm::MessageRole::USER) out.push_back(m.content);
+        return out;
+    }
+
     void userSays(const std::string& text) {
         auto stopped = std::make_shared<transport::AgentStateFrame>();
         stopped->transition = transport::AgentStateTransition::USER_STOPPED_SPEAKING;
@@ -235,6 +265,71 @@ void toolRoundTripWithFiller() {
     }
 }
 
+const char* kReply = R"({"text": "Your order shipped yesterday. It arrives on Friday."})";
+
+void speculationConfirmed() {
+    Rig rig(kReply);
+    rig.llm->setSpeculativeFiring(true, 3);
+    rig.userPausesAfter("Where is my order");
+    std::this_thread::sleep_for(1000ms);  // the speculative reply has fully streamed by now
+    check(rig.recorder->snapshot().empty(), "[spec confirmed] nothing spoken before the turn is confirmed");
+
+    const auto confirmAt = Clock::now();
+    rig.userSays("Where is my order?");
+    std::this_thread::sleep_for(100ms);
+    const auto frames = rig.recorder->snapshot();
+    check(rig.http->requests == 1, "[spec confirmed] no second request");
+    check(frames.size() == 2 && frames[0].text == "Your order shipped yesterday. " && frames[1].isFinal,
+          "[spec confirmed] held reply released");
+    if (!frames.empty()) check(frames[0].at - confirmAt < 50ms, "[spec confirmed] released immediately");
+    check(rig.userTurnsInHistory() == std::vector<std::string>{"Where is my order"}, "[spec confirmed] history kept");
+}
+
+void speculationReplacedWhenFinalDiffers() {
+    Rig rig(kReply);
+    rig.llm->setSpeculativeFiring(true, 3);
+    rig.userPausesAfter("Where is my");
+    std::this_thread::sleep_for(400ms);
+    rig.userSays("Where is my order?");
+    std::this_thread::sleep_for(1500ms);
+    check(rig.http->requests == 2, "[spec differs] fresh request for the final transcript");
+    check(rig.recorder->snapshot().size() == 2, "[spec differs] only the fresh reply is spoken");
+    check(rig.userTurnsInHistory() == std::vector<std::string>{"Where is my order?"},
+          "[spec differs] speculative turn rolled back");
+}
+
+void speculationCancelledWhenUserResumes() {
+    Rig rig(kReply);
+    rig.llm->setSpeculativeFiring(true, 3);
+    rig.userPausesAfter("Where is my order");
+    std::this_thread::sleep_for(200ms);
+    rig.vad(transport::VADState::RESUMING);
+    std::this_thread::sleep_for(1200ms);
+    check(rig.recorder->snapshot().empty(), "[spec resumed] nothing spoken");
+    check(rig.http->cancelled, "[spec resumed] request cancelled");
+    check(rig.userTurnsInHistory().empty(), "[spec resumed] speculative turn rolled back");
+}
+
+void speculativeToolCallNeverRuns() {
+    Rig rig("", false, true);
+    std::atomic<int> toolRuns{0};
+    rig.tools->registerTool(llm::Tool("lookup_order", "Look up an order").onCall([&](const nlohmann::json&) {
+        ++toolRuns;
+        return nlohmann::json{{"status", "shipped"}};
+    }));
+    rig.http->replies = {R"({"tools": [{"tool": "lookup_order", "args": {}}]})",
+                         R"({"tools": [{"tool": "lookup_order", "args": {}}]})",
+                         R"({"text": "Your order has shipped. It arrives on Friday."})"};
+    rig.llm->setSpeculativeFiring(true, 3);
+    rig.userPausesAfter("Where is my order");
+    std::this_thread::sleep_for(800ms);
+    check(toolRuns == 0, "[spec tools] tool not run on an unconfirmed turn");
+    rig.userSays("Where is my order?");
+    std::this_thread::sleep_for(2500ms);
+    check(toolRuns == 1, "[spec tools] tool runs once after confirmation");
+    check(rig.http->requests == 3, "[spec tools] fresh request, then the tool follow-up");
+}
+
 } // namespace
 
 int main() {
@@ -243,6 +338,10 @@ int main() {
     bargeInAbortsAndRollsBack();
     toolCallSpeaksNothing();
     toolRoundTripWithFiller();
+    speculationConfirmed();
+    speculationReplacedWhenFinalDiffers();
+    speculationCancelledWhenUserResumes();
+    speculativeToolCallNeverRuns();
     std::printf("llm stream speech scenarios done, %d failure(s)\n", failures);
     return failures == 0 ? 0 : 1;
 }
