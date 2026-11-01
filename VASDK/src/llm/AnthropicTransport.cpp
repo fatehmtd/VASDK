@@ -6,8 +6,9 @@ using json = nlohmann::json;
 namespace va {
 namespace llm {
 
-AnthropicTransport::AnthropicTransport(const LLMConfig& config)
-    : LLMTransport(LLMProvider::ANTHROPIC, config) {
+AnthropicTransport::AnthropicTransport(const LLMConfig& config,
+                                 std::shared_ptr<va::network::HttpInterface> client)
+    : LLMTransport(LLMProvider::ANTHROPIC, config, std::move(client)) {
 }
 
 std::string AnthropicTransport::buildRequestPayload(const std::string& userMessage) {

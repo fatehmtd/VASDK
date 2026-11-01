@@ -630,6 +630,7 @@ void LLMProcessor::onTransportFrameReceived(std::shared_ptr<transport::Frame> fr
     if (_dispatchGeneration.load() != _currentGeneration.load()) {
         std::lock_guard<std::mutex> lk(_streamingMutex);
         _streamingBuffer.clear();
+        _extractor.reset();
         return;
     }
 
@@ -645,15 +646,27 @@ void LLMProcessor::onTransportFrameReceived(std::shared_ptr<transport::Frame> fr
         auto textFrame = std::dynamic_pointer_cast<transport::TextFrame>(frame);
         if (textFrame) {
             std::string fullText;
+            std::string spoken;  // text already pushed downstream as sentence frames
             {
                 std::lock_guard<std::mutex> lk(_streamingMutex);
                 if (!textFrame->isFinal) {
                     _streamingBuffer.push_back(textFrame);
+                    std::vector<std::string> sentences;
+                    if (_streamSpeech) {
+                        if (!_extractor) {
+                            auto [open, close] = effectiveReasoningTags();
+                            _extractor = std::make_unique<StreamingReplyExtractor>(open, close);
+                        }
+                        sentences = _extractor->feed(textFrame->text);
+                    }
+                    for (const auto& s : sentences) pushSpeech(s, false);
                     return;
                 }
                 for (const auto& chunk : _streamingBuffer) fullText += chunk->text;
                 fullText += textFrame->text;
                 _streamingBuffer.clear();
+                if (_extractor) spoken = _extractor->spokenText();
+                _extractor.reset();
             }
 
             auto [reasoningOpen, reasoningClose] = effectiveReasoningTags();
@@ -686,16 +699,26 @@ void LLMProcessor::onTransportFrameReceived(std::shared_ptr<transport::Frame> fr
             // (after tool results are injected) will carry the authoritative
             // speech text, so emitting here would cause a duplicate TTS utterance.
             // Exception: a repeated batch means no follow-up is coming - speak now.
-            if (!resp.text.empty() && (!resp.hasTool() || repeatedBatch)) {
-                auto textOut         = std::make_shared<transport::TextFrame>();
-                textOut->text        = resp.text;
-                textOut->isFinal     = true;
-                textOut->isExpecting = resp.isExpecting;
-                textOut->choices     = resp.choices;
-                textOut->timestamp   = textFrame->timestamp;
-                textOut->sourceId    = textFrame->sourceId;
-                pushDownstream(textOut);
+            const bool speakNow = !resp.hasTool() || repeatedBatch;
+            std::string finalText = speakNow ? resp.text : std::string();
+            if (!spoken.empty() && !finalText.empty()) {
+                // The final frame carries only what the sentence frames haven't said yet.
+                const auto ltrim = [](const std::string& s) {
+                    const size_t i = s.find_first_not_of(" \t\r\n");
+                    return i == std::string::npos ? std::string() : s.substr(i);
+                };
+                const std::string full = ltrim(finalText), said = ltrim(spoken);
+                if (full.compare(0, said.size(), said) == 0) {
+                    finalText = full.substr(said.size());
+                } else {
+                    // The parsed reply diverged from what streamed (e.g. a repaired JSON body):
+                    // repeating beats going silent.
+                    spdlog::warn("[LLMProcessor] Streamed speech differs from the parsed reply - speaking it in full");
+                }
             }
+            // Spoken sentences must be closed by a final frame even when nothing is left to say.
+            if (!finalText.empty() || !spoken.empty())
+                pushSpeech(finalText, true, resp.isExpecting, resp.choices);
 
             if (_toolDispatcher && resp.hasTool() && !repeatedBatch) {
                 {
@@ -784,6 +807,7 @@ void LLMProcessor::handleInterruptTransition(transport::AgentStateTransition t) 
     {
         std::lock_guard<std::mutex> lk(_streamingMutex);
         _streamingBuffer.clear();
+        _extractor.reset();
     }
     {
         std::lock_guard<std::mutex> lk(_toolResultsMutex);
@@ -954,9 +978,30 @@ void LLMProcessor::requestWorkerLoop() {
             // A previous stream that failed mid-way never sent its terminal frame.
             std::lock_guard<std::mutex> lk(_streamingMutex);
             _streamingBuffer.clear();
+            _extractor.reset();
         }
+        const uint64_t generation = _currentGeneration.load();
         job();
+        if (_speechOpen) {
+            // The request ended (error, cancel) after speaking part of a reply: close the reply
+            // so TTS can finish the turn, unless a barge-in already dropped it.
+            if (generation == _currentGeneration.load()) pushSpeech("", true);
+            _speechOpen = false;
+        }
     }
+}
+
+void LLMProcessor::pushSpeech(const std::string& text, bool isFinal, bool isExpecting,
+                              std::vector<transport::TextFrame::Choice> choices) {
+    auto frame         = std::make_shared<transport::TextFrame>();
+    frame->text        = text;
+    frame->isFinal     = isFinal;
+    frame->isExpecting = isExpecting;
+    frame->choices     = std::move(choices);
+    frame->timestamp   = transport::Frame::getCurrentTimestamp();
+    frame->sourceId    = getName();
+    _speechOpen        = !isFinal;
+    pushDownstream(frame);
 }
 
 void LLMProcessor::startFinalWatchdog() {

@@ -3,6 +3,7 @@
 #include <VASDK/FrameProcessor.h>
 #include <VASDK/llm/LLMTransport.h>
 #include <VASDK/llm/LLMFirePolicy.h>
+#include <VASDK/llm/StreamingReplyExtractor.h>
 #include <VASDK/metrics/MetricsCollector.h>
 #include <VASDK/metrics/MetricHandles.h>
 #include <VASDK/metrics/MetricsConfig.h>
@@ -65,6 +66,14 @@ public:
     void setFinalWatchdogTimeoutMs(uint32_t ms) { _finalWatchdogTimeoutMs = ms; }
 
     void setToolDispatcher(std::shared_ptr<ToolDispatchProcessor> dispatcher);
+
+    /**
+     * Speak streamed replies sentence by sentence: while the transport streams deltas, each
+     * complete sentence is pushed downstream as a TextFrame{isFinal=false}; the reply then ends
+     * with one isFinal=true frame carrying only the not-yet-spoken text plus isExpecting/choices.
+     * Works with any transport that streams (and is a no-op for non-streaming ones).
+     */
+    void setStreamSpeech(bool enabled) { _streamSpeech = enabled; }
 
     void setReasoningTags(std::string openTag, std::string closeTag) {
         _reasoningTagOpen = std::move(openTag);
@@ -154,8 +163,13 @@ private:
     bool _reasoningTagsOverridden{false};
 
     std::shared_ptr<ToolDispatchProcessor> _toolDispatcher;
-    std::mutex _streamingMutex;  // guards _streamingBuffer (request thread vs. interrupts)
+    std::mutex _streamingMutex;  // guards _streamingBuffer and _extractor (request thread vs. interrupts)
     std::vector<std::shared_ptr<transport::TextFrame>> _streamingBuffer;
+    bool _streamSpeech{false};
+    std::unique_ptr<StreamingReplyExtractor> _extractor;  // current streamed reply
+    bool _speechOpen{false};  // sentence frames went out for a reply that has no final frame yet (request thread)
+    void pushSpeech(const std::string& text, bool isFinal, bool isExpecting = false,
+                    std::vector<transport::TextFrame::Choice> choices = {});
     std::atomic<int> _toolCallDepth{0};
     static constexpr int kMaxToolCallDepth = 5;
 

@@ -150,10 +150,13 @@ void StreamingReplyExtractor::decodeJsonString() {
         if (_pos + 1 >= _raw.size()) return;  // wait for the escaped char
         const char e = _raw[_pos + 1];
         if (e != 'u') {
+            // Decode exactly like the final JSON parse, so spokenText() is a prefix of its text.
             switch (e) {
                 case 'n': _decoded += '\n'; break;
-                case 't': _decoded += ' ';  break;
-                case 'r': case 'b': case 'f': break;
+                case 't': _decoded += '\t'; break;
+                case 'r': _decoded += '\r'; break;
+                case 'b': _decoded += '\b'; break;
+                case 'f': _decoded += '\f'; break;
                 default:  _decoded += e;    break;  // \" \\ \/
             }
             _pos += 2;

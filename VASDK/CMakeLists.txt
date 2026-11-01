@@ -210,6 +210,10 @@ if(VASDK_BUILD_TESTS)
     add_executable(vasdk_tts_turn_test tests/tts_turn_test.cpp)
     target_link_libraries(vasdk_tts_turn_test PRIVATE VASDK)
     add_test(NAME vasdk_tts_turn COMMAND vasdk_tts_turn_test)
+
+    add_executable(vasdk_llm_stream_speech_test tests/llm_stream_speech_test.cpp)
+    target_link_libraries(vasdk_llm_stream_speech_test PRIVATE VASDK)
+    add_test(NAME vasdk_llm_stream_speech COMMAND vasdk_llm_stream_speech_test)
 endif()
 
 if(VASDK_BUILD_TESTS AND NOT WIN32)

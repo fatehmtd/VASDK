@@ -858,6 +858,7 @@ LLMBundle setupLLMStack(const std::string& modelsPath, const std::string& llmMod
     llmBundle.processor->setProcessPartialTranscriptions(false);
     llmBundle.processor->setConfidenceThreshold(0.07f);
     llmBundle.processor->setFirePolicy(std::make_shared<va::llm::FinalOnlyFirePolicy>());
+    llmBundle.processor->setStreamSpeech(true);  // speak each sentence as the LLM streams it
     llmBundle.processor->setToolDispatcher(llmBundle.toolDispatcher);
 
     return llmBundle;

@@ -340,6 +340,7 @@ Java_com_vasdk_android_VasdkEngine_nativeInit(JNIEnv *env, jobject thiz, jstring
     session->llmProcessor->setConfidenceThreshold(0.1f);
     session->llmProcessor->setFinalWatchdogTimeoutMs(1000000);
     session->llmProcessor->setFirePolicy(std::make_shared<va::llm::FinalOnlyFirePolicy>());
+    session->llmProcessor->setStreamSpeech(true);  // the local llama.cpp transport streams PunctuationChunker chunks
 
     // TTS processor - the provider is chosen at runtime (see VasdkEngine's Settings UI /
     // ttsProviderId), falling back to whichever TTS provider is actually compiled in when
