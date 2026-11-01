@@ -4,9 +4,11 @@
 //     carries only the unspoken tail plus isExpecting;
 //   - a barge-in mid-stream aborts the request promptly, nothing more is spoken, and the aborted
 //     user turn is rolled back from history;
-//   - a tool-call reply speaks nothing.
+//   - a tool-call reply speaks nothing;
+//   - the same streaming works through AnthropicTransport's SSE events, which send the user turn once.
 
 #include <VASDK/llm/LLMProcessor.h>
+#include <VASDK/llm/AnthropicTransport.h>
 #include <VASDK/llm/OpenAITransport.h>
 
 #include <atomic>
@@ -32,16 +34,19 @@ std::string jsonEscape(const std::string& s) {
     return out;
 }
 
-// Streams `reply` as OpenAI SSE deltas of 5 characters, 30 ms apart; honours cancel().
+// Streams `reply` as OpenAI (or Anthropic) SSE deltas of 5 characters, 30 ms apart; honours cancel().
 class FakeHttp : public network::HttpInterface {
 public:
     std::string reply;
+    bool anthropic = false;
+    std::string lastBody;
     std::atomic<bool> cancelled{false};
     Clock::time_point cancelTime, returnTime;
 
-    network::HttpResponse post(const std::string&, const std::map<std::string, std::string>&, const std::string&,
+    network::HttpResponse post(const std::string&, const std::map<std::string, std::string>&, const std::string& body,
                                int, std::function<void(const std::string&)> onChunk) override {
         cancelled = false;
+        lastBody = body;
         network::HttpResponse r;
         for (size_t i = 0; i < reply.size(); i += 5) {
             if (cancelled) {
@@ -49,13 +54,16 @@ public:
                 returnTime = Clock::now();
                 return r;
             }
+            const std::string piece = jsonEscape(reply.substr(i, 5));
             const std::string line =
-                "data: {\"choices\":[{\"delta\":{\"content\":\"" + jsonEscape(reply.substr(i, 5)) + "\"}}]}\n\n";
+                anthropic ? "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,"
+                            "\"delta\":{\"type\":\"text_delta\",\"text\":\"" + piece + "\"}}\n\n"
+                          : "data: {\"choices\":[{\"delta\":{\"content\":\"" + piece + "\"}}]}\n\n";
             r.body += line;
             if (onChunk) onChunk(line);
             std::this_thread::sleep_for(30ms);
         }
-        if (onChunk) onChunk("data: [DONE]\n\n");
+        if (onChunk) onChunk(anthropic ? "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n" : "data: [DONE]\n\n");
         r.statusCode = 200;
         returnTime = Clock::now();
         return r;
@@ -99,18 +107,20 @@ void check(bool ok, const char* what) {
 
 struct Rig {
     std::shared_ptr<FakeHttp> http = std::make_shared<FakeHttp>();
-    std::shared_ptr<llm::OpenAITransport> transport;
+    std::shared_ptr<llm::LLMTransport> transport;
     std::shared_ptr<llm::LLMProcessor> llm;
     std::shared_ptr<Recorder> recorder = std::make_shared<Recorder>();
 
-    explicit Rig(const std::string& reply) {
+    explicit Rig(const std::string& reply, bool anthropic = false) {
         http->reply = reply;
+        http->anthropic = anthropic;
         llm::LLMConfig cfg;
         cfg.apiKey    = "test";
         cfg.endpoint  = "http://localhost:1/v1/chat/completions";
         cfg.model     = "fake";
         cfg.streaming = true;
-        transport = std::make_shared<llm::OpenAITransport>(cfg, http);
+        if (anthropic) transport = std::make_shared<llm::AnthropicTransport>(cfg, http);
+        else           transport = std::make_shared<llm::OpenAITransport>(cfg, http);
         llm = std::make_shared<llm::LLMProcessor>(transport);
         llm->setStreamSpeech(true);
         llm->setDownstream(recorder);
@@ -133,10 +143,15 @@ struct Rig {
     }
 };
 
-void streamsSentencesThenTail() {
-    Rig rig(R"({"text": "Sure, I can help with that. Your order shipped yesterday. Anything else?", "isExpecting": true})");
+void streamsSentencesThenTail(bool anthropic) {
+    Rig rig(R"({"text": "Sure, I can help with that. Your order shipped yesterday. Anything else?", "isExpecting": true})",
+            anthropic);
     rig.userSays("Where is my order?");
     std::this_thread::sleep_for(1500ms);
+
+    size_t userTurns = 0;
+    for (size_t at = 0; (at = rig.http->lastBody.find("Where is my order?", at)) != std::string::npos; ++at) ++userTurns;
+    check(userTurns == 1, "request carries the user turn exactly once");
 
     const auto frames = rig.recorder->snapshot();
     check(frames.size() == 3, "two sentence frames plus one final frame");
@@ -180,7 +195,8 @@ void toolCallSpeaksNothing() {
 } // namespace
 
 int main() {
-    streamsSentencesThenTail();
+    streamsSentencesThenTail(false);
+    streamsSentencesThenTail(true);
     bargeInAbortsAndRollsBack();
     toolCallSpeaksNothing();
     std::printf("llm stream speech scenarios done, %d failure(s)\n", failures);

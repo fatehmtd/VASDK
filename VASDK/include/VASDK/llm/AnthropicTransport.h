@@ -18,6 +18,7 @@ public:
 protected:
     std::string buildRequestPayload(const std::string& userMessage) override;
     std::string parseResponse(const std::string& response) override;
+    bool parseStreamingData(const std::string& data, std::string& deltaText, bool& isDone) override;
 };
 
 } // namespace llm
