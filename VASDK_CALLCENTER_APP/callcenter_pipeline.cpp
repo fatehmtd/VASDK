@@ -178,20 +178,14 @@ static constexpr const char* kCallCenterFormatInstruction =
     "{\"text\": \"<question>\", \"isFinal\": true, \"isExpecting\": true, "
     "\"choices\": [{\"text\": \"Option A\"}, {\"text\": \"Option B\"}]}\n\n"
     "The \"text\" value is read aloud to the caller - keep it natural and concise.\n"
+    "Always put \"text\" first, and open it with a short sentence: it is spoken while the rest is still being written.\n"
     "Never add keys outside this schema or wrap the JSON in markdown.";
 
 static constexpr const char* kCallCenterSystemPromptTemplate = R"(
 You are a helpful call center assistant.
 
-Your goal: {goal_objective}
-
-Information already collected:
-{collected_slots}
-
-Current status: {goal_status}
-
 Instructions:
-- Collect missing information through natural conversation; do not recite the lists above.
+- Collect missing information through natural conversation; do not recite the lists below.
 - The moment the caller provides any required scalar value (name, phone, date, enum choice),
   call update_slot() immediately - do not wait for the turn to end.
 - For OBJECT-type slots (labelled "use update_object_slot"), call update_object_slot() and
@@ -211,9 +205,17 @@ Instructions:
   then call request_confirmation() again.
 - If the caller explicitly requests a human agent, or if the situation is outside your
   scope, call escalate() immediately.
-{escalation_hint}
+
 Available tools:
 {tool_descriptions}
+
+Your goal: {goal_objective}
+
+Information already collected:
+{collected_slots}
+
+Current status: {goal_status}
+{escalation_hint}
 )";
 
 //  Globals

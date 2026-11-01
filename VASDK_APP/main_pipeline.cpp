@@ -216,6 +216,7 @@ static constexpr const char* kResponseFormatInstruction =
     "{\"text\": \"<question>\", \"isFinal\": true, \"isExpecting\": true, "
     "\"choices\": [{\"text\": \"Option A\"}, {\"text\": \"Option B\"}]}\n\n"
     "The \"text\" value is spoken aloud - keep it natural. "
+    "Always put \"text\" first, and open it with a short sentence: it is spoken while the rest is still being written. "
     "Never add keys outside this schema or wrap the JSON in markdown.";
 
 class WeatherTool : public va::llm::Tool {

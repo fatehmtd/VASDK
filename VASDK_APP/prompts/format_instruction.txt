@@ -7,4 +7,4 @@ Add "isExpecting": true when you are asking the user a question:
 Add a "choices" array when the user must pick from a fixed set of options:
 {"text": "<question>", "isFinal": true, "isExpecting": true, "choices": [{"text": "Option A"}, {"text": "Option B"}]}
 
-The "text" value is spoken aloud - keep it natural. Never add keys outside this schema or wrap the JSON in markdown.
+The "text" value is spoken aloud - keep it natural. Always put "text" first, and open it with a short sentence: it is spoken while the rest is still being written. Never add keys outside this schema or wrap the JSON in markdown.
