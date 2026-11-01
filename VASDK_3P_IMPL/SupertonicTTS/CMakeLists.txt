@@ -40,6 +40,15 @@ target_link_libraries(vasdk_supertonic_tts
     PRIVATE nlohmann_json::nlohmann_json
 )
 
+if(VASDK_BUILD_TESTS)
+    # End-to-end synthesis smoke test; reports "skipped" when the models have not been downloaded.
+    add_executable(supertonic_tts_synth_test tests/synth_test.cpp)
+    target_link_libraries(supertonic_tts_synth_test PRIVATE vasdk_supertonic_tts)
+    add_test(NAME supertonic_tts_synth
+             COMMAND supertonic_tts_synth_test ${SUPERTONIC_MODEL_DIR} ${CMAKE_CURRENT_BINARY_DIR}/supertonic_tts_test.wav)
+    set_tests_properties(supertonic_tts_synth PROPERTIES SKIP_RETURN_CODE 77)
+endif()
+
 install(TARGETS vasdk_supertonic_tts
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
