@@ -93,6 +93,10 @@ protected:
                                     std::string& deltaText,
                                     bool& isDone);
 
+    // Merges LLMConfig::extraPayload into a serialized request body; returns it unchanged when
+    // there is nothing to merge (or extraPayload isn't a JSON object, which is logged once).
+    std::string mergeExtraPayload(const std::string& payloadJson) const;
+
     // Renders the active PromptTemplate in its own format; returns "" when no template is set.
     // Acquires _historyMutex internally - do NOT call while holding it.
     std::string renderTemplate();

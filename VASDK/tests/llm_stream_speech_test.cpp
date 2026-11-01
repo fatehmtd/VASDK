@@ -330,6 +330,23 @@ void speculativeToolCallNeverRuns() {
     check(rig.http->requests == 3, "[spec tools] fresh request, then the tool follow-up");
 }
 
+void extraPayloadMergedIntoRequests() {
+    llm::LLMConfig cfg;
+    cfg.apiKey = "test";
+    cfg.endpoint = "http://localhost:1/v1/chat/completions";
+    cfg.model = "fake";
+    cfg.extraPayload = R"({"provider": {"sort": "latency"}, "max_tokens": 64})";
+    for (bool anthropic : {false, true}) {
+        std::shared_ptr<llm::LLMTransport> t;
+        if (anthropic) t = std::make_shared<llm::AnthropicTransport>(cfg, std::make_shared<FakeHttp>());
+        else           t = std::make_shared<llm::OpenAITransport>(cfg, std::make_shared<FakeHttp>());
+        const auto body = nlohmann::json::parse(t->previewRequestPayload());
+        check(body.value("/provider/sort"_json_pointer, std::string()) == "latency" && body["max_tokens"] == 64 &&
+                  body["model"] == "fake",
+              anthropic ? "[extraPayload] merged into Anthropic requests" : "[extraPayload] merged into OpenAI requests");
+    }
+}
+
 } // namespace
 
 int main() {
@@ -342,6 +359,7 @@ int main() {
     speculationReplacedWhenFinalDiffers();
     speculationCancelledWhenUserResumes();
     speculativeToolCallNeverRuns();
+    extraPayloadMergedIntoRequests();
     std::printf("llm stream speech scenarios done, %d failure(s)\n", failures);
     return failures == 0 ? 0 : 1;
 }

@@ -151,6 +151,23 @@ void LLMTransport::addMessageToHistory(MessageRole role, const std::string& cont
     }
 }
 
+std::string LLMTransport::mergeExtraPayload(const std::string& payloadJson) const {
+    if (_config.extraPayload.empty()) return payloadJson;
+    try {
+        json extra = json::parse(_config.extraPayload);
+        if (!extra.is_object()) throw std::runtime_error("not a JSON object");
+        json payload = json::parse(payloadJson);
+        payload.update(extra);
+        return payload.dump();
+    } catch (const std::exception& e) {
+        static std::once_flag warned;
+        std::call_once(warned, [&] {
+            spdlog::warn("[LLMTransport] Ignoring extraPayload ({}): {}", e.what(), _config.extraPayload);
+        });
+        return payloadJson;
+    }
+}
+
 bool LLMTransport::rollbackExchange(const std::string& userMessage) {
     std::lock_guard<std::mutex> lock(_historyMutex);
     for (auto it = _conversationHistory.rbegin(); it != _conversationHistory.rend(); ++it) {

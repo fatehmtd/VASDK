@@ -72,7 +72,7 @@ std::string OpenAITransport::buildRequestPayload(const std::string& userMessage)
     payload["messages"] = messages;
     if (_config.streaming) payload["stream"] = true;
 
-    return payload.dump();
+    return mergeExtraPayload(payload.dump());
 }
 
 std::string OpenAITransport::parseResponse(const std::string& response) {

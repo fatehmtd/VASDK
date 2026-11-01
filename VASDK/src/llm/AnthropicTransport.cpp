@@ -52,7 +52,7 @@ std::string AnthropicTransport::buildRequestPayload(const std::string& userMessa
     payload["messages"] = messages;
     if (_config.streaming) payload["stream"] = true;
 
-    return payload.dump();
+    return mergeExtraPayload(payload.dump());
 }
 
 std::string AnthropicTransport::parseResponse(const std::string& response) {

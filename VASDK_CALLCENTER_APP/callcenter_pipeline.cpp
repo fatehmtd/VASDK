@@ -791,6 +791,7 @@ GoalLLMBundle setupGoalLLMStack(const CliArgs& args) {
     goalLLMBundle.config.apiKey = args.llmApiKey;
     goalLLMBundle.config.model = args.llmModel;
     goalLLMBundle.config.reasoningEffort = args.llmReasoningEffort;
+    if (const char* extra = std::getenv("LLM_EXTRA_PAYLOAD")) goalLLMBundle.config.extraPayload = extra;
 
     goalLLMBundle.config.temperature = 0.15f;
     goalLLMBundle.config.maxTokens = 512*8;

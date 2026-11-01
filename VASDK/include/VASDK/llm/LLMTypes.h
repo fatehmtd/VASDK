@@ -21,6 +21,10 @@ struct LLMConfig {
     /// "none" stops a thinking model (Qwen3, gpt-oss, ...) from spending the token budget and
     /// the caller's time on a hidden reasoning trace before it answers.
     std::string reasoningEffort;
+    /// JSON object whose top-level keys are merged into every request body (overriding
+    /// defaults), for provider-specific options without provider-specific code - e.g.
+    /// OpenRouter routing: {"provider": {"sort": "latency"}}. Empty = nothing added.
+    std::string extraPayload;
     std::map<std::string, std::string> headers;
     int nCtx = 4096;
     int nGpuLayers = 99;
