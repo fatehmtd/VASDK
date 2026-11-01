@@ -7,7 +7,8 @@ namespace llm {
 
 class VASDK_EXPORT AnthropicTransport : public LLMTransport {
 public:
-    explicit AnthropicTransport(const LLMConfig& config);
+    explicit AnthropicTransport(const LLMConfig& config,
+                             std::shared_ptr<va::network::HttpInterface> client = nullptr);
 
     std::string getName() const override { return "AnthropicTransport"; }
     std::string getDescription() const override {
@@ -17,6 +18,7 @@ public:
 protected:
     std::string buildRequestPayload(const std::string& userMessage) override;
     std::string parseResponse(const std::string& response) override;
+    bool parseStreamingData(const std::string& data, std::string& deltaText, bool& isDone) override;
 };
 
 } // namespace llm

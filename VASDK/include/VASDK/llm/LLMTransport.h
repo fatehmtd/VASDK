@@ -33,12 +33,18 @@ public:
         return "Transport for Large Language Model services (OpenAI, Anthropic, etc.)";
     }
 
-    virtual void cancel() {}
+    // Aborts the request in flight (thread-safe; call from any thread). The aborted turn's
+    // user message is rolled back from history and no response frame is emitted.
+    virtual void cancel() { cancelHttpRequests(); }
 
     void setConfig(const LLMConfig& config);
     const LLMConfig& getConfig() const { return _config; }
 
     virtual void addMessageToHistory(MessageRole role, const std::string& content);
+
+    // Removes the most recent USER message equal to userMessage and everything after it (the
+    // reply, tool results). Used to undo a speculative request. Returns false if not found.
+    bool rollbackExchange(const std::string& userMessage);
     virtual void clearHistory();
 
     const std::vector<ConversationMessage>& getHistory() const { return _conversationHistory; }
@@ -87,6 +93,10 @@ protected:
                                     std::string& deltaText,
                                     bool& isDone);
 
+    // Merges LLMConfig::extraPayload into a serialized request body; returns it unchanged when
+    // there is nothing to merge (or extraPayload isn't a JSON object, which is logged once).
+    std::string mergeExtraPayload(const std::string& payloadJson) const;
+
     // Renders the active PromptTemplate in its own format; returns "" when no template is set.
     // Acquires _historyMutex internally - do NOT call while holding it.
     std::string renderTemplate();
@@ -115,6 +125,11 @@ protected:
     // token) so the model produces a final answer instead of re-emitting the
     // tool call it just made.
     std::atomic<bool> _forcingFinalAnswer{false};
+
+    // Outcome of the last sendLLMRequest(): aborted by cancel(), and whether the reply arrived
+    // as SSE deltas (already emitted as partial frames) rather than one JSON body.
+    bool _lastRequestCancelled = false;
+    bool _lastResponseStreamed = false;
 };
 
 } // namespace llm

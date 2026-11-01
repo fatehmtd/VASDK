@@ -4,6 +4,7 @@
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 #include <algorithm>
+#include <cctype>
 #include <stdexcept>
 #include <chrono>
 #include <regex>
@@ -95,6 +96,13 @@ bool LLMProcessor::start() {
     }
     _finalWatchdogThread = std::thread(&LLMProcessor::finalWatchdogLoop, this);
 
+    {
+        std::lock_guard<std::mutex> lock(_requestMutex);
+        _requestStop = false;
+        _requestQueue.clear();
+    }
+    _requestThread = std::thread(&LLMProcessor::requestWorkerLoop, this);
+
     spdlog::info("[LLMProcessor] Processor started");
 
     return true;
@@ -112,6 +120,15 @@ void LLMProcessor::stop() {
     }
     _watchdogCv.notify_all();
     if (_finalWatchdogThread.joinable()) _finalWatchdogThread.join();
+
+    {
+        std::lock_guard<std::mutex> lock(_requestMutex);
+        _requestStop = true;
+        _requestQueue.clear();
+    }
+    _requestCv.notify_all();
+    if (_transport) _transport->cancel();  // unblock a request in flight
+    if (_requestThread.joinable()) _requestThread.join();
 
     if (_transport) {
         _transport->stop();
@@ -180,6 +197,8 @@ bool LLMProcessor::shouldProcess(std::shared_ptr<transport::Frame> frame) const 
         case transport::FrameType::TOOL_CALL:
         case transport::FrameType::TOOL_RESULT:
             return true;
+        case transport::FrameType::VAD_STATE:
+            return _speculativeFiring;
         default:
             break;
     }
@@ -230,16 +249,11 @@ void LLMProcessor::processFrame(std::shared_ptr<transport::Frame> frame,
                             lastText = _lastToolBatchText;
                         }
                         _toolCallDepth = 0;
+                        _awaitingToolFollowUp = false;
                         // Degrade to speaking the text suppressed alongside the
-                        // dropped batch rather than ending the turn in silence.
-                        if (!lastText.empty()) {
-                            auto textOut       = std::make_shared<transport::TextFrame>();
-                            textOut->text      = lastText;
-                            textOut->isFinal   = true;
-                            textOut->timestamp = transport::Frame::getCurrentTimestamp();
-                            textOut->sourceId  = getName();
-                            pushDownstream(textOut);
-                        }
+                        // dropped batch rather than ending the turn in silence
+                        // (and close a turn a filler phrase already opened).
+                        if (!lastText.empty() || _speechOpen) pushSpeech(lastText, true);
                         return;
                     }
                     ++_toolCallDepth;
@@ -249,7 +263,10 @@ void LLMProcessor::processFrame(std::shared_ptr<transport::Frame> frame,
                         _pendingToolCount.store(0);
                         _collectedToolResults.clear();
                     }
-                    _transport->injectToolResults(snapshot);
+                    enqueueRequest([this, snapshot] {
+                        _awaitingToolFollowUp = false;
+                        _transport->injectToolResults(snapshot);
+                    });
                 }
                 return;
             }
@@ -437,8 +454,15 @@ LLMProcessor::StructuredResponse LLMProcessor::parseStructuredResponse(
 }
 
 void LLMProcessor::processDownstream(std::shared_ptr<transport::Frame> frame) {
+    if (frame->getType() == transport::FrameType::VAD_STATE) {
+        handleVadStateFrame(std::dynamic_pointer_cast<transport::VADStateFrame>(frame));
+        pushDownstream(frame);
+        return;
+    }
+
     if (frame->getType() == transport::FrameType::AGENT_STATE) {
         auto agentFrame = std::dynamic_pointer_cast<transport::AgentStateFrame>(frame);
+        if (agentFrame) _agentState = agentFrame->currentState;
         if (agentFrame && handleAgentStateTransition(agentFrame)) {
             return; // handler already pushed the frame downstream and dispatched a request
         }
@@ -612,7 +636,9 @@ void LLMProcessor::processDownstream(std::shared_ptr<transport::Frame> frame) {
 
 void LLMProcessor::onTransportFrameReceived(std::shared_ptr<transport::Frame> frame) {
     if (_dispatchGeneration.load() != _currentGeneration.load()) {
+        std::lock_guard<std::mutex> lk(_streamingMutex);
         _streamingBuffer.clear();
+        _extractor.reset();
         return;
     }
 
@@ -627,18 +653,47 @@ void LLMProcessor::onTransportFrameReceived(std::shared_ptr<transport::Frame> fr
     if (frame->getType() == transport::FrameType::TEXT) {
         auto textFrame = std::dynamic_pointer_cast<transport::TextFrame>(frame);
         if (textFrame) {
-            if (!textFrame->isFinal) {
-                _streamingBuffer.push_back(textFrame);
-                return;
-            }
-
             std::string fullText;
-            for (const auto& chunk : _streamingBuffer) fullText += chunk->text;
-            fullText += textFrame->text;
-            _streamingBuffer.clear();
+            std::string spoken;  // text already pushed downstream as sentence frames
+            {
+                std::lock_guard<std::mutex> lk(_streamingMutex);
+                if (!textFrame->isFinal) {
+                    _streamingBuffer.push_back(textFrame);
+                    std::vector<std::string> sentences;
+                    if (_streamSpeech) {
+                        if (!_extractor) {
+                            auto [open, close] = effectiveReasoningTags();
+                            _extractor = std::make_unique<StreamingReplyExtractor>(open, close);
+                        }
+                        sentences = _extractor->feed(textFrame->text);
+                        if (_extractor->toolsDetected() && !_fillerSent && !_toolFillerPhrases.empty()) {
+                            _fillerSent = true;
+                            sentences.push_back(_toolFillerPhrases[_nextFiller++ % _toolFillerPhrases.size()] + " ");
+                        }
+                    }
+                    for (const auto& s : sentences) pushSpeech(s, false);
+                    return;
+                }
+                for (const auto& chunk : _streamingBuffer) fullText += chunk->text;
+                fullText += textFrame->text;
+                _streamingBuffer.clear();
+                if (_extractor) spoken = _extractor->spokenText();
+                _extractor.reset();
+                _fillerSent = false;
+            }
 
             auto [reasoningOpen, reasoningClose] = effectiveReasoningTags();
             auto resp = parseStructuredResponse(fullText, reasoningOpen, reasoningClose);
+
+            if (resp.hasTool()) {
+                std::lock_guard<std::mutex> lk(_specMutex);
+                if (_spec.active && !_spec.confirmed) {
+                    // Never run tools (slot updates, escalations) on a turn the user hasn't finished.
+                    spdlog::info("[LLMProcessor] Speculative reply calls tools - discarding it");
+                    _spec.discarded = true;
+                    return;
+                }
+            }
 
             // Canonical (sorted) view of this response's tool batch. A follow-up
             // response (_toolCallDepth > 0) that re-requests the exact batch whose
@@ -667,18 +722,29 @@ void LLMProcessor::onTransportFrameReceived(std::shared_ptr<transport::Frame> fr
             // (after tool results are injected) will carry the authoritative
             // speech text, so emitting here would cause a duplicate TTS utterance.
             // Exception: a repeated batch means no follow-up is coming - speak now.
-            if (!resp.text.empty() && (!resp.hasTool() || repeatedBatch)) {
-                auto textOut         = std::make_shared<transport::TextFrame>();
-                textOut->text        = resp.text;
-                textOut->isFinal     = true;
-                textOut->isExpecting = resp.isExpecting;
-                textOut->choices     = resp.choices;
-                textOut->timestamp   = textFrame->timestamp;
-                textOut->sourceId    = textFrame->sourceId;
-                pushDownstream(textOut);
+            const bool speakNow = !resp.hasTool() || repeatedBatch;
+            std::string finalText = speakNow ? resp.text : std::string();
+            if (!spoken.empty() && !finalText.empty()) {
+                // The final frame carries only what the sentence frames haven't said yet.
+                const auto ltrim = [](const std::string& s) {
+                    const size_t i = s.find_first_not_of(" \t\r\n");
+                    return i == std::string::npos ? std::string() : s.substr(i);
+                };
+                const std::string full = ltrim(finalText), said = ltrim(spoken);
+                if (full.compare(0, said.size(), said) == 0) {
+                    finalText = full.substr(said.size());
+                } else {
+                    // The parsed reply diverged from what streamed (e.g. a repaired JSON body):
+                    // repeating beats going silent.
+                    spdlog::warn("[LLMProcessor] Streamed speech differs from the parsed reply - speaking it in full");
+                }
             }
+            // Spoken sentences must be closed by a final frame even when nothing is left to say.
+            if (!finalText.empty() || !spoken.empty())
+                pushSpeech(finalText, true, resp.isExpecting, resp.choices);
 
             if (_toolDispatcher && resp.hasTool() && !repeatedBatch) {
+                _awaitingToolFollowUp = true;
                 {
                     std::lock_guard<std::mutex> lk(_toolResultsMutex);
                     _collectedToolResults.clear();
@@ -742,6 +808,14 @@ bool LLMProcessor::handleAgentStateTransition(std::shared_ptr<transport::AgentSt
 void LLMProcessor::handleInterruptTransition(transport::AgentStateTransition t) {
     spdlog::info("[LLMProcessor] Interrupt received ({}); cancelling LLM",
         transport::toString(t));
+    cancelSpeculation("interrupt");
+    // Bump the generation and drop queued requests before aborting the one in flight, so
+    // nothing queued behind it starts after the cancel.
+    ++_currentGeneration;
+    {
+        std::lock_guard<std::mutex> lock(_requestMutex);
+        _requestQueue.clear();
+    }
     if (_transport) _transport->cancel();
     _partialAlreadySent = false;
     {
@@ -755,8 +829,13 @@ void LLMProcessor::handleInterruptTransition(transport::AgentStateTransition t) 
         _pendingTurnEnd = false;
         _accumulatedFinalText.clear();
     }
-    ++_currentGeneration;
-    _streamingBuffer.clear();
+    {
+        std::lock_guard<std::mutex> lk(_streamingMutex);
+        _streamingBuffer.clear();
+        _extractor.reset();
+        _fillerSent = false;
+    }
+    _awaitingToolFollowUp = false;
     {
         std::lock_guard<std::mutex> lk(_toolResultsMutex);
         _pendingToolCount.store(0);
@@ -773,6 +852,7 @@ void LLMProcessor::handleInterruptTransition(transport::AgentStateTransition t) 
 }
 
 void LLMProcessor::handleUserStartedSpeakingTransition() {
+    cancelSpeculation("user started a new utterance");
     {
         std::lock_guard<std::mutex> lock(_partialCacheMutex);
         _latestPartialText.clear();
@@ -815,22 +895,7 @@ void LLMProcessor::handleTranscriptionReadyTransition() {
             partial.substr(0, std::min<size_t>(60, partial.size())),
             partialConf, wordCount);
         _partialAlreadySent = true;
-        _llmRequestStart = std::chrono::steady_clock::now();
-        _firstTokenReceived = false;
-        _toolCallDepth = 0;
-        {
-            std::lock_guard<std::mutex> lk(_toolResultsMutex);
-            _lastToolBatch.clear();
-            _lastToolBatchText.clear();
-        }
-        _metrics.requests.increment();
-        auto syntheticFrame = std::make_shared<transport::TranscriptionFrame>();
-        syntheticFrame->isFinal = true;
-        syntheticFrame->transcriptionResult.text = partial;
-        syntheticFrame->transcriptionResult.confidence = 1.0f;
-        syntheticFrame->timestamp = transport::Frame::getCurrentTimestamp();
-        syntheticFrame->sourceId = getName();
-        _transport->sendFrame(syntheticFrame);
+        dispatchLLMRequest(partial, 1.0f);
     }
     else {
         spdlog::info("[LLMProcessor] {} WAIT_FOR_FINAL on TRANSCRIPTION_READY "
@@ -892,6 +957,100 @@ bool LLMProcessor::handleUserStoppedSpeakingTransition(std::shared_ptr<transport
 }
 
 void LLMProcessor::dispatchLLMRequest(const std::string& text, float confidence) {
+    {
+        std::unique_lock<std::mutex> lk(_specMutex);
+        if (_spec.active && _spec.confirmed) {
+            _spec = {};  // the previous turn's speculation is over
+        } else if (_spec.active) {
+            const auto normalize = [](const std::string& s) {
+                std::string out;
+                for (unsigned char c : s) {
+                    if (std::isalnum(c)) out += char(std::tolower(c));
+                    else if (!out.empty() && out.back() != ' ') out += ' ';
+                }
+                while (!out.empty() && out.back() == ' ') out.pop_back();
+                return out;
+            };
+            if (!_spec.discarded && normalize(text) == normalize(_spec.text)) {
+                spdlog::info("[LLMProcessor] Speculative reply confirmed by the final transcript - "
+                             "releasing {} held frame(s)", _spec.held.size());
+                _spec.confirmed = true;
+                // Under the lock, so frames the request thread pushes next can't overtake them.
+                for (auto& f : _spec.held) pushDownstream(f);
+                _spec.held.clear();
+                return;
+            }
+            const bool discarded = _spec.discarded;
+            lk.unlock();
+            cancelSpeculation(discarded ? "speculative reply called tools"
+                                        : "final transcript differs from the partial");
+        }
+    }
+    dispatchRequestNow(text, confidence);
+}
+
+void LLMProcessor::cancelSpeculation(const char* reason) {
+    std::string text;
+    {
+        std::lock_guard<std::mutex> lk(_specMutex);
+        if (!_spec.active || _spec.confirmed) return;
+        text = _spec.text;
+        _spec = {};
+    }
+    spdlog::info("[LLMProcessor] Cancelling speculative request ({})", reason);
+    ++_currentGeneration;
+    {
+        std::lock_guard<std::mutex> lock(_requestMutex);
+        _requestQueue.clear();
+    }
+    if (_transport) _transport->cancel();
+    _awaitingToolFollowUp = false;
+    // On the request thread, after the cancelled request returned: a reply that completed just
+    // before the cancel was already written to history and must go too.
+    enqueueRequest([this, text] { _transport->rollbackExchange(text); });
+}
+
+void LLMProcessor::handleVadStateFrame(std::shared_ptr<transport::VADStateFrame> frame) {
+    if (!frame || !_speculativeFiring) return;
+    switch (frame->state) {
+    case transport::VADState::ENDING: {
+        if (_agentState.load() != transport::AgentState::LISTENING) return;
+        if (!_transport || !_transport->isConnected()) return;
+        std::string partial;
+        float conf = 0.0f;
+        {
+            std::lock_guard<std::mutex> lock(_partialCacheMutex);
+            partial = _latestPartialText;
+            conf = _latestPartialConfidence;
+        }
+        int words = 0;
+        bool inWord = false;
+        for (char c : partial) {
+            if (c == ' ' || c == '\t' || c == '\n') inWord = false;
+            else if (!inWord) { ++words; inWord = true; }
+        }
+        if (words < _speculativeMinWords) return;
+        {
+            std::lock_guard<std::mutex> lk(_specMutex);
+            if (_spec.active && !_spec.confirmed) return;  // already speculating on this pause
+            _spec = {};                                     // a confirmed one belongs to an earlier turn
+            _spec.active = true;
+            _spec.text = partial;
+        }
+        spdlog::info("[LLMProcessor] User pausing - speculative request on partial: \"{}\"",
+                     partial.substr(0, std::min<size_t>(60, partial.size())));
+        dispatchRequestNow(partial, conf);
+        break;
+    }
+    case transport::VADState::RESUMING:
+        cancelSpeculation("user resumed speaking");
+        break;
+    default:
+        break;
+    }
+}
+
+void LLMProcessor::dispatchRequestNow(const std::string& text, float confidence) {
     VASDK_CTRACK_NAME("LLM::dispatchRequest");
     if (!_transport || !_transport->isConnected()) {
         spdlog::warn("[LLMProcessor] dispatchLLMRequest: transport not connected, skipping");
@@ -914,7 +1073,68 @@ void LLMProcessor::dispatchLLMRequest(const std::string& text, float confidence)
     frame->timestamp = transport::Frame::getCurrentTimestamp();
     frame->sourceId = getName();
     _dispatchGeneration.store(_currentGeneration.load());
-    _transport->sendFrame(frame);
+    enqueueRequest([this, frame] { _transport->sendFrame(frame); });
+}
+
+void LLMProcessor::enqueueRequest(std::function<void()> job) {
+    {
+        std::lock_guard<std::mutex> lock(_requestMutex);
+        _requestQueue.emplace_back(_currentGeneration.load(), std::move(job));
+    }
+    _requestCv.notify_one();
+}
+
+void LLMProcessor::requestWorkerLoop() {
+    while (true) {
+        std::function<void()> job;
+        {
+            std::unique_lock<std::mutex> lock(_requestMutex);
+            _requestCv.wait(lock, [this] { return _requestStop || !_requestQueue.empty(); });
+            if (_requestStop) return;
+            auto [generation, queued] = std::move(_requestQueue.front());
+            _requestQueue.pop_front();
+            if (generation != _currentGeneration.load()) continue;  // superseded by a barge-in
+            job = std::move(queued);
+        }
+        {
+            // A previous stream that failed mid-way never sent its terminal frame.
+            std::lock_guard<std::mutex> lk(_streamingMutex);
+            _streamingBuffer.clear();
+            _extractor.reset();
+            _fillerSent = false;
+        }
+        const uint64_t generation = _currentGeneration.load();
+        job();
+        if (_speechOpen) {
+            if (generation != _currentGeneration.load()) {
+                _speechOpen = false;  // a barge-in dropped the reply
+            } else if (!_awaitingToolFollowUp) {
+                // The request ended (error, cancel) after speaking part of a reply: close it so
+                // TTS can finish the turn. While a tool round trip runs, its follow-up closes it.
+                pushSpeech("", true);
+            }
+        }
+    }
+}
+
+void LLMProcessor::pushSpeech(const std::string& text, bool isFinal, bool isExpecting,
+                              std::vector<transport::TextFrame::Choice> choices) {
+    auto frame         = std::make_shared<transport::TextFrame>();
+    frame->text        = text;
+    frame->isFinal     = isFinal;
+    frame->isExpecting = isExpecting;
+    frame->choices     = std::move(choices);
+    frame->timestamp   = transport::Frame::getCurrentTimestamp();
+    frame->sourceId    = getName();
+    _speechOpen        = !isFinal;
+    {
+        std::lock_guard<std::mutex> lk(_specMutex);
+        if (_spec.active && !_spec.confirmed) {
+            _spec.held.push_back(std::move(frame));  // released when the turn is confirmed
+            return;
+        }
+    }
+    pushDownstream(frame);
 }
 
 void LLMProcessor::startFinalWatchdog() {

@@ -7,7 +7,8 @@ namespace llm {
 
 class VASDK_EXPORT OpenAITransport : public LLMTransport {
 public:
-    explicit OpenAITransport(const LLMConfig& config);
+    explicit OpenAITransport(const LLMConfig& config,
+                             std::shared_ptr<va::network::HttpInterface> client = nullptr);
 
     std::string getName() const override { return "OpenAITransport"; }
     std::string getDescription() const override {

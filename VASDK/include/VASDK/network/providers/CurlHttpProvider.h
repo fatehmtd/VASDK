@@ -1,6 +1,8 @@
 #pragma once
 
 #include <VASDK/network/HttpInterface.h>
+#include <atomic>
+#include <cstdint>
 
 namespace va {
 namespace network {
@@ -36,6 +38,12 @@ public:
                    const std::map<std::string, std::string>& headers,
                    const std::vector<uint8_t>& bytes,
                    int timeoutMs) override;
+
+    void cancel() override { _cancelGeneration.fetch_add(1); }
+
+private:
+    // Each request records the generation it started in and aborts once it changes.
+    std::atomic<uint64_t> _cancelGeneration{0};
 };
 
 } // namespace providers

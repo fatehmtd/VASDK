@@ -17,8 +17,9 @@ void logIfTruncatedByLength(const nlohmann::json& choice) {
 namespace va {
 namespace llm {
 
-OpenAITransport::OpenAITransport(const LLMConfig& config)
-    : LLMTransport(LLMProvider::OPENAI, config) {
+OpenAITransport::OpenAITransport(const LLMConfig& config,
+                                 std::shared_ptr<va::network::HttpInterface> client)
+    : LLMTransport(LLMProvider::OPENAI, config, std::move(client)) {
 }
 
 std::string OpenAITransport::buildRequestPayload(const std::string& userMessage) {
@@ -71,7 +72,7 @@ std::string OpenAITransport::buildRequestPayload(const std::string& userMessage)
     payload["messages"] = messages;
     if (_config.streaming) payload["stream"] = true;
 
-    return payload.dump();
+    return mergeExtraPayload(payload.dump());
 }
 
 std::string OpenAITransport::parseResponse(const std::string& response) {

@@ -55,6 +55,7 @@ public:
     // --- GenericVoiceSynthesisProvider interface ---
     bool synthesizeSpeech(const std::string& text) override;
     void cancelSynthesis() override;
+    bool acceptsQueuedSynthesis() const override { return true; }  // FIFO worker queue
     bool startVoiceSynthesisProvider() override;
     void stopVoiceSynthesisProvider() override;
     bool isVoiceSynthesisProviderRunning() const override;

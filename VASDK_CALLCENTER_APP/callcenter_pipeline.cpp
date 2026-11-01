@@ -178,20 +178,14 @@ static constexpr const char* kCallCenterFormatInstruction =
     "{\"text\": \"<question>\", \"isFinal\": true, \"isExpecting\": true, "
     "\"choices\": [{\"text\": \"Option A\"}, {\"text\": \"Option B\"}]}\n\n"
     "The \"text\" value is read aloud to the caller - keep it natural and concise.\n"
+    "Always put \"text\" first, and open it with a short sentence: it is spoken while the rest is still being written.\n"
     "Never add keys outside this schema or wrap the JSON in markdown.";
 
 static constexpr const char* kCallCenterSystemPromptTemplate = R"(
 You are a helpful call center assistant.
 
-Your goal: {goal_objective}
-
-Information already collected:
-{collected_slots}
-
-Current status: {goal_status}
-
 Instructions:
-- Collect missing information through natural conversation; do not recite the lists above.
+- Collect missing information through natural conversation; do not recite the lists below.
 - The moment the caller provides any required scalar value (name, phone, date, enum choice),
   call update_slot() immediately - do not wait for the turn to end.
 - For OBJECT-type slots (labelled "use update_object_slot"), call update_object_slot() and
@@ -211,9 +205,17 @@ Instructions:
   then call request_confirmation() again.
 - If the caller explicitly requests a human agent, or if the situation is outside your
   scope, call escalate() immediately.
-{escalation_hint}
+
 Available tools:
 {tool_descriptions}
+
+Your goal: {goal_objective}
+
+Information already collected:
+{collected_slots}
+
+Current status: {goal_status}
+{escalation_hint}
 )";
 
 //  Globals
@@ -789,6 +791,7 @@ GoalLLMBundle setupGoalLLMStack(const CliArgs& args) {
     goalLLMBundle.config.apiKey = args.llmApiKey;
     goalLLMBundle.config.model = args.llmModel;
     goalLLMBundle.config.reasoningEffort = args.llmReasoningEffort;
+    if (const char* extra = std::getenv("LLM_EXTRA_PAYLOAD")) goalLLMBundle.config.extraPayload = extra;
 
     goalLLMBundle.config.temperature = 0.15f;
     goalLLMBundle.config.maxTokens = 512*8;
@@ -812,6 +815,11 @@ GoalLLMBundle setupGoalLLMStack(const CliArgs& args) {
     goalLLMBundle.processor->setProcessPartialTranscriptions(false);
     goalLLMBundle.processor->setConfidenceThreshold(0.07f);
     goalLLMBundle.processor->setFirePolicy(std::make_shared<va::llm::FinalOnlyFirePolicy>());
+    goalLLMBundle.processor->setStreamSpeech(true);  // speak each sentence as the LLM streams it
+    // Covers the tool round trip (slot updates, lookups) instead of leaving the caller in silence.
+    goalLLMBundle.processor->setToolFillerPhrases({"One moment.", "Let me check that.", "Just a second."});
+    // Fire on the streaming partial at a sustained pause; held until the final transcript matches.
+    goalLLMBundle.processor->setSpeculativeFiring(true, 3);
 
     //  Tool dispatcher 
     goalLLMBundle.toolDispatcher = std::make_shared<va::llm::ToolDispatchProcessor>();

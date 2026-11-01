@@ -718,8 +718,10 @@ std::string LlamaCppTransport::sendLLMRequest(const std::string& userMessage) {
                                                : std::string{};
             // Trim leading whitespace from post-call speech.
             const size_t postTrimmed = postSpeech.find_first_not_of(" \t\n\r");
+            // Pre-call speech up to lastPartialEnd already went out as partial chunks
+            // (chunking stops at the start marker); send only the rest.
             std::string speechPart = !preSpeech.empty()
-                                         ? preSpeech
+                                         ? preSpeech.substr(std::min(lastPartialEnd, preSpeech.size()))
                                          : (postTrimmed != std::string::npos
                                                 ? postSpeech.substr(postTrimmed)
                                                 : std::string{});
@@ -733,7 +735,8 @@ std::string LlamaCppTransport::sendLLMRequest(const std::string& userMessage) {
                              "around tool call: \"{}\"", speechPart);
                 speechPart.clear();
             }
-            if (!speechPart.empty()) {
+            // Partial chunks must still be closed by a final frame when nothing is left.
+            if (!speechPart.empty() || lastPartialEnd > 0) {
                 auto speechFrame = std::make_shared<transport::TextFrame>();
                 speechFrame->text       = speechPart;
                 speechFrame->timestamp  = transport::Frame::getCurrentTimestamp();

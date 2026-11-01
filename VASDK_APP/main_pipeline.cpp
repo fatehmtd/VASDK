@@ -216,6 +216,7 @@ static constexpr const char* kResponseFormatInstruction =
     "{\"text\": \"<question>\", \"isFinal\": true, \"isExpecting\": true, "
     "\"choices\": [{\"text\": \"Option A\"}, {\"text\": \"Option B\"}]}\n\n"
     "The \"text\" value is spoken aloud - keep it natural. "
+    "Always put \"text\" first, and open it with a short sentence: it is spoken while the rest is still being written. "
     "Never add keys outside this schema or wrap the JSON in markdown.";
 
 class WeatherTool : public va::llm::Tool {
@@ -858,6 +859,7 @@ LLMBundle setupLLMStack(const std::string& modelsPath, const std::string& llmMod
     llmBundle.processor->setProcessPartialTranscriptions(false);
     llmBundle.processor->setConfidenceThreshold(0.07f);
     llmBundle.processor->setFirePolicy(std::make_shared<va::llm::FinalOnlyFirePolicy>());
+    llmBundle.processor->setStreamSpeech(true);  // speak each sentence as the LLM streams it
     llmBundle.processor->setToolDispatcher(llmBundle.toolDispatcher);
 
     return llmBundle;

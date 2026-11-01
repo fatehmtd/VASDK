@@ -2,7 +2,7 @@
 
 #include <VASDK/llm/LLMTransport.h>
 #include "vasdk_llamacpp_export.h"
-#include "ResponseChunker.h"
+#include <VASDK/llm/ResponseChunker.h>
 #include <memory>
 
 namespace va {
