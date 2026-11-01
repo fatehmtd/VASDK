@@ -206,6 +206,10 @@ if(VASDK_BUILD_TESTS)
     add_executable(vasdk_streaming_reply_extractor_test tests/streaming_reply_extractor_test.cpp)
     target_link_libraries(vasdk_streaming_reply_extractor_test PRIVATE VASDK)
     add_test(NAME vasdk_streaming_reply_extractor COMMAND vasdk_streaming_reply_extractor_test)
+
+    add_executable(vasdk_tts_turn_test tests/tts_turn_test.cpp)
+    target_link_libraries(vasdk_tts_turn_test PRIVATE VASDK)
+    add_test(NAME vasdk_tts_turn COMMAND vasdk_tts_turn_test)
 endif()
 
 if(VASDK_BUILD_TESTS AND NOT WIN32)

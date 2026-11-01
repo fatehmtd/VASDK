@@ -1,8 +1,10 @@
 #include "VASDK/TTSFrameProcessor.h"
 #include <VASDK/profiling/CTrack.h>
 #include <spdlog/spdlog.h>
+#include <algorithm>
 #include <memory>
 #include <chrono>
+#include <vector>
 
 namespace va {
     namespace pipeline {
@@ -90,6 +92,11 @@ namespace va {
                 spdlog::info("[TTSFrameProcessor] Cancelling synthesis due to interrupt");
                 _cancelPending = true;
                 cancelDrainWait();              // stop drain wait if already running
+                {
+                    std::lock_guard<std::mutex> lock(_turnMutex);
+                    _pendingSentences.clear();
+                    _providerBusy = _textClosed = _turnActive = _sentInTurn = false;
+                }
                 if (_playbackFlush) _playbackFlush(); // flush SDL buffer immediately
                 if (_synthesisProvider) _synthesisProvider->cancelSynthesis();
                 emitSynthesisState(transport::SynthesisState::INTERRUPTED);
@@ -104,7 +111,7 @@ namespace va {
         }
 
         void TTSFrameProcessor::synthesizeTextFrame(std::shared_ptr<transport::TextFrame> frame) {
-            if (!frame) return;
+            if (!frame || !_synthesisProvider) return;
 
             std::string choicesStr;
             for (const auto& choice : frame->choices) {
@@ -113,11 +120,58 @@ namespace va {
             spdlog::info("[TTSFrameProcessor] Received Structured Text frame: '{}', isFinal={}, isExpecting={}, choices={}",
                 frame->text, frame->isFinal, frame->isExpecting, choicesStr);
 
-            if (!frame->isFinal || frame->text.empty() || !_synthesisProvider) return;
+            bool mergeIntoDrainingTurn = false;
+            {
+                std::lock_guard<std::mutex> lock(_turnMutex);
+                if (_textClosed) {
+                    // A new reply while the previous one is still playing out: one continuous turn.
+                    _textClosed = false;
+                    mergeIntoDrainingTurn = _draining;
+                }
+                if (!frame->text.empty()) _pendingSentences.push_back(frame->text);
+                if (frame->isFinal) _textClosed = true;
+            }
+            if (mergeIntoDrainingTurn) cancelDrainWait();
+            pumpSentences();
+            maybeStartDrain();
+        }
 
-            spdlog::info("[TTSFrameProcessor] Synthesizing: {}", frame->text);
-            _metrics.requests.increment();
-            _synthesisProvider->synthesizeSpeech(frame->text);
+        void TTSFrameProcessor::pumpSentences() {
+            std::vector<std::string> toSend;
+            {
+                std::lock_guard<std::mutex> lock(_turnMutex);
+                const bool queued = _synthesisProvider->acceptsQueuedSynthesis();
+                while (!_pendingSentences.empty() && (queued || !_providerBusy)) {
+                    if (!_sentInTurn) {
+                        _sentInTurn = true;
+                        _synthesisStartTime = std::chrono::steady_clock::now();
+                    }
+                    toSend.push_back(std::move(_pendingSentences.front()));
+                    _pendingSentences.pop_front();
+                    _providerBusy = true;
+                }
+            }
+            // Outside the lock: cloud providers fire onSynthesisStarted() from inside this call.
+            for (const auto& text : toSend) {
+                spdlog::info("[TTSFrameProcessor] Synthesizing: {}", text);
+                _metrics.requests.increment();
+                _synthesisProvider->synthesizeSpeech(text);
+            }
+        }
+
+        void TTSFrameProcessor::maybeStartDrain() {
+            {
+                std::lock_guard<std::mutex> lock(_turnMutex);
+                if (!_textClosed || !_pendingSentences.empty() || _providerBusy || _draining) return;
+                if (!_turnActive) {
+                    // The reply closed without any audio (empty text): nothing to complete.
+                    _textClosed = _sentInTurn = false;
+                    return;
+                }
+                _draining = true;
+            }
+            spdlog::info("[TTSFrameProcessor] Synthesis completed - waiting for audio drain");
+            startDrainWait();
         }
 
         void TTSFrameProcessor::emitSynthesisState(transport::SynthesisState state, const std::string& errorMessage) {
@@ -130,39 +184,62 @@ namespace va {
             pushDownstream(f);  // downstream observers (TUI, SynthesisObserver, etc.)
         }
 
-        // VoiceSynthesisResultListener implementation
+        // VoiceSynthesisResultListener implementation. Provider started/completed only say
+        // whether the provider is busy; the turn's STARTED/COMPLETED are decided here.
         void TTSFrameProcessor::onSynthesisStarted() {
-            spdlog::info("[TTSFrameProcessor] Synthesis started");
-            _cancelPending = false;
-            _firstChunkReceived = false;
-            _synthesisStartTime = std::chrono::steady_clock::now();
-            _playbackStartTime  = _synthesisStartTime; // will be overwritten on first audio chunk
-            _totalAudioDurationMs.store(0);
-            emitSynthesisState(transport::SynthesisState::STARTED);
+            bool emitStarted = false, resumeFromDrain = false;
+            {
+                std::lock_guard<std::mutex> lock(_turnMutex);
+                if (_cancelPending) return;
+                _providerBusy = true;
+                resumeFromDrain = _draining;  // a queued sentence started after the provider idled
+                if (!_turnActive) {
+                    _turnActive = true;
+                    _firstChunkReceived = false;
+                    _playbackEndTime = std::chrono::steady_clock::now();
+                    emitStarted = true;
+                }
+            }
+            if (resumeFromDrain) cancelDrainWait();
+            if (emitStarted) {
+                spdlog::info("[TTSFrameProcessor] Synthesis started");
+                emitSynthesisState(transport::SynthesisState::STARTED);
+            }
         }
 
         void TTSFrameProcessor::onSynthesisCompleted() {
-            if (_cancelPending) {
-                // processFrame already flushed SDL and emitted INTERRUPTED - just reset the flag.
-                spdlog::info("[TTSFrameProcessor] Synthesis finished after interrupt (no-op)");
-                _cancelPending = false;
+            {
+                std::lock_guard<std::mutex> lock(_turnMutex);
+                if (_cancelPending) {
+                    // processFrame already flushed SDL and emitted INTERRUPTED.
+                    spdlog::info("[TTSFrameProcessor] Synthesis finished after interrupt (no-op)");
+                    return;
+                }
+                _providerBusy = false;
             }
-            else {
-                spdlog::info("[TTSFrameProcessor] Synthesis completed - waiting for audio drain");
-                startDrainWait();
-            }
+            pumpSentences();
+            maybeStartDrain();
         }
 
         void TTSFrameProcessor::onSynthesisError(const std::string& error) {
             spdlog::error("[TTSFrameProcessor] Synthesis error: {}", error);
-            _cancelPending = false;
             cancelDrainWait();
+            {
+                std::lock_guard<std::mutex> lock(_turnMutex);
+                _pendingSentences.clear();
+                _providerBusy = _textClosed = _turnActive = _sentInTurn = false;
+            }
             if (_playbackFlush) _playbackFlush();
             emitSynthesisState(transport::SynthesisState::ERROR, error);
         }
 
         void TTSFrameProcessor::startDrainWait() {
-            cancelDrainWait();
+            {
+                std::lock_guard<std::mutex> lock(_drainMutex);
+                if (_drainThread.joinable()) _drainStop = true;
+            }
+            _drainCv.notify_all();
+            if (_drainThread.joinable()) _drainThread.join();
             {
                 std::lock_guard<std::mutex> lock(_drainMutex);
                 _drainStop = false;
@@ -177,30 +254,32 @@ namespace va {
             }
             _drainCv.notify_all();
             if (_drainThread.joinable()) _drainThread.join();
+            std::lock_guard<std::mutex> lock(_turnMutex);
+            _draining = false;
         }
 
         void TTSFrameProcessor::drainWaitLoop() {
-            // Elapsed time since the FIRST audio chunk was handed to the sink.
-            // Audio starts playing at that point, so this correctly measures how
-            // much of the queued audio has already been consumed by the speaker.
-            // Using _synthesisStartTime (before ONNX inference) would overcount
-            // elapsed time and cause COMPLETED to fire before playback finishes.
-            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now() - _playbackStartTime).count();
-            auto total = _totalAudioDurationMs.load() + static_cast<int64_t>(_hardwareBufferMarginMs);
-            auto remainingMs = total - elapsed;
-
-            spdlog::debug("[TTSFrameProcessor] Drain wait: total={}ms, elapsed={}ms, remaining={}ms",
-                          total, elapsed, remainingMs);
-
-            if (remainingMs > 0) {
+            // Wait until everything handed to the sink has played. The end time is re-read on every
+            // pass because late chunks of the turn keep extending it.
+            while (true) {
+                int64_t remainingMs;
+                {
+                    std::lock_guard<std::mutex> lock(_turnMutex);
+                    remainingMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        _playbackEndTime - std::chrono::steady_clock::now()).count()
+                        + static_cast<int64_t>(_hardwareBufferMarginMs);
+                }
+                if (remainingMs <= 0) break;
                 std::unique_lock<std::mutex> lock(_drainMutex);
-                _drainCv.wait_for(lock, std::chrono::milliseconds(remainingMs),
-                                  [this] { return _drainStop; });
+                if (_drainCv.wait_for(lock, std::chrono::milliseconds(std::min<int64_t>(remainingMs, 100)),
+                                      [this] { return _drainStop; }))
+                    return; // cancelled by interrupt or by the turn resuming
             }
 
-            if (_drainStop) return; // cancelled by interrupt
-
+            {
+                std::lock_guard<std::mutex> lock(_turnMutex);
+                _turnActive = _textClosed = _sentInTurn = _draining = false;
+            }
             spdlog::info("[TTSFrameProcessor] Audio drained - emitting COMPLETED");
             if (_onAudioDrained) _onAudioDrained();
             emitSynthesisState(transport::SynthesisState::COMPLETED);
@@ -210,28 +289,25 @@ namespace va {
             if (_cancelPending) return; // Barge-in in progress - discard incoming audio
 
             auto now = std::chrono::steady_clock::now();
-
-            if (!_firstChunkReceived) {
-                _firstChunkReceived = true;
-                _playbackStartTime  = now; // audio starts entering the sink here
-                double ms = std::chrono::duration<double, std::milli>(
-                    now - _synthesisStartTime).count();
-                _metrics.ttfa.observe(ms);
-            }
-            double ms = std::chrono::duration<double, std::milli>(
-                now - _synthesisStartTime).count();
-            _metrics.chunk.observe(ms);
-
             auto audioConfig = _synthesisProvider->getAudioConfiguration();
-
-            // Accumulate playback duration for drain tracking
             int bytesPerSample = audioConfig.getSampleSizeInBytes();
             int channels = audioConfig.channels;
             int sampleRate = audioConfig.sampleRate;
+            int64_t chunkUs = 0;
             if (bytesPerSample > 0 && channels > 0 && sampleRate > 0) {
-                int64_t chunkMs = (static_cast<int64_t>(size) / (bytesPerSample * channels))
-                                  * 1000 / sampleRate;
-                _totalAudioDurationMs.fetch_add(chunkMs);
+                chunkUs = (static_cast<int64_t>(size) / (bytesPerSample * channels)) * 1000000 / sampleRate;
+            }
+            {
+                std::lock_guard<std::mutex> lock(_turnMutex);
+                if (!_firstChunkReceived) {
+                    _firstChunkReceived = true;
+                    _metrics.ttfa.observe(std::chrono::duration<double, std::milli>(
+                        now - _synthesisStartTime).count());
+                }
+                _metrics.chunk.observe(std::chrono::duration<double, std::milli>(
+                    now - _synthesisStartTime).count());
+                // Playback-end model for the drain wait (see _playbackEndTime).
+                _playbackEndTime = std::max(_playbackEndTime, now) + std::chrono::microseconds(chunkUs);
             }
 
             auto audioFrame = std::make_shared<transport::SynthesisFrame>();

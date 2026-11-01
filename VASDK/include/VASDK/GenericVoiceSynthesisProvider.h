@@ -66,6 +66,16 @@ namespace va {
             virtual void cancelSynthesis() {}
 
             /**
+             * @brief Whether synthesizeSpeech() may be called again before the previous call
+             * finished: the provider queues calls and plays them back in order.
+             *
+             * TTSFrameProcessor speaks a reply sentence by sentence. With false (the safe
+             * default) it sends the next sentence only after onSynthesisCompleted() for the
+             * previous one; with true it hands sentences over as soon as they arrive.
+             */
+            virtual bool acceptsQueuedSynthesis() const { return false; }
+
+            /**
              * @brief startVoiceSynthesisProvider
              * @return true if the provider started successfully, false otherwise
              */

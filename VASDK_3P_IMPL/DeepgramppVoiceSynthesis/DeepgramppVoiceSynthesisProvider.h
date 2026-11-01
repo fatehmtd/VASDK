@@ -26,6 +26,8 @@ public:
 
     bool synthesizeSpeech(const std::string& text) override;
     void cancelSynthesis() override;
+    // Speak messages on one socket are synthesized in order.
+    bool acceptsQueuedSynthesis() const override { return true; }
 
     bool startVoiceSynthesisProvider() override;
     void stopVoiceSynthesisProvider() override;
