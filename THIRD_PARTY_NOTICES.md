@@ -12,13 +12,14 @@ Library and provider dependencies (spdlog, nlohmann/json, llama.cpp, whisper.cpp
 | --- | --- | --- | --- |
 | Silero VAD | Voice activity detection | [snakers4/silero-vad](https://github.com/snakers4/silero-vad) | MIT |
 | Smart Turn v3 | Turn detection | [pipecat-ai/smart-turn-v3](https://huggingface.co/pipecat-ai/smart-turn-v3) | BSD 2-Clause |
+| WeSpeaker ResNet34-LM (ONNX) | Speaker identification (`VASDK_BUILD_PYANNOTE_SPEAKER`) | [wespeaker_en_voxceleb_resnet34_LM.onnx](https://github.com/k2-fsa/sherpa-onnx/releases/tag/speaker-recongition-models) (sherpa-onnx export), the same checkpoint as [pyannote/wespeaker-voxceleb-resnet34-LM](https://huggingface.co/pyannote/wespeaker-voxceleb-resnet34-LM) used by [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) | CC BY 4.0 |
 | Parakeet TDT 0.6B v3 (ONNX) | Speech-to-text | [istupakov/parakeet-tdt-0.6b-v3-onnx](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx), converted from [nvidia/parakeet-tdt-0.6b-v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) | CC BY 4.0 |
 | Moonshine Base | Speech-to-text | [UsefulSensors/moonshine](https://huggingface.co/UsefulSensors/moonshine) | MIT |
 | Whisper (ggml conversions) | Speech-to-text | [ggerganov/whisper.cpp](https://huggingface.co/ggerganov/whisper.cpp) | MIT |
-| Whistle (`.cact`) | Speech-to-text (opt-in, `VASDK_BUILD_WHISTLE_STT`) | [Cactus-Compute/whistle](https://huggingface.co/Cactus-Compute/whistle) | Apache 2.0 |
+| Whistle (`.cact`) | Speech-to-text (`VASDK_BUILD_WHISTLE_STT`) | [Cactus-Compute/whistle](https://huggingface.co/Cactus-Compute/whistle) | Apache 2.0 |
 | Pocket TTS (ONNX) | Text-to-speech | [KevinAHM/pocket-tts-web](https://huggingface.co/spaces/KevinAHM/pocket-tts-web), converted from [kyutai/pocket-tts](https://huggingface.co/kyutai/pocket-tts) | CC BY 4.0 |
 | Supertonic 2 | Text-to-speech | [Supertone/supertonic-2](https://huggingface.co/Supertone/supertonic-2) | OpenRAIL |
-| Phonon 40m multilingual (GGUF) + voices | Text-to-speech (opt-in, `VASDK_BUILD_PHONON_TTS`) | [gradium/phonon-40m-multilingual](https://huggingface.co/gradium/phonon-40m-multilingual) (gated), voices from [gradium/phonon-voices](https://huggingface.co/gradium/phonon-voices) | CC BY-NC 4.0 |
+| Phonon 40m multilingual (GGUF) + voices | Text-to-speech (`VASDK_BUILD_PHONON_TTS`) | [gradium/phonon-40m-multilingual](https://huggingface.co/gradium/phonon-40m-multilingual) (gated), voices from [gradium/phonon-voices](https://huggingface.co/gradium/phonon-voices) | CC BY-NC 4.0 |
 | MOSS-TTS-Nano 100M (ONNX) + MOSS-Audio-Tokenizer-Nano decoder | Text-to-speech (opt-in, `VASDK_BUILD_MOSS_TTS`) | [Supbatomic/moss-tts-nano-100m-onnx-model](https://huggingface.co/Supbatomic/moss-tts-nano-100m-onnx-model), exported from [OpenMOSS-Team/MOSS-TTS-Nano](https://huggingface.co/OpenMOSS-Team/MOSS-TTS-Nano); codec from [OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano-ONNX](https://huggingface.co/OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano-ONNX) | Apache 2.0 |
 | LFM2.5 1.2B Instruct (GGUF) | Default local LLM (desktop apps) | [LiquidAI/LFM2.5-1.2B-Instruct-GGUF](https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct-GGUF) | LFM Open License v1.0 |
 | LFM2.5 230M (GGUF) | Default local LLM (Android app) | [LiquidAI/LFM2.5-230M-GGUF](https://huggingface.co/LiquidAI/LFM2.5-230M-GGUF) | LFM Open License v1.0 |
@@ -26,8 +27,8 @@ Library and provider dependencies (spdlog, nlohmann/json, llama.cpp, whisper.cpp
 
 Points worth knowing before you ship a product on top of these:
 
-- **CC BY 4.0** (Parakeet, Pocket TTS) requires attribution to the original model authors if you redistribute the weights or derivatives of them.
-- **CC BY-NC 4.0** (Phonon 40m models and voices) forbids commercial use. The model is off by default. For a commercial product, license the weights from Gradium or look at the Apache 2.0 [gradium/phonon-31m-en](https://huggingface.co/gradium/phonon-31m-en) (not yet tested with VASDK's Phonon provider).
+- **CC BY 4.0** (Parakeet, Pocket TTS, WeSpeaker ResNet34-LM) requires attribution to the original model authors if you redistribute the weights or derivatives of them. WeSpeaker's VoxCeleb models carry the license of their training data, the [VoxCeleb dataset](https://mm.kaist.ac.kr/datasets/voxceleb/).
+- **CC BY-NC 4.0** (Phonon 40m models and voices) forbids commercial use. Phonon is on by default on desktop and downloads the 40m model when a HuggingFace token is set. For a commercial product, license the weights from Gradium or switch to the Apache 2.0 [gradium/phonon-31m-en](https://huggingface.co/gradium/phonon-31m-en) with `-DPHONON_TTS_HF_REPO=gradium/phonon-31m-en` (the Android app already uses it).
 - **OpenRAIL** (Supertonic 2) is a responsible-AI license with use restrictions. Read the [license text on the model page](https://huggingface.co/Supertone/supertonic-2) before commercial use.
 - **LFM Open License v1.0** (both LFM2.5 GGUF models - the 1.2B desktop default and the 230M Android default) is Liquid AI's custom license with its own commercial terms. Read the LICENSE file in the respective model repository ([1.2B](https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct-GGUF/blob/main/LICENSE), [230M](https://huggingface.co/LiquidAI/LFM2.5-230M-GGUF)) before commercial use, or swap in a different GGUF via `-DVASDK_LLAMACPP_MODEL_URL` (desktop) or a different `LLMModelMeta` preset (Android).
 
@@ -38,9 +39,9 @@ Every VAD/STT/TTS/LLM/audio provider under `VASDK_3P_IMPL/`, plus the core libra
 | Dependency | Used by | Source | License |
 | --- | --- | --- | --- |
 | [snakers4/silero-vad](https://github.com/snakers4/silero-vad) | VAD (Silero) | GitHub | MIT |
-| [marton78/pffft](https://github.com/marton78/pffft) | SmartTurn v3, VizAnim (FFT) | GitHub | Permissive NCAR/UCAR license |
+| [marton78/pffft](https://github.com/marton78/pffft) | SmartTurn v3, VizAnim, pyannote speaker embedding (FFT) | GitHub | Permissive NCAR/UCAR license |
 | [xiph/rnnoise](https://github.com/xiph/rnnoise) | Noise suppression | GitHub | BSD 3-Clause |
-| [microsoft/onnxruntime](https://github.com/microsoft/onnxruntime) | Silero, Parakeet, SmartTurn, PocketTTS, Supertonic (ONNX inference) | GitHub (release archive) | MIT |
+| [microsoft/onnxruntime](https://github.com/microsoft/onnxruntime) | Silero, Parakeet, SmartTurn, PocketTTS, Supertonic, MOSS-TTS-Nano, pyannote speaker embedding (ONNX inference) | GitHub (release archive) | MIT |
 | [moonshine-ai/moonshine](https://github.com/moonshine-ai/moonshine) | STT (Moonshine tokenizer/runtime code) | GitHub | MIT (English models); non-commercial Moonshine Community License for other languages |
 | [ggml-org/whisper.cpp](https://github.com/ggml-org/whisper.cpp) | STT (Whisper.cpp) | GitHub | MIT |
 | Cactus needle engine | STT (Whistle; prebuilt binaries only, no source) | [Cactus-Compute/needle3](https://huggingface.co/Cactus-Compute/needle3) (HuggingFace: `cactus-needle` wheel on desktop, `libneedle.a` on Android) | Apache 2.0 |
