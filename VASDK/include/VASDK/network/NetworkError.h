@@ -15,6 +15,7 @@ enum class NetworkErrorCode {
     SendFailed,        // write to socket failed
     ReceiveFailed,     // read from socket failed
     LibraryError,      // internal library error
+    Cancelled,         // aborted by HttpInterface::cancel(); not reported via onError
 };
 
 struct NetworkError {

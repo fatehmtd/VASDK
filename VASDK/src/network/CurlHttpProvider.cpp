@@ -19,15 +19,23 @@ static size_t writeCallback(void* contents, size_t size, size_t nmemb, void* use
     return size * nmemb;
 }
 
+struct CancelToken {
+    const std::atomic<uint64_t>* generation;
+    uint64_t startGeneration;
+    bool cancelled() const { return generation && generation->load() != startGeneration; }
+};
+
 struct StreamingContext {
     std::string* response;
     std::function<void(const std::string&)> onChunk;
+    const CancelToken* cancel;
 };
 
 static size_t streamingWriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
     size_t bytes = size * nmemb;
     auto* ctx = static_cast<StreamingContext*>(userp);
     if (!ctx || !ctx->response) return 0;
+    if (ctx->cancel && ctx->cancel->cancelled()) return 0;  // aborts with CURLE_WRITE_ERROR
 
     const char* chunk = static_cast<const char*>(contents);
     ctx->response->append(chunk, bytes);
@@ -97,7 +105,8 @@ static HttpResponse performRequest(const std::string& url,
                                    const std::string* body,
                                    int timeoutMs,
                                    const std::function<void(const std::string&)>& onChunk,
-                                   const std::function<void(const NetworkError&)>& onError) {
+                                   const std::function<void(const NetworkError&)>& onError,
+                                   const CancelToken& cancel) {
     ensureCurlInit();
 
     HttpResponse result;
@@ -126,7 +135,7 @@ static HttpResponse performRequest(const std::string& url,
         curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(body->size()));
     }
 
-    StreamingContext streamCtx{&result.body, onChunk};
+    StreamingContext streamCtx{&result.body, onChunk, &cancel};
     if (onChunk) {
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, streamingWriteCallback);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, &streamCtx);
@@ -142,7 +151,25 @@ static HttpResponse performRequest(const std::string& url,
     }
     if (headerList) curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headerList);
 
-    CURLcode res = curl_easy_perform(curl);
+    // Drive the transfer through a multi handle so a cancel() is noticed within ~50 ms even while
+    // waiting for the first byte (curl_easy_perform's progress callback only fires once a second).
+    CURLcode res = CURLE_OK;
+    CURLM* multi = curl_multi_init();
+    curl_multi_add_handle(multi, curl);
+    int running = 1;
+    while (running) {
+        if (curl_multi_perform(multi, &running) != CURLM_OK) { res = CURLE_RECV_ERROR; break; }
+        if (!running) {
+            int queued = 0;
+            if (CURLMsg* msg = curl_multi_info_read(multi, &queued); msg && msg->msg == CURLMSG_DONE)
+                res = msg->data.result;
+            break;
+        }
+        if (cancel.cancelled()) { res = CURLE_ABORTED_BY_CALLBACK; break; }
+        curl_multi_poll(multi, nullptr, 0, 50, nullptr);
+    }
+    curl_multi_remove_handle(multi, curl);
+    curl_multi_cleanup(multi);
 
     long httpStatus = 0;
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpStatus);
@@ -166,7 +193,12 @@ static HttpResponse performRequest(const std::string& url,
                 "Unsupported URL protocol for endpoint: " + url;
         }
     }
-    if (result.error && onError) onError(result.error);
+    if (cancel.cancelled() &&
+        (res == CURLE_ABORTED_BY_CALLBACK || res == CURLE_WRITE_ERROR || res == CURLE_OK)) {
+        result.error = {NetworkErrorCode::Cancelled, "Request cancelled"};
+    }
+    // A cancel is a deliberate abort, not a failure: don't report it as a network error.
+    if (result.error && result.error.code != NetworkErrorCode::Cancelled && onError) onError(result.error);
 
     if (headerList) curl_slist_free_all(headerList);
     curl_easy_cleanup(curl);
@@ -183,7 +215,8 @@ HttpResponse CurlHttpProvider::post(const std::string& url,
                                     int timeoutMs,
                                     std::function<void(const std::string&)> onChunk) {
 #ifdef VASDK_HAS_CURL
-    auto resp = performRequest(url, headers, &body, timeoutMs, onChunk, onError);
+    auto resp = performRequest(url, headers, &body, timeoutMs, onChunk, onError,
+                               CancelToken{&_cancelGeneration, _cancelGeneration.load()});
     if (resp.error.ok() && onTextReceived && !resp.body.empty())
         onTextReceived(resp.body);
     return resp;
@@ -200,7 +233,8 @@ HttpResponse CurlHttpProvider::get(const std::string& url,
                                    const std::map<std::string, std::string>& headers,
                                    int timeoutMs) {
 #ifdef VASDK_HAS_CURL
-    auto resp = performRequest(url, headers, nullptr, timeoutMs, nullptr, onError);
+    auto resp = performRequest(url, headers, nullptr, timeoutMs, nullptr, onError,
+                               CancelToken{&_cancelGeneration, _cancelGeneration.load()});
     if (resp.error.ok() && onTextReceived && !resp.body.empty())
         onTextReceived(resp.body);
     return resp;

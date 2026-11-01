@@ -95,6 +95,13 @@ bool LLMProcessor::start() {
     }
     _finalWatchdogThread = std::thread(&LLMProcessor::finalWatchdogLoop, this);
 
+    {
+        std::lock_guard<std::mutex> lock(_requestMutex);
+        _requestStop = false;
+        _requestQueue.clear();
+    }
+    _requestThread = std::thread(&LLMProcessor::requestWorkerLoop, this);
+
     spdlog::info("[LLMProcessor] Processor started");
 
     return true;
@@ -112,6 +119,15 @@ void LLMProcessor::stop() {
     }
     _watchdogCv.notify_all();
     if (_finalWatchdogThread.joinable()) _finalWatchdogThread.join();
+
+    {
+        std::lock_guard<std::mutex> lock(_requestMutex);
+        _requestStop = true;
+        _requestQueue.clear();
+    }
+    _requestCv.notify_all();
+    if (_transport) _transport->cancel();  // unblock a request in flight
+    if (_requestThread.joinable()) _requestThread.join();
 
     if (_transport) {
         _transport->stop();
@@ -249,7 +265,7 @@ void LLMProcessor::processFrame(std::shared_ptr<transport::Frame> frame,
                         _pendingToolCount.store(0);
                         _collectedToolResults.clear();
                     }
-                    _transport->injectToolResults(snapshot);
+                    enqueueRequest([this, snapshot] { _transport->injectToolResults(snapshot); });
                 }
                 return;
             }
@@ -612,6 +628,7 @@ void LLMProcessor::processDownstream(std::shared_ptr<transport::Frame> frame) {
 
 void LLMProcessor::onTransportFrameReceived(std::shared_ptr<transport::Frame> frame) {
     if (_dispatchGeneration.load() != _currentGeneration.load()) {
+        std::lock_guard<std::mutex> lk(_streamingMutex);
         _streamingBuffer.clear();
         return;
     }
@@ -627,15 +644,17 @@ void LLMProcessor::onTransportFrameReceived(std::shared_ptr<transport::Frame> fr
     if (frame->getType() == transport::FrameType::TEXT) {
         auto textFrame = std::dynamic_pointer_cast<transport::TextFrame>(frame);
         if (textFrame) {
-            if (!textFrame->isFinal) {
-                _streamingBuffer.push_back(textFrame);
-                return;
-            }
-
             std::string fullText;
-            for (const auto& chunk : _streamingBuffer) fullText += chunk->text;
-            fullText += textFrame->text;
-            _streamingBuffer.clear();
+            {
+                std::lock_guard<std::mutex> lk(_streamingMutex);
+                if (!textFrame->isFinal) {
+                    _streamingBuffer.push_back(textFrame);
+                    return;
+                }
+                for (const auto& chunk : _streamingBuffer) fullText += chunk->text;
+                fullText += textFrame->text;
+                _streamingBuffer.clear();
+            }
 
             auto [reasoningOpen, reasoningClose] = effectiveReasoningTags();
             auto resp = parseStructuredResponse(fullText, reasoningOpen, reasoningClose);
@@ -742,6 +761,13 @@ bool LLMProcessor::handleAgentStateTransition(std::shared_ptr<transport::AgentSt
 void LLMProcessor::handleInterruptTransition(transport::AgentStateTransition t) {
     spdlog::info("[LLMProcessor] Interrupt received ({}); cancelling LLM",
         transport::toString(t));
+    // Bump the generation and drop queued requests before aborting the one in flight, so
+    // nothing queued behind it starts after the cancel.
+    ++_currentGeneration;
+    {
+        std::lock_guard<std::mutex> lock(_requestMutex);
+        _requestQueue.clear();
+    }
     if (_transport) _transport->cancel();
     _partialAlreadySent = false;
     {
@@ -755,8 +781,10 @@ void LLMProcessor::handleInterruptTransition(transport::AgentStateTransition t) 
         _pendingTurnEnd = false;
         _accumulatedFinalText.clear();
     }
-    ++_currentGeneration;
-    _streamingBuffer.clear();
+    {
+        std::lock_guard<std::mutex> lk(_streamingMutex);
+        _streamingBuffer.clear();
+    }
     {
         std::lock_guard<std::mutex> lk(_toolResultsMutex);
         _pendingToolCount.store(0);
@@ -815,22 +843,7 @@ void LLMProcessor::handleTranscriptionReadyTransition() {
             partial.substr(0, std::min<size_t>(60, partial.size())),
             partialConf, wordCount);
         _partialAlreadySent = true;
-        _llmRequestStart = std::chrono::steady_clock::now();
-        _firstTokenReceived = false;
-        _toolCallDepth = 0;
-        {
-            std::lock_guard<std::mutex> lk(_toolResultsMutex);
-            _lastToolBatch.clear();
-            _lastToolBatchText.clear();
-        }
-        _metrics.requests.increment();
-        auto syntheticFrame = std::make_shared<transport::TranscriptionFrame>();
-        syntheticFrame->isFinal = true;
-        syntheticFrame->transcriptionResult.text = partial;
-        syntheticFrame->transcriptionResult.confidence = 1.0f;
-        syntheticFrame->timestamp = transport::Frame::getCurrentTimestamp();
-        syntheticFrame->sourceId = getName();
-        _transport->sendFrame(syntheticFrame);
+        dispatchLLMRequest(partial, 1.0f);
     }
     else {
         spdlog::info("[LLMProcessor] {} WAIT_FOR_FINAL on TRANSCRIPTION_READY "
@@ -914,7 +927,36 @@ void LLMProcessor::dispatchLLMRequest(const std::string& text, float confidence)
     frame->timestamp = transport::Frame::getCurrentTimestamp();
     frame->sourceId = getName();
     _dispatchGeneration.store(_currentGeneration.load());
-    _transport->sendFrame(frame);
+    enqueueRequest([this, frame] { _transport->sendFrame(frame); });
+}
+
+void LLMProcessor::enqueueRequest(std::function<void()> job) {
+    {
+        std::lock_guard<std::mutex> lock(_requestMutex);
+        _requestQueue.emplace_back(_currentGeneration.load(), std::move(job));
+    }
+    _requestCv.notify_one();
+}
+
+void LLMProcessor::requestWorkerLoop() {
+    while (true) {
+        std::function<void()> job;
+        {
+            std::unique_lock<std::mutex> lock(_requestMutex);
+            _requestCv.wait(lock, [this] { return _requestStop || !_requestQueue.empty(); });
+            if (_requestStop) return;
+            auto [generation, queued] = std::move(_requestQueue.front());
+            _requestQueue.pop_front();
+            if (generation != _currentGeneration.load()) continue;  // superseded by a barge-in
+            job = std::move(queued);
+        }
+        {
+            // A previous stream that failed mid-way never sent its terminal frame.
+            std::lock_guard<std::mutex> lk(_streamingMutex);
+            _streamingBuffer.clear();
+        }
+        job();
+    }
 }
 
 void LLMProcessor::startFinalWatchdog() {

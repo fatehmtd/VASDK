@@ -42,6 +42,10 @@ public:
                            const std::vector<uint8_t>& bytes,
                            int timeoutMs) = 0;
 
+    // Aborts every request in flight on this client (they return NetworkErrorCode::Cancelled).
+    // Requests started afterwards run normally. Default: no-op for clients that can't abort.
+    virtual void cancel() {}
+
     // Receive callbacks - set by HttpTransport during initialize()
     std::function<void(const std::string&)>          onTextReceived;
     std::function<void(const std::vector<uint8_t>&)> onBytesReceived;

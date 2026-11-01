@@ -33,7 +33,9 @@ public:
         return "Transport for Large Language Model services (OpenAI, Anthropic, etc.)";
     }
 
-    virtual void cancel() {}
+    // Aborts the request in flight (thread-safe; call from any thread). The aborted turn's
+    // user message is rolled back from history and no response frame is emitted.
+    virtual void cancel() { cancelHttpRequests(); }
 
     void setConfig(const LLMConfig& config);
     const LLMConfig& getConfig() const { return _config; }
@@ -115,6 +117,11 @@ protected:
     // token) so the model produces a final answer instead of re-emitting the
     // tool call it just made.
     std::atomic<bool> _forcingFinalAnswer{false};
+
+    // Outcome of the last sendLLMRequest(): aborted by cancel(), and whether the reply arrived
+    // as SSE deltas (already emitted as partial frames) rather than one JSON body.
+    bool _lastRequestCancelled = false;
+    bool _lastResponseStreamed = false;
 };
 
 } // namespace llm

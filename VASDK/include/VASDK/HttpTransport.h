@@ -52,6 +52,9 @@ protected:
         const std::map<std::string, std::string>& headers,
         int timeoutMs);
 
+    // Aborts the request in flight on the HTTP client, if the client supports it.
+    void cancelHttpRequests() { if (_httpClient) _httpClient->cancel(); }
+
     //  Network event hooks - override in subclass 
 
     // Fired per streaming chunk (SSE) or for the full response body

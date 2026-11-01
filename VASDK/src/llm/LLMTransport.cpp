@@ -194,10 +194,10 @@ void LLMTransport::injectToolResults(
     _forcingFinalAnswer.store(true, std::memory_order_relaxed);
     std::string response = sendLLMRequest("");
     _forcingFinalAnswer.store(false, std::memory_order_relaxed);
-    if (!response.empty()) {
+    if (!response.empty() && !_lastRequestCancelled) {
         addMessageToHistory(MessageRole::ASSISTANT, response);
 
-        if (!_config.streaming) {
+        if (!_lastResponseStreamed) {
             auto responseFrame = std::make_shared<transport::TextFrame>();
             responseFrame->text = response;
             responseFrame->isFinal = true;
@@ -316,10 +316,22 @@ bool LLMTransport::processIncomingFrame(std::shared_ptr<transport::Frame> frame)
     addMessageToHistory(MessageRole::USER, userMessage);
 
     std::string response = sendLLMRequest(userMessage);
+    if (_lastRequestCancelled) {
+        // Roll back the aborted turn so the next request doesn't carry a dangling user message.
+        std::lock_guard<std::mutex> lock(_historyMutex);
+        for (auto it = _conversationHistory.rbegin(); it != _conversationHistory.rend(); ++it) {
+            if (it->role == MessageRole::USER && it->content == userMessage) {
+                _conversationHistory.erase(std::next(it).base());
+                break;
+            }
+        }
+        return false;
+    }
     if (!response.empty()) {
         addMessageToHistory(MessageRole::ASSISTANT, response);
 
-        if (!_config.streaming) {
+        // Streamed replies were already delivered as partial frames + a terminal frame.
+        if (!_lastResponseStreamed) {
             auto responseFrame = std::make_shared<transport::TextFrame>();
             responseFrame->text = response;
             responseFrame->timestamp = transport::Frame::getCurrentTimestamp();
@@ -351,6 +363,8 @@ void LLMTransport::applyProviderAuthHeaders(std::map<std::string, std::string>& 
 
 std::string LLMTransport::sendLLMRequest(const std::string& userMessage) {
     VASDK_CTRACK_NAME("LLM::sendRequest");
+    _lastRequestCancelled = false;
+    _lastResponseStreamed = false;
     try {
         std::string endpointValidationError;
         if (!normalizeAndValidateEndpoint(_config, endpointValidationError)) {
@@ -437,6 +451,11 @@ std::string LLMTransport::sendLLMRequest(const std::string& userMessage) {
             std::chrono::steady_clock::now() - t0).count();
         _apiRoundtripSampler.observe(ms);
 
+        if (resp.error.code == va::network::NetworkErrorCode::Cancelled) {
+            spdlog::info("[LLMTransport] Request cancelled");
+            _lastRequestCancelled = true;
+            return "";
+        }
         if (resp.error) return "";
 
         spdlog::debug("[LLMTransport] Received response: {}", resp.body);
@@ -450,6 +469,7 @@ std::string LLMTransport::sendLLMRequest(const std::string& userMessage) {
             terminalFrame->sequenceId = _nextSequenceId++;
             terminalFrame->sourceId = getName();
             enqueueReceivedFrame(terminalFrame);
+            _lastResponseStreamed = true;
             return streamedText;
         }
 

@@ -199,3 +199,10 @@ install(DIRECTORY include/VASDK
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/vasdk_export.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/VASDK
 )
+
+# Unit tests (run with ctest)
+if(VASDK_BUILD_TESTS AND NOT WIN32)
+    add_executable(vasdk_http_cancel_test tests/http_cancel_test.cpp)
+    target_link_libraries(vasdk_http_cancel_test PRIVATE VASDK)
+    add_test(NAME vasdk_http_cancel COMMAND vasdk_http_cancel_test)
+endif()

@@ -15,6 +15,8 @@
 #include <thread>
 #include <condition_variable>
 #include <atomic>
+#include <deque>
+#include <functional>
 
 namespace va {
 namespace llm {
@@ -114,6 +116,17 @@ private:
     void finalWatchdogLoop();
     void dispatchLLMRequest(const std::string& text, float confidence);
 
+    // LLM requests run on their own thread, one at a time, so interrupts are handled while a
+    // reply is still generating. A job queued in an older generation (barge-in happened) is
+    // skipped without running.
+    void enqueueRequest(std::function<void()> job);
+    void requestWorkerLoop();
+    std::thread             _requestThread;
+    std::mutex              _requestMutex;
+    std::condition_variable _requestCv;
+    std::deque<std::pair<uint64_t, std::function<void()>>> _requestQueue;
+    bool                    _requestStop{false};
+
     struct ToolCall {
         std::string toolName;
         std::string argsJson;
@@ -141,8 +154,9 @@ private:
     bool _reasoningTagsOverridden{false};
 
     std::shared_ptr<ToolDispatchProcessor> _toolDispatcher;
+    std::mutex _streamingMutex;  // guards _streamingBuffer (request thread vs. interrupts)
     std::vector<std::shared_ptr<transport::TextFrame>> _streamingBuffer;
-    int _toolCallDepth{0};
+    std::atomic<int> _toolCallDepth{0};
     static constexpr int kMaxToolCallDepth = 5;
 
     std::atomic<int> _pendingToolCount{0};
