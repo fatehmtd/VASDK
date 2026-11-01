@@ -14,7 +14,7 @@ Library and provider dependencies (spdlog, nlohmann/json, llama.cpp, whisper.cpp
 | Smart Turn v3 | Turn detection | [pipecat-ai/smart-turn-v3](https://huggingface.co/pipecat-ai/smart-turn-v3) | BSD 2-Clause |
 | WeSpeaker ResNet34-LM (ONNX) | Speaker identification (`VASDK_BUILD_PYANNOTE_SPEAKER`) | [wespeaker_en_voxceleb_resnet34_LM.onnx](https://github.com/k2-fsa/sherpa-onnx/releases/tag/speaker-recongition-models) (sherpa-onnx export), the same checkpoint as [pyannote/wespeaker-voxceleb-resnet34-LM](https://huggingface.co/pyannote/wespeaker-voxceleb-resnet34-LM) used by [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) | CC BY 4.0 |
 | Parakeet TDT 0.6B v3 (ONNX) | Speech-to-text | [istupakov/parakeet-tdt-0.6b-v3-onnx](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx), converted from [nvidia/parakeet-tdt-0.6b-v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) | CC BY 4.0 |
-| Moonshine Base | Speech-to-text | [UsefulSensors/moonshine](https://huggingface.co/UsefulSensors/moonshine) | MIT |
+| Moonshine Streaming (Tiny/Small/Medium, English) | Speech-to-text | [UsefulSensors/moonshine-streaming](https://huggingface.co/UsefulSensors/moonshine-streaming), `tokenizer.bin` from download.moonshine.ai | MIT |
 | Whisper (ggml conversions) | Speech-to-text | [ggerganov/whisper.cpp](https://huggingface.co/ggerganov/whisper.cpp) | MIT |
 | Whistle (`.cact`) | Speech-to-text (`VASDK_BUILD_WHISTLE_STT`) | [Cactus-Compute/whistle](https://huggingface.co/Cactus-Compute/whistle) | Apache 2.0 |
 | Pocket TTS (ONNX) | Text-to-speech | [KevinAHM/pocket-tts-web](https://huggingface.co/spaces/KevinAHM/pocket-tts-web), converted from [kyutai/pocket-tts](https://huggingface.co/kyutai/pocket-tts) | CC BY 4.0 |
@@ -42,7 +42,7 @@ Every VAD/STT/TTS/LLM/audio provider under `VASDK_3P_IMPL/`, plus the core libra
 | [marton78/pffft](https://github.com/marton78/pffft) | SmartTurn v3, VizAnim, pyannote speaker embedding (FFT) | GitHub | Permissive NCAR/UCAR license |
 | [xiph/rnnoise](https://github.com/xiph/rnnoise) | Noise suppression | GitHub | BSD 3-Clause |
 | [microsoft/onnxruntime](https://github.com/microsoft/onnxruntime) | Silero, Parakeet, SmartTurn, PocketTTS, Supertonic, MOSS-TTS-Nano, pyannote speaker embedding (ONNX inference) | GitHub (release archive) | MIT |
-| [moonshine-ai/moonshine](https://github.com/moonshine-ai/moonshine) | STT (Moonshine tokenizer/runtime code) | GitHub | MIT (English models); non-commercial Moonshine Community License for other languages |
+| [moonshine-ai/moonshine](https://github.com/moonshine-ai/moonshine) | STT (Moonshine streaming model, ORT utils and tokenizer code) | GitHub | MIT (English models); non-commercial Moonshine Community License for other languages |
 | [ggml-org/whisper.cpp](https://github.com/ggml-org/whisper.cpp) | STT (Whisper.cpp) | GitHub | MIT |
 | Cactus needle engine | STT (Whistle; prebuilt binaries only, no source) | [Cactus-Compute/needle3](https://huggingface.co/Cactus-Compute/needle3) (HuggingFace: `cactus-needle` wheel on desktop, `libneedle.a` on Android) | Apache 2.0 |
 | [fatehmtd/gladiapp](https://github.com/fatehmtd/gladiapp) | STT (Gladia, cloud) | GitHub | MIT |
