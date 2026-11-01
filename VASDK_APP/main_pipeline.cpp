@@ -660,10 +660,8 @@ std::optional<AudioBundle> setupAudioProviders(const std::string& modelsPath, in
 #elif defined(VASDK_HAS_MOONSHINE_STT)
     auto moonshine = std::make_shared<MoonshineSttProvider>(modelsPath + "/moonshine");
     MoonshineSttProvider::InferenceConfig inferenceConfig;
-    inferenceConfig.idleTimeoutMs           = 350;
-    inferenceConfig.partialIntervalMs       = 80;
-    inferenceConfig.minNewSamplesForPartial = frameSize;
-    inferenceConfig.minNewSamplesForFinal   = frameSize;
+    inferenceConfig.idleTimeoutMs     = 350;
+    inferenceConfig.partialIntervalMs = 160;
     moonshine->setInferenceConfig(inferenceConfig);
     b.transcriptionProvider = moonshine;
 #elif defined(VASDK_HAS_PARAKEET)
