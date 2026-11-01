@@ -1,7 +1,7 @@
 // End-to-end smoke test for SupertonicVoiceSynthesisProvider: synthesizes text through the full
 // ONNX pipeline at the pipeline's 16 kHz int16 format and writes a WAV for listening.
 //
-// Usage: supertonic_tts_synth_test <model_dir> [out.wav] [lang] [text]
+// Usage: supertonic_tts_synth_test <model_dir> [out.wav] [lang] [text] [steps]
 // Exits 77 (skipped) when the model files are not present.
 
 #include "SupertonicTTS/SupertonicVoiceSynthesisProvider.hpp"
@@ -11,6 +11,7 @@
 #include <cmath>
 #include <condition_variable>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <mutex>
@@ -23,7 +24,8 @@ struct Collector : va::audio::VoiceSynthesisResultListener {
     std::mutex              m;
     std::condition_variable cv;
     std::vector<int16_t>    samples;
-    bool done = false, error = false;
+    bool done = false, error = false, gotAudio = false;
+    std::chrono::steady_clock::time_point firstAudio;
 
     void onSynthesisStarted() override {}
     void onSynthesisCompleted() override { std::lock_guard<std::mutex> l(m); done = true; cv.notify_all(); }
@@ -33,6 +35,7 @@ struct Collector : va::audio::VoiceSynthesisResultListener {
     }
     void onAudioDataReceived(const char* data, size_t size) override {
         std::lock_guard<std::mutex> l(m);
+        if (!gotAudio) { gotAudio = true; firstAudio = std::chrono::steady_clock::now(); }
         const auto* p = reinterpret_cast<const int16_t*>(data);
         samples.insert(samples.end(), p, p + size / sizeof(int16_t));
     }
@@ -53,7 +56,7 @@ void writeWav(const std::string& path, const std::vector<int16_t>& pcm, int rate
 
 int main(int argc, char** argv) {
     if (argc < 2) {
-        std::fprintf(stderr, "usage: %s <model_dir> [out.wav] [lang] [text]\n", argv[0]);
+        std::fprintf(stderr, "usage: %s <model_dir> [out.wav] [lang] [text] [steps]\n", argv[0]);
         return 2;
     }
     const std::filesystem::path modelDir = argv[1];
@@ -62,6 +65,7 @@ int main(int argc, char** argv) {
     const std::string lang = argc > 3 ? argv[3] : "de";
     const std::string text = argc > 4 ? argv[4]
         : "Hallo! Dies ist ein kurzer Test der Sprachsynthese, komplett offline.";
+    const int steps = argc > 5 ? std::atoi(argv[5]) : 0;  // 0 = provider default
 
     const auto onnxDir   = modelDir / "onnx";
     const auto stylePath = modelDir / "voice_styles" / "M1.json";
@@ -80,16 +84,19 @@ int main(int argc, char** argv) {
     SupertonicVoiceSynthesisProvider tts(onnxDir.string(), stylePath.string(), lang);
     tts.setAudioConfiguration(cfg);
     tts.setVoiceSynthesisResultListener(&collector);
+    if (steps > 0) tts.setTotalSteps(steps);
     if (!tts.startVoiceSynthesisProvider()) {
         std::fprintf(stderr, "failed to start provider\n");
         return 1;
     }
 
+    const auto t0 = std::chrono::steady_clock::now();
     tts.synthesizeSpeech(text);
     {
         std::unique_lock<std::mutex> l(collector.m);
         collector.cv.wait_for(l, std::chrono::minutes(5), [&] { return collector.done; });
     }
+    const auto t1 = std::chrono::steady_clock::now();
     tts.stopVoiceSynthesisProvider();
 
     if (collector.error || !collector.done) {
@@ -103,8 +110,13 @@ int main(int argc, char** argv) {
     const double seconds = double(collector.samples.size()) / kRate;
     const double rms     = collector.samples.empty() ? 0.0 : std::sqrt(sumSq / collector.samples.size()) / 32768.0;
 
+    const double elapsed = std::chrono::duration<double>(t1 - t0).count();
+    const double ttfa    = std::chrono::duration<double>(collector.firstAudio - t0).count();
+
     writeWav(outPath, collector.samples, kRate);
-    std::printf("lang=%s audio=%.2fs rms=%.4f peak=%d -> %s\n", lang.c_str(), seconds, rms, peak, outPath.c_str());
+    std::printf("lang=%s steps=%d audio=%.2fs elapsed=%.2fs RTF=%.2f first-audio=%.2fs rms=%.4f peak=%d -> %s\n",
+                lang.c_str(), tts.getTotalSteps(), seconds, elapsed, seconds > 0 ? elapsed / seconds : 0.0, ttfa,
+                rms, peak, outPath.c_str());
 
     // Plausibility: speech-length audio that is not silent and not clipped flat.
     if (seconds < 1.0 || rms < 0.005 || peak >= 32767) {
