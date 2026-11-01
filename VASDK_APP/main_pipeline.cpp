@@ -692,8 +692,8 @@ std::optional<AudioBundle> setupAudioProviders(const std::string& modelsPath, in
     b.ttsProvider = sonioxTts;
 #elif defined(VASDK_HAS_SUPERTONIC_TTS)
     auto supertonic = std::make_shared<SupertonicVoiceSynthesisProvider>(
-        modelsPath + "/supertonic/onnx",
-        modelsPath + "/supertonic/voice_styles/M1.json");
+        modelsPath + "/supertonic3/onnx",
+        modelsPath + "/supertonic3/voice_styles/M1.json");
     supertonic->setTotalSteps(15);
     b.ttsProvider = supertonic;
 #elif defined(VASDK_HAS_DEEPGRAMPP_TTS)

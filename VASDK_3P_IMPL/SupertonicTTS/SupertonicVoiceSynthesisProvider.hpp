@@ -15,7 +15,7 @@
 class SupertonicInferenceImpl;
 
 /**
- * @brief Voice synthesis provider backed by the Supertonic 2 local ONNX TTS engine.
+ * @brief Voice synthesis provider backed by the Supertonic 3 local ONNX TTS engine.
  *
  * Implements GenericVoiceSynthesisProvider so it can be plugged directly into
  * TTSFrameProcessor in the VASDK pipeline.
@@ -25,7 +25,7 @@ public:
     /**
      * @param modelDir   Path to directory with ONNX models (tts.json, unicode_indexer.json, *.onnx)
      * @param stylePath  Path to a voice style JSON file (e.g. M1.json)
-     * @param lang       Language code: en, ko, es, pt, fr  (default: "en")
+     * @param lang       Language code, any of the 31 in helper.cpp AVAILABLE_LANGS, e.g. en, ko, ja, de, fr (default: "en")
      */
     SupertonicVoiceSynthesisProvider(const std::string& modelDir,
                                      const std::string& stylePath,

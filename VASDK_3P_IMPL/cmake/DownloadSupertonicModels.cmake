@@ -1,9 +1,10 @@
-# --- Download Supertonic 2 TTS Model Files ---
+# --- Download Supertonic 3 TTS Model Files ---
 #
-# Downloads ONNX models and voice styles from HuggingFace.
-# Source: https://huggingface.co/Supertone/supertonic-2
+# Downloads ONNX models and voice styles from HuggingFace, pinned to a fixed revision.
+# Source: https://huggingface.co/supertone-oss-archive/supertonic-3
+# Upstream is archived (no further releases); the revision pins the final snapshot.
 #
-# Files downloaded to ${CMAKE_CURRENT_BINARY_DIR}/models/supertonic/:
+# Files downloaded to ${CMAKE_CURRENT_BINARY_DIR}/models/supertonic3/:
 #   onnx/duration_predictor.onnx  (~1.5 MB)
 #   onnx/text_encoder.onnx        (~27 MB)
 #   onnx/vector_estimator.onnx    (~132 MB)
@@ -13,13 +14,17 @@
 #   voice_styles/M1.json          (~420 KB) - Default male voice style
 #
 # Set -DVASDK_DOWNLOAD_SUPERTONIC_MODELS=OFF to skip downloads.
+# Set -DSUPERTONIC_HF_REPO / -DSUPERTONIC_HF_REVISION to use a different repo or snapshot.
 # Set -DSUPERTONIC_VOICE_STYLES to download additional voices (semicolon-separated).
 #   Available: M1 M2 M3 M4 M5 F1 F2 F3 F4 F5
 
-option(VASDK_DOWNLOAD_SUPERTONIC_MODELS "Download Supertonic 2 TTS model files" ON)
+option(VASDK_DOWNLOAD_SUPERTONIC_MODELS "Download Supertonic 3 TTS model files" ON)
 
-set(SUPERTONIC_MODEL_DIR "${CMAKE_CURRENT_BINARY_DIR}/models/supertonic" CACHE PATH "Directory to store Supertonic model files")
-set(SUPERTONIC_HF_BASE "https://huggingface.co/Supertone/supertonic-2/resolve/main")
+# Versioned dir name: the downloader skips existing files, so reusing "supertonic" would keep stale v2 weights.
+set(SUPERTONIC_MODEL_DIR "${CMAKE_CURRENT_BINARY_DIR}/models/supertonic3" CACHE PATH "Directory to store Supertonic model files")
+set(SUPERTONIC_HF_REPO "supertone-oss-archive/supertonic-3" CACHE STRING "HuggingFace repo for Supertonic model")
+set(SUPERTONIC_HF_REVISION "aafc6e32416a594460b32413efc49d7fe4ce6d46" CACHE STRING "HuggingFace revision (commit SHA) for Supertonic model")
+set(SUPERTONIC_HF_BASE "https://huggingface.co/${SUPERTONIC_HF_REPO}/resolve/${SUPERTONIC_HF_REVISION}")
 set(SUPERTONIC_VOICE_STYLES "M1" CACHE STRING "Voice styles to download (semicolon-separated, e.g. M1;F1;M2)")
 
 file(MAKE_DIRECTORY "${SUPERTONIC_MODEL_DIR}/onnx")

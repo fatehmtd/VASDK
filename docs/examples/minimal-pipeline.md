@@ -41,8 +41,8 @@ transcription->setRingBuffer(ringBuffer);
 
 // TTS: Supertonic ONNX model
 auto ttsProvider = std::make_shared<SupertonicVoiceSynthesisProvider>(
-    modelsPath + "/supertonic/onnx",
-    modelsPath + "/supertonic/voice_styles/M1.json");
+    modelsPath + "/supertonic3/onnx",
+    modelsPath + "/supertonic3/voice_styles/M1.json");
 auto tts = std::make_shared<va::pipeline::TTSFrameProcessor>(ttsProvider);
 ```
 
