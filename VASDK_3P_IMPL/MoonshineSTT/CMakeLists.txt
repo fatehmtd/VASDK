@@ -56,6 +56,19 @@ target_link_libraries(vasdk_moonshine_stt
     PUBLIC VASDK
 )
 
+if(VASDK_BUILD_TESTS)
+    # End-to-end streaming smoke test. No speech fixture ships with the repo: point
+    # MOONSHINE_TEST_WAV at a 16 kHz mono int16 English WAV (and optionally set the words it
+    # must contain); otherwise the test reports "skipped".
+    set(MOONSHINE_TEST_WAV "" CACHE FILEPATH "16 kHz mono int16 English speech WAV for moonshine_stt_stream")
+    set(MOONSHINE_TEST_EXPECTED "" CACHE STRING "Words the Moonshine transcript must contain")
+    add_executable(moonshine_stt_stream_test tests/stream_test.cpp)
+    target_link_libraries(moonshine_stt_stream_test PRIVATE vasdk_moonshine_stt)
+    add_test(NAME moonshine_stt_stream
+             COMMAND moonshine_stt_stream_test ${MOONSHINE_MODEL_DIR} "${MOONSHINE_TEST_WAV}" "${MOONSHINE_TEST_EXPECTED}")
+    set_tests_properties(moonshine_stt_stream PROPERTIES SKIP_RETURN_CODE 77)
+endif()
+
 install(TARGETS vasdk_moonshine_stt
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
