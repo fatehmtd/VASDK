@@ -75,6 +75,13 @@ public:
      */
     void setStreamSpeech(bool enabled) { _streamSpeech = enabled; }
 
+    /**
+     * Phrases spoken (in rotation) the moment a streamed reply turns out to be a tool call, so the
+     * caller hears "One moment." instead of silence during the tool round trip. Needs
+     * setStreamSpeech(true). Empty (the default) disables it.
+     */
+    void setToolFillerPhrases(std::vector<std::string> phrases) { _toolFillerPhrases = std::move(phrases); }
+
     void setReasoningTags(std::string openTag, std::string closeTag) {
         _reasoningTagOpen = std::move(openTag);
         _reasoningTagClose = std::move(closeTag);
@@ -167,7 +174,12 @@ private:
     std::vector<std::shared_ptr<transport::TextFrame>> _streamingBuffer;
     bool _streamSpeech{false};
     std::unique_ptr<StreamingReplyExtractor> _extractor;  // current streamed reply
-    bool _speechOpen{false};  // sentence frames went out for a reply that has no final frame yet (request thread)
+    std::atomic<bool> _speechOpen{false};  // sentence frames went out for a reply that has no final frame yet
+    std::vector<std::string> _toolFillerPhrases;
+    size_t _nextFiller{0};
+    bool _fillerSent{false};  // for the current streamed reply; guarded by _streamingMutex
+    // A tool batch was dispatched and its follow-up reply hasn't started: keep the spoken turn open.
+    std::atomic<bool> _awaitingToolFollowUp{false};
     void pushSpeech(const std::string& text, bool isFinal, bool isExpecting = false,
                     std::vector<transport::TextFrame::Choice> choices = {});
     std::atomic<int> _toolCallDepth{0};

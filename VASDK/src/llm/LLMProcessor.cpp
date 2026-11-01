@@ -246,16 +246,11 @@ void LLMProcessor::processFrame(std::shared_ptr<transport::Frame> frame,
                             lastText = _lastToolBatchText;
                         }
                         _toolCallDepth = 0;
+                        _awaitingToolFollowUp = false;
                         // Degrade to speaking the text suppressed alongside the
-                        // dropped batch rather than ending the turn in silence.
-                        if (!lastText.empty()) {
-                            auto textOut       = std::make_shared<transport::TextFrame>();
-                            textOut->text      = lastText;
-                            textOut->isFinal   = true;
-                            textOut->timestamp = transport::Frame::getCurrentTimestamp();
-                            textOut->sourceId  = getName();
-                            pushDownstream(textOut);
-                        }
+                        // dropped batch rather than ending the turn in silence
+                        // (and close a turn a filler phrase already opened).
+                        if (!lastText.empty() || _speechOpen) pushSpeech(lastText, true);
                         return;
                     }
                     ++_toolCallDepth;
@@ -265,7 +260,10 @@ void LLMProcessor::processFrame(std::shared_ptr<transport::Frame> frame,
                         _pendingToolCount.store(0);
                         _collectedToolResults.clear();
                     }
-                    enqueueRequest([this, snapshot] { _transport->injectToolResults(snapshot); });
+                    enqueueRequest([this, snapshot] {
+                        _awaitingToolFollowUp = false;
+                        _transport->injectToolResults(snapshot);
+                    });
                 }
                 return;
             }
@@ -658,6 +656,10 @@ void LLMProcessor::onTransportFrameReceived(std::shared_ptr<transport::Frame> fr
                             _extractor = std::make_unique<StreamingReplyExtractor>(open, close);
                         }
                         sentences = _extractor->feed(textFrame->text);
+                        if (_extractor->toolsDetected() && !_fillerSent && !_toolFillerPhrases.empty()) {
+                            _fillerSent = true;
+                            sentences.push_back(_toolFillerPhrases[_nextFiller++ % _toolFillerPhrases.size()] + " ");
+                        }
                     }
                     for (const auto& s : sentences) pushSpeech(s, false);
                     return;
@@ -667,6 +669,7 @@ void LLMProcessor::onTransportFrameReceived(std::shared_ptr<transport::Frame> fr
                 _streamingBuffer.clear();
                 if (_extractor) spoken = _extractor->spokenText();
                 _extractor.reset();
+                _fillerSent = false;
             }
 
             auto [reasoningOpen, reasoningClose] = effectiveReasoningTags();
@@ -721,6 +724,7 @@ void LLMProcessor::onTransportFrameReceived(std::shared_ptr<transport::Frame> fr
                 pushSpeech(finalText, true, resp.isExpecting, resp.choices);
 
             if (_toolDispatcher && resp.hasTool() && !repeatedBatch) {
+                _awaitingToolFollowUp = true;
                 {
                     std::lock_guard<std::mutex> lk(_toolResultsMutex);
                     _collectedToolResults.clear();
@@ -808,7 +812,9 @@ void LLMProcessor::handleInterruptTransition(transport::AgentStateTransition t) 
         std::lock_guard<std::mutex> lk(_streamingMutex);
         _streamingBuffer.clear();
         _extractor.reset();
+        _fillerSent = false;
     }
+    _awaitingToolFollowUp = false;
     {
         std::lock_guard<std::mutex> lk(_toolResultsMutex);
         _pendingToolCount.store(0);
@@ -979,14 +985,18 @@ void LLMProcessor::requestWorkerLoop() {
             std::lock_guard<std::mutex> lk(_streamingMutex);
             _streamingBuffer.clear();
             _extractor.reset();
+            _fillerSent = false;
         }
         const uint64_t generation = _currentGeneration.load();
         job();
         if (_speechOpen) {
-            // The request ended (error, cancel) after speaking part of a reply: close the reply
-            // so TTS can finish the turn, unless a barge-in already dropped it.
-            if (generation == _currentGeneration.load()) pushSpeech("", true);
-            _speechOpen = false;
+            if (generation != _currentGeneration.load()) {
+                _speechOpen = false;  // a barge-in dropped the reply
+            } else if (!_awaitingToolFollowUp) {
+                // The request ended (error, cancel) after speaking part of a reply: close it so
+                // TTS can finish the turn. While a tool round trip runs, its follow-up closes it.
+                pushSpeech("", true);
+            }
         }
     }
 }

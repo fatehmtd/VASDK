@@ -813,6 +813,8 @@ GoalLLMBundle setupGoalLLMStack(const CliArgs& args) {
     goalLLMBundle.processor->setConfidenceThreshold(0.07f);
     goalLLMBundle.processor->setFirePolicy(std::make_shared<va::llm::FinalOnlyFirePolicy>());
     goalLLMBundle.processor->setStreamSpeech(true);  // speak each sentence as the LLM streams it
+    // Covers the tool round trip (slot updates, lookups) instead of leaving the caller in silence.
+    goalLLMBundle.processor->setToolFillerPhrases({"One moment.", "Let me check that.", "Just a second."});
 
     //  Tool dispatcher 
     goalLLMBundle.toolDispatcher = std::make_shared<va::llm::ToolDispatchProcessor>();

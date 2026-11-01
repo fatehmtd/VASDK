@@ -212,7 +212,7 @@ if(VASDK_BUILD_TESTS)
     add_test(NAME vasdk_tts_turn COMMAND vasdk_tts_turn_test)
 
     add_executable(vasdk_llm_stream_speech_test tests/llm_stream_speech_test.cpp)
-    target_link_libraries(vasdk_llm_stream_speech_test PRIVATE VASDK)
+    target_link_libraries(vasdk_llm_stream_speech_test PRIVATE VASDK nlohmann_json::nlohmann_json)
     add_test(NAME vasdk_llm_stream_speech COMMAND vasdk_llm_stream_speech_test)
 endif()
 

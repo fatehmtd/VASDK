@@ -5,11 +5,14 @@
 //   - a barge-in mid-stream aborts the request promptly, nothing more is spoken, and the aborted
 //     user turn is rolled back from history;
 //   - a tool-call reply speaks nothing;
-//   - the same streaming works through AnthropicTransport's SSE events, which send the user turn once.
+//   - the same streaming works through AnthropicTransport's SSE events, which send the user turn once;
+//   - a tool call speaks the filler phrase at once and the turn stays open through the tool round
+//     trip until the follow-up reply's final frame.
 
 #include <VASDK/llm/LLMProcessor.h>
 #include <VASDK/llm/AnthropicTransport.h>
 #include <VASDK/llm/OpenAITransport.h>
+#include <VASDK/llm/ToolDispatchProcessor.h>
 
 #include <atomic>
 #include <chrono>
@@ -38,6 +41,8 @@ std::string jsonEscape(const std::string& s) {
 class FakeHttp : public network::HttpInterface {
 public:
     std::string reply;
+    std::vector<std::string> replies;  // one per request when set (tool round trips)
+    std::atomic<int> requests{0};
     bool anthropic = false;
     std::string lastBody;
     std::atomic<bool> cancelled{false};
@@ -47,6 +52,9 @@ public:
                                int, std::function<void(const std::string&)> onChunk) override {
         cancelled = false;
         lastBody = body;
+        const int n = requests++;
+        const std::string reply =
+            replies.empty() ? this->reply : replies[std::min<size_t>(n, replies.size() - 1)];
         network::HttpResponse r;
         for (size_t i = 0; i < reply.size(); i += 5) {
             if (cancelled) {
@@ -111,7 +119,9 @@ struct Rig {
     std::shared_ptr<llm::LLMProcessor> llm;
     std::shared_ptr<Recorder> recorder = std::make_shared<Recorder>();
 
-    explicit Rig(const std::string& reply, bool anthropic = false) {
+    std::shared_ptr<llm::ToolDispatchProcessor> tools;
+
+    explicit Rig(const std::string& reply, bool anthropic = false, bool withTools = false) {
         http->reply = reply;
         http->anthropic = anthropic;
         llm::LLMConfig cfg;
@@ -123,13 +133,29 @@ struct Rig {
         else           transport = std::make_shared<llm::OpenAITransport>(cfg, http);
         llm = std::make_shared<llm::LLMProcessor>(transport);
         llm->setStreamSpeech(true);
-        llm->setDownstream(recorder);
+        if (withTools) {
+            tools = std::make_shared<llm::ToolDispatchProcessor>();
+            tools->registerTool(llm::Tool("lookup_order", "Look up an order")
+                                    .onCall([](const nlohmann::json&) { return nlohmann::json{{"status", "shipped"}}; }));
+            llm->setToolFillerPhrases({"One moment."});
+            llm->setToolDispatcher(tools);
+            llm->setDownstream(tools);
+            tools->setDownstream(recorder);
+            tools->initialize();
+            tools->start();
+        } else {
+            llm->setDownstream(recorder);
+        }
         recorder->initialize();
         recorder->start();
         llm->initialize();
         llm->start();
     }
-    ~Rig() { llm->stop(); recorder->stop(); }
+    ~Rig() {
+        llm->stop();
+        if (tools) tools->stop();
+        recorder->stop();
+    }
 
     void userSays(const std::string& text) {
         auto stopped = std::make_shared<transport::AgentStateFrame>();
@@ -192,6 +218,23 @@ void toolCallSpeaksNothing() {
     check(rig.recorder->snapshot().empty(), "tool-call reply speaks nothing");
 }
 
+void toolRoundTripWithFiller() {
+    Rig rig("", false, true);
+    rig.http->replies = {R"({"tools": [{"tool": "lookup_order", "args": {}}]})",
+                         R"({"text": "Your order has shipped. It arrives on Friday."})"};
+    rig.userSays("Where is my order?");
+    std::this_thread::sleep_for(2500ms);
+
+    const auto frames = rig.recorder->snapshot();
+    check(rig.http->requests == 2, "tool round trip made a follow-up request");
+    check(frames.size() == 3, "filler, one follow-up sentence, one final frame");
+    if (frames.size() == 3) {
+        check(frames[0].text == "One moment. " && !frames[0].isFinal, "filler spoken first, turn left open");
+        check(frames[1].text == "Your order has shipped. " && !frames[1].isFinal, "follow-up sentence streamed");
+        check(frames[2].text == "It arrives on Friday." && frames[2].isFinal, "follow-up final closes the turn");
+    }
+}
+
 } // namespace
 
 int main() {
@@ -199,6 +242,7 @@ int main() {
     streamsSentencesThenTail(true);
     bargeInAbortsAndRollsBack();
     toolCallSpeaksNothing();
+    toolRoundTripWithFiller();
     std::printf("llm stream speech scenarios done, %d failure(s)\n", failures);
     return failures == 0 ? 0 : 1;
 }
