@@ -18,7 +18,7 @@ Library and provider dependencies (spdlog, nlohmann/json, llama.cpp, whisper.cpp
 | Whisper (ggml conversions) | Speech-to-text | [ggerganov/whisper.cpp](https://huggingface.co/ggerganov/whisper.cpp) | MIT |
 | Whistle (`.cact`) | Speech-to-text (`VASDK_BUILD_WHISTLE_STT`) | [Cactus-Compute/whistle](https://huggingface.co/Cactus-Compute/whistle) | Apache 2.0 |
 | Pocket TTS (ONNX) | Text-to-speech | [KevinAHM/pocket-tts-web](https://huggingface.co/spaces/KevinAHM/pocket-tts-web), converted from [kyutai/pocket-tts](https://huggingface.co/kyutai/pocket-tts) | CC BY 4.0 |
-| Supertonic 2 | Text-to-speech | [Supertone/supertonic-2](https://huggingface.co/Supertone/supertonic-2) | OpenRAIL |
+| Supertonic 3 | Text-to-speech | [supertone-oss-archive/supertonic-3](https://huggingface.co/supertone-oss-archive/supertonic-3) (archived, pinned revision) | OpenRAIL |
 | Phonon 40m multilingual (GGUF) + voices | Text-to-speech (`VASDK_BUILD_PHONON_TTS`) | [gradium/phonon-40m-multilingual](https://huggingface.co/gradium/phonon-40m-multilingual) (gated), voices from [gradium/phonon-voices](https://huggingface.co/gradium/phonon-voices) | CC BY-NC 4.0 |
 | MOSS-TTS-Nano 100M (ONNX) + MOSS-Audio-Tokenizer-Nano decoder | Text-to-speech (opt-in, `VASDK_BUILD_MOSS_TTS`) | [Supbatomic/moss-tts-nano-100m-onnx-model](https://huggingface.co/Supbatomic/moss-tts-nano-100m-onnx-model), exported from [OpenMOSS-Team/MOSS-TTS-Nano](https://huggingface.co/OpenMOSS-Team/MOSS-TTS-Nano); codec from [OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano-ONNX](https://huggingface.co/OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano-ONNX) | Apache 2.0 |
 | LFM2.5 1.2B Instruct (GGUF) | Default local LLM (desktop apps) | [LiquidAI/LFM2.5-1.2B-Instruct-GGUF](https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct-GGUF) | LFM Open License v1.0 |
@@ -29,7 +29,7 @@ Points worth knowing before you ship a product on top of these:
 
 - **CC BY 4.0** (Parakeet, Pocket TTS, WeSpeaker ResNet34-LM) requires attribution to the original model authors if you redistribute the weights or derivatives of them. WeSpeaker's VoxCeleb models carry the license of their training data, the [VoxCeleb dataset](https://mm.kaist.ac.kr/datasets/voxceleb/).
 - **CC BY-NC 4.0** (Phonon 40m models and voices) forbids commercial use. Phonon is on by default on desktop and downloads the 40m model when a HuggingFace token is set. For a commercial product, license the weights from Gradium or switch to the Apache 2.0 [gradium/phonon-31m-en](https://huggingface.co/gradium/phonon-31m-en) with `-DPHONON_TTS_HF_REPO=gradium/phonon-31m-en` (the Android app already uses it).
-- **OpenRAIL** (Supertonic 2) is a responsible-AI license with use restrictions. Read the [license text on the model page](https://huggingface.co/Supertone/supertonic-2) before commercial use.
+- **OpenRAIL** (Supertonic 3) is a responsible-AI license with use restrictions. Read the [license text on the model page](https://huggingface.co/supertone-oss-archive/supertonic-3) before commercial use.
 - **LFM Open License v1.0** (both LFM2.5 GGUF models - the 1.2B desktop default and the 230M Android default) is Liquid AI's custom license with its own commercial terms. Read the LICENSE file in the respective model repository ([1.2B](https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct-GGUF/blob/main/LICENSE), [230M](https://huggingface.co/LiquidAI/LFM2.5-230M-GGUF)) before commercial use, or swap in a different GGUF via `-DVASDK_LLAMACPP_MODEL_URL` (desktop) or a different `LLMModelMeta` preset (Android).
 
 ## Provider and library dependencies

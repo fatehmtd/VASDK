@@ -239,7 +239,7 @@ Every row is an independent target under `VASDK_3P_IMPL/`. Enable only what you 
 | Speaker identification | pyannote (WeSpeaker ResNet34-LM, ONNX) | - |
 | Noise suppression | RNNoise | - |
 | STT | Whistle (prebuilt engine), Parakeet, Moonshine (WIP), Whisper.cpp (WIP) (ONNX/GGUF) | Gladia (WIP), Gradium, Soniox, Deepgram, Cartesia, Fish Audio |
-| TTS | PocketTTS (ONNX), Phonon (GGUF), MOSS-TTS-Nano (ONNX), Supertonic (WIP) | Gradium, Soniox, Deepgram, Cartesia, Fish Audio |
+| TTS | PocketTTS (ONNX), Phonon (GGUF), MOSS-TTS-Nano (ONNX), Supertonic 3 (ONNX, 31 languages) | Gradium, Soniox, Deepgram, Cartesia, Fish Audio |
 | LLM | llama.cpp, or any OpenAI-compatible local server | OpenAI, Anthropic |
 | File / batch audio | FFmpeg-backed file transport | - |
 | Visualization | VizAnim (audio feature extraction for UI animation) | - |
@@ -248,7 +248,7 @@ Mix and match freely. With the default build options, both showcase apps run Whi
 
 Default build options: on are MiniAudio, Silero VAD, SmartTurn v3, pyannote, Whistle, PocketTTS, Phonon, RNNoise and VizAnim. Everything else is off, including every cloud STT/TTS and llama.cpp.
 
-**WIP:** Gladia, Moonshine, Supertonic, and Whisper.cpp are still work in progress - expect rough edges, incomplete feature coverage, or breaking changes before they stabilize.
+**WIP:** Gladia, Moonshine, and Whisper.cpp are still work in progress - expect rough edges, incomplete feature coverage, or breaking changes before they stabilize.
 
 The cloud STT/TTS providers (Gladia, Soniox, Deepgram, Cartesia, Fish Audio, Gradium) integrate against third-party APIs that change on their own schedule, and this project is still under heavy, frequent development. Don't be surprised if one of those integrations lags behind an upstream API change; the local/offline providers are the more stable path if you need something that keeps working without maintenance. More generally, the STT/TTS provider set as a whole is still evolving - parameter surfaces and generation controls on the local providers shift release to release too (PocketTTS's chunking and generation-control options, for one), so pin a commit if you need a stable target.
 
