@@ -109,8 +109,8 @@ Return one `VADResult` per detected speech region (empty vector = silence). All 
 
 | Mode | Method | Fits |
 | --- | --- | --- |
-| Streaming | `writeAudioData(data, size)` - buffer continuously, emit partials/finals via listener | Cloud STT (Gladia, Soniox, Deepgram, Cartesia, Gradium), models with internal endpointing |
-| Batch | `writeFullAudioData(data, size)` - one complete VAD-segmented utterance in, one `TranscriptionResult` back | Local encoder-decoder models (Parakeet, Moonshine, Whisper), REST-only cloud STT (Fish Audio) |
+| Streaming | `writeAudioData(data, size)` - buffer continuously, emit partials/finals via listener | Cloud STT (Gladia, Soniox, Deepgram, Cartesia, Gradium), local streaming models (Moonshine), models with internal endpointing |
+| Batch | `writeFullAudioData(data, size)` - one complete VAD-segmented utterance in, one `TranscriptionResult` back | Local encoder-decoder models (Parakeet, Whisper; Moonshine supports both modes), REST-only cloud STT (Fish Audio) |
 
 `writeFullAudioData` **throws by default** - a provider that doesn't override it is streaming-only, and `TranscriptionFrameProcessor` must run with `setStreamingMode(true)`.
 

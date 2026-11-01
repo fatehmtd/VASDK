@@ -13,18 +13,18 @@
 /**
  * @brief MoonshineSttProvider
  *
- * Implements GenericTranscriptionProvider using the Moonshine Base ONNX model
- * (encoder_model.onnx + decoder_model_merged.onnx + tokenizer.bin) via direct
- * OnnxRuntime C API inference. No Moonshine library dependency is required.
+ * Implements GenericTranscriptionProvider with the Moonshine streaming models
+ * (Tiny / Small / Medium: frontend, encoder, adapter, cross_kv, decoder_kv .ort
+ * graphs + streaming_config.json + tokenizer.bin). Inference uses Moonshine's
+ * own streaming model code, compiled against VASDK's ONNX Runtime.
  *
- * Audio is accumulated in a float buffer. The inference thread runs the
- * encoder and then autoregressively decodes with KV-cache until an EOS token
- * or the maximum token budget is reached. Partial results are emitted
- * periodically; a final result is emitted on commitEndOfSpeech() or idle
- * timeout.
+ * Audio is encoded incrementally as it arrives, so each partial only pays for
+ * the new audio plus a speculative re-decode. Partials are emitted every
+ * partialIntervalMs; a final result is emitted on commitEndOfSpeech() or idle
+ * timeout. Input must be 16 kHz mono.
  *
  * Model source:
- *   https://huggingface.co/UsefulSensors/moonshine/tree/main/onnx/merged/base/quantized
+ *   https://huggingface.co/UsefulSensors/moonshine-streaming
  */
 // Forward declaration - ORT and tokenizer headers are hidden from consumers.
 class MoonshineSttProviderImpl;
@@ -58,12 +58,8 @@ public:
      * Configurable parameters for the inference loop.
      */
     struct InferenceConfig {
-        int    idleTimeoutMs             = 100;
-        int    partialIntervalMs         = 100;
-        size_t minNewSamplesForPartial   = 2000;  // ~125 ms at 16 kHz
-        size_t minNewSamplesForFinal     = 2000;
-        float  maxBufferSeconds          = 30.0f; // Moonshine base supports variable-length input up to ~30 s
-        float  maxTokensPerSecond        = 6.5f;  // caps decode length = ceil(audio_sec * value)
+        int idleTimeoutMs     = 350;  // finalize the utterance after this much silence on the input
+        int partialIntervalMs = 200;  // minimum spacing between partial decodes
     };
 
     void setInferenceConfig(const InferenceConfig& config);
@@ -80,12 +76,7 @@ public:
 private:
     // --- internal helpers ---
     void inferenceLoop();
-    void appendAudioAsFloat(const uint8_t* data, size_t size);
-
-    // Run a full encode+decode on audioData[0..numSamples). Returns decoded text
-    // and a rough confidence estimate.
-    struct InferResult { std::string text; float confidence = 0.0f; };
-    InferResult runInference(const float* audioData, size_t numSamples);
+    void emit(const std::string& text, bool isFinal);
 
     // --- model state ---
     std::string _modelDir;
@@ -96,24 +87,15 @@ private:
     va::audio::AudioConfig                  _audioConfig{};
     std::atomic<bool>                       _running{ false };
 
-    // Audio accumulation buffer (preallocated to maxBufferSeconds * sampleRate)
-    std::vector<float> _buffer;
-    size_t             _bufferSize = 0;
-    std::vector<float> _inferenceBuffer;
-    size_t             _inferenceBufferSize = 0;
+    // Audio written since the inference thread last drained it (guarded by _mtx)
+    std::vector<float> _incoming;
 
     std::mutex              _mtx;
     std::condition_variable _cv;
     std::thread             _thread;
     std::chrono::steady_clock::time_point _lastWriteTime;
-    bool   _hasNewAudio              = false;
-    bool   _endOfSpeech              = false;
-    size_t _bufferSizeAtEndOfSpeech  = 0;
-
-    // Cached partial result to avoid redundant inference runs
-    std::string _cachedPartialResult;
-    float       _cachedPartialConfidence = 0.0f;
-    size_t      _lastInferSamples        = 0;
+    bool _endOfSpeech    = false;
+    bool _resetRequested = false;
 
     InferenceConfig _inferenceConfig;
 

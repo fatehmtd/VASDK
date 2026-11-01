@@ -105,7 +105,7 @@ if(VASDK_BUILD_PARAKEET AND NOT ANDROID)
 endif()
 
 if(VASDK_BUILD_SUPERTONIC_TTS AND NOT ANDROID)
-    set(VASDK_DOWNLOAD_SUPERTONIC_MODELS ON CACHE BOOL "Download Supertonic 2 TTS model files")
+    set(VASDK_DOWNLOAD_SUPERTONIC_MODELS ON CACHE BOOL "Download Supertonic 3 TTS model files")
     include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/DownloadSupertonicModels.cmake)
 endif()
 
@@ -266,28 +266,26 @@ if(VASDK_BUILD_GRADIUMPP_STT OR VASDK_BUILD_GRADIUMPP_TTS)
     fetchcontent_makeavailable(gradiumpp)
 endif()
 
-# Moonshine bin-tokenizer sources (source-only, no CMake target needed - compiled into MoonshineSTT)
+# Moonshine core sources: streaming model, ORT utils, tokenizer (source-only - compiled into MoonshineSTT)
 if(VASDK_BUILD_MOONSHINE_STT)
     fetchcontent_declare(
-        moonshine_bintokenizer
+        moonshine_core
         GIT_REPOSITORY https://github.com/moonshine-ai/moonshine.git
-        GIT_TAG        main
-        GIT_SHALLOW    ON
+        GIT_TAG        234f60faa0eb388b01cdf7e60aca232af37aefda
     )
-    fetchcontent_getproperties(moonshine_bintokenizer)
-    if(NOT moonshine_bintokenizer_POPULATED)
-        fetchcontent_populate(moonshine_bintokenizer)
+    fetchcontent_getproperties(moonshine_core)
+    if(NOT moonshine_core_POPULATED)
+        fetchcontent_populate(moonshine_core)
     endif()
 endif()
 
 # supertonic TTS helper sources (source-only, no CMake)
 if(VASDK_BUILD_SUPERTONIC_TTS)
-    # TODO: Pin GIT_TAG to a specific commit SHA before release for reproducibility
+    # Pinned to the final commit before upstream archived the repo; helper.cpp here matches Supertonic 3.
     fetchcontent_declare(
         supertonic
         GIT_REPOSITORY https://github.com/supertone-inc/supertonic.git
-        GIT_TAG        main
-        GIT_SHALLOW    ON
+        GIT_TAG        1e9799e964ea4c0dad7cde993b65c3c813a7b373
     )
     fetchcontent_getproperties(supertonic)
     if(NOT supertonic_POPULATED)

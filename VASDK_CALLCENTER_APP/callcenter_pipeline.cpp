@@ -702,9 +702,7 @@ std::optional<AudioBundle> setupAudioProviders(const std::string& modelsPath, in
     auto moonshine = std::make_shared<MoonshineSttProvider>(modelsPath + "/moonshine");
     MoonshineSttProvider::InferenceConfig sttCfg;
     sttCfg.idleTimeoutMs = 350;
-    sttCfg.partialIntervalMs = 80;
-    sttCfg.minNewSamplesForPartial = frameSize;
-    sttCfg.minNewSamplesForFinal = frameSize;
+    sttCfg.partialIntervalMs = 160;
     moonshine->setInferenceConfig(sttCfg);
     b.transcriptionProvider = moonshine;
 #elif defined(VASDK_HAS_PARAKEET)
@@ -732,9 +730,11 @@ std::optional<AudioBundle> setupAudioProviders(const std::string& modelsPath, in
         std::getenv("SONIOX_API_KEY") ? std::getenv("SONIOX_API_KEY") : "");
 #elif defined(VASDK_HAS_SUPERTONIC_TTS)
     auto supertonic = std::make_shared<SupertonicVoiceSynthesisProvider>(
-        modelsPath + "/supertonic/onnx",
-        modelsPath + "/supertonic/voice_styles/M1.json");
-    supertonic->setTotalSteps(15);
+        modelsPath + "/supertonic3/onnx",
+        modelsPath + "/supertonic3/voice_styles/M1.json",
+        std::getenv("SUPERTONIC_TTS_LANG") ? std::getenv("SUPERTONIC_TTS_LANG") : "en");
+    // Diffusion steps trade quality for latency; synthesis time scales roughly linearly with them.
+    supertonic->setTotalSteps(std::getenv("SUPERTONIC_TTS_STEPS") ? std::atoi(std::getenv("SUPERTONIC_TTS_STEPS")) : 10);
     b.ttsProvider = supertonic;
 #elif defined(VASDK_HAS_DEEPGRAMPP_TTS)
     b.ttsProvider = std::make_shared<va::thirdparty::DeepgramppVoiceSynthesisProvider>(

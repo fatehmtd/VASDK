@@ -171,6 +171,26 @@ static std::vector<std::string> splitIntoChunks(const std::string& text, size_t 
     return chunks;
 }
 
+/// Split text into sentences (after '.', '?' or '!' followed by a space), each further
+/// length-capped by splitIntoChunks(). The LLM hands over a whole reply at once, so
+/// synthesizing sentence by sentence lets the first one play while the rest is generated.
+/// shortcut: abbreviations like "Dr. " also split; harmless (just an extra pause) - add an exception list if it sounds off.
+static std::vector<std::string> splitIntoSentenceChunks(const std::string& text) {
+    std::vector<std::string> chunks;
+    size_t start = 0;
+    for (size_t i = 0; i <= text.size(); ++i) {
+        const bool boundary = i == text.size() ||
+            ((text[i] == '.' || text[i] == '?' || text[i] == '!') && i + 1 < text.size() && text[i + 1] == ' ');
+        if (!boundary) continue;
+        const size_t end = std::min(i + 1, text.size());
+        size_t s = start;
+        while (s < end && text[s] == ' ') ++s;
+        for (auto& c : splitIntoChunks(text.substr(s, end - s))) chunks.push_back(std::move(c));
+        start = end;
+    }
+    return chunks;
+}
+
 void SupertonicVoiceSynthesisProvider::workerLoop() {
     while (true) {
         std::string text;
@@ -229,7 +249,7 @@ void SupertonicVoiceSynthesisProvider::workerLoop() {
 
 bool SupertonicVoiceSynthesisProvider::synthesizeOne(const std::string& text) {
     std::string normalized = normalizeText(text);
-    auto chunks = splitIntoChunks(normalized);
+    auto chunks = splitIntoSentenceChunks(normalized);
     spdlog::debug("SupertonicTTS: {} chunk(s) for {} chars total",
                   chunks.size(), normalized.size());
     try {
