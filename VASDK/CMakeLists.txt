@@ -28,6 +28,7 @@ add_library(VASDK SHARED
     ./src/llm/LLMTransport.cpp
     ./src/llm/OpenAITransport.cpp
     ./src/llm/AnthropicTransport.cpp
+    ./src/llm/StreamingReplyExtractor.cpp
     ./src/llm/PromptTemplate.cpp
     ./src/llm/ApiPromptTemplates.cpp
     ./src/llm/LocalPromptTemplates.cpp
@@ -201,6 +202,12 @@ install(FILES ${CMAKE_CURRENT_BINARY_DIR}/vasdk_export.h
 )
 
 # Unit tests (run with ctest)
+if(VASDK_BUILD_TESTS)
+    add_executable(vasdk_streaming_reply_extractor_test tests/streaming_reply_extractor_test.cpp)
+    target_link_libraries(vasdk_streaming_reply_extractor_test PRIVATE VASDK)
+    add_test(NAME vasdk_streaming_reply_extractor COMMAND vasdk_streaming_reply_extractor_test)
+endif()
+
 if(VASDK_BUILD_TESTS AND NOT WIN32)
     add_executable(vasdk_http_cancel_test tests/http_cancel_test.cpp)
     target_link_libraries(vasdk_http_cancel_test PRIVATE VASDK)
