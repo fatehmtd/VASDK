@@ -70,6 +70,7 @@ audio::TurnDetectionProvider::TurnEvaluation SmartTurnV3Provider::handleVADState
     const std::shared_ptr<transport::VADStateFrame>& frame,
     bool agentIsSpeaking)
 {
+    _paused = frame->state == transport::VADState::PAUSED || frame->state == transport::VADState::ENDING;
     if (frame->state == transport::VADState::STARTING) {
         _vadActive = true;
         _vadStartOffset = frame->speechStartOffset;
@@ -93,9 +94,11 @@ audio::TurnDetectionProvider::TurnEvaluation SmartTurnV3Provider::handleVADState
 audio::TurnDetectionProvider::TurnEvaluation SmartTurnV3Provider::handleAudioFrame(
     const std::shared_ptr<transport::AudioFrame>& frame)
 {
-    // Only run inference in the post-VAD window (after ENDED, before limit).
-    if (_vadActive || !_vadOccured) return {};
-    if (_postAudioFramesProcessed >= _numPostAudioFrames) return {};
+    // Run inference in the post-VAD window (after ENDED, before limit), or during a pause if enabled.
+    if (!_vadOccured) return {};
+    const bool inPause = _vadActive && _evaluateOnPause && _paused;
+    if (_vadActive && !inPause) return {};
+    if (!inPause && _postAudioFramesProcessed >= _numPostAudioFrames) return {};
 
     std::fill(_audioBuffer.begin(), _audioBuffer.end(), 0.0f);
 
@@ -121,15 +124,17 @@ audio::TurnDetectionProvider::TurnEvaluation SmartTurnV3Provider::handleAudioFra
     convertAudioToFloat(audioData, 0, _audioBuffer.data(), 0, numRead);
 
     float turnProbability = impl_->processAudio(_audioBuffer.data(), 0, numRead);
-    ++_postAudioFramesProcessed;
+    if (!inPause) ++_postAudioFramesProcessed;
 
     spdlog::debug("[SmartTurnV3Provider] Audio frame: {} samples, turn probability: {:.2f}",
         numRead, turnProbability);
 
     if (turnProbability >= _threshold) {
-        spdlog::info("[SmartTurnV3Provider] Turn end detected (probability: {:.2f})", turnProbability);
+        spdlog::info("[SmartTurnV3Provider] Turn end detected{} (probability: {:.2f})",
+            inPause ? " during pause" : "", turnProbability);
         _postAudioFramesProcessed = 0;
         _vadOccured = false;
+        _paused = false;
         return { Decision::TURN_END, turnProbability,
                  transport::TurnStateFrame::TurnActor::USER,
                  transport::TurnStateFrame::TurnType::NORMAL };

@@ -635,7 +635,7 @@ void LLMProcessor::processDownstream(std::shared_ptr<transport::Frame> frame) {
 }
 
 void LLMProcessor::onTransportFrameReceived(std::shared_ptr<transport::Frame> frame) {
-    if (_dispatchGeneration.load() != _currentGeneration.load()) {
+    if (_runningGeneration.load() != _currentGeneration.load()) {
         std::lock_guard<std::mutex> lk(_streamingMutex);
         _streamingBuffer.clear();
         _extractor.reset();
@@ -1072,7 +1072,6 @@ void LLMProcessor::dispatchRequestNow(const std::string& text, float confidence)
     frame->transcriptionResult.confidence = confidence;
     frame->timestamp = transport::Frame::getCurrentTimestamp();
     frame->sourceId = getName();
-    _dispatchGeneration.store(_currentGeneration.load());
     enqueueRequest([this, frame] { _transport->sendFrame(frame); });
 }
 
@@ -1104,6 +1103,7 @@ void LLMProcessor::requestWorkerLoop() {
             _fillerSent = false;
         }
         const uint64_t generation = _currentGeneration.load();
+        _runningGeneration.store(generation);
         job();
         if (_speechOpen) {
             if (generation != _currentGeneration.load()) {

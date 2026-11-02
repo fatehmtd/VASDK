@@ -23,6 +23,7 @@
 #include <VASDK/TurnDetectionProcessor.h>
 #include <VASDK/AgentStateProcessor.h>
 #include <VASDK/LocalTransport.h>
+#include <VASDK/WebRtcTransport.h>
 #include <VASDK/TransportInputProcessor.h>
 #include <VASDK/TransportOutputProcessor.h>
 #include <VASDK/RecoveryProcessor.h>
@@ -57,6 +58,9 @@
 #elif defined(VASDK_HAS_SDL)
 #include "SDL/SDLAudioSource.h"
 #include "SDL/SDLAudioSink.h"
+#endif
+#ifdef VASDK_HAS_LIBDATACHANNEL_WEBRTC
+#include "LibDataChannelWebRtc/LibDataChannelWebRtcProvider.h"
 #endif
 
 // VAD
@@ -271,6 +275,8 @@ struct CliArgs {
     std::string formatInstructionFile;
     std::string envFile = ".env";
     bool        debug = true;
+    uint16_t    webrtcPort = 0;     ///< 0 = local mic/speaker
+    std::string webrtcPage;
 };
 
 // CLI arg → env var fallback helpers (env vars are populated from .env by loadDotEnv())
@@ -319,6 +325,13 @@ CliArgs parseCliArgs(int argc, char* argv[]) {
         "Path to a text file containing the response format instruction (overrides built-in default)");
     app.add_option("--env-file", args.envFile, "Path to .env file (default: .env)");
     app.add_flag("--debug", args.debug, "Enable debug logging");
+#ifdef VASDK_HAS_LIBDATACHANNEL_WEBRTC
+    app.add_option("--webrtc-port", args.webrtcPort,
+        "Take the call over WebRTC instead of the local mic/speaker: serve signaling + demo page on "
+        "http://127.0.0.1:<port>");
+    app.add_option("--webrtc-page", args.webrtcPage, "Demo page served at / in WebRTC mode")
+        ->default_val(VASDK_WEBRTC_DEMO_PAGE);
+#endif
     try {
         app.parse(argc, argv);
     }
@@ -505,7 +518,13 @@ struct GoalLLMBundle {
 struct TransportBundle {
     std::shared_ptr<va::AudioRingBuffer>           sharedRingBuffer;
     std::shared_ptr<va::AudioRingBuffer>           cleanRingBuffer;
-    std::shared_ptr<va::transport::LocalTransport> localTransport;
+    std::shared_ptr<va::transport::BaseTransport>  transport;    // LocalTransport or WebRtcTransport
+    std::function<void()>                          flushOutput;  // barge-in: drop queued playback
+    // Frames sent to the transport: audio only, or (WebRTC) everything, so the page can show state.
+    std::optional<va::transport::FrameType>        outputFilter = va::transport::FrameType::SYNTHESIS;
+#ifdef VASDK_HAS_LIBDATACHANNEL_WEBRTC
+    std::shared_ptr<va::webrtc::LibDataChannelWebRtcProvider> webrtcPeer;
+#endif
 };
 
 // Observes SynthesisStateFrame downstream to drive the audioFullyDrained flag.
@@ -914,7 +933,7 @@ GoalLLMBundle setupGoalLLMStack(const CliArgs& args) {
 
 //  Transport setup (identical to VASDK_APP) 
 
-std::optional<TransportBundle> setupTransport(const AudioBundle& audio) {
+std::optional<TransportBundle> setupTransport(const AudioBundle& audio, const CliArgs& args) {
     TransportBundle b;
     b.sharedRingBuffer = std::make_shared<va::AudioRingBuffer>(
         (long)audio.inputConfig.sampleRate * 90,
@@ -923,17 +942,40 @@ std::optional<TransportBundle> setupTransport(const AudioBundle& audio) {
         (long)audio.inputConfig.sampleRate * 90,
         audio.inputConfig.getSampleSizeInBytes());
 
-    b.localTransport = std::make_shared<va::transport::LocalTransport>(
-        audio.audioSource, audio.audioSink);
-    b.localTransport->setInputAudioConfig(audio.inputConfig);
-    b.localTransport->setOutputAudioConfig(audio.outputConfig);
-    b.localTransport->setFrameSize(audio.frameSize);
-    b.localTransport->setRingBuffer(b.sharedRingBuffer);
+#ifdef VASDK_HAS_LIBDATACHANNEL_WEBRTC
+    if (args.webrtcPort != 0) {
+        b.webrtcPeer = std::make_shared<va::webrtc::LibDataChannelWebRtcProvider>();
+        auto webrtc = std::make_shared<va::transport::WebRtcTransport>(b.webrtcPeer);
+        webrtc->setInputAudioConfig(audio.inputConfig);
+        webrtc->setOutputAudioConfig(audio.outputConfig);
+        webrtc->setFrameSize(audio.frameSize);
+        webrtc->setRingBuffer(b.sharedRingBuffer);
+        if (!webrtc->initialize() || !webrtc->start()) {
+            spdlog::error("[CallCenter] Failed to start WebRtcTransport");
+            return std::nullopt;
+        }
+        if (!b.webrtcPeer->startSignalingServer(args.webrtcPort, "127.0.0.1", args.webrtcPage)) return std::nullopt;
+        spdlog::info("[CallCenter] WebRTC ready - open http://127.0.0.1:{} to call", args.webrtcPort);
+        b.flushOutput = [webrtc] { webrtc->flushOutputAudio(); };
+        b.outputFilter.reset();
+        b.transport = webrtc;
+        return b;
+    }
+#endif
 
-    if (!b.localTransport->initialize() || !b.localTransport->start()) {
+    auto local = std::make_shared<va::transport::LocalTransport>(
+        audio.audioSource, audio.audioSink);
+    local->setInputAudioConfig(audio.inputConfig);
+    local->setOutputAudioConfig(audio.outputConfig);
+    local->setFrameSize(audio.frameSize);
+    local->setRingBuffer(b.sharedRingBuffer);
+
+    if (!local->initialize() || !local->start()) {
         spdlog::error("[CallCenter] Failed to start LocalTransport");
         return std::nullopt;
     }
+    b.flushOutput = [local] { local->flushOutputAudio(); };
+    b.transport = local;
     return b;
 }
 
@@ -948,10 +990,10 @@ std::optional<ProcessorBundle> setupProcessors(
     ProcessorBundle b;
 
     b.transportInput = std::make_shared<va::pipeline::TransportInputProcessor>();
-    b.transportInput->addTransport(transport.localTransport);
+    b.transportInput->addTransport(transport.transport);
 
     b.transportOutput = std::make_shared<va::pipeline::TransportOutputProcessor>();
-    b.transportOutput->addTransport(transport.localTransport, va::transport::FrameType::SYNTHESIS);
+    b.transportOutput->addTransport(transport.transport, transport.outputFilter);
 
     // VAD
     b.vadProcessor = std::make_shared<va::pipeline::VADFrameProcessor>(
@@ -969,6 +1011,7 @@ std::optional<ProcessorBundle> setupProcessors(
 #ifdef VASDK_HAS_SMART_TURN_V3
     auto smartTurn = std::make_shared<va::thirdparty::SmartTurnV3Provider>(
         modelsPath + "/smart_turn_v3.onnx", 0.5f, 8.0f, 3);
+    smartTurn->setEvaluateOnPause(true);  // end the turn at the pause when it's clearly over
     if (!smartTurn->initialize(audio.inputConfig, transport.sharedRingBuffer)) {
         spdlog::warn("[CallCenter] SmartTurnV3 init failed - using simple turn detection");
         b.turnDetection = std::make_shared<va::pipeline::TurnDetectionProcessor>();
@@ -1011,7 +1054,7 @@ std::optional<ProcessorBundle> setupProcessors(
 
     // TTS
     b.tts = std::make_shared<va::pipeline::TTSFrameProcessor>(audio.ttsProvider);
-    b.tts->setPlaybackFlush([lt = transport.localTransport]() { lt->flushOutputAudio(); });
+    b.tts->setPlaybackFlush(transport.flushOutput);
 
     // Synthesis state observer - intercepts SynthesisStateFrame downstream
     b.synthObserver = std::make_shared<SynthesisObserver>();
@@ -1039,12 +1082,13 @@ std::shared_ptr<va::pipeline::Pipeline> buildAndStartPipeline(
 
     auto& chain = pipeline->addProcessor(procs.transportInput)
         .addProcessor(procs.vadProcessor)
-        .addProcessor(procs.turnDetection);
+        .addProcessor(procs.turnDetection)
+        .addProcessor(procs.transcription);
 #ifdef VASDK_HAS_PYANNOTE_SPEAKER
+    // After STT: embedding the whole utterance takes ~70 ms per second of speech.
     if (procs.speakerId) chain.addProcessor(procs.speakerId);
 #endif
     chain
-        .addProcessor(procs.transcription)
         .addProcessor(procs.recovery)       // observes ErrorFrames upstream
         .addProcessor(procs.agentState)
         .addProcessor(procs.llmProcessor)
@@ -1127,7 +1171,7 @@ int main(int argc, char* argv[]) {
 
     GoalLLMBundle llm = setupGoalLLMStack(args);
 
-    auto transportOpt = setupTransport(*audioOpt);
+    auto transportOpt = setupTransport(*audioOpt, args);
     if (!transportOpt) return -1;
 
     auto procsOpt = setupProcessors(modelsPath, *audioOpt, *transportOpt, llm);

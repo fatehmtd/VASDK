@@ -746,7 +746,7 @@ namespace va {
 
         /**
          * @brief Speaker identification frame - emitted downstream by SpeakerIdentificationProcessor
-         *        for every utterance long enough to embed, before the utterance's transcription.
+         *        for every utterance long enough to embed (when the utterance's VAD segment ends).
          */
         class VASDK_EXPORT SpeakerIdentificationFrame : public Frame {
         public:

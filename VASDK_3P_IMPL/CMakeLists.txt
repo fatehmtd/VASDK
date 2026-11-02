@@ -9,6 +9,7 @@ endif()
 option(VASDK_BUILD_FFMPEG_AUDIO "Build FFmpeg audio file provider" OFF)
 option(VASDK_BUILD_MINIAUDIO "Build MiniAudio audio I/O provider" ON)
 option(VASDK_BUILD_SDL "Build SDL audio I/O provider" OFF)
+option(VASDK_BUILD_LIBDATACHANNEL_WEBRTC "Build libdatachannel WebRTC provider for WebRtcTransport (needs OpenSSL, or USE_MBEDTLS/USE_GNUTLS)" OFF)
 
 # VAD
 option(VASDK_BUILD_SILERO_VAD "Build Silero VAD provider" ON)
@@ -392,6 +393,10 @@ endif()
 
 if(VASDK_BUILD_SDL)
     add_subdirectory(SDL)
+endif()
+
+if(VASDK_BUILD_LIBDATACHANNEL_WEBRTC)
+    add_subdirectory(LibDataChannelWebRtc)
 endif()
 
 if(VASDK_BUILD_SILERO_VAD)

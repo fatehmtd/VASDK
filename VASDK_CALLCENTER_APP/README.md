@@ -53,6 +53,8 @@ Say something like "I need to schedule a repair for my car" and let it walk you 
 | `--system-prompt <path>` | Override the system prompt template file |
 | `--format-instruction <path>` | Override the response format instruction file |
 | `--env-file <path>` | `.env`-style file to load (default: `.env`) |
+| `--webrtc-port <port>` | Talk from a browser over WebRTC instead of the local mic/speaker: serves signaling and the demo page on `http://127.0.0.1:<port>` (only with `VASDK_BUILD_LIBDATACHANNEL_WEBRTC`) |
+| `--webrtc-page <path>` | Page served at `/` in WebRTC mode (default: [`assets/webrtc/index.html`](../assets/webrtc/index.html)) |
 | `--debug` | Enable debug logging |
 
 ## Production notes

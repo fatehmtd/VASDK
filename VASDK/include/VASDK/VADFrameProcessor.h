@@ -31,6 +31,9 @@ namespace va {
          * - RESUMING: Speech resuming after pause
          * - ENDING: Speech ending, waiting to confirm end
          * - ENDED: Speech has ended, will transition back to QUIET
+         *
+         * A TurnStateFrame(USER, END) arriving UPSTREAM (from turn detection) while PAUSED or
+         * ENDING ends the segment at once instead of waiting out the pause/end timers.
          */
         class VASDK_EXPORT VADFrameProcessor : public FrameProcessor {
             public:
@@ -76,6 +79,8 @@ namespace va {
             void processResuming(const va::audio::VADProvider::VADResult* vadResult);
             void processEnding(const va::audio::VADProvider::VADResult* vadResult);
             void processEnded(const va::audio::VADProvider::VADResult* vadResult);
+            /// ENDED (segment from speech start to now) then QUIET.
+            void endSpeech();
 
             /**
              * @brief Merge adjacent VAD results within a pause window into single segments (avoids

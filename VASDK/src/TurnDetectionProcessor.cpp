@@ -76,6 +76,10 @@ namespace va {
                 return;
             }
 
+            const auto vadFrame = frame->getType() == transport::FrameType::VAD_STATE
+                ? std::static_pointer_cast<transport::VADStateFrame>(frame) : nullptr;
+            if (vadFrame) _vadState = vadFrame->state;
+
             // If a provider is set, delegate to it. Otherwise apply default VAD → turn mapping via TURN_STATE and VAD_STATE frames.
             if (_provider != nullptr) {
                 processWithProvider(frame, direction);
@@ -94,6 +98,18 @@ namespace va {
                     break;
                 default:
                     break;
+                }
+            }
+
+            if (vadFrame && _heldUserStart) {
+                if (vadFrame->state == transport::VADState::ONGOING) {
+                    pushDownstream(_heldUserStart);
+                    spdlog::info("[{}] Speech confirmed - emitted held user TURN_STATE START (type={})",
+                        getName(), static_cast<int>(_heldUserStart->type));
+                    _heldUserStart.reset();
+                } else if (vadFrame->state == transport::VADState::QUIET) {
+                    spdlog::info("[{}] VAD blip, not speech - dropped user turn start", getName());
+                    _heldUserStart.reset();
                 }
             }
 
@@ -140,6 +156,12 @@ namespace va {
 
         void TurnDetectionProcessor::processWithProvider(std::shared_ptr<transport::Frame> frame, FlowDirection direction)
         {
+            if (frame->getType() == transport::FrameType::VAD_STATE) {
+                auto state = std::static_pointer_cast<transport::VADStateFrame>(frame)->state;
+                if (state == transport::VADState::STARTING) _userSpeechOpen = true;
+                else if (state == transport::VADState::ENDED || state == transport::VADState::QUIET) _userSpeechOpen = false;
+            }
+
             audio::TurnDetectionProvider::TurnEvaluation evaluation;
             {
                 va::metrics::ScopedTimer t(_metrics.inference.get());
@@ -154,6 +176,14 @@ namespace va {
             } break;
             case audio::TurnDetectionProvider::Decision::TURN_END: {
                 emitTurnFrame(evaluation.actor, transport::TurnStateFrame::TurnState::END, evaluation.type, evaluation.confidence);
+                if (evaluation.actor == transport::TurnStateFrame::TurnActor::USER && _userSpeechOpen) {
+                    // The provider called it during a pause: have the VAD close the segment now.
+                    _userSpeechOpen = false;
+                    auto end = std::make_shared<transport::TurnStateFrame>(evaluation.actor,
+                        transport::TurnStateFrame::TurnState::END, evaluation.type, evaluation.confidence);
+                    end->sourceId = getName();
+                    pushUpstream(end);
+                }
             } break;
             }
         }
@@ -191,6 +221,12 @@ namespace va {
         {
             auto turnFrame = std::make_shared<transport::TurnStateFrame>(actor, state, type, confidence);
             turnFrame->sourceId = getName();
+            if (actor == transport::TurnStateFrame::TurnActor::USER &&
+                state == transport::TurnStateFrame::TurnState::START &&
+                _vadState == transport::VADState::STARTING) {
+                _heldUserStart = turnFrame;  // sent when the VAD confirms speech
+                return;
+            }
             pushDownstream(turnFrame);
             spdlog::info("[{}] Emitted TURN_STATE frame: actor={}, state={}, type={}, confidence={:.1f}%",
                 getName(),

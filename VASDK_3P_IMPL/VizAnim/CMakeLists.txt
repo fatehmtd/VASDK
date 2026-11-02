@@ -15,6 +15,7 @@ add_library(vasdk_vizanim ${VASDK_THIRDPARTY_LIB_TYPE}
     ${CMAKE_CURRENT_LIST_DIR}/VizAnimProvider.cpp
     ${CMAKE_CURRENT_LIST_DIR}/impl/VizAnimImpl.h
     ${CMAKE_CURRENT_LIST_DIR}/AudioFeaturesFrame.h
+    ${CMAKE_CURRENT_LIST_DIR}/AudioFeaturesEvent.h
     ${CMAKE_CURRENT_LIST_DIR}/VizAnimFrameProcessor.h
     ${CMAKE_CURRENT_LIST_DIR}/VizAnimFrameProcessor.cpp
 )
@@ -50,6 +51,7 @@ install(TARGETS vasdk_vizanim
 install(FILES
     ${CMAKE_CURRENT_LIST_DIR}/VizAnimProvider.h
     ${CMAKE_CURRENT_LIST_DIR}/AudioFeaturesFrame.h
+    ${CMAKE_CURRENT_LIST_DIR}/AudioFeaturesEvent.h
     ${CMAKE_CURRENT_LIST_DIR}/VizAnimFrameProcessor.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/VizAnim
 )
