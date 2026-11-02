@@ -1,6 +1,7 @@
 #pragma once
 
 #include "NetworkError.h"
+#include <cstdint>
 #include <functional>
 #include <map>
 #include <string>
