@@ -226,7 +226,9 @@ private:
     std::string _lastToolBatchText;
 
     std::atomic<uint64_t> _currentGeneration{0};
-    std::atomic<uint64_t> _dispatchGeneration{0};
+    // Generation of the request job running on the worker; its streamed frames are stale once
+    // _currentGeneration moves on (a later dispatch must not revive them).
+    std::atomic<uint64_t> _runningGeneration{0};
     uint64_t _toolBatchGeneration{0};
 
     struct Metrics {

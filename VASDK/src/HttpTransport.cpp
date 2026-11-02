@@ -94,7 +94,8 @@ void HttpTransport::onHttpBytes(const std::vector<uint8_t>& /*bytes*/) {
 
 void HttpTransport::onHttpError(const va::network::NetworkError& error) {
     spdlog::error("[HttpTransport] Network error {}: {}", static_cast<int>(error.code), error.message);
-    setState(TransportState::ERROR);
+    // HTTP has no connection to lose: one failed request must not stop the next one, so the state
+    // stays CONNECTED and the failure is reported as an ErrorFrame + onError only.
 
     auto errFrame = std::make_shared<ErrorFrame>();
     errFrame->errorCode    = error.nativeCode ? error.nativeCode : error.httpStatusCode;

@@ -193,8 +193,9 @@ static HttpResponse performRequest(const std::string& url,
                 "Unsupported URL protocol for endpoint: " + url;
         }
     }
-    if (cancel.cancelled() &&
-        (res == CURLE_ABORTED_BY_CALLBACK || res == CURLE_WRITE_ERROR || res == CURLE_OK)) {
+    // Whatever curl reports after we cancelled is our own abort: mid-stream over TLS it can surface
+    // as CURLE_RECV_ERROR (56) rather than CURLE_WRITE_ERROR.
+    if (cancel.cancelled()) {
         result.error = {NetworkErrorCode::Cancelled, "Request cancelled"};
     }
     // A cancel is a deliberate abort, not a failure: don't report it as a network error.

@@ -49,18 +49,20 @@ public:
     bool anthropic = false;
     std::string lastBody;
     std::atomic<bool> cancelled{false};
+    std::atomic<int> generation{0};  // like CurlHttpProvider: a cancel hits requests started before it
     Clock::time_point cancelTime, returnTime;
 
     network::HttpResponse post(const std::string&, const std::map<std::string, std::string>&, const std::string& body,
                                int, std::function<void(const std::string&)> onChunk) override {
         cancelled = false;
+        const int gen = generation.load();
         lastBody = body;
         const int n = requests++;
         const std::string reply =
             replies.empty() ? this->reply : replies[std::min<size_t>(n, replies.size() - 1)];
         network::HttpResponse r;
         for (size_t i = 0; i < reply.size(); i += 5) {
-            if (cancelled) {
+            if (generation.load() != gen) {
                 r.error = {network::NetworkErrorCode::Cancelled, "cancelled"};
                 returnTime = Clock::now();
                 return r;
@@ -85,6 +87,7 @@ public:
     void cancel() override {
         cancelTime = Clock::now();
         cancelled = true;
+        ++generation;
     }
 };
 

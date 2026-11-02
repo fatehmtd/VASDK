@@ -63,7 +63,8 @@ protected:
     // Fired for binary response bodies
     virtual void onHttpBytes(const std::vector<uint8_t>& bytes);
 
-    // Fired on any network error; default: setState(ERROR) + emit ErrorFrame + fire onError
+    // Fired on any network error (not on cancel); default: emit ErrorFrame + fire onError. The transport
+    // stays connected, so the next request is still sent.
     virtual void onHttpError(const va::network::NetworkError& error);
 
     std::shared_ptr<va::network::HttpInterface> _httpClient;
