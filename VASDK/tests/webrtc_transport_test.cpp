@@ -127,19 +127,36 @@ int main() {
     auto stt = std::make_shared<transport::TranscriptionFrame>();
     stt->isFinal = true;
     stt->transcriptionResult.text = "say \"hi\"";
-    check(t.sendFrame(agent) && t.sendFrame(stt), "state frames accepted");
+    auto who = std::make_shared<transport::SpeakerIdentificationFrame>();
+    who->isNewSpeaker = false;
+    who->trackedSimilarity = 0.5f;
+    check(t.sendFrame(agent) && t.sendFrame(stt) && t.sendFrame(who), "state frames accepted");
     check(t.sendFrame(std::make_shared<transport::ControlFrame>()), "other frames accepted, not sent");
     {
         std::lock_guard<std::mutex> l(peer->m);
-        check(peer->events.size() == 2, "one event per state frame");
-        if (peer->events.size() == 2) {
+        check(peer->events.size() == 3, "one event per state frame");
+        if (peer->events.size() == 3) {
             auto& a = peer->events[0];
             check(a.find("\"type\":\"agent_state\"") != std::string::npos &&
                   a.find("\"state\":\"THINKING\"") != std::string::npos &&
                   a.find("\"reason\":\"TRANSCRIPTION_READY\"") != std::string::npos, "agent_state event");
             check(peer->events[1].find("\"text\":\"say \\\"hi\\\"\"") != std::string::npos,
                   "transcript event, text JSON-escaped");
+            check(peer->events[2].find("\"type\":\"speaker\"") != std::string::npos &&
+                  peer->events[2].find("\"new\":false") != std::string::npos, "speaker event");
         }
+    }
+
+    // A custom encoder handles a type the transport doesn't know; every event carries delay_ms.
+    t.setEventEncoder(transport::FrameType::CONTROL, [](const transport::Frame&) { return std::string("{\"type\":\"x\"}"); });
+    t.setEventEncoder(transport::FrameType::METADATA, [](const transport::Frame&) { return std::string(); });
+    t.sendFrame(std::make_shared<transport::ControlFrame>());
+    t.sendFrame(std::make_shared<transport::MetadataFrame>());
+    {
+        std::lock_guard<std::mutex> l(peer->m);
+        check(peer->events.size() == 4 && peer->events.back().rfind("{\"delay_ms\":", 0) == 0 &&
+              peer->events.back().find("\"type\":\"x\"}") != std::string::npos,
+              "custom encoder event sent with delay_ms; empty encoding skipped");
     }
 
     peer->disconnect();

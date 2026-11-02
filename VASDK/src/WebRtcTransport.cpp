@@ -49,7 +49,7 @@ std::string toEventJson(const std::shared_ptr<Frame>& frame) {
             static const char* kinds[] = {"NORMAL", "INTERRUPT", "OVERLAP"};
             j = {{"type", "turn"}, {"actor", actors[static_cast<int>(f->actor)]},
                  {"state", f->state == TurnStateFrame::TurnState::START ? "START" : "END"},
-                 {"kind", kinds[static_cast<int>(f->type)]}};
+                 {"kind", kinds[static_cast<int>(f->type)]}, {"confidence", f->confidence}};
         }
         break;
     case FrameType::TRANSCRIPTION:
@@ -64,6 +64,16 @@ std::string toEventJson(const std::shared_ptr<Frame>& frame) {
     case FrameType::SYNTHESIS_STATE:
         if (auto f = std::dynamic_pointer_cast<SynthesisStateFrame>(frame))
             j = {{"type", "tts"}, {"state", toString(f->state)}};
+        break;
+    case FrameType::SPEAKER_IDENTIFICATION:
+        if (auto f = std::dynamic_pointer_cast<SpeakerIdentificationFrame>(frame))
+            j = {{"type", "speaker"}, {"speaker_id", f->speakerId}, {"enrolled_similarity", f->confidence},
+                 {"new", f->isNewSpeaker}, {"similarity", f->trackedSimilarity}};
+        break;
+    case FrameType::SPEAKER_ENROLLMENT:
+        if (auto f = std::dynamic_pointer_cast<SpeakerEnrollmentFrame>(frame))
+            j = {{"type", "speaker_enrollment"}, {"speaker_id", f->speakerId}, {"status", toString(f->status)},
+                 {"error", f->errorMessage}};
         break;
     default:
         break;
@@ -175,8 +185,15 @@ bool WebRtcTransport::sendFrame(std::shared_ptr<Frame> frame) {
     if (frame->getType() != FrameType::SYNTHESIS) {
         // State for the peer's UI is best effort: dropping it (no peer yet, no channel) isn't a failure.
         if (isConnected()) {
-            auto json = toEventJson(frame);
-            if (!json.empty()) _peer->sendEvent(json);
+            auto enc = _eventEncoders.find(frame->getType());
+            auto json = enc != _eventEncoders.end() ? enc->second(*frame) : toEventJson(frame);
+            if (json.size() > 2 && json.front() == '{') {
+                // Audio queued ahead of this event, so the page can line it up with what the user hears.
+                const long long delayMs = getPendingOutputAudioBytes() / static_cast<long long>(sizeof(int16_t)) * 1000 /
+                                          _outputAudioConfig.sampleRate;
+                json.insert(1, "\"delay_ms\":" + std::to_string(delayMs) + ",");
+                _peer->sendEvent(json);
+            }
         }
         return true;
     }

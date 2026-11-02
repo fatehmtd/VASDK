@@ -3,149 +3,865 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>VASDK WebRTC demo</title>
+<title>VASDK voice agent</title>
 <style>
-  body { font: 16px/1.5 system-ui, sans-serif; max-width: 40rem; margin: 3rem auto; padding: 0 1rem; }
-  button { font: inherit; padding: .6rem 1.4rem; border-radius: .5rem; border: 1px solid #888; cursor: pointer; }
-  button:disabled { opacity: .5; cursor: default; }
-  #status { color: #555; }
-  .row { display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; margin: 1rem 0; }
-  .badge { padding: .25rem .8rem; border-radius: 1rem; font-weight: 600; background: #eee; color: #333; }
-  .badge[data-state="LISTENING"]   { background: #dff3e4; color: #135c2b; }
-  .badge[data-state="THINKING"]    { background: #fff1c9; color: #6b4e00; }
-  .badge[data-state="SPEAKING"]    { background: #dbe9ff; color: #123f8c; }
-  .badge[data-state="INTERRUPTED"] { background: #ffe0dc; color: #8c1d12; }
-  .pill { padding: .25rem .8rem; border-radius: 1rem; background: #f3f3f3; color: #555; }
-  .pill.on { background: #135c2b; color: #fff; }
-  #chat { list-style: none; padding: 0; margin: 0; }
-  #chat li { margin: .4rem 0; padding: .5rem .75rem; border-radius: .5rem; background: #f6f6f6; }
-  #chat li.assistant { background: #eef4ff; }
-  #chat li.partial { color: #777; font-style: italic; }
-  #chat li .who { font-weight: 600; margin-right: .4rem; }
-  details { margin-top: 1.5rem; }
-  #log { font: 13px/1.4 ui-monospace, monospace; max-height: 16rem; overflow-y: auto; background: #fafafa;
-         border: 1px solid #ddd; border-radius: .5rem; padding: .5rem; margin: .5rem 0 0; list-style: none; }
-  #log .interrupt { color: #8c1d12; font-weight: 600; }
+  :root {
+    color-scheme: light;
+    --page: #f9f9f7; --surface: #fcfcfb; --surface-2: #f3f2ee;
+    --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
+    --hairline: rgba(11,11,11,.10); --grid: #e1e0d9;
+    --you: #2a78d6; --think: #eb6834; --speak: #1baf7a; --interrupt: #e87ba4;
+    --danger: #d03b3b; --good: #006300;
+    --shadow: 0 1px 2px rgba(0,0,0,.04), 0 8px 24px rgba(0,0,0,.06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --page: #0d0d0d; --surface: #1a1a19; --surface-2: #232321;
+      --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
+      --hairline: rgba(255,255,255,.10); --grid: #2c2c2a;
+      --you: #3987e5; --think: #d95926; --speak: #199e70; --interrupt: #d55181;
+      --good: #0ca30c;
+      --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--page); color: var(--ink);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .wrap { max-width: 72rem; margin: 0 auto; padding: 2rem 1.25rem 3rem; }
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; justify-content: space-between; margin-bottom: 1.5rem; }
+  h1 { font-size: 1.5rem; margin: 0; letter-spacing: -.01em; }
+  header p { margin: .15rem 0 0; color: var(--ink-2); }
+  h2 { font-size: .8rem; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-2); margin: 0 0 1rem; }
+  .controls { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+  button { font: inherit; font-weight: 600; padding: .6rem 1.3rem; border-radius: 999px; border: 0; cursor: pointer; color: #fff; }
+  #call { background: var(--you); }
+  #hangup { background: var(--danger); }
+  button:disabled { opacity: .4; cursor: default; }
+  button:focus-visible { outline: 2px solid var(--you); outline-offset: 2px; }
+  .chip { padding: .3rem .8rem; border-radius: 999px; background: var(--surface-2); color: var(--ink-2); font-size: .85rem; }
+  .chip.live { color: var(--good); }
+  .chip.live::before { content: "● "; }
+
+  .grid { display: grid; gap: 1rem; grid-template-columns: minmax(16rem, 1fr) 2fr; }
+  .full { grid-column: 1 / -1; }
+  @media (max-width: 52rem) { .grid { grid-template-columns: 1fr; } }
+  .card { background: var(--surface); border: 1px solid var(--hairline); border-radius: 1rem; padding: 1.25rem; box-shadow: var(--shadow); min-width: 0; }
+
+  /* Agent visual: VizAnim features of whoever is talking shape the orb (bands), wheel (chroma) and ripples (onsets) */
+  .agent { display: flex; flex-direction: column; align-items: center; gap: 1rem; }
+  .stage { position: relative; width: 100%; max-width: 19rem; aspect-ratio: 1; }
+  .stage canvas { display: block; width: 100%; height: 100%; }
+  #orb { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none;
+         color: #fff; font-weight: 600; font-size: 1.05rem; text-shadow: 0 1px 3px rgba(0,0,0,.3); }
+  .voices { width: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
+  .voice { background: var(--surface-2); border-radius: .75rem; padding: .7rem .8rem; }
+  .voice .name { display: flex; justify-content: space-between; font-size: .8rem; color: var(--ink-2); }
+  .voice .note { font-weight: 600; color: var(--ink); }
+  .voice .bands { display: flex; align-items: flex-end; gap: 4px; height: 3rem; margin: .5rem 0 .35rem; }
+  .voice .bands i { flex: 1; height: 6%; border-radius: 3px 3px 1px 1px; background: var(--c); }
+  .voice .read { font-size: .75rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+  #v-mic { --c: var(--you); } #v-tts { --c: var(--speak); }
+  .flags { display: flex; gap: .5rem; flex-wrap: wrap; justify-content: center; }
+  .flag { font-size: .8rem; padding: .2rem .7rem; border-radius: 999px; background: var(--surface-2); color: var(--muted); }
+  .flag.on { color: var(--ink); }
+  .flag.on::before { content: "● "; color: var(--c); }
+  #vad { --c: var(--you); } #tts { --c: var(--speak); }
+
+  /* Conversation */
+  #chat { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .6rem;
+          max-height: 24rem; overflow-y: auto; }
+  #chat:empty::before { content: "Start a call and say hello."; color: var(--muted); }
+  #chat li { max-width: 85%; padding: .6rem .9rem; border-radius: 1rem; background: var(--surface-2); }
+  #chat li.user { align-self: flex-end; background: color-mix(in oklab, var(--you) 14%, var(--surface)); border-bottom-right-radius: .3rem; }
+  #chat li.assistant { align-self: flex-start; border-bottom-left-radius: .3rem; }
+  #chat li.partial .text { color: var(--muted); font-style: italic; }
+  #chat .meta { display: block; margin-top: .25rem; font-size: .75rem; color: var(--muted); }
+  #chat .meta:empty { display: none; }
+
+  /* Stat tiles */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr)); gap: .75rem; }
+  .tile { background: var(--surface-2); border-radius: .75rem; padding: .8rem .9rem; }
+  .tile .label { font-size: .8rem; color: var(--ink-2); }
+  .tile .value { font-size: 1.6rem; font-weight: 600; line-height: 1.2; margin-top: .15rem; }
+  .tile .sub { font-size: .75rem; color: var(--muted); }
+
+  /* Turn timeline: one tall segmented bar per turn, shared time scale */
+  .legend { display: flex; gap: 1rem; flex-wrap: wrap; font-size: .8rem; color: var(--ink-2); margin-bottom: .9rem; }
+  .legend span::before { content: ""; display: inline-block; width: .7rem; height: .7rem; border-radius: 3px; margin-right: .35rem; vertical-align: -1px; background: var(--c); }
+  .seg-you { --c: var(--you); } .seg-think { --c: var(--think); } .seg-speak { --c: var(--speak); }
+  .legend .seg-dot::before { width: .45rem; height: .45rem; border-radius: 50%; background: var(--ink-2); }
+  .legend .seg-mark::before { width: 2px; height: .8rem; border-radius: 0; background: var(--ink-2); }
+  .seg-wait { --c: repeating-linear-gradient(45deg, var(--muted) 0 1.5px, transparent 1.5px 5px); }
+  #turns { display: grid; gap: .5rem; }
+  #turns:empty::before { content: "Each exchange shows up here once the assistant answers."; color: var(--muted); font-size: .9rem; }
+  .turn { display: grid; grid-template-columns: 2.2rem 1fr 4.5rem; align-items: center; gap: .6rem; font-size: .8rem; }
+  .turn .n { color: var(--muted); }
+  .turn .total { text-align: right; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  .bar { display: flex; gap: 2px; height: 28px; }
+  .bar > div { height: 100%; border-radius: 4px; background: var(--c); color: #fff; font-size: .72rem; font-weight: 600;
+               padding: 0 .4rem; display: flex; align-items: center; white-space: nowrap; min-width: 2px; overflow: hidden; }
+  .bar > .seg-wait { background: repeating-linear-gradient(45deg, color-mix(in oklab, var(--muted) 55%, transparent) 0 1.5px, transparent 1.5px 5px); color: var(--ink-2); }
+  .bar > .cut { box-shadow: inset -3px 0 0 var(--interrupt); }
+  table { border-collapse: collapse; width: 100%; font-size: .85rem; font-variant-numeric: tabular-nums; margin-top: .6rem; }
+  th, td { text-align: right; padding: .3rem .5rem; border-bottom: 1px solid var(--grid); }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--ink-2); font-weight: 600; }
+
+  .spark { display: block; width: 100%; height: 26px; margin-top: .45rem; }
+  .spark rect { fill: var(--muted); opacity: .45; }
+  .spark rect.last { fill: var(--think); opacity: 1; }
+
+  /* Voice ribbon: last 20 s, you above the line, the assistant below */
+  #ribbon { display: block; width: 100%; height: 12rem; }
+
+  /* Speakers */
+  #speakers { list-style: none; margin: 0; padding: 0; display: grid; gap: .6rem; }
+  #speakers:empty::before { content: "Voice prints appear after your first utterance of 1 s or more."; color: var(--muted); font-size: .9rem; }
+  #speakers li { display: grid; grid-template-columns: 2.2rem 1fr; gap: .2rem .7rem; align-items: center;
+                 background: var(--surface-2); border-radius: .75rem; padding: .6rem .75rem; border: 2px solid transparent; }
+  #speakers li.current { border-color: var(--you); }
+  .avatar { grid-row: span 2; width: 2.2rem; height: 2.2rem; border-radius: 50%; display: grid; place-items: center;
+            font-weight: 700; background: var(--surface); color: var(--ink); border: 1px solid var(--hairline); }
+  .spk-name { font-weight: 600; display: flex; justify-content: space-between; gap: .5rem; }
+  .spk-name small { font-weight: 400; color: var(--muted); }
+  .sim { position: relative; height: 6px; border-radius: 999px; background: var(--surface); }
+  .sim .fill { position: absolute; inset: 0 auto 0 0; border-radius: 999px; background: var(--you); }
+  .sim .thr { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--ink-2); }
+  .spk-read { grid-column: 2; font-size: .75rem; color: var(--muted); }
+  #chat .who { display: block; font-size: .72rem; color: var(--ink-2); margin-bottom: .15rem; }
+  #chat .who:empty { display: none; }
+
+  details { margin-top: 1rem; }
+  summary { cursor: pointer; color: var(--ink-2); font-size: .85rem; }
+  #log { font: 12px/1.5 ui-monospace, monospace; max-height: 16rem; overflow-y: auto; background: var(--surface-2);
+         border-radius: .5rem; padding: .6rem .8rem; margin: .5rem 0 0; list-style: none; color: var(--ink-2); }
+  #log .interrupt { color: var(--interrupt); font-weight: 600; }
+  .hint { font-size: .75rem; color: var(--muted); margin: .75rem 0 0; }
 </style>
 </head>
 <body>
-<h1>Talk to the assistant</h1>
-<p>Uses your microphone over WebRTC. Headphones are not required: the browser cancels echo.</p>
-<div class="row">
-  <button id="call">Start call</button>
-  <button id="hangup" disabled>Hang up</button>
-  <span id="status" role="status" aria-live="polite">Idle</span>
+<div class="wrap">
+<header>
+  <div>
+    <h1>Talk to the assistant</h1>
+    <p>Voice over WebRTC with live pipeline metrics. Headphones are optional: the browser cancels echo.</p>
+  </div>
+  <div class="controls">
+    <button id="call">Start call</button>
+    <button id="hangup" disabled>Hang up</button>
+    <span id="status" class="chip" role="status" aria-live="polite">Idle</span>
+    <span id="clock" class="chip" aria-label="Call duration">0:00</span>
+  </div>
+</header>
+
+<main class="grid">
+  <section class="card agent" aria-labelledby="agent-h">
+    <h2 id="agent-h">Agent</h2>
+    <div class="stage"><canvas id="viz" aria-hidden="true"></canvas><div id="orb" role="status" aria-live="polite">idle</div></div>
+    <div class="voices">
+      <div class="voice" id="v-mic"><div class="name"><span>You</span><span class="note"></span></div><div class="bands" aria-hidden="true"></div><div class="read">quiet</div></div>
+      <div class="voice" id="v-tts"><div class="name"><span>Assistant</span><span class="note"></span></div><div class="bands" aria-hidden="true"></div><div class="read">quiet</div></div>
+    </div>
+    <div class="flags">
+      <span id="vad" class="flag">Voice detected</span>
+      <span id="tts" class="flag">Synthesizing</span>
+    </div>
+  </section>
+
+  <section class="card" aria-labelledby="chat-h">
+    <h2 id="chat-h">Conversation</h2>
+    <ol id="chat" role="log" aria-live="polite"></ol>
+  </section>
+
+  <section class="card" aria-labelledby="spk-h">
+    <h2 id="spk-h">Speakers</h2>
+    <ol id="speakers" aria-live="polite"></ol>
+    <p class="hint">Each utterance is compared with the current voice print; at or above the marker (0.30 cosine similarity) it's the same voice.</p>
+  </section>
+
+  <section class="card" aria-labelledby="ribbon-h">
+    <h2 id="ribbon-h">Voice ribbon · last 20 s</h2>
+    <div class="legend">
+      <span class="seg-you">You (above)</span>
+      <span class="seg-speak">Assistant (below)</span>
+      <span class="seg-dot">Pitch</span>
+      <span class="seg-mark">Turn ended / barge-in</span>
+    </div>
+    <canvas id="ribbon" role="img" aria-label="Loudness and pitch of both voices over the last 20 seconds"></canvas>
+  </section>
+
+  <section class="card full" aria-labelledby="metrics-h">
+    <h2 id="metrics-h">Session metrics</h2>
+    <div class="tiles">
+      <div class="tile"><div class="label">Response time</div><div class="value" id="m-response">-</div><div class="sub" id="m-response-sub">end of speech to first audio heard</div><svg class="spark" id="spark" role="img" aria-label="Response time per turn"></svg></div>
+      <div class="tile"><div class="label">Your speech</div><div class="value" id="m-speech">-</div><div class="sub" id="m-speech-sub">last turn</div></div>
+      <div class="tile"><div class="label">End of turn + ASR</div><div class="value" id="m-asr">-</div><div class="sub" id="m-asr-sub">quiet to transcript</div></div>
+      <div class="tile"><div class="label">LLM first token</div><div class="value" id="m-llm">-</div><div class="sub" id="m-llm-sub">transcript to first text</div></div>
+      <div class="tile"><div class="label">TTS first audio</div><div class="value" id="m-tts">-</div><div class="sub" id="m-tts-sub">first text to first audio heard</div></div>
+      <div class="tile"><div class="label">Speaking</div><div class="value" id="m-speak">-</div><div class="sub" id="m-speak-sub">assistant audio</div></div>
+      <div class="tile"><div class="label">Turns</div><div class="value" id="m-turns">0</div><div class="sub" id="m-turns-sub">0 interrupted</div></div>
+      <div class="tile"><div class="label">Ended at the pause</div><div class="value" id="m-smart">-</div><div class="sub" id="m-smart-sub">SmartTurn vs silence timer</div></div>
+      <div class="tile"><div class="label">Talk share</div><div class="value" id="m-share">-</div><div class="sub">you / assistant, %</div></div>
+      <div class="tile"><div class="label">Network round trip</div><div class="value" id="m-rtt">-</div><div class="sub" id="m-net-sub">jitter -, loss -</div></div>
+    </div>
+  </section>
+
+  <section class="card full" aria-labelledby="timeline-h">
+    <h2 id="timeline-h">Turn timeline</h2>
+    <div class="legend">
+      <span class="seg-you">You speaking</span>
+      <span class="seg-wait">End of turn + recognition</span>
+      <span class="seg-think">Thinking (LLM first token + TTS first audio)</span>
+      <span class="seg-speak">Assistant speaking</span>
+    </div>
+    <div id="turns"></div>
+    <details>
+      <summary>Table view</summary>
+      <table>
+        <thead><tr><th>Turn</th><th>Speaker</th><th>You</th><th>End + ASR</th><th>Ended by</th><th>LLM</th><th>TTS</th><th>Speaking</th><th>Response</th><th>Words (you / bot)</th><th>Interrupted</th></tr></thead>
+        <tbody id="turnTable"></tbody>
+      </table>
+    </details>
+    <p class="hint">Times use the browser clock; first audio is when it reaches your speaker (the server's playback queue is accounted for). "Your speech" runs from the first word to the moment the mic goes quiet, pauses included.</p>
+  </section>
+
+  <section class="card full" aria-labelledby="net-h">
+    <h2 id="net-h">Connection</h2>
+    <div class="tiles">
+      <div class="tile"><div class="label">Codec</div><div class="value" id="n-codec">-</div><div class="sub" id="n-rate">inbound</div></div>
+      <div class="tile"><div class="label">Inbound audio</div><div class="value" id="n-in">-</div><div class="sub">from assistant</div></div>
+      <div class="tile"><div class="label">Outbound audio</div><div class="value" id="n-out">-</div><div class="sub">your mic</div></div>
+      <div class="tile"><div class="label">Jitter</div><div class="value" id="n-jitter">-</div></div>
+      <div class="tile"><div class="label">Packets lost</div><div class="value" id="n-loss">-</div><div class="sub" id="n-loss-sub">inbound</div></div>
+    </div>
+    <details>
+      <summary>Pipeline events</summary>
+      <ol id="log"></ol>
+    </details>
+  </section>
+</main>
 </div>
-
-<div class="row" aria-label="Pipeline state">
-  <span>Agent: <span id="agent" class="badge" role="status">-</span></span>
-  <span id="vad" class="pill">Mic: quiet</span>
-  <span id="tts" class="pill">Voice: idle</span>
-</div>
-
-<h2>Conversation</h2>
-<ol id="chat" role="log" aria-live="polite"></ol>
-
-<details>
-  <summary>Pipeline events</summary>
-  <ol id="log"></ol>
-</details>
 
 <audio id="remote" autoplay></audio>
 <script>
 const $ = id => document.getElementById(id);
 const callBtn = $('call'), hangupBtn = $('hangup');
-let pc = null;
+let pc = null, audioCtx = null, statsTimer = null, callStart = 0;
+const pageStart = performance.now();
+const now = () => performance.now();
+const sec = ms => ms == null ? '-' : `${(ms / 1000).toFixed(1)} s`;
+const words = s => (s.trim().match(/\S+/g) || []).length;
 
-function setStatus(text) { $('status').textContent = text; }
-
-//  Pipeline events (JSON over the "events" data channel)
-let partialUser = null;   // live STT line, replaced by the final transcript
-let reply = null;         // assistant line being streamed
-const start = performance.now();
-
-function chatLine(who, cls) {
-  const li = document.createElement('li');
-  li.className = cls;
-  const name = document.createElement('span');
-  name.className = 'who';
-  name.textContent = who;
-  li.append(name, document.createElement('span'));
-  $('chat').append(li);
-  li.scrollIntoView({ block: 'nearest' });
-  return li.lastChild;
-}
+function setStatus(text, live) { $('status').textContent = text; $('status').classList.toggle('live', !!live); }
 
 function logEvent(text, cls) {
   const li = document.createElement('li');
-  li.textContent = `${((performance.now() - start) / 1000).toFixed(2)}s  ${text}`;
+  li.textContent = `${((now() - pageStart) / 1000).toFixed(2)}s  ${text}`;
   if (cls) li.className = cls;
   const log = $('log');
   log.append(li);
-  while (log.children.length > 200) log.firstChild.remove();
+  while (log.children.length > 300) log.firstChild.remove();
   log.scrollTop = log.scrollHeight;
 }
 
+function chatLine(cls) {
+  const li = document.createElement('li');
+  li.className = cls;
+  const who = document.createElement('span'); who.className = 'who';
+  const text = document.createElement('span'); text.className = 'text';
+  const meta = document.createElement('span'); meta.className = 'meta';
+  li.append(who, text, meta);
+  $('chat').append(li);
+  $('chat').scrollTop = $('chat').scrollHeight;
+  return li;
+}
+
+//  Turn tracking (browser clock). A turn: you speak -> transcript -> first audio -> assistant done.
 const VAD_ON = ['STARTING', 'ONGOING', 'RESUMING'];
+let micOn = false, agentState = null;
+let cur = null;        // turn in progress
+let bargeStart = null; // you started talking over the assistant
+let partialUser = null, replyLi = null;
+const turns = [];
+let interrupts = 0;
+
+function newTurn(start) {
+  return { start, quiet: null, asr: null, firstText: null, ttsStart: null, heard: null, end: null,
+           pausedAt: null, endedBy: null, turnConf: null, userWords: 0, botWords: 0, conf: null, speaker: null };
+}
+let lastUserLi = null;
+
+function finishTurn(interrupted) {
+  const t = cur;
+  cur = null;
+  if (bargeStart != null && micOn) cur = newTurn(bargeStart);
+  bargeStart = null;
+  if (!t || t.asr == null) return;
+  t.end = now();
+  t.interrupted = interrupted;
+  if (interrupted) interrupts++;
+  // First audio heard: scheduled play time of the first TTS features, else when synthesis started.
+  const audio = t.heard ?? t.ttsStart;
+  t.d = {
+    speech: t.quiet != null ? t.quiet - t.start : null,
+    detect: t.quiet != null ? t.asr - t.quiet : null,
+    think: audio != null ? audio - t.asr : t.end - t.asr,
+    llm: t.firstText != null ? t.firstText - t.asr : null,
+    tts: audio != null && t.firstText != null ? Math.max(0, audio - t.firstText) : null,
+    speak: audio != null ? Math.max(0, t.end - audio) : 0,
+    response: audio != null && t.quiet != null ? audio - t.quiet : null,
+  };
+  turns.push(t);
+  if (t.userLi) {
+    const wpm = t.d.speech > 500 ? ` · ${Math.round(t.userWords / (t.d.speech / 60000))} wpm` : '';
+    const ended = t.endedBy === 'smart' ? ` · SmartTurn ended it${t.turnConf != null ? ` (${t.turnConf.toFixed(2)})` : ''}`
+                : t.endedBy === 'timer' ? ' · silence timer ended it' : '';
+    t.userLi.querySelector('.meta').textContent =
+      `${sec(t.d.speech)}${t.conf != null ? ` · ${Math.round(t.conf * 100)}% confident` : ''}${wpm}${ended}`;
+  }
+  if (t.replyLi) {
+    t.replyLi.querySelector('.meta').textContent =
+      `answered in ${sec(t.d.response)} (LLM ${sec(t.d.llm)}, TTS ${sec(t.d.tts)}) · spoke ${sec(t.d.speak)} · ${t.botWords} words${interrupted ? ' · interrupted' : ''}`;
+  }
+  logEvent(`turn ${turns.length}: speech ${sec(t.d.speech)}, detect+asr ${sec(t.d.detect)}, thinking ${sec(t.d.think)}, ` +
+           `speaking ${sec(t.d.speak)}, response ${sec(t.d.response)}`, interrupted ? 'interrupt' : '');
+  renderMetrics();
+  renderTurn(t, turns.length);
+  $('chat').scrollTop = $('chat').scrollHeight;
+}
+
+const avg = key => {
+  const v = turns.map(t => t.d[key]).filter(x => x != null);
+  return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
+};
+const sum = key => turns.reduce((a, t) => a + (t.d[key] || 0), 0);
+const pct = (vals, p) => { const s = [...vals].sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.floor(p / 100 * s.length))]; };
+
+const SVG = 'http://www.w3.org/2000/svg';
+function drawSpark(vals) {
+  const svg = $('spark'), w = svg.clientWidth || 140, h = 26, n = vals.length;
+  const max = Math.max(1, ...vals.filter(v => v != null));
+  svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+  svg.replaceChildren();
+  const bw = w / Math.max(n, 8);
+  vals.forEach((v, i) => {
+    if (v == null) return;
+    const r = document.createElementNS(SVG, 'rect');
+    const bh = Math.max(2, (h - 2) * v / max);
+    r.setAttribute('x', (i * bw + 1).toFixed(1)); r.setAttribute('width', Math.max(1, bw - 2).toFixed(1));
+    r.setAttribute('y', (h - bh).toFixed(1)); r.setAttribute('height', bh.toFixed(1)); r.setAttribute('rx', 1.5);
+    if (i === n - 1) r.setAttribute('class', 'last');
+    const tip = document.createElementNS(SVG, 'title'); tip.textContent = sec(v); r.append(tip);
+    svg.append(r);
+  });
+}
+
+function renderMetrics() {
+  const last = turns[turns.length - 1];
+  const tile = (id, key) => {
+    $(id).textContent = sec(last.d[key]);
+    $(id + '-sub').textContent = `last turn · avg ${sec(avg(key))}`;
+  };
+  tile('m-speech', 'speech');
+  tile('m-asr', 'detect');
+  tile('m-llm', 'llm');
+  tile('m-tts', 'tts');
+  tile('m-speak', 'speak');
+  $('m-turns').textContent = turns.length;
+  $('m-turns-sub').textContent = `${interrupts} interrupted`;
+
+  const resp = turns.map(t => t.d.response).filter(x => x != null);
+  $('m-response').textContent = sec(last.d.response);
+  $('m-response-sub').textContent = resp.length ? `p50 ${sec(pct(resp, 50))} · p90 ${sec(pct(resp, 90))}` : 'end of speech to first audio heard';
+  drawSpark(turns.slice(-24).map(t => t.d.response));
+
+  const decided = turns.filter(t => t.endedBy);
+  const smart = decided.filter(t => t.endedBy === 'smart');
+  $('m-smart').textContent = decided.length ? `${smart.length} / ${decided.length}` : '-';
+  const confs = smart.map(t => t.turnConf).filter(x => x != null);
+  $('m-smart-sub').textContent = confs.length
+    ? `SmartTurn score avg ${(confs.reduce((a, b) => a + b, 0) / confs.length).toFixed(2)}, min ${Math.min(...confs).toFixed(2)}`
+    : 'SmartTurn vs silence timer';
+  const you = sum('speech'), bot = sum('speak');
+  $('m-share').textContent = you + bot > 0 ? `${Math.round(100 * you / (you + bot))} / ${Math.round(100 * bot / (you + bot))}` : '-';
+}
+
+function renderTurn(t, n) {
+  const MAX_ROWS = 10;
+  // Shared scale across the visible rows so bars compare; redrawn each turn as the scale can change.
+  const shown = turns.slice(-MAX_ROWS);
+  const total = x => (x.d.speech || 0) + (x.d.detect || 0) + x.d.think + x.d.speak;
+  const scale = Math.max(...shown.map(total));
+  const box = $('turns');
+  box.replaceChildren();
+  shown.forEach((x, i) => {
+    const row = document.createElement('div'); row.className = 'turn';
+    const num = document.createElement('span'); num.className = 'n'; num.textContent = `#${turns.length - shown.length + i + 1}`;
+    const bar = document.createElement('div'); bar.className = 'bar';
+    const parts = [['you', 'You speaking', x.d.speech], ['wait', 'Detect + recognition', x.d.detect],
+                   ['think', 'Thinking', x.d.think], ['speak', 'Assistant speaking', x.d.speak]];
+    bar.setAttribute('role', 'img');
+    bar.setAttribute('aria-label', parts.map(([, name, ms]) => `${name} ${sec(ms)}`).join(', ') + (x.interrupted ? ', interrupted' : ''));
+    const segs = [];
+    for (const [key, name, ms] of parts) {
+      if (!ms || ms <= 0) continue;
+      const s = document.createElement('div');
+      s.className = `seg-${key}` + (key === 'speak' && x.interrupted ? ' cut' : '');
+      s.style.flex = `0 0 calc(${(100 * ms / scale).toFixed(2)}% - 2px)`;
+      s.title = `${name}: ${sec(ms)}`;
+      s.textContent = sec(ms);
+      bar.append(s);
+      segs.push(s);
+    }
+    const tot = document.createElement('span'); tot.className = 'total'; tot.textContent = sec(total(x));
+    row.append(num, bar, tot);
+    box.append(row);
+    // A label that doesn't fit its block is dropped; the value stays in the tooltip and table.
+    segs.forEach(s => { if (s.scrollWidth > s.clientWidth) s.textContent = ''; });
+  });
+
+  const tr = document.createElement('tr');
+  const ended = t.endedBy === 'smart' ? `SmartTurn${t.turnConf != null ? ` ${t.turnConf.toFixed(2)}` : ''}` : t.endedBy === 'timer' ? 'timer' : '-';
+  for (const v of [`#${n}`, t.speaker ? t.speaker.label : '-', sec(t.d.speech), sec(t.d.detect), ended, sec(t.d.llm), sec(t.d.tts),
+                   sec(t.d.speak), sec(t.d.response), `${t.userWords} / ${t.botWords}`, t.interrupted ? 'yes' : 'no']) {
+    const td = document.createElement('td'); td.textContent = v; tr.append(td);
+  }
+  $('turnTable').append(tr);
+}
+
+function setFlag(id, on) { $(id).classList.toggle('on', on); }
 
 function onEvent(e) {
   switch (e.type) {
   case 'agent_state': {
-    const badge = $('agent');
-    badge.textContent = e.state.toLowerCase();
-    badge.dataset.state = e.state;
+    const prev = agentState;
+    agentState = e.state;
+    $('orb').textContent = e.state.toLowerCase();
     const interrupted = e.state === 'INTERRUPTED';
     logEvent(`agent ${e.from} -> ${e.state} (${e.reason})`, interrupted ? 'interrupt' : '');
-    if (interrupted && reply) { reply.textContent += ' [interrupted]'; reply = null; }
+    if (cur && e.state === 'THINKING' && cur.asr == null) cur.asr = now();
+    if (interrupted) {
+      marks.push({ t: now(), kind: 'barge' });
+      replyLi = null;
+      viz.tts.queue.length = 0;
+      finishTurn(true);
+    } else if (cur && cur.asr != null && e.state === 'LISTENING' && (prev === 'SPEAKING' || prev === 'THINKING')) {
+      finishTurn(false);
+    }
     break;
   }
   case 'vad': {
     const on = VAD_ON.includes(e.state);
-    $('vad').textContent = on ? 'Mic: you are speaking' : 'Mic: quiet';
-    $('vad').classList.toggle('on', on);
+    if (on && !micOn) {
+      if (!cur) cur = newTurn(now());
+      else if (cur.asr != null) bargeStart = now();
+      else cur.quiet = null;  // kept talking after a pause
+    } else if (!on && micOn) {
+      if (cur && cur.asr == null) cur.quiet = now();
+      else bargeStart = null;  // a blip while the assistant talked, not a barge-in
+    }
+    if (cur && cur.asr == null) {
+      if (e.state === 'PAUSED') cur.pausedAt = now();
+      if (e.state === 'ENDED' && cur.pausedAt != null) {
+        // The VAD alone waits ~750 ms after a pause; ending well before that means SmartTurn called it.
+        cur.endedBy = now() - cur.pausedAt < 450 ? 'smart' : 'timer';
+        marks.push({ t: now(), kind: cur.endedBy });
+      }
+    }
+    micOn = on;
+    setFlag('vad', on);
     logEvent(`vad ${e.state}`);
     break;
   }
   case 'turn':
+    if (e.actor === 'USER' && e.state === 'END' && cur && cur.turnConf == null) cur.turnConf = e.confidence;
     if (e.kind !== 'NORMAL') logEvent(`turn ${e.actor} ${e.state} (${e.kind})`, 'interrupt');
+    break;
+  case 'speaker':
+    onSpeaker(e);
+    break;
+  case 'speaker_enrollment':
+    logEvent(`speaker enrollment ${e.speaker_id}: ${e.status}${e.error ? ` (${e.error})` : ''}`);
     break;
   case 'transcript':
     if (!e.text) break;
-    if (!partialUser) { partialUser = chatLine('You', 'user partial'); }
-    partialUser.textContent = e.text;
+    if (!partialUser) partialUser = chatLine('user partial');
+    partialUser.querySelector('.text').textContent = e.text;
     if (e.final) {
-      partialUser.parentElement.classList.remove('partial');
+      partialUser.classList.remove('partial');
+      lastUserLi = partialUser;
+      if (cur) {
+        if (cur.asr == null) cur.asr = now();
+        if (cur.quiet == null) cur.quiet = cur.asr;
+        cur.userLi = partialUser;
+        cur.userWords += words(e.text);
+        cur.conf = e.confidence;
+      }
       logEvent(`asr "${e.text}" (${Math.round(e.confidence * 100)}%)`);
       partialUser = null;
+      replyLi = null;  // the answer to this transcript gets its own bubble
     }
     break;
   case 'reply':
-    if (!reply) reply = chatLine('Assistant', 'assistant');
-    reply.textContent += e.text;
-    if (e.final) { logEvent(`llm reply done`); reply = null; }
+    if (!replyLi) {
+      replyLi = chatLine('assistant');
+      if (cur && !cur.replyLi) cur.replyLi = replyLi;
+    }
+    if (cur && cur.asr != null && cur.firstText == null && e.text) cur.firstText = now();
+    replyLi.querySelector('.text').textContent += e.text;
+    if (cur && cur.replyLi === replyLi) cur.botWords = words(replyLi.querySelector('.text').textContent);
+    $('chat').scrollTop = $('chat').scrollHeight;
+    if (e.final) { logEvent('llm reply done'); replyLi = null; }
     break;
   case 'tts':
-    $('tts').textContent = e.state === 'STARTED' ? 'Voice: speaking' : `Voice: ${e.state.toLowerCase()}`;
-    $('tts').classList.toggle('on', e.state === 'STARTED');
+    setFlag('tts', e.state === 'STARTED');
+    if (e.state === 'INTERRUPTED') viz.tts.queue.length = 0;  // flushed audio won't play
+    if (e.state === 'STARTED' && cur && cur.asr != null && cur.ttsStart == null) cur.ttsStart = now();
     logEvent(`tts ${e.state}`, e.state === 'INTERRUPTED' ? 'interrupt' : '');
     break;
+  case 'audio_features':
+    onFeatures(e);
+    break;
   }
+}
+
+//  Browser-side level (Web Audio): fast amplitude for the orb between VizAnim updates
+let micAnalyser = null, outAnalyser = null;
+function analyser(stream) {
+  const a = audioCtx.createAnalyser();
+  a.fftSize = 512;
+  audioCtx.createMediaStreamSource(stream).connect(a);
+  return a;
+}
+const levelBuf = new Float32Array(512);
+function level(a) {
+  if (!a) return 0;
+  a.getFloatTimeDomainData(levelBuf);
+  let s = 0;
+  for (const v of levelBuf) s += v * v;
+  const db = 20 * Math.log10(Math.sqrt(s / levelBuf.length) + 1e-9);
+  return Math.min(1, Math.max(0, (db + 60) / 50));  // -60 dB..-10 dB -> 0..1
+}
+
+//  VizAnim features (server side, "audio_features" events) for your mic and the assistant's voice
+const NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+const BANDS = ['Bass 20-250 Hz', 'Low mid 250-500 Hz', 'Mid 0.5-2 kHz', 'High mid 2-4 kHz', 'Treble 4 kHz+'];
+// Same dB windows as the TUI: RMS -60..-10 dB, band magnitudes -90..-30 dB.
+const dbScale = (v, lo, hi) => v > 0 ? Math.min(1, Math.max(0, (20 * Math.log10(v) - lo) / (hi - lo))) : 0;
+const blank = () => ({ rms: 0, bands: [0, 0, 0, 0, 0], pitch: 0, voiced: 0, chroma: new Array(12).fill(0), onset: false });
+const viz = {};
+for (const src of ['mic', 'tts']) {
+  const box = $(`v-${src}`);
+  const bars = BANDS.map(name => {
+    const i = document.createElement('i'); i.title = name;
+    box.querySelector('.bands').append(i);
+    return i;
+  });
+  viz[src] = { queue: [], target: blank(), cur: blank(), last: -1e9, bars,
+               note: box.querySelector('.note'), read: box.querySelector('.read') };
+}
+let ripples = [];
+
+function onFeatures(e) {
+  const v = viz[e.source];
+  if (!v || !Array.isArray(e.f) || !e.f.length) return;
+  // TTS is synthesized ahead of playback; delay_ms is the audio queued up to the end of this frame.
+  const lead = e.source === 'tts' ? Math.max(0, (e.delay_ms || 0) - e.f.length * e.win_ms) : 0;
+  e.f.forEach((f, k) => v.queue.push({ at: now() + lead + k * e.win_ms, f }));
+  if (e.source === 'tts' && cur && cur.asr != null && cur.heard == null) cur.heard = now() + lead;
+}
+
+function normalize(f) {
+  const peak = Math.max(...f.chroma, 1e-6);
+  return { rms: dbScale(f.rms, -60, -10), bands: f.bands.map(b => dbScale(b, -90, -30)),
+           pitch: f.voiced > 0.5 ? f.pitch : 0, voiced: f.voiced, chroma: f.chroma.map(c => c / peak), onset: !!f.onset };
+}
+
+const activeSource = () => agentState === 'SPEAKING' ? 'tts' : 'mic';
+const STATE_COLOR = { LISTENING: 'you', THINKING: 'think', SPEAKING: 'speak', INTERRUPTED: 'interrupt' };
+let colors = {};
+function readColors() {
+  const cs = getComputedStyle(document.documentElement);
+  for (const k of ['you', 'think', 'speak', 'interrupt', 'muted']) colors[k] = cs.getPropertyValue(`--${k}`).trim();
+}
+readColors();
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', readColors);
+const stateColor = () => colors[STATE_COLOR[agentState] || 'muted'];
+
+function stepViz(t, dt) {
+  const a = 1 - Math.exp(-dt / 90);  // ~90 ms smoothing between feature windows
+  for (const [src, v] of Object.entries(viz)) {
+    while (v.queue.length && v.queue[0].at <= t) {
+      v.target = normalize(v.queue.shift().f);
+      v.last = t;
+      voiceHistory[src].push({ t, rms: v.target.rms, pitch: v.target.pitch });
+      if (v.target.onset && v.target.rms > 0.25 && src === activeSource()) ripples.push(t);
+    }
+    if (t - v.last > 400) v.target = blank();  // nothing new: settle to rest
+    const c = v.cur, g = v.target;
+    c.rms += (g.rms - c.rms) * a;
+    c.bands = c.bands.map((b, i) => b + (g.bands[i] - b) * a);
+    c.chroma = c.chroma.map((x, i) => x + (g.chroma[i] - x) * a);
+    v.bars.forEach((bar, i) => { bar.style.height = `${6 + 94 * c.bands[i]}%`; });
+    const note = g.pitch > 0 ? NOTES[((Math.round(69 + 12 * Math.log2(g.pitch / 440)) % 12) + 12) % 12] : '';
+    const read = g.rms > 0.05 ? `${g.pitch > 0 ? `${Math.round(g.pitch)} Hz` : 'unvoiced'} · voiced ${Math.round(g.voiced * 100)}%` : 'quiet';
+    if (v.note.textContent !== note) v.note.textContent = note;
+    if (v.read.textContent !== read) v.read.textContent = read;
+  }
+}
+
+const canvas = $('viz'), g2 = canvas.getContext('2d');
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
+let lastFrame = now();
+function draw() {
+  const t = now(), dt = Math.min(100, t - lastFrame);
+  lastFrame = t;
+  stepViz(t, dt);
+
+  const dpr = devicePixelRatio || 1, w = canvas.clientWidth, h = canvas.clientHeight;
+  if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
+    canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+  }
+  g2.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g2.clearRect(0, 0, w, h);
+  const cx = w / 2, cy = h / 2, unit = Math.min(w, h) / 2;
+  const v = viz[activeSource()].cur;
+  const live = activeSource() === 'tts' ? level(outAnalyser) : level(micAnalyser);
+  const amp = Math.max(v.rms, live);
+  const still = reduceMotion.matches;
+  const breathe = agentState === 'THINKING' && !still ? 0.035 * Math.sin(t / 230) : 0;
+  const R = unit * (0.44 + 0.13 * amp + breathe);
+  const col = stateColor();
+
+  // Halo
+  g2.globalAlpha = 0.14;
+  g2.fillStyle = col;
+  g2.beginPath(); g2.arc(cx, cy, R * (1.1 + 0.3 * amp), 0, 2 * Math.PI); g2.fill();
+
+  // Blob: each band bends the outline at its own spatial frequency
+  g2.beginPath();
+  for (let i = 0; i <= 128; i++) {
+    const th = i / 128 * 2 * Math.PI;
+    let r = 1;
+    v.bands.forEach((b, k) => { r += 0.075 * b * Math.sin((k + 2) * th + (still ? k : t / (650 - k * 80) + k)); });
+    const x = cx + R * r * Math.cos(th), y = cy + R * r * Math.sin(th);
+    i ? g2.lineTo(x, y) : g2.moveTo(x, y);
+  }
+  g2.closePath();
+  g2.globalAlpha = 1;
+  g2.fill();
+  const shine = g2.createRadialGradient(cx - R * 0.35, cy - R * 0.4, 0, cx - R * 0.35, cy - R * 0.4, R * 1.3);
+  shine.addColorStop(0, 'rgba(255,255,255,.45)');
+  shine.addColorStop(1, 'rgba(255,255,255,0)');
+  g2.fillStyle = shine;
+  g2.fill();
+
+  // Chroma wheel: 12 pitch classes, C at the top
+  g2.fillStyle = col;
+  for (let i = 0; i < 12; i++) {
+    const th = -Math.PI / 2 + i / 12 * 2 * Math.PI, c = v.chroma[i] * Math.min(1, v.rms * 1.6);
+    g2.globalAlpha = 0.18 + 0.82 * c;
+    g2.beginPath();
+    g2.arc(cx + unit * 0.88 * Math.cos(th), cy + unit * 0.88 * Math.sin(th), unit * (0.02 + 0.035 * c), 0, 2 * Math.PI);
+    g2.fill();
+  }
+
+  // Onset ripples
+  ripples = still ? [] : ripples.filter(born => t - born < 700);
+  g2.strokeStyle = col;
+  g2.lineWidth = 2;
+  for (const born of ripples) {
+    const k = (t - born) / 700;
+    g2.globalAlpha = 0.6 * (1 - k);
+    g2.beginPath(); g2.arc(cx, cy, R * (1.05 + 0.55 * k), 0, 2 * Math.PI); g2.stroke();
+  }
+  g2.globalAlpha = 1;
+  drawRibbon(t);
+  requestAnimationFrame(draw);
+}
+requestAnimationFrame(draw);
+
+//  Speakers (SpeakerIdentificationProcessor): the tracked voice print, new vs same per utterance
+const SPEAKER_THRESHOLD = 0.30;
+const speakers = [];
+let currentSpeaker = -1;
+function onSpeaker(e) {
+  if (e.new || currentSpeaker < 0) {
+    speakers.push({ label: e.speaker_id || `Speaker ${speakers.length + 1}`, utterances: 0, sims: [] });
+    currentSpeaker = speakers.length - 1;
+  }
+  const s = speakers[currentSpeaker];
+  if (e.speaker_id) s.label = e.speaker_id;
+  s.utterances++;
+  if (!e.new) s.sims.push(e.similarity);
+  const info = { label: s.label, isNew: e.new, sim: e.similarity, enrolled: e.speaker_id ? e.enrolled_similarity : null };
+  // Speaker ID runs after STT, so this belongs to the latest transcribed utterance.
+  const target = cur && cur.userLi === lastUserLi ? cur : turns.find(t => t.userLi === lastUserLi);
+  if (target) target.speaker = info;
+  if (lastUserLi) {
+    lastUserLi.querySelector('.who').textContent = e.new
+      ? `${info.label} · new voice${speakers.length > 1 ? ` (similarity ${e.similarity.toFixed(2)})` : ''}`
+      : `${info.label} · same voice (${e.similarity.toFixed(2)})`;
+  }
+  logEvent(`speaker ${info.label}: ${e.new ? 'NEW' : 'same'} voice, similarity ${e.similarity.toFixed(2)}`);
+  renderSpeakers(info);
+}
+function renderSpeakers(lastInfo) {
+  const list = $('speakers');
+  list.replaceChildren();
+  speakers.forEach((s, i) => {
+    const li = document.createElement('li');
+    if (i === currentSpeaker) li.className = 'current';
+    const av = document.createElement('span'); av.className = 'avatar'; av.textContent = String(i + 1);
+    const name = document.createElement('div'); name.className = 'spk-name';
+    const nm = document.createElement('span'); nm.textContent = s.label;
+    const cnt = document.createElement('small'); cnt.textContent = `${s.utterances} utterance${s.utterances === 1 ? '' : 's'}`;
+    name.append(nm, cnt);
+    const lastSim = s.sims.length ? s.sims[s.sims.length - 1] : null;
+    const sim = document.createElement('div'); sim.className = 'sim';
+    sim.setAttribute('role', 'meter'); sim.setAttribute('aria-valuemin', '0'); sim.setAttribute('aria-valuemax', '1');
+    sim.setAttribute('aria-valuenow', String(lastSim ?? 0)); sim.setAttribute('aria-label', `${s.label} voice match`);
+    const fill = document.createElement('span'); fill.className = 'fill'; fill.style.width = `${Math.max(0, lastSim ?? 0) * 100}%`;
+    const thr = document.createElement('span'); thr.className = 'thr'; thr.style.left = `${SPEAKER_THRESHOLD * 100}%`;
+    sim.append(fill, thr);
+    const read = document.createElement('div'); read.className = 'spk-read';
+    const avgSim = s.sims.length ? s.sims.reduce((a, b) => a + b, 0) / s.sims.length : null;
+    read.textContent = lastSim == null ? 'first utterance - voice print created'
+      : `last match ${lastSim.toFixed(2)} · avg ${avgSim.toFixed(2)}${i === currentSpeaker ? ' · speaking now' : ''}`;
+    li.append(av, name, sim, read);
+    list.append(li);
+  });
+}
+
+//  Voice ribbon: VizAnim loudness (area) and pitch (dots) for both voices over the last 20 s
+const RIBBON_MS = 20000;
+const voiceHistory = { mic: [], tts: [] };
+const marks = [];
+const ribbon = $('ribbon'), r2 = ribbon.getContext('2d');
+const pitchY = hz => Math.min(1, Math.max(0, Math.log2(hz / 70) / Math.log2(450 / 70)));  // 70..450 Hz -> 0..1
+function drawRibbon(t) {
+  const dpr = devicePixelRatio || 1, w = ribbon.clientWidth, h = ribbon.clientHeight;
+  if (!w) return;
+  if (ribbon.width !== Math.round(w * dpr) || ribbon.height !== Math.round(h * dpr)) {
+    ribbon.width = Math.round(w * dpr); ribbon.height = Math.round(h * dpr);
+  }
+  r2.setTransform(dpr, 0, 0, dpr, 0, 0);
+  r2.clearRect(0, 0, w, h);
+  const t0 = t - RIBBON_MS, mid = h / 2, half = h / 2 - 14;
+  const x = tt => (tt - t0) / RIBBON_MS * w;
+  for (const k of ['mic', 'tts']) while (voiceHistory[k].length && voiceHistory[k][0].t < t0 - 1000) voiceHistory[k].shift();
+  while (marks.length && marks[0].t < t0) marks.shift();
+
+  // Grid: centre line and a tick every 5 s
+  r2.fillStyle = colors.muted;
+  r2.globalAlpha = 0.35;
+  r2.fillRect(0, mid, w, 1);
+  r2.font = '11px system-ui, sans-serif';
+  r2.globalAlpha = 1;
+  for (let s = 5; s < RIBBON_MS / 1000; s += 5) {
+    const xx = w - s * 1000 / RIBBON_MS * w;
+    r2.globalAlpha = 0.25; r2.fillRect(xx, mid - 4, 1, 8);
+    r2.globalAlpha = 0.9; r2.fillText(`-${s}s`, xx + 3, h - 2);
+  }
+
+  for (const [k, dir, col] of [['mic', -1, colors.you], ['tts', 1, colors.speak]]) {
+    const pts = voiceHistory[k];
+    // Loudness envelope; a gap of > 350 ms between windows means silence, so break the shape there.
+    r2.fillStyle = col;
+    r2.globalAlpha = 0.35;
+    let run = [];
+    const flush = () => {
+      if (run.length > 1) {
+        r2.beginPath();
+        r2.moveTo(x(run[0].t), mid);
+        for (const p of run) r2.lineTo(x(p.t), mid + dir * p.rms * half);
+        r2.lineTo(x(run[run.length - 1].t), mid);
+        r2.closePath(); r2.fill();
+      }
+      run = [];
+    };
+    pts.forEach((p, i) => { if (i && p.t - pts[i - 1].t > 350) flush(); run.push(p); });
+    flush();
+    // Pitch contour
+    r2.globalAlpha = 1;
+    for (const p of pts) {
+      if (!p.pitch || p.rms < 0.1) continue;
+      r2.beginPath();
+      r2.arc(x(p.t), mid + dir * (0.12 + 0.85 * pitchY(p.pitch)) * half, 2.2, 0, 2 * Math.PI);
+      r2.fill();
+    }
+  }
+
+  // Turn-end and barge-in markers
+  for (const m of marks) {
+    const xx = x(m.t);
+    r2.fillStyle = m.kind === 'barge' ? colors.interrupt : colors.muted;
+    r2.globalAlpha = 0.9;
+    const label = m.kind === 'barge' ? 'barge-in' : m.kind === 'smart' ? 'SmartTurn end' : 'timer end';
+    const lw = r2.measureText(label).width;
+    r2.fillText(label, xx + 4 + lw > w ? xx - 4 - lw : xx + 4, 12);  // flip left near "now"
+    r2.fillRect(Math.min(xx, w - 1.5), 4, 1.5, h - 20);
+  }
+  r2.globalAlpha = 1;
+}
+
+//  Connection stats (RTCPeerConnection.getStats), once a second
+let lastStats = null;
+async function pollStats() {
+  if (!pc) return;
+  const s = { t: now(), inBytes: 0, outBytes: 0 };
+  const report = await pc.getStats();
+  report.forEach(r => {
+    if (r.type === 'candidate-pair' && r.state === 'succeeded' && r.currentRoundTripTime != null) s.rtt = r.currentRoundTripTime;
+    if (r.type === 'inbound-rtp' && r.kind === 'audio') {
+      s.inBytes = r.bytesReceived; s.jitter = r.jitter; s.lost = r.packetsLost; s.recv = r.packetsReceived;
+      const c = r.codecId && report.get(r.codecId);
+      if (c) s.codec = [c.mimeType.split('/')[1], `${c.clockRate / 1000} kHz`];
+    }
+    if (r.type === 'outbound-rtp' && r.kind === 'audio') s.outBytes = r.bytesSent;
+  });
+  const kbps = (a, b) => lastStats ? `${Math.max(0, (a - b) * 8 / (s.t - lastStats.t)).toFixed(0)} kbps` : '-';
+  $('n-in').textContent = kbps(s.inBytes, lastStats?.inBytes);
+  $('n-out').textContent = kbps(s.outBytes, lastStats?.outBytes);
+  if (s.codec) [$('n-codec').textContent, $('n-rate').textContent] = s.codec;
+  const jitter = s.jitter != null ? `${(s.jitter * 1000).toFixed(0)} ms` : '-';
+  const lossPct = s.recv ? `${(100 * s.lost / (s.lost + s.recv)).toFixed(1)}%` : '-';
+  $('n-jitter').textContent = jitter;
+  $('n-loss').textContent = s.lost ?? '-';
+  $('n-loss-sub').textContent = `inbound, ${lossPct}`;
+  $('m-rtt').textContent = s.rtt != null ? `${Math.round(s.rtt * 1000)} ms` : '-';
+  $('m-net-sub').textContent = `jitter ${jitter}, loss ${lossPct}`;
+  lastStats = s;
+  const el = Math.floor((Date.now() - callStart) / 1000);
+  $('clock').textContent = `${Math.floor(el / 60)}:${String(el % 60).padStart(2, '0')}`;
 }
 
 //  Call
 async function startCall() {
   callBtn.disabled = true;
   try {
+    audioCtx = new AudioContext();  // created on the click so autoplay rules allow it
     const mic = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
     });
+    micAnalyser = analyser(mic);
     pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
     mic.getTracks().forEach(t => pc.addTrack(t, mic));
-    pc.ontrack = e => { $('remote').srcObject = e.streams[0] || new MediaStream([e.track]); };
+    pc.ontrack = e => {
+      const stream = e.streams[0] || new MediaStream([e.track]);
+      $('remote').srcObject = stream;
+      try { outAnalyser = analyser(stream); } catch (err) { console.warn('no output meter', err); }
+    };
     pc.onconnectionstatechange = () => {
-      setStatus(pc.connectionState === 'connected' ? 'Connected - start talking' : pc.connectionState);
+      const st = pc.connectionState;
+      setStatus(st === 'connected' ? 'Connected - start talking' : st, st === 'connected');
+      if (st === 'connected' && !statsTimer) {
+        callStart = Date.now();
+        statsTimer = setInterval(pollStats, 1000);
+      }
       // 'disconnected' can recover on its own; the browser moves to 'failed' if it doesn't.
-      if (['failed', 'closed'].includes(pc.connectionState)) stop();
+      if (['failed', 'closed'].includes(st)) stop();
     };
     // Created before the offer so it is negotiated with it.
     const events = pc.createDataChannel('events');
@@ -178,7 +894,15 @@ function stop() {
     pc.close();
     pc = null;
   }
-  partialUser = reply = null;
+  if (audioCtx) { audioCtx.close(); audioCtx = null; }
+  clearInterval(statsTimer);
+  statsTimer = null; lastStats = null; micAnalyser = outAnalyser = null;
+  partialUser = replyLi = cur = bargeStart = null;
+  micOn = false; agentState = null;
+  $('orb').textContent = 'idle';
+  for (const v of Object.values(viz)) { v.queue.length = 0; v.target = blank(); }
+  ripples = [];
+  setFlag('vad', false); setFlag('tts', false);
   callBtn.disabled = false;
   hangupBtn.disabled = true;
 }

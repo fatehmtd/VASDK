@@ -184,6 +184,7 @@
 #ifdef VASDK_HAS_VIZANIM
 #include "VizAnim/VizAnimProvider.h"
 #include "VizAnim/VizAnimFrameProcessor.h"
+#include "VizAnim/AudioFeaturesEvent.h"
 #endif
 
 #ifdef VASDK_HAS_FTXUI
@@ -902,6 +903,11 @@ std::optional<TransportBundle> setupTransport(const AudioBundle& audio, const Me
         webrtc->setFrameSize(audio.frameSize);
         webrtc->setRingBuffer(b.sharedRingBuffer);
         webrtc->setMetricsConfig(metrics.config.transport);
+#ifdef VASDK_HAS_VIZANIM
+        // The VizAnim processors analyse mic and TTS audio at the input rate.
+        webrtc->setEventEncoder(va::transport::FrameType::AUDIO_FEATURES,
+                                va::thirdparty::audioFeaturesEventEncoder(audio.inputConfig.sampleRate));
+#endif
         if (!webrtc->initialize() || !webrtc->start()) {
             spdlog::error("Failed to start WebRtcTransport");
             return std::nullopt;

@@ -6,6 +6,8 @@
 #include <VASDK/network/WebRtcInterface.h>
 #include <atomic>
 #include <deque>
+#include <functional>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -62,6 +64,15 @@ public:
     /// Fade out (~50 ms) and discard queued output audio (barge-in / interrupt).
     void flushOutputAudio();
 
+    /// Turns a frame into a JSON-object event for the peer ("" = skip it).
+    using EventEncoder = std::function<std::string(const Frame&)>;
+    /**
+     * @brief Send frames of this type to the peer as events, e.g. a provider's own frame type
+     *        (VizAnim's AUDIO_FEATURES) that the transport can't decode. Overrides the built-in
+     *        event for that type. Set before start().
+     */
+    void setEventEncoder(FrameType type, EventEncoder encoder) { _eventEncoders[type] = std::move(encoder); }
+
 private:
     void onPeerAudio(const int16_t* pcm, size_t samples);
     void onPeerConnected();
@@ -86,6 +97,8 @@ private:
     std::thread _senderThread;
     std::atomic<bool> _running{false};
     bool _opened{false};
+
+    std::map<FrameType, EventEncoder> _eventEncoders;
 };
 
 } // namespace transport
