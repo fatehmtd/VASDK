@@ -1,4 +1,5 @@
 #include "VASDK/LocalTransport.h"
+#include "AudioFrameUtil.h"
 #include <spdlog/spdlog.h>
 
 namespace va {
@@ -244,36 +245,8 @@ void LocalTransport::captureThreadFunc() {
 }
 
 std::shared_ptr<AudioFrame> LocalTransport::bufferToFrame(const char*buffer, uint32_t numSamples) {
-    auto frame = std::make_shared<AudioFrame>();
-
-    unsigned long ringbufferOffset = 0;
-    unsigned long postWriteOffset = 0;
-
-    if (_ringBuffer) {
-        ringbufferOffset = _ringBuffer->getOffset();
-        postWriteOffset = _ringBuffer->write(buffer, 0, numSamples);
-    } else {
-        spdlog::debug("[LocalTransport] No ring buffer configured, skipping write");
-    }
-
-    // Create lightweight frame (no samples data, just metadata)
-    frame->numSamples = static_cast<uint32_t>(numSamples);
-    frame->sampleRate = _inputAudioConfig.sampleRate;
-    frame->channels = _inputAudioConfig.channels;
-    frame->sampleSizeInBytes = _inputAudioConfig.getSampleSizeInBytes();
-    frame->format = static_cast<int>(_inputAudioConfig.format);
-    frame->absoluteOffset = _absoluteOffset;
-    frame->timestamp = Frame::getCurrentTimestamp();
-    frame->sequenceId = _sequenceCounter++;
-    frame->frameId = "_audio" + std::to_string(frame->sequenceId);
-    frame->sourceId = "LocalTransport";
-    frame->ringbufferOffset = ringbufferOffset;
-    frame->postWriteOffset = postWriteOffset;
-
-    // Update absolute offset (in samples, not bytes)
-    _absoluteOffset += numSamples;
-
-    return frame;
+    return detail::writeAudioFrame(_ringBuffer.get(), buffer, numSamples, _inputAudioConfig,
+                                   _absoluteOffset, _sequenceCounter++, "LocalTransport");
 }
 
 } // namespace transport

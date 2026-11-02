@@ -22,6 +22,7 @@ add_library(VASDK SHARED
     ./src/HttpTransport.cpp
     ./src/LocalTransport.cpp
     ./src/WebSocketTransport.cpp
+    ./src/WebRtcTransport.cpp
     ./src/MockTransport.cpp
     ./src/TransportFactory.cpp
     # LLM infrastructure (va::llm namespace)
@@ -214,6 +215,10 @@ if(VASDK_BUILD_TESTS)
     add_executable(vasdk_llm_stream_speech_test tests/llm_stream_speech_test.cpp)
     target_link_libraries(vasdk_llm_stream_speech_test PRIVATE VASDK nlohmann_json::nlohmann_json)
     add_test(NAME vasdk_llm_stream_speech COMMAND vasdk_llm_stream_speech_test)
+
+    add_executable(vasdk_webrtc_transport_test tests/webrtc_transport_test.cpp)
+    target_link_libraries(vasdk_webrtc_transport_test PRIVATE VASDK)
+    add_test(NAME vasdk_webrtc_transport COMMAND vasdk_webrtc_transport_test)
 endif()
 
 if(VASDK_BUILD_TESTS AND NOT WIN32)
