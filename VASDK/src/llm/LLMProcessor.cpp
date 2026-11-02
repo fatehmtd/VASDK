@@ -852,11 +852,7 @@ void LLMProcessor::handleInterruptTransition(transport::AgentStateTransition t) 
         _latestPartialConfidence = 0.0f;
     }
     cancelFinalWatchdog();
-    {
-        std::lock_guard<std::mutex> lock(_pendingTurnMutex);
-        _pendingTurnEnd = false;
-        _accumulatedFinalText.clear();
-    }
+    keepUnsentTurnAsFollowUp();
     {
         std::lock_guard<std::mutex> lk(_streamingMutex);
         _streamingBuffer.clear();
@@ -887,11 +883,23 @@ void LLMProcessor::handleUserStartedSpeakingTransition() {
         _latestPartialConfidence = 0.0f;
     }
     cancelFinalWatchdog();
+    keepUnsentTurnAsFollowUp();
+}
+
+void LLMProcessor::keepUnsentTurnAsFollowUp() {
+    std::string unsent;
     {
         std::lock_guard<std::mutex> lock(_pendingTurnMutex);
+        if (_pendingTurnEnd) unsent = _accumulatedFinalText;
         _pendingTurnEnd = false;
         _accumulatedFinalText.clear();
     }
+    if (unsent.empty() || _followUpWindowMs == 0) return;
+    // The turn detector judged the utterance unfinished and the user proved it right: keep their words.
+    std::lock_guard<std::mutex> lock(_followUpMutex);
+    spdlog::info("[LLMProcessor] User resumed before \"{}\" was sent; it will be merged into the next turn",
+                 unsent.substr(0, std::min<size_t>(60, unsent.size())));
+    _followUpPrefix = _followUpPrefix.empty() ? unsent : _followUpPrefix + " " + unsent;
 }
 
 void LLMProcessor::handleBackchannelTransition() {

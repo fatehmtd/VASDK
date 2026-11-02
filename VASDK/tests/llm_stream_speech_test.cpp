@@ -398,6 +398,24 @@ void followUpMergedWithInterruptedTurn() {
     }
 }
 
+void followUpKeepsStagedUnsentFinal() {
+    // The turn detector judged "...a flight to" unfinished: its final is staged, never sent.
+    Rig rig(kReply);
+    auto staged = std::make_shared<transport::TranscriptionFrame>();
+    staged->isFinal = true;
+    staged->transcriptionResult.text = "Book a flight to";
+    staged->transcriptionResult.confidence = 1.0f;
+    rig.send(staged);
+    auto resumed = std::make_shared<transport::AgentStateFrame>();
+    resumed->transition = transport::AgentStateTransition::USER_SPOKE_WHILE_THINKING;
+    rig.send(resumed);
+    rig.userSays("Paris.");
+    std::this_thread::sleep_for(1500ms);
+    check(rig.http->requests == 1, "[follow-up staged] only the merged turn is requested");
+    check(rig.userTurnsInHistory() == std::vector<std::string>{"Book a flight to Paris."},
+          "[follow-up staged] unsent words merged into the next turn");
+}
+
 int main() {
     streamsSentencesThenTail(false);
     streamsSentencesThenTail(true);
@@ -411,6 +429,7 @@ int main() {
     extraPayloadMergedIntoRequests();
     backchannelGoesWithTheNextMessage();
     followUpMergedWithInterruptedTurn();
+    followUpKeepsStagedUnsentFinal();
     std::printf("llm stream speech scenarios done, %d failure(s)\n", failures);
     return failures == 0 ? 0 : 1;
 }

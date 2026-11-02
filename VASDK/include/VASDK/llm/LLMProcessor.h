@@ -174,6 +174,8 @@ private:
     std::string _lastTurnRequestText;  // as written to history (with any back-channel note)
     std::chrono::steady_clock::time_point _lastTurnAt;
     std::string _followUpPrefix;
+    // Moves a final transcript staged for a turn end that never came into _followUpPrefix.
+    void keepUnsentTurnAsFollowUp();
 
     void handleVadStateFrame(std::shared_ptr<transport::VADStateFrame> frame);
     void cancelSpeculation(const char* reason);
