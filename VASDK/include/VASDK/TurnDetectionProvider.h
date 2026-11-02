@@ -70,6 +70,29 @@ public:
     virtual TurnEvaluation evaluate(
         const std::shared_ptr<transport::Frame> frame,
         bool agentIsSpeaking) = 0;
+
+    //  Early end of turn
+
+    /**
+     * @brief Also score the user's turn while the VAD is PAUSED/ENDING, so a confident turn end
+     *        fires at the pause instead of after the VAD's end timers. TurnDetectionProcessor then
+     *        asks the VAD to close the segment early. Default off; providers that can't score a
+     *        pause ignore it.
+     */
+    void setEvaluateOnPause(bool enabled) { _evaluateOnPause = enabled; }
+    bool evaluateOnPause() const { return _evaluateOnPause; }
+
+    /**
+     * @brief Confidence needed to end the turn during a pause (see setEvaluateOnPause). Kept above
+     *        the provider's regular end threshold: the user is often only taking a breath, and an
+     *        uncertain turn still ends once the VAD confirms silence. Default 0.85.
+     */
+    void setPauseThreshold(float threshold) { _pauseThreshold = threshold; }
+    float pauseThreshold() const { return _pauseThreshold; }
+
+protected:
+    bool  _evaluateOnPause{ false };
+    float _pauseThreshold{ 0.85f };
 };
 
 } // namespace audio

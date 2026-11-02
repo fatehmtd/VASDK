@@ -60,14 +60,6 @@ namespace va {
             TurnEvaluation evaluate(const std::shared_ptr<transport::Frame> frame,
                 bool agentIsSpeaking) override;
 
-            /**
-             * @brief Also score each audio frame while the VAD is PAUSED/ENDING, so a confident
-             *        turn end fires at the pause instead of after the VAD's end timers. Paired with
-             *        TurnDetectionProcessor, which then asks the VAD to close the segment early.
-             *        Costs one inference per paused frame. Default off.
-             */
-            void setEvaluateOnPause(bool enabled) { _evaluateOnPause = enabled; }
-
         private:
             TurnEvaluation handleVADStateFrame(const std::shared_ptr<transport::VADStateFrame>& frame,
                 bool agentIsSpeaking);
@@ -84,7 +76,6 @@ namespace va {
             float _threshold;
             bool _vadActive{ false };
             bool _vadOccured{ false };
-            bool _evaluateOnPause{ false };
             bool _paused{ false };  // VAD in PAUSED/ENDING
             size_t _vadStartOffset{ 0 };
             size_t _vadEndOffset{ 0 };

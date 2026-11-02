@@ -129,7 +129,8 @@ audio::TurnDetectionProvider::TurnEvaluation SmartTurnV3Provider::handleAudioFra
     spdlog::debug("[SmartTurnV3Provider] Audio frame: {} samples, turn probability: {:.2f}",
         numRead, turnProbability);
 
-    if (turnProbability >= _threshold) {
+    // A pause is often just a breath: ending the turn there takes more confidence.
+    if (turnProbability >= (inPause ? _pauseThreshold : _threshold)) {
         spdlog::info("[SmartTurnV3Provider] Turn end detected{} (probability: {:.2f})",
             inPause ? " during pause" : "", turnProbability);
         _postAudioFramesProcessed = 0;
