@@ -1,4 +1,5 @@
 #pragma once
+#include "TypeName.h"
 #include "CommonAudioUtils.h"
 #include <vector>
 
@@ -9,6 +10,7 @@ namespace audio {
  */
 class VADProvider {
 public:
+    virtual std::string getName() const { return shortTypeName(typeid(*this)); }  ///< for logs and UIs
     struct VADResult {
         size_t offset; // in samples from the start of the buffer
         size_t length; // in samples

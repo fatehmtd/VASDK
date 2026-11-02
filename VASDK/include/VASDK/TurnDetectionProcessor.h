@@ -47,6 +47,7 @@ namespace va {
             //  FrameProcessor interface 
 
             std::string getName() const override { return "TurnDetectionProcessor"; }
+            std::string getProviderName() const override { return _provider ? _provider->getName() : std::string(); }
             bool initialize() override;
             virtual bool shouldProcess(std::shared_ptr<transport::Frame> frame) const override;
             virtual void processFrame(std::shared_ptr<transport::Frame> frame, FlowDirection direction) override;

@@ -16,7 +16,7 @@ Every stage is selected at build time. The app is a chain of `#ifdef VASDK_HAS_*
 
 ## What it demonstrates
 
-- **Barge-in**: talk over the assistant and `AgentStateProcessor` cancels the in-flight TTS via upstream interrupt frames.
+- **Barge-in, not back-channels**: talk over the assistant and `AgentStateProcessor` cancels the in-flight TTS. A short "mm-hmm" or "yeah" only ducks it for a moment, and the assistant keeps going without answering it ([back-channels](../docs/reference/processors.md#back-channels-speech-over-the-agent-that-isnt-an-interruption)).
 - **Turn detection**: SmartTurn v3 (when built) decides whether you're done talking, rather than a fixed silence timeout. It scores each pause as it happens, so a clearly finished sentence ends the turn about 0.1 s into the pause; an unfinished one waits for the VAD's silence timers. A noise blip shorter than 250 ms never counts as you starting to speak, so it can't cut the assistant off.
 - **Browser calls**: `--webrtc-port` swaps the local mic and speaker for a WebRTC peer and serves a demo page with live state, VizAnim visuals, speaker tags and per-turn latency.
 - **Tool calling**: two demo tools, `get_weather` and `get_time`, registered on a `ToolDispatchProcessor`. The LLM calls them mid-conversation and speaks the result.
@@ -55,6 +55,12 @@ Model files are found automatically: the app searches for a `VASDK_3P_IMPL/model
 | `--system-prompt <path>` | Text file with the LLM system prompt, overrides the built-in default |
 | `--format-instruction <path>` | Text file with the response format instruction, overrides the built-in default |
 | `--env-file <path>` | `.env`-style file to load (default: `.env`) |
+| `--no-backchannel` | Back-channel handling off: any speech over the assistant interrupts it (default: on, "mm-hmm" and "yeah" don't interrupt) |
+| `--backchannel-playback <mode>` | Playback while speech over the assistant is classified: `duck` (default, −12 dB), `pause` (resume in place) or `continue` |
+| `--duck-gain-db <dB>` | Assistant level while ducked, −60 to 0 (default −12) |
+| `--duck-duration-ms <ms>` | Minimum time the assistant stays ducked once speech over it starts (default 2500) |
+| `--backchannel-history <mode>` | Dismissed back-channels: `drop` (default) or `append` them to the front of the user's next message |
+| `--tail-overlap <mode>` | Speech over the last ~0.7 s of a reply: `turn` (default, answered after the reply) or `classify` (back-channels dismissed) |
 | `--webrtc-port <port>` | Talk from a browser over WebRTC instead of the local mic/speaker: serves signaling and the demo page on `http://127.0.0.1:<port>` (only with `VASDK_BUILD_LIBDATACHANNEL_WEBRTC`) |
 | `--webrtc-page <path>` | Page served at `/` in WebRTC mode (default: [`assets/webrtc/index.html`](../assets/webrtc/index.html)) |
 | `--statsd-host`, `--statsd-port` | StatsD UDP target (only with `VASDK_METRICS_STATSD`) |

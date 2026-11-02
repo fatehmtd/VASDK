@@ -83,6 +83,8 @@ struct LibDataChannelWebRtcProvider::Impl : std::enable_shared_from_this<Impl> {
 
     // Signaling
     std::unique_ptr<httplib::Server> http;
+    std::mutex describePipelineMutex;
+    std::function<std::string()> describePipeline;
     std::thread httpThread;
 
     std::shared_ptr<rtc::PeerConnection> currentPc() {
@@ -387,6 +389,11 @@ std::string LibDataChannelWebRtcProvider::handleOffer(const std::string& offerSd
     }
 }
 
+void LibDataChannelWebRtcProvider::setPipelineDescription(std::function<std::string()> describePipeline) {
+    std::lock_guard<std::mutex> lock(_impl->describePipelineMutex);
+    _impl->describePipeline = std::move(describePipeline);
+}
+
 bool LibDataChannelWebRtcProvider::startSignalingServer(uint16_t port, const std::string& host,
                                                         const std::string& pagePath) {
     stopSignalingServer();
@@ -397,6 +404,15 @@ bool LibDataChannelWebRtcProvider::startSignalingServer(uint16_t port, const std
         auto answer = handleOffer(req.body);
         if (answer.empty()) { res.status = 400; return; }
         res.set_content(answer, "application/sdp");
+    });
+    http->Get("/pipeline", [impl = _impl](const httplib::Request&, httplib::Response& res) {
+        std::function<std::string()> describePipeline;
+        {
+            std::lock_guard<std::mutex> lock(impl->describePipelineMutex);
+            describePipeline = impl->describePipeline;
+        }
+        if (!describePipeline) { res.status = 404; return; }
+        res.set_content(describePipeline(), "application/json");
     });
     if (!pagePath.empty()) {
         http->Get("/", [pagePath](const httplib::Request&, httplib::Response& res) {

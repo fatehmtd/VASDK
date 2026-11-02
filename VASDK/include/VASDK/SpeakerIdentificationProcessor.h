@@ -55,6 +55,7 @@ namespace va {
             //  FrameProcessor interface
 
             std::string getName() const override { return "SpeakerIdentificationProcessor"; }
+            std::string getProviderName() const override { return _provider ? _provider->getName() : std::string(); }
             bool shouldProcess(std::shared_ptr<transport::Frame> frame) const override;
             void processFrame(std::shared_ptr<transport::Frame> frame, FlowDirection direction) override;
 

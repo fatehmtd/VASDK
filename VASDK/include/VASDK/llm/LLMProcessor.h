@@ -31,6 +31,8 @@ public:
     virtual ~LLMProcessor();
 
     std::string getName() const override { return "LLMProcessor"; }
+    /// The LLM transport and its model, e.g. "OpenAITransport (gpt-4o-mini)"
+    std::string getProviderName() const override;
     bool initialize() override;
     bool start() override;
     void stop() override;
@@ -95,6 +97,15 @@ public:
         _speculativeMinWords = minWords;
     }
 
+    /**
+     * Follow-ups: when the user resumes talking after a brief pause that ended their turn, the
+     * interrupted turn is rolled back from history and its text is sent in front of the next
+     * one, so "Book a flight ... to Paris" reaches the LLM as a single message. Applies when the
+     * user speaks while the agent is still thinking, or barges in within windowMs of the turn
+     * being sent. 0 disables it.
+     */
+    void setFollowUpWindowMs(uint32_t windowMs) { _followUpWindowMs = windowMs; }
+
     void setReasoningTags(std::string openTag, std::string closeTag) {
         _reasoningTagOpen = std::move(openTag);
         _reasoningTagClose = std::move(closeTag);
@@ -112,6 +123,8 @@ protected:
     bool handleAgentStateTransition(std::shared_ptr<transport::AgentStateFrame> agentFrame);
     void handleInterruptTransition(transport::AgentStateTransition t);
     void handleUserStartedSpeakingTransition();
+    void handleBackchannelTransition();
+    void recordBackchannel(const std::string& text);
     void handleTranscriptionReadyTransition();
     bool handleUserStoppedSpeakingTransition(std::shared_ptr<transport::AgentStateFrame> agentFrame);
 
@@ -125,6 +138,13 @@ private:
     mutable std::mutex _partialCacheMutex;
     std::string        _latestPartialText;
     float              _latestPartialConfidence{ 0.0f };
+
+    // Back-channels heard over the agent (BackchannelHistoryMode::AppendToHistory). They go in front
+    // of the user's next message instead of as their own USER entry, which would break the
+    // user/assistant alternation some chat templates enforce.
+    std::mutex  _backchannelNoteMutex;
+    std::string _backchannelNote;          // not yet sent
+    std::string _backchannelNoteInFlight;  // sent with the latest request; restored if that was a cancelled speculation
 
     std::mutex  _pendingTurnMutex;
     bool        _pendingTurnEnd{false};
@@ -146,6 +166,16 @@ private:
     // Fires a request for a confirmed user turn; confirms or replaces a pending speculation first.
     void dispatchLLMRequest(const std::string& text, float confidence);
     void dispatchRequestNow(const std::string& text, float confidence);
+
+    // Last user turn sent to the LLM; becomes _followUpPrefix if the user cuts in to continue it.
+    std::mutex  _followUpMutex;
+    uint32_t    _followUpWindowMs{3000};
+    std::string _lastTurnText;         // as the user said it
+    std::string _lastTurnRequestText;  // as written to history (with any back-channel note)
+    std::chrono::steady_clock::time_point _lastTurnAt;
+    std::string _followUpPrefix;
+    // Moves a final transcript staged for a turn end that never came into _followUpPrefix.
+    void keepUnsentTurnAsFollowUp();
 
     void handleVadStateFrame(std::shared_ptr<transport::VADStateFrame> frame);
     void cancelSpeculation(const char* reason);

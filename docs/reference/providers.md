@@ -4,6 +4,8 @@
 
 A **provider** is the swappable engine behind a pipeline stage: the thing that actually detects speech, transcribes it, synthesizes a voice, or runs the model. Processors orchestrate; providers compute. Every provider interface is a plain abstract C++ class - implement it, hand it to the matching processor, and the rest of the pipeline neither knows nor cares what's behind it.
 
+Every provider has `getName()`. It defaults to the class name without namespaces (`SileroVAD`, via `va::shortTypeName`), so a custom provider needs no extra code to show up in logs and on the WebRTC page.
+
 ```mermaid
 flowchart LR
     subgraph Processors["processors (orchestration - core library)"]
@@ -80,6 +82,7 @@ Common conventions across all provider interfaces:
 | `getPendingAudioBytes()` *(optional)* | Bytes queued but not yet played (default 0). Used by drain logic to know when playback truly finished. |
 | `flushAudio()` *(optional)* | Instantly discard queued audio (barge-in). |
 | `fadeAndFlush()` *(optional)* | Ramp down then discard - prevents the audible click of a hard cut. Default falls back to `flushAudio()`. |
+| `holdPlayback(mode, held, duckGainDecibels)` *(optional)* | Duck or pause playback while a barge-in is pending classification as a [back-channel](processors.md#back-channels-speech-over-the-agent-that-isnt-an-interruption); `held = false` releases it. Pause must keep queued audio so it resumes from the same sample. Default no-op. The MiniAudio, SDL and AAudio sinks implement it; pull-model sinks can reuse the header-only `PlaybackHoldEnvelope`. |
 | `setPlaybackCallback(cb)` *(optional)* | Fired per block actually sent to hardware; for playback-synchronized visualization. |
 
 ---
@@ -164,7 +167,7 @@ virtual TurnEvaluation evaluate(const std::shared_ptr<transport::Frame> frame,
                                 bool agentIsSpeaking) = 0;
 ```
 
-`evaluate()` is called per frame (VAD state frames and others); return `NONE` to stay silent, or a `TURN_START`/`TURN_END` decision and `TurnDetectionProcessor` emits the corresponding `TurnStateFrame`. `agentIsSpeaking` is how you classify `INTERRUPT` (user barged in over TTS) vs `NORMAL`. The built-in fallback (no provider) maps VAD `STARTING`→start, `ENDED`→end at VAD confidence; the SmartTurn v3 implementation in `VASDK_3P_IMPL` adds a semantic end-of-turn model, thresholds, rolling averages, and minimum-duration suppression. By default SmartTurn scores a few frames after VAD `ENDED`; `setEvaluateOnPause(true)` also scores each frame while the VAD is `PAUSED`/`ENDING`, and a confident `TURN_END` there makes `TurnDetectionProcessor` end the VAD segment early (one inference per paused frame, ~60 ms on CPU). A `TURN_START` returned on VAD `STARTING` is held by the processor until the VAD confirms speech.
+`evaluate()` is called per frame (VAD state frames and others); return `NONE` to stay silent, or a `TURN_START`/`TURN_END` decision and `TurnDetectionProcessor` emits the corresponding `TurnStateFrame`. `agentIsSpeaking` is how you classify `INTERRUPT` (user barged in over TTS) vs `NORMAL`. The built-in fallback (no provider) maps VAD `STARTING`→start, `ENDED`→end at VAD confidence; the SmartTurn v3 implementation in `VASDK_3P_IMPL` adds a semantic end-of-turn model, thresholds, rolling averages, and minimum-duration suppression. By default SmartTurn scores a few frames after VAD `ENDED`; `setEvaluateOnPause(true)` (on the `TurnDetectionProvider` base, like `setPauseThreshold`) also scores each frame while the VAD is `PAUSED`/`ENDING`, and a `TURN_END` there - which needs `pauseThreshold()` confidence, default 0.85, since a pause is often just a breath - makes `TurnDetectionProcessor` end the VAD segment early (one inference per paused frame, ~60 ms on CPU). A `TURN_START` returned on VAD `STARTING` is held by the processor until the VAD confirms speech.
 
 ## SpeakerEmbeddingProvider
 

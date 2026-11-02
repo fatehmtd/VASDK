@@ -1,4 +1,5 @@
 #pragma once
+#include "TypeName.h"
 #include <string>
 #include <vector>
 #include <cstdint>
@@ -93,6 +94,7 @@ namespace va
         public:
             GenericTranscriptionProvider() = default;
             virtual ~GenericTranscriptionProvider() = default;
+            virtual std::string getName() const { return shortTypeName(typeid(*this)); }  ///< for logs and UIs
 
             /**
              * @brief initializeTranscriptionProvider

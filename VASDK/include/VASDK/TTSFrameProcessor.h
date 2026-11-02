@@ -32,6 +32,7 @@ public:
     ~TTSFrameProcessor();
 
     std::string getName() const override { return "TTSFrameProcessor"; }
+    std::string getProviderName() const override { return _synthesisProvider ? _synthesisProvider->getName() : std::string(); }
     bool initialize() override;
     bool start() override;
     void stop() override;
@@ -42,6 +43,33 @@ public:
      * @brief Optional callback to immediately flush buffered audio on interrupt/error.
      */
     void setPlaybackFlush(std::function<void()> fn) { _playbackFlush = std::move(fn); }
+
+    /**
+     * @brief Optional callback that ducks or pauses playback while a barge-in is pending
+     *        (AgentStateTransition::BARGE_IN_PENDING) and releases it (held = false) when the
+     *        speech turns out to be a back-channel or the turn ends. Wire it to the transport's
+     *        holdOutputAudio(); a Pause also holds back the drain timer so the turn doesn't end early.
+     */
+    using PlaybackHold = std::function<void(transport::PendingPlaybackMode, bool held, float duckGainDecibels)>;
+    void setPlaybackHold(PlaybackHold playbackHold) { _playbackHold = std::move(playbackHold); }
+    /**
+     * @brief How playback is held while a barge-in is pending. In Duck mode the duck lasts at least
+     *        duckDurationMs from when the user started speaking over the agent, so a back-channel
+     *        doesn't pump the volume back up after ~0.3 s; a committed barge-in or the reply ending
+     *        releases it at once. Pause mode always resumes as soon as the speech is dismissed.
+     */
+    void setPendingPlayback(transport::PendingPlaybackMode pendingPlaybackMode, float duckGainDecibels,
+                            uint32_t duckDurationMs = 2500) {
+        _pendingPlaybackMode = pendingPlaybackMode;
+        _duckGainDecibels = duckGainDecibels;
+        _duckDurationMs = duckDurationMs;
+    }
+
+    /**
+     * @brief Milliseconds of the current reply still to be played, or -1 while the reply text is
+     *        still arriving or no reply is playing. Feeds AgentStateProcessor's tail-overlap rule.
+     */
+    int getRemainingReplyPlaybackMs();
 
     /**
      * @brief Optional callback fired when the audio drain completes (playback fully finished).
@@ -78,6 +106,10 @@ private:
     void startDrainWait();
     void cancelDrainWait();
     void drainWaitLoop();
+    void holdPlayback(bool held);
+    // Releases the duck at holdStart + duckDurationMs (or now, if that has passed).
+    void releaseDuckAfterMinimumDuration();
+    void holdReleaseLoop();
 
     std::shared_ptr<audio::GenericVoiceSynthesisProvider> _synthesisProvider;
     // Set on interrupt, cleared only by INTERRUPT_RESOLVED: drops text and audio from the
@@ -103,6 +135,23 @@ private:
     // max(now, previous end): sentences can arrive with gaps while the LLM is still generating,
     // and the sink idles in between, so a plain "first chunk + total duration" would end early.
     std::chrono::steady_clock::time_point _playbackEndTime;
+    // Pause hold: the playback clock stops, so the remaining time is frozen and grows with new chunks.
+    bool                      _playbackPaused{ false };
+    std::chrono::microseconds _playbackRemainingWhilePaused{ 0 };
+
+    PlaybackHold                   _playbackHold;
+    transport::PendingPlaybackMode _pendingPlaybackMode{ transport::PendingPlaybackMode::Duck };
+    float                          _duckGainDecibels{ -12.0f };
+    uint32_t                       _duckDurationMs{ 2500 };
+    // Deferred duck release. The hold callback is only called under _holdReleaseMutex, so a release
+    // firing on the timer thread can't land after a new BARGE_IN_PENDING has ducked again.
+    std::thread                           _holdReleaseThread;
+    std::mutex                            _holdReleaseMutex;
+    std::condition_variable               _holdReleaseCv;
+    bool                                  _holdReleaseStop{ false };
+    bool                                  _holdReleaseScheduled{ false };
+    std::chrono::steady_clock::time_point _holdStartTime;
+    std::chrono::steady_clock::time_point _holdReleaseTime;
 
     std::thread             _drainThread;
     std::mutex              _drainMutex;

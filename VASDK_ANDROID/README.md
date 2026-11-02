@@ -32,6 +32,8 @@ The native side is the same CMake tree as the desktop build (`externalNativeBuil
 
 `VasdkEngine` is the single entry point: a thin singleton wrapper over the native pipeline with an `init / start / stop / release` lifecycle and a `Listener` interface for everything coming back up: transcripts (partial and final), streamed LLM response chunks (with an `isExpecting` flag when the LLM's reply is itself a question awaiting a spoken answer), agent status changes, pipeline errors, VizAnim audio feature vectors for UI animation, and model download progress.
 
+`setBackchannelConfig(enabled, pendingPlaybackMode, historyMode, tailOverlapMode, duckGainDecibels, duckDurationMs)`, called after `init` and before `start`, chooses how speech over the assistant is handled ([back-channels](../docs/reference/processors.md#back-channels-speech-over-the-agent-that-isnt-an-interruption)). The defaults are on, `DUCK`, `DROP`, `TREAT_AS_TURN` and a −12 dB duck lasting at least 2500 ms, so a "mm-hmm" ducks the assistant instead of cutting it off. `AAudioSink` applies the duck and pause on the audio callback thread.
+
 `getModelInfo()` returns a `ModelInfo` snapshot (which model is loaded, its chat format, the current system prompt, every tool currently registered with its parameters, and a raw preview of the actual prompt/request payload) for the in-app "model info" screen:
 
 ```mermaid

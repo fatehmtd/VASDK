@@ -129,7 +129,7 @@ A `Frame` (`Frame.h`) is the unit of data flowing through the system. It's an ab
 | `AgentStateFrame` | the conversation state machine's current state (IDLE/LISTENING/THINKING/SPEAKING/INTERRUPTED) |
 | `ErrorFrame` / `ControlFrame` | failures and pipeline commands (start/stop/interrupt) |
 
-Every frame has a `FramePriority` (`ErrorFrame` and `ControlFrame::INTERRUPT` are `CRITICAL`), and frames travel in both directions: `DOWNSTREAM` for the normal audio-to-text-to-synthesis flow, `UPSTREAM` for errors, interrupts, and state changes racing back toward the input side. That's what makes barge-in and error recovery possible without bespoke wiring at every stage. When the caller talks over the assistant mid-response, that's an upstream `ControlFrame::INTERRUPT` racing an `ErrorFrame` past the TTS stage, and `AgentStateProcessor` decides what happens to the in-flight response. It's also how `RecoveryProcessor` catches STT/LLM/TTS failures from a single insertion point anywhere in the chain, since errors travel upstream regardless of where they originated.
+Every frame has a `FramePriority` (`ErrorFrame` and `ControlFrame::INTERRUPT` are `CRITICAL`), and frames travel in both directions: `DOWNSTREAM` for the normal audio-to-text-to-synthesis flow, `UPSTREAM` for errors, interrupts, and state changes racing back toward the input side. That's what makes barge-in and error recovery possible without bespoke wiring at every stage. When the caller talks over the assistant mid-response, that's an upstream `ControlFrame::INTERRUPT` racing an `ErrorFrame` past the TTS stage, and `AgentStateProcessor` decides what happens to the in-flight response: a real interruption cancels it, while a back-channel ("mm-hmm", "yeah") only ducks it for a moment ([back-channels](docs/reference/processors.md#back-channels-speech-over-the-agent-that-isnt-an-interruption)). It's also how `RecoveryProcessor` catches STT/LLM/TTS failures from a single insertion point anywhere in the chain, since errors travel upstream regardless of where they originated.
 
 `AudioFrame` is worth a closer look on its own: it doesn't carry samples, only an offset and length into a shared `AudioRingBuffer`. See [The audio ring buffer](#the-audio-ring-buffer) below for why that design choice earns its complexity.
 
@@ -204,6 +204,33 @@ flowchart TD
 ```
 
 `main_pipeline.cpp` picks one provider per stage based on which `VASDK_HAS_*` macro is defined at build time, wraps each in its processor, and chains them with `Pipeline::addProcessor`. None of `Frame`, `FrameProcessor`, or `Pipeline` changes no matter which providers were picked. That decoupling is the point of the architecture.
+
+## Natural turn-taking
+
+A voice agent feels robotic when it jumps in on every breath, stops talking at every "mm-hmm", or answers half a sentence. Three behaviors in the core library handle this, on every transport and platform:
+
+- **Early end of turn, without cutting people off.** The turn detector (SmartTurn v3) scores the audio while the user pauses. A clearly finished turn ends at the pause, about 0.1 s after the user goes quiet; an uncertain one waits for real silence. Ending at a pause takes more confidence (`setPauseThreshold`, default 0.85) than ending after silence (0.5). [Details](docs/reference/processors.md#turndetectionprocessor)
+- **Back-channels don't interrupt.** "Mm-hmm", "yeah" and "right" said over the agent duck its voice instead of stopping it; real interruptions still cut in. [Details](docs/reference/processors.md#back-channels-speech-over-the-agent-that-isnt-an-interruption)
+- **Follow-ups are one message.** If a pause ends the turn and the user keeps talking, the in-flight request is cancelled and both utterances go to the LLM together. [Details](docs/reference/llm.md#follow-ups)
+
+```mermaid
+flowchart TD
+    Pause["User pauses"] --> Score{"Turn detector, during the pause:<br/>probability ≥ 0.85?"}
+    Pause -->|"user resumes before<br/>the turn ends"| Same["Same turn continues"]
+    Score -->|yes| Early["Turn ends at the pause (~0.1 s)<br/>transcript sent to the LLM"]
+    Score -->|no| Silence{"After confirmed silence (~0.75 s):<br/>probability ≥ 0.5?"}
+    Silence -->|yes| Sent["Turn ends<br/>transcript sent to the LLM"]
+    Silence -->|no| Staged["Transcript held<br/>(sent after 2 s if the user stays quiet)"]
+    Early --> Again{"User speaks again while the agent thinks,<br/>or within 3 s of the send?"}
+    Sent --> Again
+    Staged -->|user resumes| Merge
+    Again -->|yes| Merge["Request cancelled and rolled back:<br/>next message = earlier words + new words"]
+    Again -->|no| Normal["Ordinary barge-in or new turn"]
+```
+
+On the [WebRTC demo page](#browser-calls-over-webrtc), the merged turn replaces the separate bubbles: the first utterance is struck through, and the `+` line is exactly what the LLM received. From a real call; the speech recognizer heard "Toulouse" as "Taluz", and the model still worked it out:
+
+![WebRTC demo page: a follow-up merged into one message](assets/screenshots/webrtc-follow-up.png)
 
 ## Repository layout
 

@@ -110,6 +110,13 @@ public:
         if (_audioSink) _audioSink->fadeAndFlush();
     }
 
+    /**
+     * @brief Duck or pause output playback while a barge-in is pending; held = false releases.
+     */
+    void holdOutputAudio(PendingPlaybackMode pendingPlaybackMode, bool held, float duckGainDecibels) {
+        if (_audioSink) _audioSink->holdPlayback(pendingPlaybackMode, held, duckGainDecibels);
+    }
+
 private:
     /**
      * @brief Audio capture thread function

@@ -33,6 +33,11 @@ public:
                       std::optional<transport::FrameType> filter = std::nullopt);
 
     std::string getName() const override { return "TransportOutputProcessor"; }
+    std::string getProviderName() const override {
+        std::string names;
+        for (const auto& output : _outputs) names += (names.empty() ? "" : ", ") + output.transport->getName();
+        return names;
+    }
 
     bool initialize() override;
     bool start() override;

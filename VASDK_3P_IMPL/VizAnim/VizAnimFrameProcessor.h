@@ -38,6 +38,7 @@ namespace va {
             ~VizAnimFrameProcessor() override = default;
 
             std::string getName() const override { return "VizAnimFrameProcessor"; }
+            std::string getProviderName() const override { return _vizAnimProvider ? _vizAnimProvider->getName() : std::string(); }
 
             bool initialize() override;
             void release() override;

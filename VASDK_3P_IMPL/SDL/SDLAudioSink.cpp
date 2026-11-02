@@ -1,4 +1,5 @@
 #include "SDLAudioSink.h"
+#include <cmath>
 #include <spdlog/spdlog.h>
 
 SDLAudioSink::SDLAudioSink() {}
@@ -165,6 +166,8 @@ void SDLAudioSink::stopAudioSink() {
         spdlog::error("could not pause playback device: {}", SDL_GetError());
         return;
     }
+    _playbackPausedForHold = false;
+    SDL_SetAudioStreamGain(_audioStream, 1.0f);
 
     spdlog::info("audio playback device stopped: {}", _audioDeviceId);
 
@@ -180,4 +183,29 @@ int SDLAudioSink::getPendingAudioBytes() const {
 
 void SDLAudioSink::flushAudio() {
     if (_audioStream) SDL_ClearAudioStream(_audioStream);
+}
+
+void SDLAudioSink::holdPlayback(va::transport::PendingPlaybackMode pendingPlaybackMode, bool held,
+                                float duckGainDecibels) {
+    if (!_audioStream) return;
+    // SDL3 streams are push-model with no per-sample hook: gain applies from the next chunk the
+    // device pulls (SDL_GetAudioStreamData), so ducking is a step of about one device buffer.
+    if (!held) {
+        if (_playbackPausedForHold && _isStarted) SDL_ResumeAudioStreamDevice(_audioStream);
+        _playbackPausedForHold = false;
+        SDL_SetAudioStreamGain(_audioStream, 1.0f);
+        return;
+    }
+    switch (pendingPlaybackMode) {
+    case va::transport::PendingPlaybackMode::Duck:
+        SDL_SetAudioStreamGain(_audioStream, std::pow(10.0f, duckGainDecibels / 20.0f));
+        break;
+    case va::transport::PendingPlaybackMode::Pause:
+        // Pausing the device keeps the queued audio in the stream, so it resumes in place.
+        SDL_SetAudioStreamGain(_audioStream, 0.0f);
+        if (_isStarted && SDL_PauseAudioStreamDevice(_audioStream)) _playbackPausedForHold = true;
+        break;
+    case va::transport::PendingPlaybackMode::Continue:
+        break;
+    }
 }

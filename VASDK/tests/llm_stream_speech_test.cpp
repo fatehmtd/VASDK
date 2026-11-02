@@ -10,7 +10,9 @@
 //     trip until the follow-up reply's final frame;
 //   - speculative firing: the request starts on the partial at a VAD pause, its speech is held until
 //     the final transcript confirms it, and is cancelled + rolled back when the user resumes, when
-//     the final differs, or when the speculative reply wants a tool.
+//     the final differs, or when the speculative reply wants a tool;
+//   - a follow-up: the user resumes while the agent is thinking, so the interrupted turn and the new
+//     one reach the LLM as a single message.
 
 #include <VASDK/llm/LLMProcessor.h>
 #include <VASDK/llm/AnthropicTransport.h>
@@ -101,6 +103,10 @@ class Recorder : public pipeline::FrameProcessor {
 public:
     std::string getName() const override { return "Recorder"; }
     void processFrame(std::shared_ptr<transport::Frame> f, pipeline::FlowDirection) override {
+        if (auto t = std::dynamic_pointer_cast<transport::TranscriptionFrame>(f); t && t->isFollowUp) {
+            std::lock_guard<std::mutex> l(m);
+            followUps.push_back(t->transcriptionResult.text);
+        }
         if (f->getType() != transport::FrameType::TEXT) return;
         auto t = std::static_pointer_cast<transport::TextFrame>(f);
         std::lock_guard<std::mutex> l(m);
@@ -112,6 +118,7 @@ public:
     }
     std::mutex m;
     std::vector<Spoken> frames;
+    std::vector<std::string> followUps;  // merged text announced downstream
 };
 
 int failures = 0;
@@ -350,7 +357,64 @@ void extraPayloadMergedIntoRequests() {
     }
 }
 
+void backchannelGoesWithTheNextMessage() {
+    Rig rig(R"({"text": "Sure."})");
+    auto backchannel = std::make_shared<transport::TranscriptionFrame>();
+    backchannel->isFinal = true;
+    backchannel->isBackchannel = true;
+    backchannel->transcriptionResult.text = "mm-hmm";
+    rig.send(backchannel);
+    std::this_thread::sleep_for(100ms);
+    check(rig.http->requests == 0, "[backchannel] not answered");
+    rig.userSays("What about Tuesday?");
+    std::this_thread::sleep_for(600ms);
+    const auto userTurns = rig.userTurnsInHistory();
+    check(userTurns.size() == 1 && userTurns[0] == "(While you were speaking I said \"mm-hmm\".) What about Tuesday?",
+          "[backchannel] recorded at the front of the next user message");
+    rig.userSays("And Wednesday?");
+    std::this_thread::sleep_for(600ms);
+    check(rig.userTurnsInHistory().size() == 2 && rig.userTurnsInHistory()[1] == "And Wednesday?",
+          "[backchannel] recorded once");
+}
+
 } // namespace
+
+void followUpMergedWithInterruptedTurn() {
+    for (const bool enabled : {true, false}) {
+        Rig rig(kReply);
+        if (!enabled) rig.llm->setFollowUpWindowMs(0);
+        rig.userSays("Book a flight");
+        std::this_thread::sleep_for(100ms);  // request in flight, nothing spoken yet
+        auto resumed = std::make_shared<transport::AgentStateFrame>();
+        resumed->transition = transport::AgentStateTransition::USER_SPOKE_WHILE_THINKING;
+        rig.send(resumed);
+        rig.userSays("to Paris");
+        std::this_thread::sleep_for(1500ms);
+        const std::vector<std::string> expected{enabled ? "Book a flight to Paris" : "to Paris"};
+        check(rig.userTurnsInHistory() == expected,
+              enabled ? "[follow-up] both utterances sent as one turn" : "[follow-up off] only the new utterance sent");
+        check(rig.recorder->followUps == (enabled ? expected : std::vector<std::string>{}),
+              "[follow-up] merged text announced downstream only when merging");
+    }
+}
+
+void followUpKeepsStagedUnsentFinal() {
+    // The turn detector judged "...a flight to" unfinished: its final is staged, never sent.
+    Rig rig(kReply);
+    auto staged = std::make_shared<transport::TranscriptionFrame>();
+    staged->isFinal = true;
+    staged->transcriptionResult.text = "Book a flight to";
+    staged->transcriptionResult.confidence = 1.0f;
+    rig.send(staged);
+    auto resumed = std::make_shared<transport::AgentStateFrame>();
+    resumed->transition = transport::AgentStateTransition::USER_SPOKE_WHILE_THINKING;
+    rig.send(resumed);
+    rig.userSays("Paris.");
+    std::this_thread::sleep_for(1500ms);
+    check(rig.http->requests == 1, "[follow-up staged] only the merged turn is requested");
+    check(rig.userTurnsInHistory() == std::vector<std::string>{"Book a flight to Paris."},
+          "[follow-up staged] unsent words merged into the next turn");
+}
 
 int main() {
     streamsSentencesThenTail(false);
@@ -363,6 +427,9 @@ int main() {
     speculationCancelledWhenUserResumes();
     speculativeToolCallNeverRuns();
     extraPayloadMergedIntoRequests();
+    backchannelGoesWithTheNextMessage();
+    followUpMergedWithInterruptedTurn();
+    followUpKeepsStagedUnsentFinal();
     std::printf("llm stream speech scenarios done, %d failure(s)\n", failures);
     return failures == 0 ? 0 : 1;
 }

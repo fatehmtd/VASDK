@@ -55,6 +55,8 @@ bool AAudioSink::initializeAudioSink(const va::audio::AudioConfig& audioConfig) 
 
     _audioConfig   = audioConfig;
     _bytesPerFrame = audioConfig.getSampleSizeInBytes();
+    _playbackHoldEnvelope.setRampFrameCount(static_cast<size_t>(audioConfig.sampleRate) / 50);
+    _playbackHoldEnvelope.reset();
 
     {
         std::lock_guard<std::mutex> lock(_fifoMutex);
@@ -98,6 +100,7 @@ void AAudioSink::stopAudioSink() {
     if (!_started) return;
     AAudioStream_requestStop(_stream);
     _started = false;
+    _playbackHoldEnvelope.reset();
     spdlog::info("[AAudioSink] Stopped.");
 }
 
@@ -135,8 +138,16 @@ int AAudioSink::getPendingAudioBytes() const {
 }
 
 void AAudioSink::flushAudio() {
-    std::lock_guard<std::mutex> lock(_fifoMutex);
-    _fifoReadPos = _fifoWritePos = _fifoSize = 0;
+    {
+        std::lock_guard<std::mutex> lock(_fifoMutex);
+        _fifoReadPos = _fifoWritePos = _fifoSize = 0;
+    }
+    if (_playbackHoldEnvelope.isPausedSilent()) _playbackHoldEnvelope.reset();
+}
+
+void AAudioSink::holdPlayback(va::transport::PendingPlaybackMode pendingPlaybackMode, bool held,
+                              float duckGainDecibels) {
+    _playbackHoldEnvelope.setHold(pendingPlaybackMode, held, duckGainDecibels);
 }
 
 //  Static AAudio callback 
@@ -154,6 +165,12 @@ void AAudioSink::onPlayback(void* audioData, int32_t numFrames) {
     size_t bytesNeeded = static_cast<size_t>(numFrames) * _bytesPerFrame;
     size_t bytesToRead;
 
+    if (_playbackHoldEnvelope.isPausedSilent()) {
+        // Paused for a pending barge-in: leave the FIFO untouched so playback resumes in place.
+        std::memset(dst, 0, bytesNeeded);
+        return;
+    }
+
     {
         std::lock_guard<std::mutex> lock(_fifoMutex);
         bytesToRead = std::min(bytesNeeded, _fifoSize);
@@ -165,6 +182,12 @@ void AAudioSink::onPlayback(void* audioData, int32_t numFrames) {
         _fifoReadPos = (_fifoReadPos + bytesToRead) % kFifoCapacity;
         _fifoSize   -= bytesToRead;
     }
+
+    const size_t framesRead = bytesToRead / static_cast<size_t>(_bytesPerFrame);
+    if (_audioConfig.format == va::audio::FLOAT)
+        _playbackHoldEnvelope.apply(reinterpret_cast<float*>(dst), framesRead, _audioConfig.channels);
+    else
+        _playbackHoldEnvelope.apply(reinterpret_cast<int16_t*>(dst), framesRead, _audioConfig.channels);
 
     // Fill remainder with silence to avoid crackle on underrun
     if (bytesToRead < bytesNeeded)

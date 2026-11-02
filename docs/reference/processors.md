@@ -10,6 +10,7 @@ A processor is one stage of the pipeline: it owns a thread, consumes frames from
 class FrameProcessor : public std::enable_shared_from_this<FrameProcessor> {
 public:
     virtual std::string getName() const = 0;                       // required
+    virtual std::string getProviderName() const;                  // provider doing the work, "" by default
     virtual void processFrame(std::shared_ptr<transport::Frame> frame,
                               FlowDirection direction) = 0;        // required
 
@@ -32,6 +33,8 @@ What the base class gives you for free:
 - **A priority queue** - `CRITICAL` frames (interrupts, fatal errors) jump ahead of queued audio, with FIFO order preserved within a priority level. System frames additionally get their own queue so they can't be starved.
 - **Chain links** - `setDownstream()`/`setUpstream()` are wired for you by `Pipeline::build()`; you never call them by hand in normal use.
 - **Base metrics** - per-processor processing latency, queue wait, and frame count, configurable via `setMetricsConfig()`.
+
+The processors that wrap a provider (VAD, turn detection, transcription, speaker ID, DSP, TTS, VizAnim, the LLM with its model, and the transport processors) report it from `getProviderName()`. `Pipeline::describeAsJson()` lists the chain for UIs: `{"processors":[{"name":"VADFrameProcessor","provider":"SileroVAD"}, ...]}`.
 
 The minimal custom processor is just `getName()` + `processFrame()`:
 
@@ -126,7 +129,7 @@ Tunables live in `VADConfig` (defaults: `vadThresholdMs` 200, `minSpeechDuration
 Two behaviors sit on top of either path:
 
 - **User turn starts wait for confirmed speech.** A user `START` produced while the VAD is only `STARTING` is held and emitted on the first `ONGOING`; if the VAD falls back to `QUIET` it is dropped. A noise or echo blip therefore can't barge in on the agent or cancel the LLM - the cost is that a real barge-in takes `minSpeechDurationMs` (250 ms in the apps) to land.
-- **Early end of turn.** When the provider returns `TURN_END` for the user while the VAD segment is still open (e.g. SmartTurn scoring a pause with `setEvaluateOnPause(true)`), the processor emits the turn `END` and also sends a `TurnStateFrame(USER, END)` upstream so the VAD closes the segment and transcription runs right away. In the showcase apps this takes the gap from the pause to the final transcript from ~1 s to ~0.1 s when the model is confident.
+- **Early end of turn.** When the provider returns `TURN_END` for the user while the VAD segment is still open (e.g. SmartTurn scoring a pause with `setEvaluateOnPause(true)`), the processor emits the turn `END` and also sends a `TurnStateFrame(USER, END)` upstream so the VAD closes the segment and transcription runs right away. In the showcase apps this takes the gap from the pause to the final transcript from ~1 s to ~0.1 s when the model is confident. Ending at a pause needs the provider's `pauseThreshold()` (default 0.85, `setPauseThreshold()`), higher than its regular threshold: a pause is often just a breath, and an uncertain turn still ends once the VAD confirms silence. If the user resumes after the turn did end, `LLMProcessor` merges both utterances into one message ([follow-ups](llm.md#follow-ups)).
 
 ### SpeakerIdentificationProcessor
 
@@ -147,12 +150,48 @@ stateDiagram-v2
     LISTENING --> THINKING: user turn ended, or<br/>final transcription ready
     THINKING --> SPEAKING: TTS starts<br/>(system turn started)
     THINKING --> INTERRUPTED: user speaks<br/>while thinking
-    SPEAKING --> INTERRUPTED: barge-in (INTERRUPT turn)<br/>or cancel-speech command
+    SPEAKING --> SPEAKING: speech over the agent pending,<br/>then back-channel dismissed
+    SPEAKING --> INTERRUPTED: barge-in committed<br/>or cancel-speech command
     SPEAKING --> LISTENING: synthesis completed
     INTERRUPTED --> LISTENING: SynthesisStateFrame INTERRUPTED,<br/>or interruptTimeoutMs fallback (500 ms)
 ```
 
 Key behaviors: `TranscriptionFrame`s arriving outside `LISTENING` are **dropped** (they're stale - e.g. echo of the assistant's own voice); `setAlwaysOn(false)` switches to wake-word mode, where the agent stays `IDLE` until a `TriggerFrame` arrives *and* returns to `IDLE` instead of `LISTENING` after synthesis completes or an interrupt resolves; an `APP_COMMAND` trigger with data `"deactivate"` forces `IDLE` from any state; and the `INTERRUPTED` state has a timeout fallback (`setInterruptTimeoutMs`, default 500 ms) in case TTS never confirms the cancellation.
+
+#### Back-channels: speech over the agent that isn't an interruption
+
+People say "mm-hmm", "yeah" and "right" while someone talks, and expect them to keep going. With `setBackchannelConfig()` (on by default), a user turn start while `SPEAKING` doesn't interrupt at once. It opens a **pending barge-in**: the agent stays `SPEAKING` and an `AgentStateFrame` with transition `BARGE_IN_PENDING` goes out. TTS then ducks or pauses playback through `setPlaybackHold()`. The speech is then classified by `classifyBackchannel()`:
+
+- **Commit** (a real interruption, the usual `BARGE_IN_INTERRUPT`), as soon as one of these holds:
+  - a word from `interruptWords` is heard ("stop", "wait", "no", "actually", "but"…);
+  - two words that aren't back-channel phrases are heard, or a final has one;
+  - more than `maxBackchannelWords` (4) are heard;
+  - the speech runs past `commitAfterPendingMs` (600 ms after the pending start, about 850 ms of speech).
+- **Dismiss** (`BACKCHANNEL`, the agent carries on at full volume): the user stops and the final transcript holds only `backchannelPhrases`, or nothing. A final of up to `lowConfidenceMaxWords` (2) words below `minInterruptConfidence` (0.6) with no interrupt word is dismissed too: short words heard over the agent's own voice are often misrecognised, and a garble ("Hey, hey." at 0.48) shouldn't cut it off. If no final arrives within `finalTranscriptionWaitMs` (300 ms of audio), the latest partial decides.
+
+Time is counted from the `AUDIO` frames passing through, so decisions follow the audio clock, not the wall clock.
+
+| Situation | What happens |
+|---|---|
+| "mm-hmm" (350 ms) | Pending at ~250 ms, the final "Mm-hmm." dismisses it. The agent never stopped, and was quieter for `duckDurationMs` (2.5 s). |
+| "Wait, how much is it?" | The partial "wait" commits. The STT buffer is kept, so the turn includes "wait". |
+| 1 s of speech with batch STT (no partials) | Commits on duration. |
+| "Okay, Tuesday." (500 ms) | The user's turn already ended unseen while the agent kept talking. "Tuesday" commits it **late**: once the interrupt resolves, the turn is replayed (`USER_STOPPED_SPEAKING`, then the held final) so the LLM answers it exactly once. |
+| "Yes" over "…shall I book it?" | Less than `tailOverlapMs` (700 ms) of reply was left (`setPlaybackRemainingMsProvider`, e.g. `TTSFrameProcessor::getRemainingReplyPlaybackMs`). With `TailOverlapMode::TreatAsTurn` the reply finishes and "yes" is answered. With `Classify` it's dismissed. |
+| The reply ends while the user is still talking | It becomes an ordinary user turn. |
+| The reply ends after a back-channel but before its final | The final is classified when it arrives. A back-channel isn't answered; anything else is replayed as a turn. |
+
+The policy is chosen when building the pipeline:
+
+| Setting | Values (default first) |
+|---|---|
+| `pendingPlaybackMode` | `Duck`, `Pause` (resume from the same sample as soon as the speech is dismissed), `Continue` |
+| `duckGainDecibels` | Level while ducked, default −12 dB |
+| `duckDurationMs` | Minimum duck length from the start of the overlap, default 2500 ms. A back-channel doesn't bring the volume straight back up; speaking again within it keeps the duck; a committed barge-in or the reply ending releases it at once. |
+| `historyMode` | `Drop`, or `AppendToHistory`: the dismissed final is forwarded with `TranscriptionFrame::isBackchannel`. LLMProcessor puts it in front of the user's next message, e.g. `(While you were speaking I said "mm-hmm".) What about Tuesday?`, so history keeps strict user/assistant alternation. |
+| `tailOverlapMode` | `TreatAsTurn`, `Classify` |
+
+`enabled = false` restores the plain hard barge-in. Back-channels while `THINKING` aren't covered: any speech then still cancels the reply. The phrase and interrupt-word lists are English by default; set your own for other languages.
 
 ### LLMProcessor
 
@@ -164,7 +203,7 @@ Key behaviors: `TranscriptionFrame`s arriving outside `LISTENING` are **dropped*
 
 ### TTSFrameProcessor
 
-([`TTSFrameProcessor.h`](../../VASDK/include/VASDK/TTSFrameProcessor.h)) Sends final `TextFrame`s to a `GenericVoiceSynthesisProvider`, wraps the returned audio in `SynthesisFrame`s, and - critically - emits `SynthesisStateFrame`s **upstream** (`STARTED`/`COMPLETED`/`INTERRUPTED`/`ERROR`) so agent state and turn detection track TTS activity without bespoke wiring. Handles barge-in cancellation when an `AgentStateFrame{INTERRUPTED}` arrives, and runs a drain-wait timer so `COMPLETED` means "playback actually finished", padded by `setHardwareBufferMarginMs` (default 150 ms) for hardware buffer latency. `setPlaybackFlush()` hooks the transport's fade-and-flush for click-free interruption.
+([`TTSFrameProcessor.h`](../../VASDK/include/VASDK/TTSFrameProcessor.h)) Sends final `TextFrame`s to a `GenericVoiceSynthesisProvider`, wraps the returned audio in `SynthesisFrame`s, and - critically - emits `SynthesisStateFrame`s **upstream** (`STARTED`/`COMPLETED`/`INTERRUPTED`/`ERROR`) so agent state and turn detection track TTS activity without bespoke wiring. Handles barge-in cancellation when an `AgentStateFrame{INTERRUPTED}` arrives, and runs a drain-wait timer so `COMPLETED` means "playback actually finished", padded by `setHardwareBufferMarginMs` (default 150 ms) for hardware buffer latency. `setPlaybackFlush()` hooks the transport's fade-and-flush for click-free interruption. `setPlaybackHold()` hooks the transport's `holdOutputAudio()`: it ducks or pauses playback on `BARGE_IN_PENDING` and releases it on `BACKCHANNEL`, `INTERRUPT_RESOLVED` or `SYNTHESIS_COMPLETED`, with the mode, duck level and minimum duck duration set by `setPendingPlayback()`; after a back-channel the duck is released once `duckDurationMs` has passed since it began. While paused, the drain timer stops, so `COMPLETED` still means the audio played. `getRemainingReplyPlaybackMs()` reports how much of a fully received reply is left to play.
 
 ### RecoveryProcessor
 

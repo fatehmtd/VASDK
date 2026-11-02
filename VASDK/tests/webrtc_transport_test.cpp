@@ -113,6 +113,38 @@ int main() {
     }
     check(t.getPendingOutputAudioBytes() == 0, "queue drained");
 
+    // Pending barge-in: Pause sends silence and keeps the queue; release resumes from the same
+    // sample. Duck plays the audio at -12 dB after a 20 ms ramp.
+    { std::lock_guard<std::mutex> l(peer->m); peer->chunks.clear(); }
+    t.holdOutputAudio(transport::PendingPlaybackMode::Pause, true, -12.0f);
+    t.sendFrame(synth(3200, 1000));  // 200 ms
+    std::this_thread::sleep_for(120ms);
+    const int pausedPending = t.getPendingOutputAudioBytes();
+    std::this_thread::sleep_for(100ms);
+    check(pausedPending > 0 && t.getPendingOutputAudioBytes() == pausedPending, "paused: queue kept, nothing consumed");
+    {
+        std::lock_guard<std::mutex> l(peer->m);
+        bool silent = !peer->chunks.empty();
+        for (size_t c = 1; c < peer->chunks.size(); ++c) silent &= peer->chunks[c][319] == 0;
+        check(silent, "paused: silence is sent");
+        peer->chunks.clear();
+    }
+    t.holdOutputAudio(transport::PendingPlaybackMode::Pause, false, -12.0f);
+    std::this_thread::sleep_for(300ms);
+    check(t.getPendingOutputAudioBytes() == 0, "released: the paused audio plays out");
+    t.holdOutputAudio(transport::PendingPlaybackMode::Duck, true, -12.0f);
+    { std::lock_guard<std::mutex> l(peer->m); peer->chunks.clear(); }
+    t.sendFrame(synth(3200, 1000));
+    std::this_thread::sleep_for(150ms);
+    {
+        std::lock_guard<std::mutex> l(peer->m);
+        bool ducked = false;
+        for (auto& c : peer->chunks) ducked |= c[319] > 240 && c[319] < 260;  // 1000 * 10^(-12/20) = 251
+        check(ducked, "ducked chunks play at -12 dB");
+    }
+    t.holdOutputAudio(transport::PendingPlaybackMode::Duck, false, -12.0f);
+    std::this_thread::sleep_for(150ms);
+
     // Barge-in: a second of audio flushes down to a <= 50 ms faded tail ending in zero.
     t.sendFrame(synth(16000, 1000));
     t.flushOutputAudio();

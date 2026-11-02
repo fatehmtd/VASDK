@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CommonAudioUtils.h"
+#include "Frame.h"
 #include <functional>
 
 namespace va {
@@ -79,6 +80,14 @@ public:
      *        Default falls back to instant flush.
      */
     virtual void fadeAndFlush() { flushAudio(); }
+
+    /**
+     * @brief Duck or pause playback while a barge-in is pending (see PendingPlaybackMode).
+     *        Release with held = false. Paused audio stays queued and resumes from the same
+     *        sample. Backends ramp the gain (see PlaybackHoldEnvelope). Default: no-op.
+     */
+    virtual void holdPlayback(transport::PendingPlaybackMode /*pendingPlaybackMode*/, bool /*held*/,
+                              float /*duckGainDecibels*/) {}
 
     /**
      * @brief Callback invoked each time a block of audio is actually sent to

@@ -1,6 +1,7 @@
 #include "MiniAudioSink.h"
 #include <miniaudio.h>
 #include <spdlog/spdlog.h>
+#include <VASDK/PlaybackHoldEnvelope.h>
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -46,8 +47,28 @@ struct MiniAudioSink::Impl
     size_t              fifoSize      = 0;
     mutable std::mutex  fifoMutex;
 
+    int                 channelCount  = 1;
+    va::audio::PlaybackHoldEnvelope playbackHoldEnvelope;
+
     va::audio::GenericAudioSink::PlaybackCallback playbackCallback;
     std::mutex                      callbackMutex;
+
+    void fillSilence(char *dst, size_t bytes) const
+    {
+        std::memset(dst, format_ == ma_format_u8 ? 0x80 : 0, bytes);
+    }
+
+    void applyHold(char *samples, size_t bytes)
+    {
+        const size_t frameCount = bytes / static_cast<size_t>(bytesPerFrame);
+        switch (format_) {
+        case ma_format_u8:  playbackHoldEnvelope.apply(reinterpret_cast<uint8_t *>(samples), frameCount, channelCount); break;
+        case ma_format_s16: playbackHoldEnvelope.apply(reinterpret_cast<int16_t *>(samples), frameCount, channelCount); break;
+        case ma_format_s32: playbackHoldEnvelope.apply(reinterpret_cast<int32_t *>(samples), frameCount, channelCount); break;
+        case ma_format_f32: playbackHoldEnvelope.apply(reinterpret_cast<float *>(samples), frameCount, channelCount); break;
+        default: break;
+        }
+    }
 
     Impl() { fifo.resize(kFifoCapacity); }
 
@@ -64,6 +85,12 @@ struct MiniAudioSink::Impl
         char  *dst         = static_cast<char *>(pOutput);
         size_t bytesNeeded = static_cast<size_t>(frameCount) * bytesPerFrame;
 
+        if (playbackHoldEnvelope.isPausedSilent()) {
+            // Paused for a pending barge-in: leave the FIFO untouched so playback resumes in place.
+            fillSilence(dst, bytesNeeded);
+            return;
+        }
+
         size_t bytesToRead;
         {
             std::lock_guard<std::mutex> lock(fifoMutex);
@@ -76,6 +103,8 @@ struct MiniAudioSink::Impl
             fifoReadPos = (fifoReadPos + bytesToRead) % kFifoCapacity;
             fifoSize -= bytesToRead;
         }
+
+        applyHold(dst, bytesToRead);
 
         // Fill remaining output with silence to avoid noise on underrun
         if (bytesToRead < bytesNeeded)
@@ -129,6 +158,9 @@ bool MiniAudioSink::initializeAudioSink(const va::audio::AudioConfig &audioConfi
     _impl->bytesPerFrame  = audioConfig.getSampleSizeInBytes();
     _impl->format_        = fmt;
     _impl->sampleRate_    = static_cast<uint32_t>(audioConfig.sampleRate);
+    _impl->channelCount   = std::max(1, audioConfig.channels);
+    _impl->playbackHoldEnvelope.setRampFrameCount(static_cast<size_t>(audioConfig.sampleRate) / 50);
+    _impl->playbackHoldEnvelope.reset();
 
     {
         std::lock_guard<std::mutex> lock(_impl->fifoMutex);
@@ -222,6 +254,7 @@ void MiniAudioSink::stopAudioSink()
         return;
     ma_device_stop(&_impl->device);
     _impl->isStarted = false;
+    _impl->playbackHoldEnvelope.reset();
     spdlog::info("MiniAudio playback device stopped.");
 }
 
@@ -241,8 +274,20 @@ void MiniAudioSink::flushAudio()
     _impl->fifoSize     = 0;
 }
 
+void MiniAudioSink::holdPlayback(va::transport::PendingPlaybackMode pendingPlaybackMode, bool held,
+                                 float duckGainDecibels)
+{
+    _impl->playbackHoldEnvelope.setHold(pendingPlaybackMode, held, duckGainDecibels);
+}
+
 void MiniAudioSink::fadeAndFlush()
 {
+    if (_impl->playbackHoldEnvelope.isPausedSilent()) {
+        // Already silent: a faded tail would only play as a blip once the hold is released.
+        flushAudio();
+        _impl->playbackHoldEnvelope.reset();
+        return;
+    }
     // Apply a ~50 ms linear ramp-down in-place to the buffered samples,
     // then drop the remainder.  This prevents a hard click on barge-in.
     std::lock_guard<std::mutex> lock(_impl->fifoMutex);
