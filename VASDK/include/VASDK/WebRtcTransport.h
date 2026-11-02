@@ -3,6 +3,7 @@
 #include "Transport.h"
 #include "AudioRingBuffer.h"
 #include "CommonAudioUtils.h"
+#include "PlaybackHoldEnvelope.h"
 #include <VASDK/network/WebRtcInterface.h>
 #include <atomic>
 #include <deque>
@@ -64,6 +65,9 @@ public:
     /// Fade out (~50 ms) and discard queued output audio (barge-in / interrupt).
     void flushOutputAudio();
 
+    /// Duck or pause queued output audio while a barge-in is pending; held = false releases.
+    void holdOutputAudio(PendingPlaybackMode pendingPlaybackMode, bool held, float duckGainDecibels);
+
     /// Turns a frame into a JSON-object event for the peer ("" = skip it).
     using EventEncoder = std::function<std::string(const Frame&)>;
     /**
@@ -93,6 +97,7 @@ private:
 
     // Outbound: TTS samples waiting for the paced sender
     std::deque<int16_t> _outputQueue;
+    audio::PlaybackHoldEnvelope _playbackHoldEnvelope;  // applied by the sender thread
     mutable std::mutex _outputMutex;
     std::thread _senderThread;
     std::atomic<bool> _running{false};

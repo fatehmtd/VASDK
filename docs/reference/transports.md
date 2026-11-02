@@ -38,7 +38,15 @@ Configuration before `initialize()`:
 - `setFrameSize(samples)` - capture granularity (default 2000 samples = 125 ms at 16 kHz). Smaller = lower latency, more per-frame overhead.
 - `setRingBuffer(buffer)` - the shared ring buffer that VAD/STT will read; without it an internal buffer is used and nothing else can share the audio.
 
-Barge-in support: `getPendingOutputAudioBytes()` reports unplayed audio and `flushOutputAudio()` fades (~50 ms ramp) and discards it - `TTSFrameProcessor::setPlaybackFlush` is typically wired to this. Capture-side metrics (callback jitter, underruns) are built in.
+Barge-in support: `getPendingOutputAudioBytes()` reports unplayed audio and `flushOutputAudio()` fades (~50 ms ramp) and discards it - `TTSFrameProcessor::setPlaybackFlush` is typically wired to this. `holdOutputAudio(mode, held, duckGainDecibels)` ducks or pauses playback while a barge-in is pending classification ([back-channels](processors.md#back-channels-speech-over-the-agent-that-isnt-an-interruption)); wire it to `TTSFrameProcessor::setPlaybackHold`. It forwards to `GenericAudioSink::holdPlayback`, which every bundled sink implements:
+
+| Sink | Platforms | Duck / pause |
+|---|---|---|
+| `MiniAudioSink` | macOS, Linux, Windows | `PlaybackHoldEnvelope` in the device callback: a 20 ms gain ramp, and in Pause the FIFO isn't read, so playback resumes from the same sample. u8, s16, s32 and f32. |
+| `SDLAudioSink` | macOS, Linux, Windows | `SDL_SetAudioStreamGain` (SDL ≥ 3.2), which applies from the next device pull, so it steps rather than ramps. Pause also pauses the stream device; the queued audio stays in the stream. |
+| `AAudioSink` | Android | `PlaybackHoldEnvelope` in the AAudio data callback, as for MiniAudio (s16, f32). |
+
+Custom sinks get a no-op default; reuse `PlaybackHoldEnvelope` (header-only, `VASDK/PlaybackHoldEnvelope.h`) in your device callback. Capture-side metrics (callback jitter, underruns) are built in.
 
 ## HttpTransport
 
@@ -46,7 +54,7 @@ Barge-in support: `getPendingOutputAudioBytes()` reports unplayed audio and `flu
 
 ## WebSocketTransport
 
-([`WebSocketTransport.h`](../../VASDK/include/VASDK/WebSocketTransport.h)) A WebSocket **server** transport backed by a `WebSocketInterface` provider (cpp-httplib implementation ships in `network/providers`; built when `VASDK_ENABLE_WEBSOCKET_SERVER=ON`, the default). Lets external clients stream frames in and out - remote UIs, browser demos, integration harnesses. Frame serialization uses nlohmann/json when built with `VASDK_HAS_JSON`.
+([`WebSocketTransport.h`](../../VASDK/include/VASDK/WebSocketTransport.h)) A WebSocket **server** transport backed by a `WebSocketInterface` provider (cpp-httplib implementation ships in `network/providers`; built when `VASDK_ENABLE_WEBSOCKET_SERVER=ON`, the default). Lets external clients stream frames in and out - remote UIs, browser demos, integration harnesses. Frame serialization uses nlohmann/json when built with `VASDK_HAS_JSON`. The client plays the audio, so the client applies a pending-barge-in hold itself: duck or pause on the `AgentStateFrame` transition `BARGE_IN_PENDING`, and release on `BACKCHANNEL`, `INTERRUPT_RESOLVED` or `SYNTHESIS_COMPLETED`.
 
 ## WebRtcTransport
 
@@ -54,7 +62,7 @@ Barge-in support: `getPendingOutputAudioBytes()` reports unplayed audio and `flu
 
 - Same setters before `initialize()`: `setInputAudioConfig`, `setOutputAudioConfig`, `setFrameSize`, `setRingBuffer`. Mono 16-bit PCM only.
 - Inbound peer audio is written into the shared ring buffer and surfaces as offset-only `AudioFrame`s, exactly like captured mic audio.
-- Outbound `SynthesisFrame`s are queued and sent in real-time paced 20 ms chunks (silence when idle, so the RTP clock never stalls). `getPendingOutputAudioBytes()` reports the queue; `flushOutputAudio()` fades and drops it for barge-in - wire it to `TTSFrameProcessor::setPlaybackFlush` as with `LocalTransport`.
+- Outbound `SynthesisFrame`s are queued and sent in real-time paced 20 ms chunks (silence when idle, so the RTP clock never stalls). `getPendingOutputAudioBytes()` reports the queue; `flushOutputAudio()` fades and drops it for barge-in - wire it to `TTSFrameProcessor::setPlaybackFlush` as with `LocalTransport`. `holdOutputAudio()` ducks the queue with a 20 ms ramp, or pauses it (silence is sent and the queue is kept), while a barge-in is pending.
 - State: `CONNECTING` while waiting for a peer, `CONNECTED` while one is attached (`onConnected` fires), back to `CONNECTING` when it leaves (`onDisconnected` fires, queued playback is dropped). Synthesis sent with no peer attached is dropped.
 - Pipeline state goes to the peer as one JSON object per message via `WebRtcInterface::sendEvent` (needs `VASDK_HAS_JSON`). Each has `type` and the frame `t`: `agent_state` (`state`, `from`, `reason`), `vad` (`state`, `confidence`), `turn` (`actor`, `state`, `kind`), `transcript` (`text`, `final`, `confidence`), `reply` (streamed LLM `text`, `final`), `tts` (`state`), `speaker` (`speaker_id`, `enrolled_similarity`, `new`, `similarity`), `speaker_enrollment` (`speaker_id`, `status`, `error`); `turn` also carries `confidence`. Register the transport on `TransportOutputProcessor` with no frame filter so it sees these frames; other frame types are ignored.
 - Every event also carries `delay_ms`: the TTS audio still queued for the peer, so a UI can line events up with what the user hears. `setEventEncoder(FrameType, fn)` adds events for frame types core can't decode (or replaces a built-in one). VizAnim ships one: `va::thirdparty::audioFeaturesEventEncoder(sampleRate)` ([`AudioFeaturesEvent.h`](../../VASDK_3P_IMPL/VizAnim/AudioFeaturesEvent.h)) sends `audio_features` (`source` mic/tts, `win_ms`, and per window `rms`, five `bands`, `centroid`, `rolloff`, `flux`, `onset`, `zcr`, `pitch`, `voiced`, 12-bin `chroma`), which VASDK_APP wires up and the demo page draws.
@@ -63,7 +71,7 @@ The media stack sits behind [`WebRtcInterface`](../../VASDK/include/VASDK/networ
 
 **`LibDataChannelWebRtcProvider`** ([`VASDK_3P_IMPL/LibDataChannelWebRtc`](../../VASDK_3P_IMPL/LibDataChannelWebRtc/LibDataChannelWebRtcProvider.h), `-DVASDK_BUILD_LIBDATACHANNEL_WEBRTC=ON`) is the shipped provider: a direct PeerConnection via [libdatachannel](https://github.com/paullouisageneau/libdatachannel) with one sendrecv Opus track.
 
-- Signaling is one non-trickle SDP exchange: `handleOffer(offerSdp)` returns the answer once ICE gathering completes. `startSignalingServer(port, host, pagePath)` exposes it as `POST /offer` (WHIP-shaped; `409` while a peer is connected) and serves a page at `GET /`. **No authentication** - it binds `127.0.0.1` by default; put it behind your own auth before exposing it.
+- Signaling is one non-trickle SDP exchange: `handleOffer(offerSdp)` returns the answer once ICE gathering completes. `startSignalingServer(port, host, pagePath)` exposes it as `POST /offer` (WHIP-shaped; `409` while a peer is connected) and serves a page at `GET /`. `setPipelineDescription(fn)` adds `GET /pipeline` with `fn()`'s JSON, for example `Pipeline::describeAsJson()`; the demo page uses it to list the processors and providers. **No authentication** - it binds `127.0.0.1` by default; put it behind your own auth before exposing it.
 - Events go out on the data channel the browser creates with its offer (the demo page calls it `events`). `sendEvent` returns false until that channel is open, so events from before then are lost.
 - Opus runs directly at the transport's rates, which must be 8/12/16/24/48 kHz (`open()` fails otherwise - there is no resampler).
 - Inbound packets pass a 3-packet reorder buffer; gaps get Opus packet-loss concealment. A peer that sends no media for 5 s is dropped (browsers stream continuously even when muted), which catches closed tabs long before the ~30 s ICE timeout.
@@ -77,6 +85,9 @@ rtc->initialize();
 rtc->start();
 peer->startSignalingServer(8765, "127.0.0.1", "assets/webrtc/index.html");
 tts->setPlaybackFlush([rtc] { rtc->flushOutputAudio(); });
+tts->setPlaybackHold([rtc](va::transport::PendingPlaybackMode mode, bool held, float duckGainDecibels) {
+    rtc->holdOutputAudio(mode, held, duckGainDecibels);
+});
 ```
 
 Both showcase apps take `--webrtc-port <port>` (and `--webrtc-page`) when built with the provider: run, open `http://127.0.0.1:<port>`, press *Start call*. The demo page is [`assets/webrtc/index.html`](../../assets/webrtc/index.html). Browsers only grant the microphone on `localhost`/`127.0.0.1` or HTTPS, so remote use needs TLS in front. In the call-center app one process is one call: a second caller joining the same process continues the first caller's goal state.

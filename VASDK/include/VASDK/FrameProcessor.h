@@ -46,6 +46,12 @@ public:
     virtual std::string getName() const = 0;
 
     /**
+     * @brief Name of the provider (model or service) doing this processor's work, for UIs and logs
+     * @return Provider name, or empty if the processor has none
+     */
+    virtual std::string getProviderName() const { return {}; }
+
+    /**
      * @brief Initialize the processor
      * @return true if initialization succeeded
      */

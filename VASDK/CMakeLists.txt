@@ -223,6 +223,14 @@ if(VASDK_BUILD_TESTS)
     add_executable(vasdk_vad_turn_end_test tests/vad_turn_end_test.cpp)
     target_link_libraries(vasdk_vad_turn_end_test PRIVATE VASDK)
     add_test(NAME vasdk_vad_turn_end COMMAND vasdk_vad_turn_end_test)
+
+    add_executable(vasdk_backchannel_test tests/backchannel_test.cpp)
+    target_link_libraries(vasdk_backchannel_test PRIVATE VASDK)
+    add_test(NAME vasdk_backchannel COMMAND vasdk_backchannel_test)
+
+    add_executable(vasdk_pipeline_description_test tests/pipeline_description_test.cpp)
+    target_link_libraries(vasdk_pipeline_description_test PRIVATE VASDK)
+    add_test(NAME vasdk_pipeline_description COMMAND vasdk_pipeline_description_test)
 endif()
 
 if(VASDK_BUILD_TESTS AND NOT WIN32)

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <VASDK/GenericAudioSink.h>
+#include <VASDK/PlaybackHoldEnvelope.h>
 #include <aaudio/AAudio.h>
 #include <atomic>
 #include <mutex>
@@ -29,6 +30,8 @@ public:
     bool isAudioSinkStarted() const override;
     int  getPendingAudioBytes() const override;
     void flushAudio() override;
+    void holdPlayback(va::transport::PendingPlaybackMode pendingPlaybackMode, bool held,
+                      float duckGainDecibels) override;
     void setPlaybackCallback(PlaybackCallback cb) override;
 
 private:
@@ -42,6 +45,7 @@ private:
     std::atomic<bool> _ready{false};
     std::atomic<bool> _started{false};
     int               _bytesPerFrame{1};
+    va::audio::PlaybackHoldEnvelope _playbackHoldEnvelope;  // applied on the AAudio callback thread
 
     static constexpr size_t kFifoCapacity = 8 * 1024 * 1024; // 8 MB
     std::vector<char>       _fifo;

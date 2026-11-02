@@ -8,6 +8,28 @@ Pipeline::~Pipeline() {
     stop();
 }
 
+namespace {
+std::string jsonString(const std::string& text) {
+    std::string out = "\"";
+    for (const char c : text) {
+        if (c == '"' || c == '\\') { out += '\\'; out += c; }
+        else if (static_cast<unsigned char>(c) < 0x20) out += ' ';
+        else out += c;
+    }
+    return out + '"';
+}
+} // namespace
+
+std::string Pipeline::describeAsJson() const {
+    std::string out = "{\"processors\":[";
+    for (size_t i = 0; i < _processors.size(); ++i) {
+        if (i) out += ',';
+        out += "{\"name\":" + jsonString(_processors[i]->getName()) +
+               ",\"provider\":" + jsonString(_processors[i]->getProviderName()) + '}';
+    }
+    return out + "]}";
+}
+
 Pipeline& Pipeline::addProcessor(std::shared_ptr<FrameProcessor> processor) {
     if (processor) {
         _processors.push_back(processor);

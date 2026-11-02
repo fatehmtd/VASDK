@@ -350,6 +350,26 @@ void extraPayloadMergedIntoRequests() {
     }
 }
 
+void backchannelGoesWithTheNextMessage() {
+    Rig rig(R"({"text": "Sure."})");
+    auto backchannel = std::make_shared<transport::TranscriptionFrame>();
+    backchannel->isFinal = true;
+    backchannel->isBackchannel = true;
+    backchannel->transcriptionResult.text = "mm-hmm";
+    rig.send(backchannel);
+    std::this_thread::sleep_for(100ms);
+    check(rig.http->requests == 0, "[backchannel] not answered");
+    rig.userSays("What about Tuesday?");
+    std::this_thread::sleep_for(600ms);
+    const auto userTurns = rig.userTurnsInHistory();
+    check(userTurns.size() == 1 && userTurns[0] == "(While you were speaking I said \"mm-hmm\".) What about Tuesday?",
+          "[backchannel] recorded at the front of the next user message");
+    rig.userSays("And Wednesday?");
+    std::this_thread::sleep_for(600ms);
+    check(rig.userTurnsInHistory().size() == 2 && rig.userTurnsInHistory()[1] == "And Wednesday?",
+          "[backchannel] recorded once");
+}
+
 } // namespace
 
 int main() {
@@ -363,6 +383,7 @@ int main() {
     speculationCancelledWhenUserResumes();
     speculativeToolCallNeverRuns();
     extraPayloadMergedIntoRequests();
+    backchannelGoesWithTheNextMessage();
     std::printf("llm stream speech scenarios done, %d failure(s)\n", failures);
     return failures == 0 ? 0 : 1;
 }

@@ -21,6 +21,12 @@ LLMProcessor::~LLMProcessor() {
     release();
 }
 
+std::string LLMProcessor::getProviderName() const {
+    if (!_transport) return {};
+    const auto& model = _transport->getConfig().model;
+    return model.empty() ? _transport->getName() : _transport->getName() + " (" + model + ")";
+}
+
 bool LLMProcessor::initialize() {
     if (_initialized) {
         return true;
@@ -509,6 +515,11 @@ void LLMProcessor::processDownstream(std::shared_ptr<transport::Frame> frame) {
     }
 
     auto transcriptionFrame = std::dynamic_pointer_cast<transport::TranscriptionFrame>(frame);
+    if (transcriptionFrame && transcriptionFrame->isBackchannel) {
+        recordBackchannel(transcriptionFrame->transcriptionResult.text);
+        pushDownstream(frame);
+        return;
+    }
     if (transcriptionFrame && !transcriptionFrame->isFinal) {
         if (!transcriptionFrame->transcriptionResult.text.empty()) {
             std::lock_guard<std::mutex> lock(_partialCacheMutex);
@@ -795,6 +806,9 @@ bool LLMProcessor::handleAgentStateTransition(std::shared_ptr<transport::AgentSt
     case transport::AgentStateTransition::USER_STARTED_SPEAKING:
         handleUserStartedSpeakingTransition();
         return false;
+    case transport::AgentStateTransition::BACKCHANNEL:
+        handleBackchannelTransition();
+        return false;
     case transport::AgentStateTransition::TRANSCRIPTION_READY:
         handleTranscriptionReadyTransition();
         return false;
@@ -864,6 +878,21 @@ void LLMProcessor::handleUserStartedSpeakingTransition() {
         _pendingTurnEnd = false;
         _accumulatedFinalText.clear();
     }
+}
+
+void LLMProcessor::handleBackchannelTransition() {
+    // The dismissed "mm-hmm" must not become the fallback text of the user's next turn.
+    std::lock_guard<std::mutex> lock(_partialCacheMutex);
+    _latestPartialText.clear();
+    _latestPartialConfidence = 0.0f;
+}
+
+void LLMProcessor::recordBackchannel(const std::string& text) {
+    if (text.empty()) return;
+    std::lock_guard<std::mutex> lock(_backchannelNoteMutex);
+    if (!_backchannelNote.empty()) _backchannelNote += ", ";
+    _backchannelNote += "\"" + text + "\"";
+    spdlog::info("[LLMProcessor] Back-channel {} kept for the next user message", text);
 }
 
 void LLMProcessor::handleTranscriptionReadyTransition() {
@@ -998,6 +1027,14 @@ void LLMProcessor::cancelSpeculation(const char* reason) {
         _spec = {};
     }
     spdlog::info("[LLMProcessor] Cancelling speculative request ({})", reason);
+    {
+        std::lock_guard<std::mutex> lock(_backchannelNoteMutex);
+        if (!_backchannelNoteInFlight.empty()) {
+            _backchannelNote = _backchannelNote.empty() ? _backchannelNoteInFlight
+                                                        : _backchannelNoteInFlight + ", " + _backchannelNote;
+            _backchannelNoteInFlight.clear();
+        }
+    }
     ++_currentGeneration;
     {
         std::lock_guard<std::mutex> lock(_requestMutex);
@@ -1066,9 +1103,18 @@ void LLMProcessor::dispatchRequestNow(const std::string& text, float confidence)
     }
     _metrics.requests.increment();
 
+    std::string requestText = text;
+    {
+        std::lock_guard<std::mutex> lock(_backchannelNoteMutex);
+        _backchannelNoteInFlight = _backchannelNote;
+        if (!_backchannelNote.empty())
+            requestText = "(While you were speaking I said " + _backchannelNote + ".) " + text;
+        _backchannelNote.clear();
+    }
+
     auto frame = std::make_shared<transport::TranscriptionFrame>();
     frame->isFinal = true;
-    frame->transcriptionResult.text = text;
+    frame->transcriptionResult.text = requestText;
     frame->transcriptionResult.confidence = confidence;
     frame->timestamp = transport::Frame::getCurrentTimestamp();
     frame->sourceId = getName();

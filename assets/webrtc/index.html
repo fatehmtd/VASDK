@@ -3,243 +3,399 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>VASDK voice agent</title>
+<title>Voice agent console</title>
 <style>
   :root {
     color-scheme: light;
-    --page: #f9f9f7; --surface: #fcfcfb; --surface-2: #f3f2ee;
-    --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
-    --hairline: rgba(11,11,11,.10); --grid: #e1e0d9;
+    --page: #e9ecef; --surface: #ffffff; --sunken: #f4f6f8; --frame: #cfd5db; --rule: #e1e5e9;
+    --ink: #17202a; --ink-2: #4b5966; --muted: #7d8a96;
+    /* data colours: validated categorical slots (you / thinking / assistant / interrupt) */
     --you: #2a78d6; --think: #eb6834; --speak: #1baf7a; --interrupt: #e87ba4;
-    --danger: #d03b3b; --good: #006300;
-    --shadow: 0 1px 2px rgba(0,0,0,.04), 0 8px 24px rgba(0,0,0,.06);
+    --listen: #c9d1d9; --danger: #c43c3c; --good: #1e7f3c; --focus: #2a78d6;
+    --radius: 6px;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       color-scheme: dark;
-      --page: #0d0d0d; --surface: #1a1a19; --surface-2: #232321;
-      --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
-      --hairline: rgba(255,255,255,.10); --grid: #2c2c2a;
+      --page: #0e1318; --surface: #151c23; --sunken: #1b232b; --frame: #2a343e; --rule: #232c35;
+      --ink: #e4e9ee; --ink-2: #a9b4bf; --muted: #7a8794;
       --you: #3987e5; --think: #d95926; --speak: #199e70; --interrupt: #d55181;
-      --good: #0ca30c;
-      --shadow: none;
+      --listen: #33404c; --danger: #e05252; --good: #3fb36a;
     }
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--page); color: var(--ink);
-         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  .wrap { max-width: 72rem; margin: 0 auto; padding: 2rem 1.25rem 3rem; }
-  header { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; justify-content: space-between; margin-bottom: 1.5rem; }
-  h1 { font-size: 1.5rem; margin: 0; letter-spacing: -.01em; }
-  header p { margin: .15rem 0 0; color: var(--ink-2); }
-  h2 { font-size: .8rem; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-2); margin: 0 0 1rem; }
-  .controls { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
-  button { font: inherit; font-weight: 600; padding: .6rem 1.3rem; border-radius: 999px; border: 0; cursor: pointer; color: #fff; }
-  #call { background: var(--you); }
-  #hangup { background: var(--danger); }
+  html, body { margin: 0; }
+  body { background: var(--page); color: var(--ink);
+         font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", Roboto, sans-serif;
+         font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; }
+  .shell { max-width: 84rem; margin: 0 auto; padding: 1rem 1rem 2.5rem; }
+
+  /* Top bar */
+  .topbar { display: flex; align-items: center; gap: 1.25rem; padding: .25rem .25rem 1rem; flex-wrap: wrap; }
+  .title { flex: 1 1 22rem; min-width: 0; display: flex; align-items: baseline; gap: .75rem; flex-wrap: wrap; }
+  h1 { font-size: 1.05rem; font-weight: 650; margin: 0; letter-spacing: -.005em; }
+  .title p { margin: 0; color: var(--ink-2); font-size: .85rem; }
+  .readout { display: flex; align-items: center; gap: .5rem; color: var(--ink-2); font-size: .85rem; }
+  .readout b { color: var(--ink); font-weight: 600; }
+  .state-dot { width: .6rem; height: .6rem; border-radius: 50%; background: var(--listen); }
+  [data-state="LISTENING"] .state-dot { background: var(--you); }
+  [data-state="THINKING"] .state-dot { background: var(--think); }
+  [data-state="SPEAKING"] .state-dot { background: var(--speak); }
+  [data-state="INTERRUPTED"] .state-dot { background: var(--interrupt); }
+  .sep { width: 1px; height: 1.25rem; background: var(--frame); }
+  #status.live { color: var(--good); }
+  button { font: inherit; font-weight: 600; font-size: .9rem; padding: .45rem 1rem; border-radius: var(--radius);
+           cursor: pointer; border: 1px solid transparent; }
+  #call { background: var(--ink); color: var(--surface); }
+  #hangup { background: transparent; color: var(--danger); border-color: color-mix(in oklab, var(--danger) 45%, transparent); }
   button:disabled { opacity: .4; cursor: default; }
-  button:focus-visible { outline: 2px solid var(--you); outline-offset: 2px; }
-  .chip { padding: .3rem .8rem; border-radius: 999px; background: var(--surface-2); color: var(--ink-2); font-size: .85rem; }
-  .chip.live { color: var(--good); }
-  .chip.live::before { content: "● "; }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 
-  .grid { display: grid; gap: 1rem; grid-template-columns: minmax(16rem, 1fr) 2fr; }
-  .full { grid-column: 1 / -1; }
-  @media (max-width: 52rem) { .grid { grid-template-columns: 1fr; } }
-  .card { background: var(--surface); border: 1px solid var(--hairline); border-radius: 1rem; padding: 1.25rem; box-shadow: var(--shadow); min-width: 0; }
+  /* One framed console, panels divided by rules */
+  .console { background: var(--surface); border: 1px solid var(--frame); border-radius: var(--radius); overflow: hidden; }
+  .panel { padding: 1rem 1.15rem 1.15rem; min-width: 0; }
+  .panel + .panel, .row > .panel + .panel { border-top: 1px solid var(--rule); }
+  .row { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(19rem, 1fr); border-top: 1px solid var(--rule); }
+  .row > .panel + .panel { border-top: 0; border-left: 1px solid var(--rule); }
+  .row.thirds { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr); }
+  @media (max-width: 60rem) {
+    .row, .row.thirds { grid-template-columns: 1fr; }
+    .row > .panel + .panel { border-left: 0; border-top: 1px solid var(--rule); }
+  }
+  .panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: .5rem 1rem; flex-wrap: wrap; margin-bottom: .75rem; }
+  h2 { font-size: .95rem; font-weight: 650; margin: 0; }
+  .panel-head .aside { color: var(--muted); font-size: .8rem; }
 
-  /* Agent visual: VizAnim features of whoever is talking shape the orb (bands), wheel (chroma) and ripples (onsets) */
-  .agent { display: flex; flex-direction: column; align-items: center; gap: 1rem; }
-  .stage { position: relative; width: 100%; max-width: 19rem; aspect-ratio: 1; }
-  .stage canvas { display: block; width: 100%; height: 100%; }
-  #orb { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none;
-         color: #fff; font-weight: 600; font-size: 1.05rem; text-shadow: 0 1px 3px rgba(0,0,0,.3); }
-  .voices { width: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
-  .voice { background: var(--surface-2); border-radius: .75rem; padding: .7rem .8rem; }
-  .voice .name { display: flex; justify-content: space-between; font-size: .8rem; color: var(--ink-2); }
-  .voice .note { font-weight: 600; color: var(--ink); }
-  .voice .bands { display: flex; align-items: flex-end; gap: 4px; height: 3rem; margin: .5rem 0 .35rem; }
-  .voice .bands i { flex: 1; height: 6%; border-radius: 3px 3px 1px 1px; background: var(--c); }
-  .voice .read { font-size: .75rem; color: var(--muted); font-variant-numeric: tabular-nums; }
-  #v-mic { --c: var(--you); } #v-tts { --c: var(--speak); }
-  .flags { display: flex; gap: .5rem; flex-wrap: wrap; justify-content: center; }
-  .flag { font-size: .8rem; padding: .2rem .7rem; border-radius: 999px; background: var(--surface-2); color: var(--muted); }
-  .flag.on { color: var(--ink); }
-  .flag.on::before { content: "● "; color: var(--c); }
-  #vad { --c: var(--you); } #tts { --c: var(--speak); }
+  /* Hero: radial spectrum ring next to the multitrack lanes */
+  .live { display: grid; grid-template-columns: 15.5rem minmax(0, 1fr); gap: 1.5rem; align-items: center; }
+  .ring { position: relative; width: 100%; aspect-ratio: 1; }
+  .ring canvas { display: block; width: 100%; height: 100%; }
+  .ring-center { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; pointer-events: none; gap: .15rem; }
+  #ring-state { font-size: 1.05rem; font-weight: 650; }
+  #ring-sub { font-size: .75rem; color: var(--muted); max-width: 7.5rem; margin: 0 auto; line-height: 1.3; }
+  @media (max-width: 52rem) { .live { grid-template-columns: 1fr; } .ring { max-width: 13rem; margin: 0 auto; } }
 
-  /* Conversation */
-  #chat { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .6rem;
-          max-height: 24rem; overflow-y: auto; }
-  #chat:empty::before { content: "Start a call and say hello."; color: var(--muted); }
-  #chat li { max-width: 85%; padding: .6rem .9rem; border-radius: 1rem; background: var(--surface-2); }
-  #chat li.user { align-self: flex-end; background: color-mix(in oklab, var(--you) 14%, var(--surface)); border-bottom-right-radius: .3rem; }
-  #chat li.assistant { align-self: flex-start; border-bottom-left-radius: .3rem; }
-  #chat li.partial .text { color: var(--muted); font-style: italic; }
-  #chat .meta { display: block; margin-top: .25rem; font-size: .75rem; color: var(--muted); }
+  /* Character view: a flat paper cut-out of the assistant, posed from VizAnim frames */
+  .head-tools { display: flex; align-items: center; gap: 1rem; }
+  .view-switch { display: inline-flex; border: 1px solid var(--frame); border-radius: var(--radius); overflow: hidden; }
+  .view-switch button { background: transparent; color: var(--ink-2); font-weight: 550; font-size: .8rem; padding: .2rem .7rem; border-radius: 0; }
+  .view-switch button + button { border-left: 1px solid var(--frame); }
+  .view-switch button[aria-pressed="true"] { background: var(--sunken); color: var(--ink); }
+  #character { display: none; width: 100%; aspect-ratio: 200 / 210; }
+  #character * { stroke: #1b1714; stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; }
+  #character .bare, #character clipPath * { stroke: none; }
+  .ring[data-view="character"] { aspect-ratio: auto; }
+  .ring[data-view="character"] canvas { display: none; }
+  .ring[data-view="character"] #character { display: block; }
+  .ring[data-view="character"] .ring-center { position: static; margin-top: .35rem; }
+
+  /* Multitrack lanes */
+  .lanes { display: grid; grid-template-columns: 11.5rem minmax(0, 1fr); }
+  .lane-heads { display: grid; grid-template-rows: 1.5rem 1fr 1fr 1.25rem; border-right: 1px solid var(--rule); }
+  .lane-head { padding: .5rem .75rem .5rem 0; display: flex; flex-direction: column; justify-content: center; gap: .3rem; min-width: 0; }
+  .lane-head + .lane-head { border-top: 1px solid var(--rule); }
+  .lane-head.state { font-size: .78rem; color: var(--muted); justify-content: center; padding-top: 0; padding-bottom: 0; }
+  .lane-name { display: flex; align-items: center; justify-content: space-between; gap: .5rem; font-weight: 600; font-size: .85rem; }
+  .lane-name span:first-child::before { content: ""; display: inline-block; width: .55rem; height: .55rem; border-radius: 2px;
+                            margin-right: .45rem; background: var(--c); vertical-align: 0; }
+  .flag { font-size: .72rem; font-weight: 500; color: var(--muted); }
+  .flag.on { color: var(--c); font-weight: 600; }
+  #v-mic, #vad { --c: var(--you); } #v-tts, #tts { --c: var(--speak); }
+  .meter { height: 4px; border-radius: 2px; background: var(--sunken); overflow: hidden; }
+  .meter i { display: block; height: 100%; width: 0; background: var(--c); }
+  .bands { display: flex; align-items: flex-end; gap: 2px; height: 1.5rem; }
+  .bands i { flex: 1; height: 8%; background: color-mix(in oklab, var(--c) 70%, var(--surface)); border-radius: 1px; }
+  .read { font-size: .72rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lane-axis { border-top: 1px solid var(--rule); }
+  #ribbon { display: block; width: 100%; height: 15.5rem; }
+  .lane-legend { display: flex; gap: 1.1rem; flex-wrap: wrap; font-size: .78rem; color: var(--ink-2); margin-top: .65rem; }
+  .lane-legend span::before { content: ""; display: inline-block; width: .7rem; height: .45rem; border-radius: 1px;
+                              margin-right: .4rem; background: var(--c); vertical-align: 1px; }
+  .lg-listen { --c: var(--listen); } .lg-think { --c: var(--think); } .lg-speak { --c: var(--speak); } .lg-int { --c: var(--interrupt); }
+  .lane-legend .lg-mark::before { width: 1.5px; height: .8rem; background: var(--ink-2); vertical-align: -2px; }
+  @media (max-width: 40rem) {
+    .lanes { grid-template-columns: 8rem minmax(0, 1fr); } .bands { display: none; }
+    #chat li { grid-template-columns: 5rem minmax(0, 1fr); }
+  }
+
+  /* Transcript */
+  #chat { list-style: none; margin: 0; padding: 0; max-height: 26rem; overflow-y: auto; }
+  #chat:empty::before { content: "Start a call and say hello. What you and the assistant say appears here."; color: var(--muted); }
+  #chat li { display: grid; grid-template-columns: 7.5rem minmax(0, 1fr); gap: .75rem; padding: .55rem 0; }
+  #chat li + li { border-top: 1px solid var(--rule); }
+  #chat .who { font-size: .8rem; font-weight: 600; color: var(--ink-2); padding-top: .1rem; overflow-wrap: anywhere; }
+  #chat li.user .who { color: var(--you); }
+  #chat li.assistant .who { color: color-mix(in oklab, var(--speak) 80%, var(--ink)); }
+  #chat .text { display: block; max-width: 70ch; }
+  #chat li.partial .text { color: var(--muted); }
+  #chat .meta { display: block; margin-top: .2rem; font-size: .75rem; color: var(--muted); }
   #chat .meta:empty { display: none; }
 
-  /* Stat tiles */
-  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr)); gap: .75rem; }
-  .tile { background: var(--surface-2); border-radius: .75rem; padding: .8rem .9rem; }
-  .tile .label { font-size: .8rem; color: var(--ink-2); }
-  .tile .value { font-size: 1.6rem; font-weight: 600; line-height: 1.2; margin-top: .15rem; }
-  .tile .sub { font-size: .75rem; color: var(--muted); }
+  /* Latency */
+  .lead { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .1rem 1rem; align-items: end; margin-bottom: 1rem; }
+  .lead .value { font-size: 2.1rem; font-weight: 650; line-height: 1; letter-spacing: -.02em; }
+  .lead .label { grid-column: 1; font-size: .8rem; color: var(--ink-2); }
+  .lead .spark { grid-column: 2; grid-row: 1 / span 2; width: 100%; height: 2.6rem; }
+  .spark rect { fill: var(--listen); }
+  .spark rect.last { fill: var(--think); }
+  #m-response-sub { grid-column: 1 / -1; font-size: .75rem; color: var(--muted); margin-top: .2rem; }
+  dl.stats { margin: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; }
+  dl.stats > div { display: contents; }
+  dl.stats dt, dl.stats dd { padding: .45rem 0; border-top: 1px solid var(--rule); margin: 0; }
+  dl.stats dt { color: var(--ink-2); }
+  dl.stats dt small { display: block; color: var(--muted); font-size: .72rem; }
+  dl.stats dd { text-align: right; font-weight: 600; }
+  dl.stats dd small { display: block; font-weight: 400; color: var(--muted); font-size: .72rem; }
 
-  /* Turn timeline: one tall segmented bar per turn, shared time scale */
-  .legend { display: flex; gap: 1rem; flex-wrap: wrap; font-size: .8rem; color: var(--ink-2); margin-bottom: .9rem; }
-  .legend span::before { content: ""; display: inline-block; width: .7rem; height: .7rem; border-radius: 3px; margin-right: .35rem; vertical-align: -1px; background: var(--c); }
+  /* Turn timeline */
+  .legend { display: flex; gap: 1.1rem; flex-wrap: wrap; font-size: .78rem; color: var(--ink-2); }
+  .legend span::before { content: ""; display: inline-block; width: .7rem; height: .7rem; border-radius: 2px; margin-right: .4rem; vertical-align: -1px; background: var(--c); }
   .seg-you { --c: var(--you); } .seg-think { --c: var(--think); } .seg-speak { --c: var(--speak); }
-  .legend .seg-dot::before { width: .45rem; height: .45rem; border-radius: 50%; background: var(--ink-2); }
-  .legend .seg-mark::before { width: 2px; height: .8rem; border-radius: 0; background: var(--ink-2); }
-  .seg-wait { --c: repeating-linear-gradient(45deg, var(--muted) 0 1.5px, transparent 1.5px 5px); }
-  #turns { display: grid; gap: .5rem; }
-  #turns:empty::before { content: "Each exchange shows up here once the assistant answers."; color: var(--muted); font-size: .9rem; }
-  .turn { display: grid; grid-template-columns: 2.2rem 1fr 4.5rem; align-items: center; gap: .6rem; font-size: .8rem; }
+  .legend .seg-wait::before { background: repeating-linear-gradient(45deg, var(--muted) 0 1.5px, transparent 1.5px 4px); }
+  #turns { display: grid; gap: .4rem; margin-top: .9rem; }
+  #turns:empty::before { content: "Each exchange appears here once the assistant answers."; color: var(--muted); }
+  .turn { display: grid; grid-template-columns: 2.25rem minmax(0, 1fr) 4rem; align-items: center; gap: .75rem; font-size: .78rem; }
   .turn .n { color: var(--muted); }
-  .turn .total { text-align: right; color: var(--ink-2); font-variant-numeric: tabular-nums; }
-  .bar { display: flex; gap: 2px; height: 28px; }
-  .bar > div { height: 100%; border-radius: 4px; background: var(--c); color: #fff; font-size: .72rem; font-weight: 600;
-               padding: 0 .4rem; display: flex; align-items: center; white-space: nowrap; min-width: 2px; overflow: hidden; }
-  .bar > .seg-wait { background: repeating-linear-gradient(45deg, color-mix(in oklab, var(--muted) 55%, transparent) 0 1.5px, transparent 1.5px 5px); color: var(--ink-2); }
+  .turn .total { text-align: right; color: var(--ink-2); }
+  .bar { display: flex; gap: 2px; height: 22px; }
+  .bar > div { height: 100%; border-radius: 2px; background: var(--c); color: #fff; font-size: .7rem; font-weight: 600;
+               padding: 0 .35rem; display: flex; align-items: center; white-space: nowrap; min-width: 2px; overflow: hidden; }
+  .bar > .seg-wait { background: repeating-linear-gradient(45deg, color-mix(in oklab, var(--muted) 55%, transparent) 0 1.5px, transparent 1.5px 4px); color: var(--ink-2); }
   .bar > .cut { box-shadow: inset -3px 0 0 var(--interrupt); }
-  table { border-collapse: collapse; width: 100%; font-size: .85rem; font-variant-numeric: tabular-nums; margin-top: .6rem; }
-  th, td { text-align: right; padding: .3rem .5rem; border-bottom: 1px solid var(--grid); }
+  table { border-collapse: collapse; width: 100%; font-size: .8rem; margin-top: .6rem; }
+  th, td { text-align: right; padding: .35rem .5rem; border-bottom: 1px solid var(--rule); white-space: nowrap; }
   th:first-child, td:first-child { text-align: left; }
   th { color: var(--ink-2); font-weight: 600; }
-
-  .spark { display: block; width: 100%; height: 26px; margin-top: .45rem; }
-  .spark rect { fill: var(--muted); opacity: .45; }
-  .spark rect.last { fill: var(--think); opacity: 1; }
-
-  /* Voice ribbon: last 20 s, you above the line, the assistant below */
-  #ribbon { display: block; width: 100%; height: 12rem; }
+  .table-scroll { overflow-x: auto; }
 
   /* Speakers */
-  #speakers { list-style: none; margin: 0; padding: 0; display: grid; gap: .6rem; }
-  #speakers:empty::before { content: "Voice prints appear after your first utterance of 1 s or more."; color: var(--muted); font-size: .9rem; }
-  #speakers li { display: grid; grid-template-columns: 2.2rem 1fr; gap: .2rem .7rem; align-items: center;
-                 background: var(--surface-2); border-radius: .75rem; padding: .6rem .75rem; border: 2px solid transparent; }
-  #speakers li.current { border-color: var(--you); }
-  .avatar { grid-row: span 2; width: 2.2rem; height: 2.2rem; border-radius: 50%; display: grid; place-items: center;
-            font-weight: 700; background: var(--surface); color: var(--ink); border: 1px solid var(--hairline); }
+  #speakers { list-style: none; margin: 0; padding: 0; display: grid; gap: .1rem; }
+  #speakers:empty::before { content: "A voice print is created from your first utterance of 1 s or more."; color: var(--muted); }
+  #speakers li { display: grid; grid-template-columns: 1.75rem minmax(0, 1fr); gap: .15rem .65rem; align-items: center; padding: .5rem 0; }
+  #speakers li + li { border-top: 1px solid var(--rule); }
+  .avatar { grid-row: span 3; width: 1.75rem; height: 1.75rem; border-radius: 50%; display: grid; place-items: center;
+            font-size: .78rem; font-weight: 650; background: var(--sunken); color: var(--ink-2); }
+  #speakers li.current .avatar { background: var(--you); color: #fff; }
   .spk-name { font-weight: 600; display: flex; justify-content: space-between; gap: .5rem; }
   .spk-name small { font-weight: 400; color: var(--muted); }
-  .sim { position: relative; height: 6px; border-radius: 999px; background: var(--surface); }
-  .sim .fill { position: absolute; inset: 0 auto 0 0; border-radius: 999px; background: var(--you); }
-  .sim .thr { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--ink-2); }
-  .spk-read { grid-column: 2; font-size: .75rem; color: var(--muted); }
-  #chat .who { display: block; font-size: .72rem; color: var(--ink-2); margin-bottom: .15rem; }
-  #chat .who:empty { display: none; }
+  .sim { position: relative; height: 4px; border-radius: 2px; background: var(--sunken); }
+  .sim .fill { position: absolute; inset: 0 auto 0 0; border-radius: 2px; background: var(--you); }
+  .sim .thr { position: absolute; top: -3px; bottom: -3px; width: 1.5px; background: var(--ink-2); }
+  .spk-read { font-size: .75rem; color: var(--muted); }
 
-  details { margin-top: 1rem; }
-  summary { cursor: pointer; color: var(--ink-2); font-size: .85rem; }
-  #log { font: 12px/1.5 ui-monospace, monospace; max-height: 16rem; overflow-y: auto; background: var(--surface-2);
-         border-radius: .5rem; padding: .6rem .8rem; margin: .5rem 0 0; list-style: none; color: var(--ink-2); }
+  /* Pipeline: processors in chain order with the provider doing each one's work */
+  .chain { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: .5rem; }
+  .chain li { display: flex; }
+  .step { display: grid; gap: .1rem; min-width: 7rem; padding: .45rem .65rem; border: 1px solid var(--rule);
+          border-radius: var(--radius); background: var(--sunken); }
+  .step-name { font-size: .75rem; color: var(--ink-2); }
+  .step-provider { font-weight: 600; }
+  .step-provider.none { font-weight: 400; color: var(--muted); }
+  .step[data-active] { border-color: var(--c); background: color-mix(in oklab, var(--c) 12%, var(--surface)); }
+
+  /* Connection */
+  dl.kv { margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); }
+  dl.kv dt, dl.kv dd { margin: 0; padding: .4rem 0; border-top: 1px solid var(--rule); }
+  dl.kv dt { color: var(--ink-2); padding-right: 1rem; }
+  dl.kv dd { text-align: right; font-weight: 600; }
+  dl.kv dd small { font-weight: 400; color: var(--muted); }
+
+  #turns + details { margin-top: .9rem; }
+  details summary { cursor: pointer; color: var(--ink-2); font-size: .82rem; }
+  details[open] summary { margin-bottom: .5rem; }
+  #log { font: 11.5px/1.55 ui-monospace, "SF Mono", Menlo, Consolas, monospace; max-height: 15rem; overflow-y: auto;
+         background: var(--sunken); border-radius: var(--radius); padding: .5rem .7rem; margin: 0; list-style: none; color: var(--ink-2); }
   #log .interrupt { color: var(--interrupt); font-weight: 600; }
-  .hint { font-size: .75rem; color: var(--muted); margin: .75rem 0 0; }
+  .hint { font-size: .75rem; color: var(--muted); margin: .75rem 0 0; max-width: 80ch; }
 </style>
 </head>
 <body>
-<div class="wrap">
-<header>
-  <div>
-    <h1>Talk to the assistant</h1>
-    <p>Voice over WebRTC with live pipeline metrics. Headphones are optional: the browser cancels echo.</p>
+<div class="shell">
+<header class="topbar">
+  <div class="title">
+    <h1>Voice agent console</h1>
+    <p>WebRTC call with live pipeline state. The browser cancels echo, so headphones are optional.</p>
   </div>
-  <div class="controls">
-    <button id="call">Start call</button>
-    <button id="hangup" disabled>Hang up</button>
-    <span id="status" class="chip" role="status" aria-live="polite">Idle</span>
-    <span id="clock" class="chip" aria-label="Call duration">0:00</span>
+  <div class="readout" id="agent" data-state="">
+    <span class="state-dot" aria-hidden="true"></span>
+    <span>Agent <b id="orb" role="status" aria-live="polite">idle</b></span>
   </div>
+  <span class="sep" aria-hidden="true"></span>
+  <div class="readout"><span id="status" role="status" aria-live="polite">Not connected</span></div>
+  <div class="readout"><b id="clock" aria-label="Call duration">0:00</b></div>
+  <button id="call">Start call</button>
+  <button id="hangup" disabled>End call</button>
 </header>
 
-<main class="grid">
-  <section class="card agent" aria-labelledby="agent-h">
-    <h2 id="agent-h">Agent</h2>
-    <div class="stage"><canvas id="viz" aria-hidden="true"></canvas><div id="orb" role="status" aria-live="polite">idle</div></div>
-    <div class="voices">
-      <div class="voice" id="v-mic"><div class="name"><span>You</span><span class="note"></span></div><div class="bands" aria-hidden="true"></div><div class="read">quiet</div></div>
-      <div class="voice" id="v-tts"><div class="name"><span>Assistant</span><span class="note"></span></div><div class="bands" aria-hidden="true"></div><div class="read">quiet</div></div>
+<main class="console">
+  <section class="panel" aria-labelledby="lanes-h">
+    <div class="panel-head">
+      <h2 id="lanes-h">Live</h2>
+      <div class="head-tools">
+        <div class="view-switch" role="group" aria-label="Live view">
+          <button type="button" data-view="ring" aria-pressed="true">Ring</button>
+          <button type="button" data-view="character" aria-pressed="false">Character</button>
+        </div>
+        <span class="aside">Last 20 seconds</span>
+      </div>
     </div>
-    <div class="flags">
-      <span id="vad" class="flag">Voice detected</span>
-      <span id="tts" class="flag">Synthesizing</span>
+    <div class="live">
+    <div class="ring">
+      <canvas id="viz" aria-hidden="true"></canvas>
+      <svg id="character" viewBox="0 0 200 210" aria-hidden="true">
+        <defs><clipPath id="c-mouth-clip"><use href="#c-mouth"/></clipPath></defs>
+        <ellipse class="bare" cx="100" cy="205" rx="52" ry="4" fill="#000" opacity=".12"/>
+        <g id="c-body">
+          <ellipse cx="80" cy="199" rx="17" ry="7" fill="#26221f"/><ellipse cx="120" cy="199" rx="17" ry="7" fill="#26221f"/>
+          <rect x="70" y="182" width="60" height="14" fill="#4a4f57"/>
+          <path d="M70 136 L130 136 L136 186 L64 186Z" fill="#6b4ea0"/>
+          <path d="M100 140 L100 186" fill="none"/>
+          <circle class="bare" cx="96" cy="152" r="1.8" fill="#26221f"/><circle class="bare" cx="96" cy="166" r="1.8" fill="#26221f"/>
+          <g id="c-arm-l" transform="translate(66 150) rotate(12)">
+            <path d="M-8 -4 L8 -4 L7 22 L-7 22Z" fill="#6b4ea0"/>
+            <circle cx="0" cy="27" r="8" fill="#e8e3da"/><circle cx="6" cy="22" r="3.6" fill="#e8e3da"/>
+          </g>
+        </g>
+        <g id="c-head">
+          <ellipse cx="100" cy="94" rx="58" ry="50" fill="#f6d7b8"/>
+          <path d="M50 70 L58 52 L64 62 L72 44 L80 56 L88 40 L96 54 L104 38 L112 54 L120 41 L127 56 L135 46 L140 62 L146 54 L150 70 Q130 58 100 58 Q70 58 50 70Z" fill="#5b3a26"/>
+          <path d="M44 92 Q42 32 100 32 Q158 32 156 92" fill="none" style="stroke:#2b2f36;stroke-width:5"/>
+          <rect x="36" y="80" width="14" height="26" rx="5" fill="#2b2f36"/><rect x="150" y="80" width="14" height="26" rx="5" fill="#2b2f36"/>
+          <path d="M44 106 Q48 132 70 134" fill="none" style="stroke:#2b2f36;stroke-width:3"/>
+          <circle id="c-led" cx="72" cy="134" r="4.2" fill="#c9d1d9"/>
+          <g id="c-eye-l"><ellipse cx="86" cy="86" rx="15" ry="18" transform="rotate(-10 86 86)" fill="#fff"/><circle id="c-pupil-l" class="bare" cx="91" cy="88" r="3.2" fill="#1b1714"/></g>
+          <g id="c-eye-r"><ellipse cx="114" cy="86" rx="15" ry="18" transform="rotate(10 114 86)" fill="#fff"/><circle id="c-pupil-r" class="bare" cx="109" cy="88" r="3.2" fill="#1b1714"/></g>
+          <path id="c-brow-l" d="M74 66 L94 68" fill="none" style="stroke-width:3"/>
+          <path id="c-brow-r" d="M106 68 L126 66" fill="none" style="stroke-width:3"/>
+          <path id="c-mouth" fill="#3b1218"/>
+          <g clip-path="url(#c-mouth-clip)">
+            <rect id="c-teeth" class="bare" x="70" y="0" width="60" height="0" fill="#fff"/>
+            <ellipse id="c-tongue" class="bare" cx="100" cy="0" rx="0" ry="0" fill="#d9606e"/>
+          </g>
+          <path id="c-mouth-line" fill="none"/>
+        </g>
+        <g id="c-arm-r" transform="translate(134 150) rotate(-12)">
+          <path d="M-8 -4 L8 -4 L7 22 L-7 22Z" fill="#6b4ea0"/>
+          <circle cx="0" cy="27" r="8" fill="#e8e3da"/><circle cx="-6" cy="22" r="3.6" fill="#e8e3da"/>
+        </g>
+        <g id="c-bubble" visibility="hidden">
+          <circle cx="152" cy="40" r="3" fill="#fff"/><circle cx="161" cy="29" r="4.5" fill="#fff"/>
+          <ellipse cx="178" cy="14" rx="20" ry="12" fill="#fff"/>
+          <circle class="bare c-dot" cx="169" cy="14" r="2.5" fill="#1b1714"/><circle class="bare c-dot" cx="178" cy="14" r="2.5" fill="#1b1714"/><circle class="bare c-dot" cx="187" cy="14" r="2.5" fill="#1b1714"/>
+        </g>
+      </svg>
+      <div class="ring-center" role="status" aria-live="polite">
+        <b id="ring-state">Idle</b>
+        <span id="ring-sub">Start a call to begin</span>
+      </div>
+    </div>
+    <div class="lanes">
+      <div class="lane-heads">
+        <div class="lane-head state">Agent state</div>
+        <div class="lane-head" id="v-mic">
+          <div class="lane-name"><span>You</span><span id="vad" class="flag">Quiet</span></div>
+          <div class="meter" aria-hidden="true"><i></i></div>
+          <div class="bands" aria-hidden="true"></div>
+          <div class="read">quiet</div>
+        </div>
+        <div class="lane-head" id="v-tts">
+          <div class="lane-name"><span>Assistant</span><span id="tts" class="flag">Idle</span></div>
+          <div class="meter" aria-hidden="true"><i></i></div>
+          <div class="bands" aria-hidden="true"></div>
+          <div class="read">quiet</div>
+        </div>
+        <div class="lane-axis" aria-hidden="true"></div>
+      </div>
+      <canvas id="ribbon" role="img" aria-label="Agent state, and loudness and pitch of both voices, over the last 20 seconds"></canvas>
+    </div>
+    </div>
+    <div class="lane-legend">
+      <span class="lg-listen">Listening</span>
+      <span class="lg-think">Thinking</span>
+      <span class="lg-speak">Speaking</span>
+      <span class="lg-int">Interrupted</span>
+      <span class="lg-mark">Turn end, barge-in or back-channel</span>
     </div>
   </section>
 
-  <section class="card" aria-labelledby="chat-h">
-    <h2 id="chat-h">Conversation</h2>
-    <ol id="chat" role="log" aria-live="polite"></ol>
-  </section>
+  <div class="row">
+    <section class="panel" aria-labelledby="chat-h">
+      <div class="panel-head"><h2 id="chat-h">Transcript</h2></div>
+      <ol id="chat" role="log" aria-live="polite"></ol>
+    </section>
 
-  <section class="card" aria-labelledby="spk-h">
-    <h2 id="spk-h">Speakers</h2>
-    <ol id="speakers" aria-live="polite"></ol>
-    <p class="hint">Each utterance is compared with the current voice print; at or above the marker (0.30 cosine similarity) it's the same voice.</p>
-  </section>
+    <section class="panel" aria-labelledby="metrics-h">
+      <div class="panel-head"><h2 id="metrics-h">Latency</h2><span class="aside">per turn, browser clock</span></div>
+      <div class="lead">
+        <div class="value" id="m-response">-</div>
+        <div class="label">Response time, end of speech to first audio</div>
+        <svg class="spark" id="spark" role="img" aria-label="Response time per turn"></svg>
+        <div id="m-response-sub">No turns yet</div>
+      </div>
+      <dl class="stats">
+        <div><dt>End of turn and recognition<small>you go quiet to transcript</small></dt><dd><span id="m-asr">-</span><small id="m-asr-sub"></small></dd></div>
+        <div><dt>LLM first token<small>transcript to first text</small></dt><dd><span id="m-llm">-</span><small id="m-llm-sub"></small></dd></div>
+        <div><dt>TTS first audio<small>first text to first audio heard</small></dt><dd><span id="m-tts">-</span><small id="m-tts-sub"></small></dd></div>
+        <div><dt>Your speech<small>first word to quiet, pauses included</small></dt><dd><span id="m-speech">-</span><small id="m-speech-sub"></small></dd></div>
+        <div><dt>Assistant speaking</dt><dd><span id="m-speak">-</span><small id="m-speak-sub"></small></dd></div>
+        <div><dt>Turns<small id="m-turns-sub">0 interrupted, 0 back-channels</small></dt><dd id="m-turns">0</dd></div>
+        <div><dt>Ended at the pause<small id="m-smart-sub">SmartTurn vs silence timer</small></dt><dd id="m-smart">-</dd></div>
+        <div><dt>Talk share<small>you / assistant, %</small></dt><dd id="m-share">-</dd></div>
+        <div><dt>Network round trip<small id="m-net-sub">jitter -, loss -</small></dt><dd id="m-rtt">-</dd></div>
+      </dl>
+    </section>
+  </div>
 
-  <section class="card" aria-labelledby="ribbon-h">
-    <h2 id="ribbon-h">Voice ribbon · last 20 s</h2>
-    <div class="legend">
-      <span class="seg-you">You (above)</span>
-      <span class="seg-speak">Assistant (below)</span>
-      <span class="seg-dot">Pitch</span>
-      <span class="seg-mark">Turn ended / barge-in</span>
-    </div>
-    <canvas id="ribbon" role="img" aria-label="Loudness and pitch of both voices over the last 20 seconds"></canvas>
-  </section>
-
-  <section class="card full" aria-labelledby="metrics-h">
-    <h2 id="metrics-h">Session metrics</h2>
-    <div class="tiles">
-      <div class="tile"><div class="label">Response time</div><div class="value" id="m-response">-</div><div class="sub" id="m-response-sub">end of speech to first audio heard</div><svg class="spark" id="spark" role="img" aria-label="Response time per turn"></svg></div>
-      <div class="tile"><div class="label">Your speech</div><div class="value" id="m-speech">-</div><div class="sub" id="m-speech-sub">last turn</div></div>
-      <div class="tile"><div class="label">End of turn + ASR</div><div class="value" id="m-asr">-</div><div class="sub" id="m-asr-sub">quiet to transcript</div></div>
-      <div class="tile"><div class="label">LLM first token</div><div class="value" id="m-llm">-</div><div class="sub" id="m-llm-sub">transcript to first text</div></div>
-      <div class="tile"><div class="label">TTS first audio</div><div class="value" id="m-tts">-</div><div class="sub" id="m-tts-sub">first text to first audio heard</div></div>
-      <div class="tile"><div class="label">Speaking</div><div class="value" id="m-speak">-</div><div class="sub" id="m-speak-sub">assistant audio</div></div>
-      <div class="tile"><div class="label">Turns</div><div class="value" id="m-turns">0</div><div class="sub" id="m-turns-sub">0 interrupted</div></div>
-      <div class="tile"><div class="label">Ended at the pause</div><div class="value" id="m-smart">-</div><div class="sub" id="m-smart-sub">SmartTurn vs silence timer</div></div>
-      <div class="tile"><div class="label">Talk share</div><div class="value" id="m-share">-</div><div class="sub">you / assistant, %</div></div>
-      <div class="tile"><div class="label">Network round trip</div><div class="value" id="m-rtt">-</div><div class="sub" id="m-net-sub">jitter -, loss -</div></div>
-    </div>
-  </section>
-
-  <section class="card full" aria-labelledby="timeline-h">
-    <h2 id="timeline-h">Turn timeline</h2>
+  <section class="panel" aria-labelledby="timeline-h">
+    <div class="panel-head"><h2 id="timeline-h">Turns</h2><span class="aside">last 10, shared time scale</span></div>
     <div class="legend">
       <span class="seg-you">You speaking</span>
-      <span class="seg-wait">End of turn + recognition</span>
-      <span class="seg-think">Thinking (LLM first token + TTS first audio)</span>
+      <span class="seg-wait">End of turn and recognition</span>
+      <span class="seg-think">Thinking: LLM and TTS first audio</span>
       <span class="seg-speak">Assistant speaking</span>
     </div>
     <div id="turns"></div>
     <details>
-      <summary>Table view</summary>
-      <table>
-        <thead><tr><th>Turn</th><th>Speaker</th><th>You</th><th>End + ASR</th><th>Ended by</th><th>LLM</th><th>TTS</th><th>Speaking</th><th>Response</th><th>Words (you / bot)</th><th>Interrupted</th></tr></thead>
-        <tbody id="turnTable"></tbody>
-      </table>
+      <summary>Show as table</summary>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Turn</th><th>Speaker</th><th>You</th><th>End + ASR</th><th>Ended by</th><th>LLM</th><th>TTS</th><th>Speaking</th><th>Response</th><th>Words (you / bot)</th><th>Interrupted</th></tr></thead>
+          <tbody id="turnTable"></tbody>
+        </table>
+      </div>
     </details>
-    <p class="hint">Times use the browser clock; first audio is when it reaches your speaker (the server's playback queue is accounted for). "Your speech" runs from the first word to the moment the mic goes quiet, pauses included.</p>
+    <p class="hint">First audio is when the assistant's voice reaches your speaker, including the server's playback queue.</p>
   </section>
 
-  <section class="card full" aria-labelledby="net-h">
-    <h2 id="net-h">Connection</h2>
-    <div class="tiles">
-      <div class="tile"><div class="label">Codec</div><div class="value" id="n-codec">-</div><div class="sub" id="n-rate">inbound</div></div>
-      <div class="tile"><div class="label">Inbound audio</div><div class="value" id="n-in">-</div><div class="sub">from assistant</div></div>
-      <div class="tile"><div class="label">Outbound audio</div><div class="value" id="n-out">-</div><div class="sub">your mic</div></div>
-      <div class="tile"><div class="label">Jitter</div><div class="value" id="n-jitter">-</div></div>
-      <div class="tile"><div class="label">Packets lost</div><div class="value" id="n-loss">-</div><div class="sub" id="n-loss-sub">inbound</div></div>
-    </div>
-    <details>
-      <summary>Pipeline events</summary>
-      <ol id="log"></ol>
-    </details>
+  <section class="panel" aria-labelledby="pipe-h">
+    <div class="panel-head"><h2 id="pipe-h">Pipeline</h2><span class="aside">Processors in order, with the provider doing the work</span></div>
+    <ol id="chain" class="chain"><li><span class="hint">Loading from the server</span></li></ol>
   </section>
+
+  <div class="row thirds">
+    <section class="panel" aria-labelledby="spk-h">
+      <div class="panel-head"><h2 id="spk-h">Speakers</h2></div>
+      <ol id="speakers" aria-live="polite"></ol>
+      <p class="hint">Each utterance is compared with the current voice print. At or above the marker (0.30 similarity) it counts as the same voice.</p>
+    </section>
+    <section class="panel" aria-labelledby="net-h">
+      <div class="panel-head"><h2 id="net-h">Connection</h2></div>
+      <dl class="kv">
+        <dt>Codec</dt><dd><span id="n-codec">-</span> <small id="n-rate"></small></dd>
+        <dt>From the assistant</dt><dd id="n-in">-</dd>
+        <dt>From your mic</dt><dd id="n-out">-</dd>
+        <dt>Jitter</dt><dd id="n-jitter">-</dd>
+        <dt>Packets lost</dt><dd><span id="n-loss">-</span> <small id="n-loss-sub"></small></dd>
+      </dl>
+    </section>
+    <section class="panel" aria-labelledby="log-h">
+      <div class="panel-head"><h2 id="log-h">Pipeline events</h2></div>
+      <details>
+        <summary>Show event log</summary>
+        <ol id="log"></ol>
+      </details>
+    </section>
+  </div>
 </main>
 </div>
 
@@ -269,9 +425,12 @@ function chatLine(cls) {
   const li = document.createElement('li');
   li.className = cls;
   const who = document.createElement('span'); who.className = 'who';
+  who.textContent = cls.startsWith('user') ? 'You' : 'Assistant';
+  const body = document.createElement('div');
   const text = document.createElement('span'); text.className = 'text';
   const meta = document.createElement('span'); meta.className = 'meta';
-  li.append(who, text, meta);
+  body.append(text, meta);
+  li.append(who, body);
   $('chat').append(li);
   $('chat').scrollTop = $('chat').scrollHeight;
   return li;
@@ -283,8 +442,10 @@ let micOn = false, agentState = null;
 let cur = null;        // turn in progress
 let bargeStart = null; // you started talking over the assistant
 let partialUser = null, replyLi = null;
+let stateSince = 0, overlapPending = false;  // for the ring's centre label
 const turns = [];
 let interrupts = 0;
+let backchannels = 0;  // speech over the assistant that did not interrupt it
 
 function newTurn(start) {
   return { start, quiet: null, asr: null, firstText: null, ttsStart: null, heard: null, end: null,
@@ -314,15 +475,15 @@ function finishTurn(interrupted) {
   };
   turns.push(t);
   if (t.userLi) {
-    const wpm = t.d.speech > 500 ? ` · ${Math.round(t.userWords / (t.d.speech / 60000))} wpm` : '';
-    const ended = t.endedBy === 'smart' ? ` · SmartTurn ended it${t.turnConf != null ? ` (${t.turnConf.toFixed(2)})` : ''}`
-                : t.endedBy === 'timer' ? ' · silence timer ended it' : '';
+    const wpm = t.d.speech > 500 ? `, ${Math.round(t.userWords / (t.d.speech / 60000))} wpm` : '';
+    const ended = t.endedBy === 'smart' ? `, SmartTurn ended it${t.turnConf != null ? ` (${t.turnConf.toFixed(2)})` : ''}`
+                : t.endedBy === 'timer' ? ', silence timer ended it' : '';
     t.userLi.querySelector('.meta').textContent =
-      `${sec(t.d.speech)}${t.conf != null ? ` · ${Math.round(t.conf * 100)}% confident` : ''}${wpm}${ended}`;
+      `${sec(t.d.speech)}${t.conf != null ? `, ${Math.round(t.conf * 100)}% confident` : ''}${wpm}${ended}`;
   }
   if (t.replyLi) {
     t.replyLi.querySelector('.meta').textContent =
-      `answered in ${sec(t.d.response)} (LLM ${sec(t.d.llm)}, TTS ${sec(t.d.tts)}) · spoke ${sec(t.d.speak)} · ${t.botWords} words${interrupted ? ' · interrupted' : ''}`;
+      `Answered in ${sec(t.d.response)} (LLM ${sec(t.d.llm)}, TTS ${sec(t.d.tts)}), spoke ${sec(t.d.speak)}, ${t.botWords} words${interrupted ? ', interrupted' : ''}`;
   }
   logEvent(`turn ${turns.length}: speech ${sec(t.d.speech)}, detect+asr ${sec(t.d.detect)}, thinking ${sec(t.d.think)}, ` +
            `speaking ${sec(t.d.speak)}, response ${sec(t.d.response)}`, interrupted ? 'interrupt' : '');
@@ -361,7 +522,7 @@ function renderMetrics() {
   const last = turns[turns.length - 1];
   const tile = (id, key) => {
     $(id).textContent = sec(last.d[key]);
-    $(id + '-sub').textContent = `last turn · avg ${sec(avg(key))}`;
+    $(id + '-sub').textContent = `avg ${sec(avg(key))}`;
   };
   tile('m-speech', 'speech');
   tile('m-asr', 'detect');
@@ -369,11 +530,11 @@ function renderMetrics() {
   tile('m-tts', 'tts');
   tile('m-speak', 'speak');
   $('m-turns').textContent = turns.length;
-  $('m-turns-sub').textContent = `${interrupts} interrupted`;
+  $('m-turns-sub').textContent = turnsSummary();
 
   const resp = turns.map(t => t.d.response).filter(x => x != null);
   $('m-response').textContent = sec(last.d.response);
-  $('m-response-sub').textContent = resp.length ? `p50 ${sec(pct(resp, 50))} · p90 ${sec(pct(resp, 90))}` : 'end of speech to first audio heard';
+  $('m-response-sub').textContent = resp.length ? `Last turn. Median ${sec(pct(resp, 50))}, 90th percentile ${sec(pct(resp, 90))}` : 'No turns yet';
   drawSpark(turns.slice(-24).map(t => t.d.response));
 
   const decided = turns.filter(t => t.endedBy);
@@ -430,7 +591,9 @@ function renderTurn(t, n) {
   $('turnTable').append(tr);
 }
 
-function setFlag(id, on) { $(id).classList.toggle('on', on); }
+const turnsSummary = () => `${interrupts} interrupted, ${backchannels} back-channel${backchannels === 1 ? '' : 's'}`;
+const FLAG_TEXT = { vad: ['Quiet', 'Speaking'], tts: ['Idle', 'Synthesizing'] };
+function setFlag(id, on) { $(id).classList.toggle('on', on); $(id).textContent = FLAG_TEXT[id][on ? 1 : 0]; }
 
 function onEvent(e) {
   switch (e.type) {
@@ -438,8 +601,21 @@ function onEvent(e) {
     const prev = agentState;
     agentState = e.state;
     $('orb').textContent = e.state.toLowerCase();
+    $('agent').dataset.state = e.state;
+    stateHistory.push({ t: now(), state: e.state });
+    if (e.state !== prev) stateSince = now();
+    overlapPending = e.reason === 'BARGE_IN_PENDING';
+    markActiveStep();
     const interrupted = e.state === 'INTERRUPTED';
     logEvent(`agent ${e.from} -> ${e.state} (${e.reason})`, interrupted ? 'interrupt' : '');
+    if (e.reason === 'BACKCHANNEL') {
+      // "mm-hmm" over the assistant: it kept talking (it was ducked or paused while deciding)
+      backchannels++;
+      bargeStart = null;
+      pose.nodAt = now();
+      marks.push({ t: now(), kind: 'backchannel' });
+      $('m-turns-sub').textContent = turnsSummary();
+    }
     if (cur && e.state === 'THINKING' && cur.asr == null) cur.asr = now();
     if (interrupted) {
       marks.push({ t: now(), kind: 'barge' });
@@ -530,7 +706,7 @@ function onEvent(e) {
 let micAnalyser = null, outAnalyser = null;
 function analyser(stream) {
   const a = audioCtx.createAnalyser();
-  a.fftSize = 512;
+  a.fftSize = 1024;
   audioCtx.createMediaStreamSource(stream).connect(a);
   return a;
 }
@@ -545,11 +721,10 @@ function level(a) {
 }
 
 //  VizAnim features (server side, "audio_features" events) for your mic and the assistant's voice
-const NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 const BANDS = ['Bass 20-250 Hz', 'Low mid 250-500 Hz', 'Mid 0.5-2 kHz', 'High mid 2-4 kHz', 'Treble 4 kHz+'];
 // Same dB windows as the TUI: RMS -60..-10 dB, band magnitudes -90..-30 dB.
 const dbScale = (v, lo, hi) => v > 0 ? Math.min(1, Math.max(0, (20 * Math.log10(v) - lo) / (hi - lo))) : 0;
-const blank = () => ({ rms: 0, bands: [0, 0, 0, 0, 0], pitch: 0, voiced: 0, chroma: new Array(12).fill(0), onset: false });
+const blank = () => ({ rms: 0, bands: [0, 0, 0, 0, 0], share: [0, 0, 0, 0, 0], zcr: 0, pitch: 0, voiced: 0, chroma: new Array(12).fill(0), onset: false });
 const viz = {};
 for (const src of ['mic', 'tts']) {
   const box = $(`v-${src}`);
@@ -559,9 +734,8 @@ for (const src of ['mic', 'tts']) {
     return i;
   });
   viz[src] = { queue: [], target: blank(), cur: blank(), last: -1e9, bars,
-               note: box.querySelector('.note'), read: box.querySelector('.read') };
+               meter: box.querySelector('.meter i'), read: box.querySelector('.read') };
 }
-let ripples = [];
 
 function onFeatures(e) {
   const v = viz[e.source];
@@ -574,20 +748,21 @@ function onFeatures(e) {
 
 function normalize(f) {
   const peak = Math.max(...f.chroma, 1e-6);
+  const bandSum = f.bands.reduce((a, b) => a + b, 0) || 1;
   return { rms: dbScale(f.rms, -60, -10), bands: f.bands.map(b => dbScale(b, -90, -30)),
+           share: f.bands.map(b => b / bandSum), zcr: f.zcr || 0,
            pitch: f.voiced > 0.5 ? f.pitch : 0, voiced: f.voiced, chroma: f.chroma.map(c => c / peak), onset: !!f.onset };
 }
 
-const activeSource = () => agentState === 'SPEAKING' ? 'tts' : 'mic';
-const STATE_COLOR = { LISTENING: 'you', THINKING: 'think', SPEAKING: 'speak', INTERRUPTED: 'interrupt' };
+const STATE_COLOR = { LISTENING: 'listen', THINKING: 'think', SPEAKING: 'speak', INTERRUPTED: 'interrupt' };
 let colors = {};
 function readColors() {
   const cs = getComputedStyle(document.documentElement);
-  for (const k of ['you', 'think', 'speak', 'interrupt', 'muted']) colors[k] = cs.getPropertyValue(`--${k}`).trim();
+  for (const k of ['you', 'think', 'speak', 'interrupt', 'muted', 'listen', 'rule', 'ink-2', 'surface'])
+    colors[k] = cs.getPropertyValue(`--${k}`).trim();
 }
 readColors();
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', readColors);
-const stateColor = () => colors[STATE_COLOR[agentState] || 'muted'];
 
 function stepViz(t, dt) {
   const a = 1 - Math.exp(-dt / 90);  // ~90 ms smoothing between feature windows
@@ -596,7 +771,6 @@ function stepViz(t, dt) {
       v.target = normalize(v.queue.shift().f);
       v.last = t;
       voiceHistory[src].push({ t, rms: v.target.rms, pitch: v.target.pitch });
-      if (v.target.onset && v.target.rms > 0.25 && src === activeSource()) ripples.push(t);
     }
     if (t - v.last > 400) v.target = blank();  // nothing new: settle to rest
     const c = v.cur, g = v.target;
@@ -604,83 +778,252 @@ function stepViz(t, dt) {
     c.bands = c.bands.map((b, i) => b + (g.bands[i] - b) * a);
     c.chroma = c.chroma.map((x, i) => x + (g.chroma[i] - x) * a);
     v.bars.forEach((bar, i) => { bar.style.height = `${6 + 94 * c.bands[i]}%`; });
-    const note = g.pitch > 0 ? NOTES[((Math.round(69 + 12 * Math.log2(g.pitch / 440)) % 12) + 12) % 12] : '';
-    const read = g.rms > 0.05 ? `${g.pitch > 0 ? `${Math.round(g.pitch)} Hz` : 'unvoiced'} · voiced ${Math.round(g.voiced * 100)}%` : 'quiet';
-    if (v.note.textContent !== note) v.note.textContent = note;
+    const read = g.rms > 0.05 ? `${g.pitch > 0 ? `${Math.round(g.pitch)} Hz` : 'unvoiced'}, voiced ${Math.round(g.voiced * 100)}%` : 'quiet';
     if (v.read.textContent !== read) v.read.textContent = read;
   }
 }
 
-const canvas = $('viz'), g2 = canvas.getContext('2d');
-const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
 let lastFrame = now();
 function draw() {
   const t = now(), dt = Math.min(100, t - lastFrame);
   lastFrame = t;
   stepViz(t, dt);
-
-  const dpr = devicePixelRatio || 1, w = canvas.clientWidth, h = canvas.clientHeight;
-  if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
-    canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
-  }
-  g2.setTransform(dpr, 0, 0, dpr, 0, 0);
-  g2.clearRect(0, 0, w, h);
-  const cx = w / 2, cy = h / 2, unit = Math.min(w, h) / 2;
-  const v = viz[activeSource()].cur;
-  const live = activeSource() === 'tts' ? level(outAnalyser) : level(micAnalyser);
-  const amp = Math.max(v.rms, live);
-  const still = reduceMotion.matches;
-  const breathe = agentState === 'THINKING' && !still ? 0.035 * Math.sin(t / 230) : 0;
-  const R = unit * (0.44 + 0.13 * amp + breathe);
-  const col = stateColor();
-
-  // Halo
-  g2.globalAlpha = 0.14;
-  g2.fillStyle = col;
-  g2.beginPath(); g2.arc(cx, cy, R * (1.1 + 0.3 * amp), 0, 2 * Math.PI); g2.fill();
-
-  // Blob: each band bends the outline at its own spatial frequency
-  g2.beginPath();
-  for (let i = 0; i <= 128; i++) {
-    const th = i / 128 * 2 * Math.PI;
-    let r = 1;
-    v.bands.forEach((b, k) => { r += 0.075 * b * Math.sin((k + 2) * th + (still ? k : t / (650 - k * 80) + k)); });
-    const x = cx + R * r * Math.cos(th), y = cy + R * r * Math.sin(th);
-    i ? g2.lineTo(x, y) : g2.moveTo(x, y);
-  }
-  g2.closePath();
-  g2.globalAlpha = 1;
-  g2.fill();
-  const shine = g2.createRadialGradient(cx - R * 0.35, cy - R * 0.4, 0, cx - R * 0.35, cy - R * 0.4, R * 1.3);
-  shine.addColorStop(0, 'rgba(255,255,255,.45)');
-  shine.addColorStop(1, 'rgba(255,255,255,0)');
-  g2.fillStyle = shine;
-  g2.fill();
-
-  // Chroma wheel: 12 pitch classes, C at the top
-  g2.fillStyle = col;
-  for (let i = 0; i < 12; i++) {
-    const th = -Math.PI / 2 + i / 12 * 2 * Math.PI, c = v.chroma[i] * Math.min(1, v.rms * 1.6);
-    g2.globalAlpha = 0.18 + 0.82 * c;
-    g2.beginPath();
-    g2.arc(cx + unit * 0.88 * Math.cos(th), cy + unit * 0.88 * Math.sin(th), unit * (0.02 + 0.035 * c), 0, 2 * Math.PI);
-    g2.fill();
-  }
-
-  // Onset ripples
-  ripples = still ? [] : ripples.filter(born => t - born < 700);
-  g2.strokeStyle = col;
-  g2.lineWidth = 2;
-  for (const born of ripples) {
-    const k = (t - born) / 700;
-    g2.globalAlpha = 0.6 * (1 - k);
-    g2.beginPath(); g2.arc(cx, cy, R * (1.05 + 0.55 * k), 0, 2 * Math.PI); g2.stroke();
-  }
-  g2.globalAlpha = 1;
+  // Lane meters: the browser's own level of each stream, smoother than the 128 ms feature windows
+  viz.mic.meter.style.width = `${100 * Math.max(viz.mic.cur.rms, level(micAnalyser))}%`;
+  viz.tts.meter.style.width = `${100 * Math.max(viz.tts.cur.rms, level(outAnalyser))}%`;
+  if (liveView === 'character') drawCharacter(t, dt); else drawRing(t, dt);
+  updateLiveLabel();
   drawRibbon(t);
   requestAnimationFrame(draw);
 }
 requestAnimationFrame(draw);
+
+//  Radial spectrum ring: 72 ticks, mirrored, bass at the bottom and treble at the top. Tick length is
+//  the VizAnim band envelope of whoever is talking, refined by the browser's own spectrum of that stream.
+const ring = $('viz'), g2 = ring.getContext('2d');
+const TICKS = 72, HALF = TICKS / 2;
+const tickLevel = new Float32Array(HALF);
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
+let freqBuf = null;
+const bandAt = (bands, pos) => {  // linear interpolation across the 5 bands, pos 0..4
+  const i = Math.min(3, Math.floor(pos)), f = pos - i;
+  return bands[i] * (1 - f) + bands[i + 1] * f;
+};
+function spectrumAt(a, frac) {  // 0..1 at a log frequency between 90 Hz and 7 kHz
+  if (!a || !freqBuf) return null;
+  const hz = 90 * Math.pow(7000 / 90, frac);
+  const bin = Math.min(freqBuf.length - 1, Math.round(hz / (audioCtx.sampleRate / 2) * freqBuf.length));
+  return Math.pow(freqBuf[bin] / 255, 1.6);
+}
+const ringLabel = () => {
+  const elapsed = `${((now() - stateSince) / 1000).toFixed(1)} s`;
+  switch (agentState) {
+  case 'LISTENING': return ['Listening', micOn ? 'You are speaking' : 'Waiting for you'];
+  case 'THINKING': return ['Thinking', elapsed];
+  case 'SPEAKING': return ['Speaking', overlapPending ? 'Checking if you are interrupting' : elapsed];
+  case 'INTERRUPTED': return ['Interrupted', 'Stopping the reply'];
+  default: return pc ? ['Connecting', ''] : ['Idle', 'Start a call to begin'];
+  }
+};
+function drawRing(t, dt) {
+  const dpr = devicePixelRatio || 1, w = ring.clientWidth, h = ring.clientHeight;
+  if (!w) return;
+  if (ring.width !== Math.round(w * dpr) || ring.height !== Math.round(h * dpr)) {
+    ring.width = Math.round(w * dpr); ring.height = Math.round(h * dpr);
+  }
+  g2.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g2.clearRect(0, 0, w, h);
+  const cx = w / 2, cy = h / 2, unit = Math.min(w, h) / 2;
+  const base = unit * 0.6, maxLen = unit * 0.34;
+
+  const src = agentState === 'SPEAKING' ? 'tts' : 'mic';
+  const v = viz[src].cur, a = src === 'tts' ? outAnalyser : micAnalyser;
+  if (a) {
+    if (!freqBuf || freqBuf.length !== a.frequencyBinCount) freqBuf = new Uint8Array(a.frequencyBinCount);
+    a.getByteFrequencyData(freqBuf);
+  }
+  const gate = Math.min(1, Math.max(v.rms, level(a)) * 2.5);  // silence settles every tick
+  for (let i = 0; i < HALF; i++) {
+    const frac = 1 - i / (HALF - 1);  // i = 0 at the top (treble), HALF - 1 at the bottom (bass)
+    const envelope = bandAt(v.bands, frac * 4);
+    const detail = spectrumAt(a, frac);
+    const target = gate * (detail == null ? envelope : 0.55 * envelope + 0.45 * detail);
+    // Meter ballistics: fast attack, ~0.6 s release
+    tickLevel[i] = target > tickLevel[i] ? tickLevel[i] + (target - tickLevel[i]) * Math.min(1, dt / 35)
+                                         : Math.max(target, tickLevel[i] - dt / 600);
+  }
+
+  // Base circle
+  g2.strokeStyle = colors.rule;
+  g2.lineWidth = 1;
+  g2.beginPath(); g2.arc(cx, cy, base, 0, 2 * Math.PI); g2.stroke();
+
+  // Ticks, mirrored left and right
+  const col = src === 'tts' ? colors.speak : agentState === 'INTERRUPTED' ? colors.interrupt : colors.you;
+  g2.lineCap = 'round';
+  g2.lineWidth = Math.max(1.5, unit / 70);
+  for (let k = 0; k < TICKS; k++) {
+    const i = k < HALF ? k : TICKS - 1 - k;
+    const th = -Math.PI / 2 + (k + 0.5) / TICKS * 2 * Math.PI;
+    const len = 2 + tickLevel[i] * maxLen;
+    g2.strokeStyle = tickLevel[i] > 0.02 ? col : colors.listen;
+    g2.globalAlpha = tickLevel[i] > 0.02 ? 0.45 + 0.55 * Math.min(1, tickLevel[i] * 1.6) : 1;
+    const r0 = base + 5;
+    g2.beginPath();
+    g2.moveTo(cx + r0 * Math.cos(th), cy + r0 * Math.sin(th));
+    g2.lineTo(cx + (r0 + len) * Math.cos(th), cy + (r0 + len) * Math.sin(th));
+    g2.stroke();
+  }
+  g2.globalAlpha = 1;
+
+  // Thinking: a quarter arc travels the base circle (fixed when motion is reduced)
+  if (agentState === 'THINKING') {
+    const start = reduceMotion.matches ? -Math.PI / 2 : t / 450;
+    g2.strokeStyle = colors.think;
+    g2.lineWidth = 2.5;
+    g2.beginPath(); g2.arc(cx, cy, base, start, start + Math.PI / 2); g2.stroke();
+  }
+}
+function updateLiveLabel() {
+  const [label, sub] = ringLabel();
+  if ($('ring-state').textContent !== label) $('ring-state').textContent = label;
+  if ($('ring-sub').textContent !== sub) $('ring-sub').textContent = sub;
+}
+
+//  Character view: a flat cut-out character, stepped at ~15 fps like cut-out animation.
+//  Lip sync: each assistant VizAnim frame (128 ms) picks the mouth shape from its spectrum, and the played
+//  audio's level opens and closes it every animation step, so syllables and pauses land on time.
+//  Other VizAnim features drive the brows (pitch against its running mean) and bobs and gestures (onsets).
+let liveView = localStorage.getItem('liveView') === 'character' ? 'character' : 'ring';
+const part = id => document.getElementById(id);
+const character = { body: part('c-body'), head: part('c-head'), mouth: part('c-mouth'), mouthLine: part('c-mouth-line'),
+  teeth: part('c-teeth'), tongue: part('c-tongue'), eyeLeft: part('c-eye-l'), eyeRight: part('c-eye-r'),
+  pupilLeft: part('c-pupil-l'), pupilRight: part('c-pupil-r'), browLeft: part('c-brow-l'), browRight: part('c-brow-r'),
+  armLeft: part('c-arm-l'), armRight: part('c-arm-r'), led: part('c-led'), bubble: part('c-bubble'),
+  dots: [...document.querySelectorAll('.c-dot')] };
+const pose = { pending: 0, lastTts: -1, lastMic: -1, pitchMean: 0, bobAt: -1e9, bobSize: 0, nodAt: -1e9,
+               gestureAt: -1e9, gestureArm: 0, blinkAt: 3000, boil: 0, boilStep: 0, viseme: 'SMALL' };
+const clamp01 = x => Math.min(1, Math.max(0, x));
+function setView(view) {
+  liveView = view;
+  localStorage.setItem('liveView', view);
+  document.querySelector('.ring').dataset.view = view;
+  document.querySelectorAll('.view-switch button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.view === view)));
+}
+document.querySelectorAll('.view-switch button').forEach(b => b.addEventListener('click', () => setView(b.dataset.view)));
+setView(liveView);
+
+//  Mouth shapes: width, deepest opening, how far the top lip lifts (share of the opening), teeth height, tongue
+const VISEMES = {
+  AH:    { width: 26, depth: 20, lift: 0.15, teeth: 0, tongue: true },   // "ah", "a": jaw dropped
+  OH:    { width: 16, depth: 16, lift: 0.7,  teeth: 0, tongue: false },  // "oh", "aw": round
+  OO:    { width: 10, depth: 10, lift: 0.8,  teeth: 0, tongue: false },  // "oo", "w": small and round
+  EE:    { width: 30, depth: 9,  lift: 0,    teeth: 4, tongue: false },  // "ee", "i": wide, teeth showing
+  SS:    { width: 24, depth: 6,  lift: 0,    teeth: 6, tongue: false },  // "s", "f", "t": teeth together
+  SMALL: { width: 18, depth: 9,  lift: 0.1,  teeth: 0, tongue: false },  // nasals, hums, everything else
+};
+//  Thresholds from VizAnim band shares (average magnitude per band over their sum) of spoken vowels at 16 kHz:
+//  "ah" puts 0.33-0.44 in mid (500-2000 Hz, first formant ~700 Hz); "ee" and "oo" put 0.42-0.62 in low mid
+//  with almost no mid, and "ee" keeps more high mid (second formant ~2.3 kHz); hiss has zero crossings > 0.15.
+function visemeOf(f) {
+  const [, lowMid, mid, highMid] = f.share;
+  if (f.voiced < 0.4 && f.zcr > 0.15) return 'SS';
+  if (mid >= 0.25) return 'AH';
+  if (lowMid >= 0.35 && mid < 0.15) return highMid >= 0.035 ? 'EE' : 'OO';
+  if (lowMid >= 0.3) return 'OH';
+  return 'SMALL';
+}
+
+function drawCharacter(t, dt) {
+  pose.pending += dt;
+  if (pose.pending < 66) return;
+  pose.pending = 0;
+  const still = reduceMotion.matches, state = agentState;
+  const tts = viz.tts, mic = viz.mic;
+  if (tts.last !== pose.lastTts) {  // a new assistant frame
+    pose.lastTts = tts.last;
+    const f = tts.target;
+    if (f.rms > 0.05) pose.viseme = visemeOf(f);
+    if (f.pitch > 0) pose.pitchMean = pose.pitchMean ? pose.pitchMean * 0.95 + f.pitch * 0.05 : f.pitch;
+    if (f.onset && state === 'SPEAKING') {
+      pose.bobAt = t; pose.bobSize = 2 + 3 * f.rms;
+      if (f.rms > 0.5 && t - pose.gestureAt > 900) { pose.gestureAt = t; pose.gestureArm ^= 1; }
+    }
+  }
+  if (mic.last !== pose.lastMic) {  // a new frame of your voice
+    pose.lastMic = mic.last;
+    if (mic.target.onset && state === 'LISTENING') { pose.bobAt = t; pose.bobSize = 2; }
+  }
+
+  // Mouth: shape from the VizAnim frame, opening from what is playing right now, in 3 steps
+  let shape = null, open = 0;
+  if (state === 'SPEAKING') {
+    const playing = outAnalyser ? level(outAnalyser) : tts.target.rms;
+    open = Math.round(clamp01((playing - 0.15) / 0.55) * (overlapPending ? 0.6 : 1) * 3) / 3;
+    shape = VISEMES[pose.viseme];
+  } else if (state === 'INTERRUPTED') { shape = VISEMES.OH; open = 0.6; }
+  const mouthY = 122;
+  if (shape && open > 0) {
+    const depth = open * shape.depth, lift = shape.lift * depth, x0 = 100 - shape.width / 2, x1 = 100 + shape.width / 2;
+    character.mouth.setAttribute('d', `M${x0} ${mouthY} A${shape.width / 2} ${lift} 0 0 1 ${x1} ${mouthY} A${shape.width / 2} ${depth} 0 0 1 ${x0} ${mouthY}Z`);
+    character.teeth.setAttribute('y', mouthY - lift - 1);
+    character.teeth.setAttribute('height', shape.teeth ? shape.teeth + lift + 1 : 0);
+    character.tongue.setAttribute('cy', mouthY + depth * 0.85);
+    character.tongue.setAttribute('rx', shape.tongue ? shape.width * 0.3 : 0);
+    character.tongue.setAttribute('ry', shape.tongue ? depth * 0.35 : 0);
+    character.mouthLine.setAttribute('d', '');
+  } else {
+    character.mouth.setAttribute('d', '');
+    character.teeth.setAttribute('height', 0);
+    character.mouthLine.setAttribute('d', state === 'THINKING' ? 'M91 124 L108 121'
+      : state === 'SPEAKING' ? 'M92 122 Q100 124 108 122' : 'M88 121 Q100 128 112 121');
+  }
+
+  // Eyes: blink every 2.5-6 s, look up while thinking, open wide when cut off
+  let lid = state === 'INTERRUPTED' ? 1.08 : 1, gazeX = 0, gazeY = 0;
+  if (!still && t > pose.blinkAt) { lid = 0.1; if (t > pose.blinkAt + 120) pose.blinkAt = t + 2500 + Math.random() * 3500; }
+  if (state === 'THINKING') { gazeX = 3; gazeY = -6; }
+  else if (state === 'SPEAKING' && !still) gazeX = 1.5 * Math.sin(t / 1300);
+  for (const [eye, pupil, cx, px] of [[character.eyeLeft, character.pupilLeft, 86, 91], [character.eyeRight, character.pupilRight, 114, 109]]) {
+    eye.setAttribute('transform', `translate(${cx} 86) scale(1 ${lid}) translate(${-cx} -86)`);
+    pupil.setAttribute('cx', px + gazeX); pupil.setAttribute('cy', 88 + gazeY);
+  }
+
+  // Brows: only shown when they say something; follow pitch, go up while deciding on a barge-in or when cut off
+  let browLeft = 0, browRight = 0;
+  if (state === 'SPEAKING' && pose.pitchMean && tts.cur.pitch > 0)
+    browLeft = browRight = Math.max(-2, Math.min(4, (tts.cur.pitch / pose.pitchMean - 1) * 25));
+  if (overlapPending || state === 'INTERRUPTED') browLeft = browRight = 5;
+  if (state === 'THINKING') { browLeft = 4; browRight = -1; }
+  for (const [brow, lift] of [[character.browLeft, browLeft], [character.browRight, browRight]]) {
+    brow.setAttribute('transform', `translate(0 ${4 - lift})`);
+    brow.setAttribute('opacity', Math.abs(lift) >= 1.5 ? 1 : 0);
+  }
+
+  // Head and body: onset bobs, a nod for a back-channel, a tilt while you talk or it thinks, a little paper boil
+  let bob = 0;
+  if (!still) {
+    if (t - pose.bobAt < 250) bob = pose.bobSize * Math.sin(Math.PI * (t - pose.bobAt) / 250);
+    if (t - pose.nodAt < 450) bob = 6 * Math.sin(Math.PI * (t - pose.nodAt) / 450);
+    if (++pose.boilStep % 4 === 0) pose.boil = (Math.random() - 0.5) * 1.2;
+  }
+  const tilt = (state === 'LISTENING' && mic.cur.rms > 0.1 ? 5 : state === 'THINKING' ? -4 : 0) + (still ? 0 : pose.boil);
+  const bodyBob = bob * 0.4;
+  character.head.setAttribute('transform', `translate(0 ${bob}) rotate(${tilt} 100 140)`);
+  character.body.setAttribute('transform', `translate(0 ${bodyBob})`);
+
+  // Arms: a gesture on strong onsets while talking, hand to chin while thinking, hands up when cut off
+  const gesturing = !still && state === 'SPEAKING' && t - pose.gestureAt < 400;
+  const armLeft = state === 'INTERRUPTED' ? 150 : gesturing && pose.gestureArm === 0 ? 70 : 12;
+  const armRight = state === 'INTERRUPTED' ? -150 : state === 'THINKING' ? 115 : gesturing && pose.gestureArm === 1 ? -70 : -12;
+  character.armLeft.setAttribute('transform', `translate(66 150) rotate(${armLeft})`);
+  character.armRight.setAttribute('transform', `translate(134 ${150 + bodyBob}) rotate(${armRight})`);
+
+  character.led.setAttribute('fill', state === 'LISTENING' ? colors.you : colors[STATE_COLOR[state]] || colors.listen);
+  character.bubble.setAttribute('visibility', state === 'THINKING' ? 'visible' : 'hidden');
+  const lit = still ? 3 : Math.floor(t / 350) % 4;
+  character.dots.forEach((d, i) => d.setAttribute('opacity', i < lit ? 1 : 0.2));
+}
 
 //  Speakers (SpeakerIdentificationProcessor): the tracked voice print, new vs same per utterance
 const SPEAKER_THRESHOLD = 0.30;
@@ -700,9 +1043,10 @@ function onSpeaker(e) {
   const target = cur && cur.userLi === lastUserLi ? cur : turns.find(t => t.userLi === lastUserLi);
   if (target) target.speaker = info;
   if (lastUserLi) {
-    lastUserLi.querySelector('.who').textContent = e.new
-      ? `${info.label} · new voice${speakers.length > 1 ? ` (similarity ${e.similarity.toFixed(2)})` : ''}`
-      : `${info.label} · same voice (${e.similarity.toFixed(2)})`;
+    const who = lastUserLi.querySelector('.who');
+    who.textContent = info.label;
+    who.title = e.new ? `New voice${speakers.length > 1 ? `, similarity ${e.similarity.toFixed(2)}` : ''}`
+                      : `Same voice, similarity ${e.similarity.toFixed(2)}`;
   }
   logEvent(`speaker ${info.label}: ${e.new ? 'NEW' : 'same'} voice, similarity ${e.similarity.toFixed(2)}`);
   renderSpeakers(info);
@@ -727,19 +1071,21 @@ function renderSpeakers(lastInfo) {
     sim.append(fill, thr);
     const read = document.createElement('div'); read.className = 'spk-read';
     const avgSim = s.sims.length ? s.sims.reduce((a, b) => a + b, 0) / s.sims.length : null;
-    read.textContent = lastSim == null ? 'first utterance - voice print created'
-      : `last match ${lastSim.toFixed(2)} · avg ${avgSim.toFixed(2)}${i === currentSpeaker ? ' · speaking now' : ''}`;
+    read.textContent = lastSim == null ? 'Voice print created from the first utterance'
+      : `Last match ${lastSim.toFixed(2)}, average ${avgSim.toFixed(2)}${i === currentSpeaker ? ', speaking now' : ''}`;
     li.append(av, name, sim, read);
     list.append(li);
   });
 }
 
-//  Voice ribbon: VizAnim loudness (area) and pitch (dots) for both voices over the last 20 s
+//  Live lanes: agent state, then VizAnim loudness (area) and pitch (dots) of each voice, last 20 s
 const RIBBON_MS = 20000;
 const voiceHistory = { mic: [], tts: [] };
+const stateHistory = [];
 const marks = [];
 const ribbon = $('ribbon'), r2 = ribbon.getContext('2d');
 const pitchY = hz => Math.min(1, Math.max(0, Math.log2(hz / 70) / Math.log2(450 / 70)));  // 70..450 Hz -> 0..1
+const MARK_LABEL = { barge: 'barge-in', backchannel: 'back-channel', smart: 'SmartTurn end', timer: 'timer end' };
 function drawRibbon(t) {
   const dpr = devicePixelRatio || 1, w = ribbon.clientWidth, h = ribbon.clientHeight;
   if (!w) return;
@@ -748,62 +1094,85 @@ function drawRibbon(t) {
   }
   r2.setTransform(dpr, 0, 0, dpr, 0, 0);
   r2.clearRect(0, 0, w, h);
-  const t0 = t - RIBBON_MS, mid = h / 2, half = h / 2 - 14;
-  const x = tt => (tt - t0) / RIBBON_MS * w;
+  const t0 = t - RIBBON_MS;
+  const x = tt => Math.max(0, (tt - t0) / RIBBON_MS * w);
   for (const k of ['mic', 'tts']) while (voiceHistory[k].length && voiceHistory[k][0].t < t0 - 1000) voiceHistory[k].shift();
+  while (stateHistory.length > 1 && stateHistory[1].t < t0) stateHistory.shift();
   while (marks.length && marks[0].t < t0) marks.shift();
 
-  // Grid: centre line and a tick every 5 s
-  r2.fillStyle = colors.muted;
-  r2.globalAlpha = 0.35;
-  r2.fillRect(0, mid, w, 1);
-  r2.font = '11px system-ui, sans-serif';
-  r2.globalAlpha = 1;
-  for (let s = 5; s < RIBBON_MS / 1000; s += 5) {
-    const xx = w - s * 1000 / RIBBON_MS * w;
-    r2.globalAlpha = 0.25; r2.fillRect(xx, mid - 4, 1, 8);
-    r2.globalAlpha = 0.9; r2.fillText(`-${s}s`, xx + 3, h - 2);
-  }
+  // Lane rows follow the HTML lane headers so labels and tracks line up
+  const top = $('v-mic').offsetTop - ribbon.offsetTop;
+  const stateRow = [0, top];
+  const micRow = [top, top + $('v-mic').offsetHeight];
+  const ttsRow = [micRow[1], micRow[1] + $('v-tts').offsetHeight];
+  const axisTop = ttsRow[1];
 
-  for (const [k, dir, col] of [['mic', -1, colors.you], ['tts', 1, colors.speak]]) {
+  r2.fillStyle = colors.rule;
+  for (const y of [micRow[0], ttsRow[0], axisTop]) r2.fillRect(0, y, w, 1);
+
+  // Agent state lane
+  stateHistory.forEach((s, i) => {
+    const from = x(s.t), to = i + 1 < stateHistory.length ? x(stateHistory[i + 1].t) : w;
+    if (to - from < 0.5) return;
+    r2.fillStyle = colors[STATE_COLOR[s.state] || 'listen'];
+    r2.fillRect(from, stateRow[0] + 7, Math.max(1, to - from - 1), stateRow[1] - stateRow[0] - 14);
+  });
+
+  // Voice lanes, drawn up from each lane's floor
+  for (const [k, row, col] of [['mic', micRow, colors.you], ['tts', ttsRow, colors.speak]]) {
+    const floor = row[1] - 3, span = row[1] - row[0] - 10;
     const pts = voiceHistory[k];
-    // Loudness envelope; a gap of > 350 ms between windows means silence, so break the shape there.
     r2.fillStyle = col;
-    r2.globalAlpha = 0.35;
+    r2.globalAlpha = 0.3;
     let run = [];
     const flush = () => {
       if (run.length > 1) {
         r2.beginPath();
-        r2.moveTo(x(run[0].t), mid);
-        for (const p of run) r2.lineTo(x(p.t), mid + dir * p.rms * half);
-        r2.lineTo(x(run[run.length - 1].t), mid);
+        r2.moveTo(x(run[0].t), floor);
+        for (const p of run) r2.lineTo(x(p.t), floor - p.rms * span);
+        r2.lineTo(x(run[run.length - 1].t), floor);
         r2.closePath(); r2.fill();
       }
       run = [];
     };
+    // A gap of > 350 ms between feature windows means silence, so break the shape there.
     pts.forEach((p, i) => { if (i && p.t - pts[i - 1].t > 350) flush(); run.push(p); });
     flush();
-    // Pitch contour
     r2.globalAlpha = 1;
     for (const p of pts) {
       if (!p.pitch || p.rms < 0.1) continue;
-      r2.beginPath();
-      r2.arc(x(p.t), mid + dir * (0.12 + 0.85 * pitchY(p.pitch)) * half, 2.2, 0, 2 * Math.PI);
-      r2.fill();
+      r2.fillRect(x(p.t) - 1, floor - (0.1 + 0.85 * pitchY(p.pitch)) * span - 1, 2.5, 2.5);
     }
   }
 
-  // Turn-end and barge-in markers
-  for (const m of marks) {
-    const xx = x(m.t);
-    r2.fillStyle = m.kind === 'barge' ? colors.interrupt : colors.muted;
-    r2.globalAlpha = 0.9;
-    const label = m.kind === 'barge' ? 'barge-in' : m.kind === 'smart' ? 'SmartTurn end' : 'timer end';
-    const lw = r2.measureText(label).width;
-    r2.fillText(label, xx + 4 + lw > w ? xx - 4 - lw : xx + 4, 12);  // flip left near "now"
-    r2.fillRect(Math.min(xx, w - 1.5), 4, 1.5, h - 20);
+  // Time axis: a tick every 5 s
+  r2.font = '11px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+  r2.textBaseline = 'middle';
+  r2.fillStyle = colors.muted;
+  const tickStep = w < 360 ? 10 : 5;
+  for (let s = 0; s < RIBBON_MS / 1000; s += tickStep) {
+    const xx = w - s * 1000 / RIBBON_MS * w;
+    r2.fillRect(Math.min(xx, w - 1), axisTop, 1, 4);
+    const label = s ? `-${s} s` : 'now';
+    r2.fillText(label, Math.min(xx + 4, w - r2.measureText(label).width - 2), (axisTop + h) / 2 + 1);
   }
-  r2.globalAlpha = 1;
+
+  // Turn-end, barge-in and back-channel markers across both voice lanes
+  r2.textBaseline = 'top';
+  let labelEnd = -Infinity;
+  for (const m of marks) {
+    const xx = Math.min(x(m.t), w - 1.5);
+    r2.fillStyle = m.kind === 'barge' ? colors.interrupt : colors['ink-2'];
+    r2.globalAlpha = m.kind === 'barge' ? 1 : 0.7;
+    r2.fillRect(xx, micRow[0], 1.5, axisTop - micRow[0]);
+    r2.globalAlpha = 1;
+    const label = MARK_LABEL[m.kind] || m.kind;
+    const lw = r2.measureText(label).width;
+    const lx = xx + 4 + lw > w ? xx - 4 - lw : xx + 4;  // flip left near "now"
+    if (lx < labelEnd + 6) continue;  // the line stays; a label that would overlap the previous one is dropped
+    r2.fillText(label, lx, micRow[0] + 4);
+    labelEnd = lx + lw;
+  }
 }
 
 //  Connection stats (RTCPeerConnection.getStats), once a second
@@ -838,6 +1207,56 @@ async function pollStats() {
 }
 
 //  Call
+//  Pipeline panel: GET /pipeline lists the processors in chain order with their providers
+const STEP_NAMES = {
+  TransportInputProcessor: 'Audio in', TransportOutputProcessor: 'Audio out', AudioDSPProcessor: 'Noise reduction',
+  VADFrameProcessor: 'Voice activity', TurnDetectionProcessor: 'Turn detection', VizAnimFrameProcessor: 'Audio features',
+  TranscriptionFrameProcessor: 'Speech to text', SpeakerIdentificationProcessor: 'Speaker ID',
+  AgentStateProcessor: 'Agent state', LLMProcessor: 'Language model', ToolDispatchProcessor: 'Tools',
+  TTSFrameProcessor: 'Text to speech', STTDebugProcessor: 'Transcript log', BargeInHandler: 'Barge-in handler',
+};
+//  Which step is working in each agent state, and in which colour
+const ACTIVE_STEP = { LISTENING: ['TranscriptionFrameProcessor', 'you'], THINKING: ['LLMProcessor', 'think'],
+                      SPEAKING: ['TTSFrameProcessor', 'speak'] };
+const stepName = name => STEP_NAMES[name] || name.replace(/(Frame)?Processor$/, '').replace(/([a-z])([A-Z])/g, '$1 $2');
+const providerName = name => name.replace('WebRtcTransport', 'WebRTC').replace(/Transport(?= |$)/, '')
+  .replace(/(VoiceSynthesis|Transcription|Embedding)?Provider$/, '');
+async function loadPipeline() {
+  const chain = $('chain');
+  try {
+    const res = await fetch('/pipeline');
+    if (!res.ok) throw new Error(`Server said ${res.status}`);
+    const { processors } = await res.json();
+    chain.replaceChildren(...processors.map(p => {
+      const li = document.createElement('li');
+      const step = document.createElement('div'); step.className = 'step'; step.dataset.processor = p.name;
+      const name = document.createElement('span'); name.className = 'step-name'; name.textContent = stepName(p.name);
+      name.title = p.name;
+      const provider = document.createElement('span');
+      provider.className = p.provider ? 'step-provider' : 'step-provider none';
+      provider.textContent = p.provider ? providerName(p.provider) : 'Built in';
+      if (p.provider) provider.title = p.provider;
+      step.append(name, provider);
+      li.append(step);
+      return li;
+    }));
+    markActiveStep();
+  } catch (err) {
+    const li = document.createElement('li'); li.className = 'hint';
+    li.textContent = `The pipeline is not available (${err.message}). Restart the server with this build to see it.`;
+    chain.replaceChildren(li);
+  }
+}
+function markActiveStep() {
+  const [active, color] = ACTIVE_STEP[agentState] || [];
+  document.querySelectorAll('.step').forEach(step => {
+    const on = step.dataset.processor === active;
+    step.toggleAttribute('data-active', on);
+    step.style.setProperty('--c', on ? `var(--${color})` : '');
+  });
+}
+loadPipeline();
+
 async function startCall() {
   callBtn.disabled = true;
   try {
@@ -855,7 +1274,8 @@ async function startCall() {
     };
     pc.onconnectionstatechange = () => {
       const st = pc.connectionState;
-      setStatus(st === 'connected' ? 'Connected - start talking' : st, st === 'connected');
+      const label = { connected: 'Live', connecting: 'Connecting', disconnected: 'Reconnecting', failed: 'Connection failed', closed: 'Call ended' }[st] || st;
+      setStatus(label, st === 'connected');
       if (st === 'connected' && !statsTimer) {
         callStart = Date.now();
         statsTimer = setInterval(pollStats, 1000);
@@ -868,7 +1288,7 @@ async function startCall() {
     events.onmessage = m => { try { onEvent(JSON.parse(m.data)); } catch (err) { console.warn(err, m.data); } };
 
     await pc.setLocalDescription(await pc.createOffer());
-    setStatus('Gathering network candidates...');
+    setStatus('Finding a network path');
     // The server answers once, without trickle ICE, so send the offer with all candidates in it.
     await new Promise(resolve => {
       if (pc.iceGatheringState === 'complete') return resolve();
@@ -880,7 +1300,7 @@ async function startCall() {
                                         body: pc.localDescription.sdp });
     if (!res.ok) throw new Error(res.status === 409 ? 'The assistant is already in a call' : `Server said ${res.status}`);
     await pc.setRemoteDescription({ type: 'answer', sdp: await res.text() });
-    setStatus('Connecting...');
+    setStatus('Connecting');
     hangupBtn.disabled = false;
   } catch (err) {
     setStatus(err.message);
@@ -900,8 +1320,12 @@ function stop() {
   partialUser = replyLi = cur = bargeStart = null;
   micOn = false; agentState = null;
   $('orb').textContent = 'idle';
+  $('agent').dataset.state = '';
+  markActiveStep();
+  stateHistory.length = 0;
+  overlapPending = false;
+  tickLevel.fill(0);
   for (const v of Object.values(viz)) { v.queue.length = 0; v.target = blank(); }
-  ripples = [];
   setFlag('vad', false); setFlag('tts', false);
   callBtn.disabled = false;
   hangupBtn.disabled = true;

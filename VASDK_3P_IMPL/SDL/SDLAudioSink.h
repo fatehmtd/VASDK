@@ -26,6 +26,8 @@ public:
     bool isAudioSinkStarted() const override;
     int getPendingAudioBytes() const override;
     void flushAudio() override;
+    void holdPlayback(va::transport::PendingPlaybackMode pendingPlaybackMode, bool held,
+                      float duckGainDecibels) override;
     void setPlaybackCallback(PlaybackCallback cb) override;
 
 private:
@@ -33,6 +35,7 @@ private:
     bool _isStarted = false;
     SDL_AudioDeviceID _audioDeviceId;
     SDL_AudioStream *_audioStream = nullptr;
+    bool _playbackPausedForHold = false;  // device paused by holdPlayback, queued audio kept
 
     PlaybackCallback _playbackCallback;
     std::mutex       _callbackMutex;

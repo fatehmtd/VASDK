@@ -395,6 +395,36 @@ class VasdkEngine private constructor(
         }
     }
 
+    /** Agent playback while user speech over it is being classified as a back-channel or an interruption. */
+    enum class PendingPlaybackMode { DUCK, PAUSE, CONTINUE }
+
+    /** What happens to a dismissed back-channel ("mm-hmm"): dropped, or added to the user's next message. */
+    enum class BackchannelHistoryMode { DROP, APPEND_TO_HISTORY }
+
+    /** User speech over the last ~0.7 s of a reply: answered as a turn, or classified like any overlap. */
+    enum class TailOverlapMode { TREAT_AS_TURN, CLASSIFY }
+
+    /**
+     * Back-channel handling: "mm-hmm"/"yeah" while the agent speaks no longer interrupts it.
+     * Call after init and before start; defaults are on, DUCK, DROP, TREAT_AS_TURN, a -12 dB duck that
+     * lasts at least 2500 ms from when the user starts speaking over the assistant.
+     */
+    fun setBackchannelConfig(enabled: Boolean = true,
+                             pendingPlaybackMode: PendingPlaybackMode = PendingPlaybackMode.DUCK,
+                             historyMode: BackchannelHistoryMode = BackchannelHistoryMode.DROP,
+                             tailOverlapMode: TailOverlapMode = TailOverlapMode.TREAT_AS_TURN,
+                             duckGainDecibels: Float = -12f,
+                             duckDurationMs: Int = 2500) {
+        synchronized(VasdkEngine::class.java) {
+            if (!isNativeInitialized || isNativeStarted) {
+                Log.w(TAG, "setBackchannelConfig ignored: call it after init and before start")
+                return
+            }
+            nativeSetBackchannelConfig(enabled, pendingPlaybackMode.ordinal, historyMode.ordinal, tailOverlapMode.ordinal,
+                                       duckGainDecibels, duckDurationMs)
+        }
+    }
+
     /** Interrupts any in-flight response and drops the LLM's conversation history, starting a fresh conversation without re-initializing the pipeline. */
     fun resetConversation() {
         synchronized(VasdkEngine::class.java) {
@@ -749,6 +779,9 @@ class VasdkEngine private constructor(
     private external fun nativeRelease()
     private external fun nativeTrigger()
     private external fun nativeResetConversation()
+    private external fun nativeSetBackchannelConfig(enabled: Boolean, pendingPlaybackMode: Int,
+                                                    historyMode: Int, tailOverlapMode: Int,
+                                                    duckGainDecibels: Float, duckDurationMs: Int)
     private external fun nativeGetPromptPreview(): String
 
     companion object {

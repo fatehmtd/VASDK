@@ -116,6 +116,7 @@ bool WebRtcTransport::initialize() {
         spdlog::error("[WebRtcTransport] Frame size must be at least 1 sample");
         return false;
     }
+    _playbackHoldEnvelope.setRampFrameCount(static_cast<size_t>(_outputAudioConfig.sampleRate) / 50);
 
     _peer->onAudioReceived = [this](const int16_t* pcm, size_t samples) { onPeerAudio(pcm, samples); };
     _peer->onConnect       = [this] { onPeerConnected(); };
@@ -226,6 +227,12 @@ int WebRtcTransport::getPendingOutputAudioBytes() const {
 
 void WebRtcTransport::flushOutputAudio() {
     std::lock_guard<std::mutex> lock(_outputMutex);
+    if (_playbackHoldEnvelope.isPausedSilent()) {
+        // Already silent: a faded tail would only play as a blip once the hold is released.
+        _outputQueue.clear();
+        _playbackHoldEnvelope.reset();
+        return;
+    }
     // Keep ~50 ms ramped down to zero so the cut doesn't click, drop the rest.
     const size_t n = std::min(_outputQueue.size(),
                               static_cast<size_t>(_outputAudioConfig.sampleRate / 20));
@@ -234,6 +241,10 @@ void WebRtcTransport::flushOutputAudio() {
         _outputQueue[i] = static_cast<int16_t>(static_cast<float>(_outputQueue[i]) * gain);
     }
     _outputQueue.resize(n);
+}
+
+void WebRtcTransport::holdOutputAudio(PendingPlaybackMode pendingPlaybackMode, bool held, float duckGainDecibels) {
+    _playbackHoldEnvelope.setHold(pendingPlaybackMode, held, duckGainDecibels);
 }
 
 void WebRtcTransport::onPeerAudio(const int16_t* pcm, size_t samples) {
@@ -269,6 +280,7 @@ void WebRtcTransport::onPeerDisconnected() {
     {
         std::lock_guard<std::mutex> lock(_outputMutex);
         _outputQueue.clear();
+        _playbackHoldEnvelope.reset();
     }
     {
         std::lock_guard<std::mutex> lock(_inputMutex);
@@ -296,14 +308,17 @@ void WebRtcTransport::senderThreadFunc() {
 
         if (!_peer->isConnected()) continue;
 
-        size_t n;
+        size_t n = 0;
         {
             std::lock_guard<std::mutex> lock(_outputMutex);
-            n = std::min(chunk, _outputQueue.size());
-            std::copy_n(_outputQueue.begin(), n, buf.begin());
-            _outputQueue.erase(_outputQueue.begin(), _outputQueue.begin() + n);
+            if (!_playbackHoldEnvelope.isPausedSilent()) {  // paused: keep the queue for the resume
+                n = std::min(chunk, _outputQueue.size());
+                std::copy_n(_outputQueue.begin(), n, buf.begin());
+                _outputQueue.erase(_outputQueue.begin(), _outputQueue.begin() + n);
+            }
         }
         std::fill(buf.begin() + n, buf.end(), 0);  // silence keeps the RTP clock running
+        _playbackHoldEnvelope.apply(buf.data(), n, 1);
 
         if (!_peer->sendAudio(buf.data(), chunk)) incrementDroppedFrameCount();
     }

@@ -53,10 +53,23 @@ namespace va {
 
         bool TTSFrameProcessor::start() {
             if (!FrameProcessor::start()) return false;
+            {
+                std::lock_guard<std::mutex> lock(_holdReleaseMutex);
+                _holdReleaseStop = false;
+                _holdReleaseScheduled = false;
+            }
+            if (!_holdReleaseThread.joinable())
+                _holdReleaseThread = std::thread(&TTSFrameProcessor::holdReleaseLoop, this);
             return _synthesisProvider->startVoiceSynthesisProvider();
         }
 
         void TTSFrameProcessor::stop() {
+            {
+                std::lock_guard<std::mutex> lock(_holdReleaseMutex);
+                _holdReleaseStop = true;
+            }
+            _holdReleaseCv.notify_all();
+            if (_holdReleaseThread.joinable()) _holdReleaseThread.join();
             cancelDrainWait();
             if (_synthesisProvider) _synthesisProvider->stopVoiceSynthesisProvider();
             FrameProcessor::stop();
@@ -96,6 +109,7 @@ namespace va {
                     std::lock_guard<std::mutex> lock(_turnMutex);
                     _pendingSentences.clear();
                     _providerBusy = _textClosed = _turnActive = _sentInTurn = false;
+                    _playbackPaused = false;  // the queued audio is gone
                 }
                 if (_playbackFlush) _playbackFlush(); // flush SDL buffer immediately
                 if (_synthesisProvider) _synthesisProvider->cancelSynthesis();
@@ -104,10 +118,84 @@ namespace va {
             case transport::AgentStateTransition::INTERRUPT_RESOLVED:
                 spdlog::debug("[TTSFrameProcessor] Interrupt resolved - clearing cancelPending");
                 _cancelPending = false;
+                holdPlayback(false);
+                break;
+            case transport::AgentStateTransition::BARGE_IN_PENDING:
+                holdPlayback(true);
+                break;
+            case transport::AgentStateTransition::BACKCHANNEL:
+                releaseDuckAfterMinimumDuration();
+                break;
+            case transport::AgentStateTransition::SYNTHESIS_COMPLETED:
+                holdPlayback(false);
                 break;
             default:
                 break;
             }
+        }
+
+        void TTSFrameProcessor::holdPlayback(bool held) {
+            if (_pendingPlaybackMode == transport::PendingPlaybackMode::Continue) return;
+            if (_pendingPlaybackMode == transport::PendingPlaybackMode::Pause) {
+                std::lock_guard<std::mutex> lock(_turnMutex);
+                const auto now = std::chrono::steady_clock::now();
+                if (held && !_playbackPaused) {
+                    _playbackPaused = true;
+                    _playbackRemainingWhilePaused = std::max(std::chrono::microseconds(0),
+                        std::chrono::duration_cast<std::chrono::microseconds>(_playbackEndTime - now));
+                } else if (!held && _playbackPaused) {
+                    _playbackPaused = false;
+                    _playbackEndTime = now + _playbackRemainingWhilePaused;
+                }
+            }
+            std::lock_guard<std::mutex> lock(_holdReleaseMutex);
+            _holdReleaseScheduled = false;  // a new hold, or an immediate release, supersedes a pending one
+            if (held) _holdStartTime = std::chrono::steady_clock::now();
+            if (_playbackHold) _playbackHold(_pendingPlaybackMode, held, _duckGainDecibels);
+        }
+
+        void TTSFrameProcessor::releaseDuckAfterMinimumDuration() {
+            if (_pendingPlaybackMode != transport::PendingPlaybackMode::Duck) {
+                holdPlayback(false);
+                return;
+            }
+            {
+                std::lock_guard<std::mutex> lock(_holdReleaseMutex);
+                const auto releaseTime = _holdStartTime + std::chrono::milliseconds(_duckDurationMs);
+                if (releaseTime > std::chrono::steady_clock::now()) {
+                    _holdReleaseTime = releaseTime;
+                    _holdReleaseScheduled = true;
+                    _holdReleaseCv.notify_all();
+                    return;
+                }
+            }
+            holdPlayback(false);
+        }
+
+        void TTSFrameProcessor::holdReleaseLoop() {
+            std::unique_lock<std::mutex> lock(_holdReleaseMutex);
+            while (!_holdReleaseStop) {
+                if (!_holdReleaseScheduled) {
+                    _holdReleaseCv.wait(lock, [this] { return _holdReleaseStop || _holdReleaseScheduled; });
+                    continue;
+                }
+                const auto releaseTime = _holdReleaseTime;
+                if (_holdReleaseCv.wait_until(lock, releaseTime, [this, releaseTime] {
+                        return _holdReleaseStop || !_holdReleaseScheduled || _holdReleaseTime != releaseTime;
+                    }))
+                    continue;  // stopped, superseded or rescheduled
+                _holdReleaseScheduled = false;
+                if (_playbackHold) _playbackHold(_pendingPlaybackMode, false, _duckGainDecibels);
+            }
+        }
+
+        int TTSFrameProcessor::getRemainingReplyPlaybackMs() {
+            std::lock_guard<std::mutex> lock(_turnMutex);
+            if (!_turnActive || !_textClosed) return -1;
+            const auto remaining = _playbackPaused
+                ? _playbackRemainingWhilePaused
+                : std::chrono::duration_cast<std::chrono::microseconds>(_playbackEndTime - std::chrono::steady_clock::now());
+            return static_cast<int>(std::max<int64_t>(0, remaining.count() / 1000));
         }
 
         void TTSFrameProcessor::synthesizeTextFrame(std::shared_ptr<transport::TextFrame> frame) {
@@ -268,6 +356,7 @@ namespace va {
                     remainingMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                         _playbackEndTime - std::chrono::steady_clock::now()).count()
                         + static_cast<int64_t>(_hardwareBufferMarginMs);
+                    if (_playbackPaused) remainingMs = 100;  // paused audio hasn't played; keep waiting
                 }
                 if (remainingMs <= 0) break;
                 std::unique_lock<std::mutex> lock(_drainMutex);
@@ -307,7 +396,10 @@ namespace va {
                 _metrics.chunk.observe(std::chrono::duration<double, std::milli>(
                     now - _synthesisStartTime).count());
                 // Playback-end model for the drain wait (see _playbackEndTime).
-                _playbackEndTime = std::max(_playbackEndTime, now) + std::chrono::microseconds(chunkUs);
+                if (_playbackPaused)
+                    _playbackRemainingWhilePaused += std::chrono::microseconds(chunkUs);
+                else
+                    _playbackEndTime = std::max(_playbackEndTime, now) + std::chrono::microseconds(chunkUs);
             }
 
             auto audioFrame = std::make_shared<transport::SynthesisFrame>();

@@ -1,7 +1,8 @@
 // TTSFrameProcessor turn model: a reply streamed as several TextFrames yields exactly one
 // SynthesisState STARTED and one COMPLETED (after its audio played), for a provider that queues
 // calls and for one that must get them one at a time; a barge-in drops the stale reply, even
-// when the provider confirms the cancel synchronously.
+// when the provider confirms the cancel synchronously. A Pause hold during a pending barge-in
+// delays COMPLETED by the paused time, and every hold is released.
 
 #include <VASDK/TTSFrameProcessor.h>
 
@@ -205,6 +206,83 @@ void bargeIn(bool syncCancel) {
     check(rig.provider->received == std::vector<std::string>{"Alpha. ", "Gamma."}, "stale sentence dropped", mode);
 }
 
+void pausedReply() {
+    const char* mode = "pause hold";
+    Rig rig(true, false);
+    std::mutex holdMutex;
+    std::vector<bool> holds;
+    rig.tts->setPendingPlayback(transport::PendingPlaybackMode::Pause, -12.0f);
+    rig.tts->setPlaybackHold([&](transport::PendingPlaybackMode playbackMode, bool held, float) {
+        std::lock_guard<std::mutex> lock(holdMutex);
+        if (playbackMode == transport::PendingPlaybackMode::Pause) holds.push_back(held);
+    });
+    const auto t0 = std::chrono::steady_clock::now();
+    rig.send(text("One. ", false));
+    rig.send(text("Two.", true));
+    std::this_thread::sleep_for(60ms);
+    check(rig.tts->getRemainingReplyPlaybackMs() >= 0, "reply text complete: remaining playback known", mode);
+    rig.send(agent(transport::AgentStateTransition::BARGE_IN_PENDING));
+    std::this_thread::sleep_for(400ms);  // longer than the 200 ms reply: only the pause keeps it going
+    check(rig.recorder->snapshot() == std::vector<SynthesisState>{SynthesisState::STARTED}, "no COMPLETED while paused", mode);
+    rig.send(agent(transport::AgentStateTransition::BACKCHANNEL));
+    std::this_thread::sleep_for(500ms);
+
+    const auto states = rig.recorder->snapshot();
+    check(states == std::vector<SynthesisState>{SynthesisState::STARTED, SynthesisState::COMPLETED},
+          "one STARTED, one COMPLETED", mode);
+    if (states.size() == 2) {
+        const auto completedAfter = std::chrono::duration_cast<std::chrono::milliseconds>(rig.recorder->times[1] - t0);
+        check(completedAfter >= 560ms, "COMPLETED is pushed back by the paused time", mode);
+    }
+    std::lock_guard<std::mutex> lock(holdMutex);
+    check(holds == std::vector<bool>{true, false}, "held once, released once", mode);
+}
+
+void duckLastsMinimumDuration() {
+    const char* mode = "duck duration";
+    Rig rig(true, false);
+    std::mutex holdMutex;
+    std::vector<std::pair<bool, std::chrono::steady_clock::time_point>> holds;
+    rig.tts->setPendingPlayback(transport::PendingPlaybackMode::Duck, -9.0f, 300);
+    rig.tts->setPlaybackHold([&](transport::PendingPlaybackMode playbackMode, bool held, float duckGainDecibels) {
+        std::lock_guard<std::mutex> lock(holdMutex);
+        if (playbackMode == transport::PendingPlaybackMode::Duck && duckGainDecibels == -9.0f)
+            holds.emplace_back(held, std::chrono::steady_clock::now());
+    });
+    auto snapshot = [&] { std::lock_guard<std::mutex> lock(holdMutex); return holds; };
+
+    // Back-channel dismissed after 50 ms: the duck still lasts 300 ms from its start.
+    rig.send(agent(transport::AgentStateTransition::BARGE_IN_PENDING));
+    std::this_thread::sleep_for(50ms);
+    rig.send(agent(transport::AgentStateTransition::BACKCHANNEL));
+    std::this_thread::sleep_for(150ms);
+    check(snapshot().size() == 1, "still ducked before the minimum duration", mode);
+    std::this_thread::sleep_for(250ms);
+    auto events = snapshot();
+    check(events.size() == 2 && !events[1].first, "released once the minimum duration passed", mode);
+    if (events.size() == 2) {
+        const auto heldFor = std::chrono::duration_cast<std::chrono::milliseconds>(events[1].second - events[0].second);
+        check(heldFor >= 290ms && heldFor < 400ms, "held for about the minimum duration", mode);
+    }
+
+    // Speech over the agent again while the release is pending: stays ducked from the new start.
+    rig.send(agent(transport::AgentStateTransition::BARGE_IN_PENDING));
+    rig.send(agent(transport::AgentStateTransition::BACKCHANNEL));
+    std::this_thread::sleep_for(200ms);
+    rig.send(agent(transport::AgentStateTransition::BARGE_IN_PENDING));
+    std::this_thread::sleep_for(200ms);
+    check(snapshot().size() == 4, "a new overlap cancels the scheduled release", mode);
+
+    // A committed barge-in releases as soon as the interrupt resolves, without waiting.
+    rig.send(agent(transport::AgentStateTransition::BARGE_IN_INTERRUPT));
+    rig.send(agent(transport::AgentStateTransition::INTERRUPT_RESOLVED));
+    std::this_thread::sleep_for(30ms);
+    events = snapshot();
+    check(events.size() == 5 && !events[4].first, "interrupt resolution releases at once", mode);
+    std::this_thread::sleep_for(400ms);
+    check(snapshot().size() == 5, "no stray release later", mode);
+}
+
 } // namespace
 
 int main() {
@@ -212,6 +290,8 @@ int main() {
     streamedReply(false);
     bargeIn(false);
     bargeIn(true);
+    pausedReply();
+    duckLastsMinimumDuration();
     std::printf("tts turn scenarios done, %d failure(s)\n", failures);
     return failures == 0 ? 0 : 1;
 }

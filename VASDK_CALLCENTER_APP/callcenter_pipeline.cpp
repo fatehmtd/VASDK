@@ -277,6 +277,7 @@ struct CliArgs {
     bool        debug = true;
     uint16_t    webrtcPort = 0;     ///< 0 = local mic/speaker
     std::string webrtcPage;
+    va::pipeline::BackchannelConfig backchannelConfig;  ///< speech over the agent: back-channel vs barge-in
 };
 
 // CLI arg → env var fallback helpers (env vars are populated from .env by loadDotEnv())
@@ -325,6 +326,29 @@ CliArgs parseCliArgs(int argc, char* argv[]) {
         "Path to a text file containing the response format instruction (overrides built-in default)");
     app.add_option("--env-file", args.envFile, "Path to .env file (default: .env)");
     app.add_flag("--debug", args.debug, "Enable debug logging");
+    app.add_flag("--backchannel,!--no-backchannel", args.backchannelConfig.enabled,
+        "Let back-channels (\"mm-hmm\", \"yeah\") pass without interrupting the agent (default: on)");
+    app.add_option("--backchannel-playback", args.backchannelConfig.pendingPlaybackMode,
+        "Agent playback while speech over it is classified: duck, pause or continue (default: duck)")
+        ->transform(CLI::CheckedTransformer(std::map<std::string, va::transport::PendingPlaybackMode>{
+            {"duck", va::transport::PendingPlaybackMode::Duck},
+            {"pause", va::transport::PendingPlaybackMode::Pause},
+            {"continue", va::transport::PendingPlaybackMode::Continue}}, CLI::ignore_case));
+    app.add_option("--duck-gain-db", args.backchannelConfig.duckGainDecibels,
+        "Assistant level while ducked for speech over it, in dB (default: -12)")
+        ->check(CLI::Range(-60.0f, 0.0f));
+    app.add_option("--duck-duration-ms", args.backchannelConfig.duckDurationMs,
+        "Minimum time the assistant stays ducked once speech over it starts, in ms (default: 2500)");
+    app.add_option("--backchannel-history", args.backchannelConfig.historyMode,
+        "Dismissed back-channels: drop, or append them to the caller's next message (default: drop)")
+        ->transform(CLI::CheckedTransformer(std::map<std::string, va::pipeline::BackchannelHistoryMode>{
+            {"drop", va::pipeline::BackchannelHistoryMode::Drop},
+            {"append", va::pipeline::BackchannelHistoryMode::AppendToHistory}}, CLI::ignore_case));
+    app.add_option("--tail-overlap", args.backchannelConfig.tailOverlapMode,
+        "Speech over the end of a reply: turn (answer it) or classify (default: turn)")
+        ->transform(CLI::CheckedTransformer(std::map<std::string, va::pipeline::TailOverlapMode>{
+            {"turn", va::pipeline::TailOverlapMode::TreatAsTurn},
+            {"classify", va::pipeline::TailOverlapMode::Classify}}, CLI::ignore_case));
 #ifdef VASDK_HAS_LIBDATACHANNEL_WEBRTC
     app.add_option("--webrtc-port", args.webrtcPort,
         "Take the call over WebRTC instead of the local mic/speaker: serve signaling + demo page on "
@@ -520,6 +544,7 @@ struct TransportBundle {
     std::shared_ptr<va::AudioRingBuffer>           cleanRingBuffer;
     std::shared_ptr<va::transport::BaseTransport>  transport;    // LocalTransport or WebRtcTransport
     std::function<void()>                          flushOutput;  // barge-in: drop queued playback
+    va::pipeline::TTSFrameProcessor::PlaybackHold  holdOutput;   // pending barge-in: duck or pause playback
     // Frames sent to the transport: audio only, or (WebRTC) everything, so the page can show state.
     std::optional<va::transport::FrameType>        outputFilter = va::transport::FrameType::SYNTHESIS;
 #ifdef VASDK_HAS_LIBDATACHANNEL_WEBRTC
@@ -957,6 +982,9 @@ std::optional<TransportBundle> setupTransport(const AudioBundle& audio, const Cl
         if (!b.webrtcPeer->startSignalingServer(args.webrtcPort, "127.0.0.1", args.webrtcPage)) return std::nullopt;
         spdlog::info("[CallCenter] WebRTC ready - open http://127.0.0.1:{} to call", args.webrtcPort);
         b.flushOutput = [webrtc] { webrtc->flushOutputAudio(); };
+        b.holdOutput = [webrtc](va::transport::PendingPlaybackMode mode, bool held, float duckGainDecibels) {
+            webrtc->holdOutputAudio(mode, held, duckGainDecibels);
+        };
         b.outputFilter.reset();
         b.transport = webrtc;
         return b;
@@ -975,6 +1003,9 @@ std::optional<TransportBundle> setupTransport(const AudioBundle& audio, const Cl
         return std::nullopt;
     }
     b.flushOutput = [local] { local->flushOutputAudio(); };
+    b.holdOutput = [local](va::transport::PendingPlaybackMode mode, bool held, float duckGainDecibels) {
+        local->holdOutputAudio(mode, held, duckGainDecibels);
+    };
     b.transport = local;
     return b;
 }
@@ -985,7 +1016,8 @@ std::optional<ProcessorBundle> setupProcessors(
     const std::string& modelsPath,
     const AudioBundle& audio,
     const TransportBundle& transport,
-    const GoalLLMBundle& llm)
+    const GoalLLMBundle& llm,
+    const va::pipeline::BackchannelConfig& backchannelConfig)
 {
     ProcessorBundle b;
 
@@ -1040,6 +1072,7 @@ std::optional<ProcessorBundle> setupProcessors(
     // Agent state machine
     b.agentState = std::make_shared<va::pipeline::AgentStateProcessor>();
     b.agentState->setAlwaysOn(true);
+    b.agentState->setBackchannelConfig(backchannelConfig);
 
     // STT
     b.transcription = std::make_shared<va::pipeline::TranscriptionFrameProcessor>(
@@ -1055,6 +1088,13 @@ std::optional<ProcessorBundle> setupProcessors(
     // TTS
     b.tts = std::make_shared<va::pipeline::TTSFrameProcessor>(audio.ttsProvider);
     b.tts->setPlaybackFlush(transport.flushOutput);
+    b.tts->setPlaybackHold(transport.holdOutput);
+    b.tts->setPendingPlayback(backchannelConfig.pendingPlaybackMode, backchannelConfig.duckGainDecibels,
+                             backchannelConfig.duckDurationMs);
+    b.agentState->setPlaybackRemainingMsProvider([tts = std::weak_ptr<va::pipeline::TTSFrameProcessor>(b.tts)] {
+        auto ttsProcessor = tts.lock();
+        return ttsProcessor ? ttsProcessor->getRemainingReplyPlaybackMs() : -1;
+    });
 
     // Synthesis state observer - intercepts SynthesisStateFrame downstream
     b.synthObserver = std::make_shared<SynthesisObserver>();
@@ -1174,7 +1214,7 @@ int main(int argc, char* argv[]) {
     auto transportOpt = setupTransport(*audioOpt, args);
     if (!transportOpt) return -1;
 
-    auto procsOpt = setupProcessors(modelsPath, *audioOpt, *transportOpt, llm);
+    auto procsOpt = setupProcessors(modelsPath, *audioOpt, *transportOpt, llm, args.backchannelConfig);
     if (!procsOpt) return -1;
 
     // audioFullyDrained is now driven by SynthesisStateFrame flowing downstream
@@ -1182,6 +1222,16 @@ int main(int argc, char* argv[]) {
 
     auto pipeline = buildAndStartPipeline(*procsOpt);
     if (!pipeline) return -1;
+
+#ifdef VASDK_HAS_LIBDATACHANNEL_WEBRTC
+    // The page lists the processors and their providers from GET /pipeline.
+    if (transportOpt->webrtcPeer)
+        transportOpt->webrtcPeer->setPipelineDescription(
+            [weakPipeline = std::weak_ptr<va::pipeline::Pipeline>(pipeline)] {
+                auto pipeline = weakPipeline.lock();
+                return pipeline ? pipeline->describeAsJson() : std::string("{\"processors\":[]}");
+            });
+#endif
 
     spdlog::info("[CallCenter] Ready - waiting for caller to speak…");
     spdlog::info("[CallCenter] Press Ctrl+C to end the call");

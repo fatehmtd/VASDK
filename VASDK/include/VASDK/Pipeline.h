@@ -4,6 +4,7 @@
 #include "Transport.h"
 #include <vector>
 #include <memory>
+#include <string>
 
 namespace va {
 namespace pipeline {
@@ -50,6 +51,12 @@ public:
      * @brief Get all processors
      */
     const std::vector<std::shared_ptr<FrameProcessor>>& getProcessors() const { return _processors; }
+
+    /**
+     * @brief The processors in chain order with their providers, for UIs:
+     *        {"processors":[{"name":"VADFrameProcessor","provider":"SileroVAD"}, ...]} ("" when none)
+     */
+    std::string describeAsJson() const;
 
 private:
     std::vector<std::shared_ptr<FrameProcessor>> _processors;

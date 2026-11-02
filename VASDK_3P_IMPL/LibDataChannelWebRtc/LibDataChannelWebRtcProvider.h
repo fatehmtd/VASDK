@@ -3,6 +3,7 @@
 #include "vasdk_libdatachannel_webrtc_export.h"
 #include <VASDK/network/WebRtcInterface.h>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -51,6 +52,13 @@ public:
     bool startSignalingServer(uint16_t port, const std::string& host = "127.0.0.1",
                               const std::string& pagePath = "");
     void stopSignalingServer();
+
+    /**
+     * @brief Serve `GET /pipeline` on the signaling server with this JSON, built per request
+     *        (e.g. Pipeline::describeAsJson), so a page can show the processors and providers.
+     *        Can be set before or after startSignalingServer(); 404 until it is.
+     */
+    void setPipelineDescription(std::function<std::string()> describePipeline);
 
 private:
     struct Impl;

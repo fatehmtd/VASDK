@@ -31,6 +31,8 @@ public:
     virtual ~LLMProcessor();
 
     std::string getName() const override { return "LLMProcessor"; }
+    /// The LLM transport and its model, e.g. "OpenAITransport (gpt-4o-mini)"
+    std::string getProviderName() const override;
     bool initialize() override;
     bool start() override;
     void stop() override;
@@ -112,6 +114,8 @@ protected:
     bool handleAgentStateTransition(std::shared_ptr<transport::AgentStateFrame> agentFrame);
     void handleInterruptTransition(transport::AgentStateTransition t);
     void handleUserStartedSpeakingTransition();
+    void handleBackchannelTransition();
+    void recordBackchannel(const std::string& text);
     void handleTranscriptionReadyTransition();
     bool handleUserStoppedSpeakingTransition(std::shared_ptr<transport::AgentStateFrame> agentFrame);
 
@@ -125,6 +129,13 @@ private:
     mutable std::mutex _partialCacheMutex;
     std::string        _latestPartialText;
     float              _latestPartialConfidence{ 0.0f };
+
+    // Back-channels heard over the agent (BackchannelHistoryMode::AppendToHistory). They go in front
+    // of the user's next message instead of as their own USER entry, which would break the
+    // user/assistant alternation some chat templates enforce.
+    std::mutex  _backchannelNoteMutex;
+    std::string _backchannelNote;          // not yet sent
+    std::string _backchannelNoteInFlight;  // sent with the latest request; restored if that was a cancelled speculation
 
     std::mutex  _pendingTurnMutex;
     bool        _pendingTurnEnd{false};

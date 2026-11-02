@@ -11,6 +11,7 @@
 #include <VASDK/llm/OpenAITransport.h>
 #include <VASDK/llm/PromptTemplate.h>
 #include <nlohmann/json.hpp>
+#include <algorithm>
 
 // VAD provider
 #ifdef VASDK_HAS_SILERO_VAD
@@ -368,6 +369,10 @@ Java_com_vasdk_android_VasdkEngine_nativeInit(JNIEnv *env, jobject thiz, jstring
         session->ttsProcessor->setPlaybackFlush([transportWeak]() {
             if (auto t = transportWeak.lock()) t->flushOutputAudio();
         });
+        session->ttsProcessor->setPlaybackHold(
+            [transportWeak](va::transport::PendingPlaybackMode mode, bool held, float duckGainDecibels) {
+                if (auto t = transportWeak.lock()) t->holdOutputAudio(mode, held, duckGainDecibels);
+            });
     } else {
         spdlog::warn("[VASDK] No TTS provider available (requested=\"{}\") - running without speech output",
                      ttsParams.providerId);
@@ -505,6 +510,13 @@ Java_com_vasdk_android_VasdkEngine_nativeInit(JNIEnv *env, jobject thiz, jstring
     session->agentStateProcessor = std::make_shared<va::pipeline::AgentStateProcessor>();
 
     session->agentStateProcessor->setAlwaysOn(true);
+    if (session->ttsProcessor) {
+        session->agentStateProcessor->setPlaybackRemainingMsProvider(
+            [tts = std::weak_ptr<va::pipeline::TTSFrameProcessor>(session->ttsProcessor)] {
+                auto ttsProcessor = tts.lock();
+                return ttsProcessor ? ttsProcessor->getRemainingReplyPlaybackMs() : -1;
+            });
+    }
 
     session->triggerProcessor = std::make_shared<va::pipeline::TriggerProcessor>();
 
@@ -616,6 +628,35 @@ Java_com_vasdk_android_VasdkEngine_nativeTrigger(JNIEnv * /*env*/, jobject /*thi
     // queues the frame and lets it flow downstream through the pipeline like
     // any other frame, rather than reaching into another processor directly.
     gSession->triggerProcessor->trigger(va::transport::TriggerType::BUTTON_PRESS);
+}
+
+//  nativeSetBackchannelConfig
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_vasdk_android_VasdkEngine_nativeSetBackchannelConfig(JNIEnv * /*env*/, jobject /*thiz*/,
+                                                              jboolean enabled, jint pendingPlaybackMode,
+                                                              jint historyMode, jint tailOverlapMode,
+                                                              jfloat duckGainDecibels, jint duckDurationMs) {
+    std::lock_guard<std::mutex> lock(gSessionMutex);
+    if (!gSession || !gSession->agentStateProcessor) return;
+    // Ordinals of the Kotlin enums in VasdkEngine, which mirror the C++ enums' order.
+    auto backchannelConfig = gSession->agentStateProcessor->getBackchannelConfig();
+    backchannelConfig.enabled = enabled == JNI_TRUE;
+    backchannelConfig.pendingPlaybackMode = static_cast<va::transport::PendingPlaybackMode>(
+        std::clamp<jint>(pendingPlaybackMode, 0, 2));
+    backchannelConfig.historyMode = static_cast<va::pipeline::BackchannelHistoryMode>(std::clamp<jint>(historyMode, 0, 1));
+    backchannelConfig.tailOverlapMode = static_cast<va::pipeline::TailOverlapMode>(std::clamp<jint>(tailOverlapMode, 0, 1));
+    backchannelConfig.duckGainDecibels = std::clamp<jfloat>(duckGainDecibels, -60.0f, 0.0f);
+    backchannelConfig.duckDurationMs = static_cast<uint32_t>(std::max<jint>(0, duckDurationMs));
+    gSession->agentStateProcessor->setBackchannelConfig(backchannelConfig);
+    if (gSession->ttsProcessor) {
+        gSession->ttsProcessor->setPendingPlayback(backchannelConfig.pendingPlaybackMode,
+                                                   backchannelConfig.duckGainDecibels,
+                                                   backchannelConfig.duckDurationMs);
+    }
+    spdlog::info("[VASDK] Back-channel handling {} (playback {}, history {}, tail overlap {}, duck {} dB for {} ms)",
+                 backchannelConfig.enabled ? "on" : "off", pendingPlaybackMode, historyMode, tailOverlapMode,
+                 backchannelConfig.duckGainDecibels, backchannelConfig.duckDurationMs);
 }
 
 //  nativeResetConversation

@@ -46,6 +46,7 @@ public:
         std::shared_ptr<audio::GenericAudioDSPProvider> provider);
 
     std::string getName() const override { return "AudioDSPProcessor"; }
+    std::string getProviderName() const override { return _provider ? _provider->getName() : std::string(); }
 
     bool initialize() override;
 

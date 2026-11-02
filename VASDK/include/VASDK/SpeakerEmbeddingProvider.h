@@ -1,4 +1,5 @@
 #pragma once
+#include "TypeName.h"
 
 #include "CommonAudioUtils.h"
 #include <cstddef>
@@ -18,6 +19,7 @@ namespace audio {
 class SpeakerEmbeddingProvider {
 public:
     virtual ~SpeakerEmbeddingProvider() = default;
+    virtual std::string getName() const { return shortTypeName(typeid(*this)); }  ///< for logs and UIs
 
     /**
      * @brief Compute the speaker embedding of an utterance.

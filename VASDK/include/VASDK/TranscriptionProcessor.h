@@ -24,6 +24,7 @@ public:
     TranscriptionFrameProcessor(std::shared_ptr<audio::GenericTranscriptionProvider> provider);
 
     std::string getName() const override { return "TranscriptionFrameProcessor"; }
+    std::string getProviderName() const override { return _transcriptionProvider ? _transcriptionProvider->getName() : std::string(); }
     bool initialize() override;
     bool start() override;
     void stop() override;

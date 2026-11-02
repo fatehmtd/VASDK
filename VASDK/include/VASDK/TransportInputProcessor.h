@@ -29,6 +29,11 @@ public:
     void addTransport(std::shared_ptr<transport::Transport> transport);
 
     std::string getName() const override { return "TransportInputProcessor"; }
+    std::string getProviderName() const override {
+        std::string names;
+        for (const auto& transport : _transports) names += (names.empty() ? "" : ", ") + transport->getName();
+        return names;
+    }
 
     bool initialize() override;
     bool start() override;

@@ -1,4 +1,5 @@
 #pragma once
+#include "TypeName.h"
 
 #include "Frame.h"
 #include <memory>
@@ -54,6 +55,7 @@ public:
     };
 
     virtual ~TurnDetectionProvider() = default;
+    virtual std::string getName() const { return shortTypeName(typeid(*this)); }  ///< for logs and UIs
 
     //  Core evaluation 
 

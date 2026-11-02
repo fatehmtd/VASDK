@@ -1,4 +1,5 @@
 #pragma once
+#include "TypeName.h"
 #include "vasdk_export.h"
 #include <string>
 #include "CommonAudioUtils.h"
@@ -46,6 +47,7 @@ namespace va {
             public:
             GenericVoiceSynthesisProvider() = default;
             virtual ~GenericVoiceSynthesisProvider() = default;
+            virtual std::string getName() const { return shortTypeName(typeid(*this)); }  ///< for logs and UIs
 
             /**
              * @brief synthesizes speech from text

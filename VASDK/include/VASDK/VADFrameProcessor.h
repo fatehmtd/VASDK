@@ -46,6 +46,7 @@ namespace va {
             virtual ~VADFrameProcessor() {}
 
             std::string getName() const override { return "VADFrameProcessor"; }
+            std::string getProviderName() const override { return _vadProvider ? _vadProvider->getName() : std::string(); }
             bool initialize() override;
 
             void setMinFrameSize(size_t samples);

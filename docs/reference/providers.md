@@ -4,6 +4,8 @@
 
 A **provider** is the swappable engine behind a pipeline stage: the thing that actually detects speech, transcribes it, synthesizes a voice, or runs the model. Processors orchestrate; providers compute. Every provider interface is a plain abstract C++ class - implement it, hand it to the matching processor, and the rest of the pipeline neither knows nor cares what's behind it.
 
+Every provider has `getName()`. It defaults to the class name without namespaces (`SileroVAD`, via `va::shortTypeName`), so a custom provider needs no extra code to show up in logs and on the WebRTC page.
+
 ```mermaid
 flowchart LR
     subgraph Processors["processors (orchestration - core library)"]
@@ -80,6 +82,7 @@ Common conventions across all provider interfaces:
 | `getPendingAudioBytes()` *(optional)* | Bytes queued but not yet played (default 0). Used by drain logic to know when playback truly finished. |
 | `flushAudio()` *(optional)* | Instantly discard queued audio (barge-in). |
 | `fadeAndFlush()` *(optional)* | Ramp down then discard - prevents the audible click of a hard cut. Default falls back to `flushAudio()`. |
+| `holdPlayback(mode, held, duckGainDecibels)` *(optional)* | Duck or pause playback while a barge-in is pending classification as a [back-channel](processors.md#back-channels-speech-over-the-agent-that-isnt-an-interruption); `held = false` releases it. Pause must keep queued audio so it resumes from the same sample. Default no-op. The MiniAudio, SDL and AAudio sinks implement it; pull-model sinks can reuse the header-only `PlaybackHoldEnvelope`. |
 | `setPlaybackCallback(cb)` *(optional)* | Fired per block actually sent to hardware; for playback-synchronized visualization. |
 
 ---

@@ -29,6 +29,8 @@ public:
     int  getPendingAudioBytes() const override;
     void flushAudio() override;
     void fadeAndFlush() override;
+    void holdPlayback(va::transport::PendingPlaybackMode pendingPlaybackMode, bool held,
+                      float duckGainDecibels) override;
 
     void setPlaybackCallback(PlaybackCallback cb) override;
 

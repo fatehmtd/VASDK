@@ -392,10 +392,12 @@ namespace va {
                 cloned->sourceId = sourceId;
                 cloned->transcriptionResult = transcriptionResult;
                 cloned->isFinal = isFinal;
+                cloned->isBackchannel = isBackchannel;
                 return cloned;
             }
 
             bool isFinal;              // Whether this is a final transcription result
+            bool isBackchannel = false; // Final of a dismissed back-channel ("mm-hmm"); recorded in history, never answered
             va::audio::TranscriptionResult transcriptionResult; // Full result with word-level data, alternatives, and timing
 
             TranscriptionFrame() = default;
@@ -646,7 +648,16 @@ namespace va {
             SYNTHESIS_COMPLETED,
             BARGE_IN_INTERRUPT,
             USER_SPOKE_WHILE_THINKING,
-            INTERRUPT_RESOLVED
+            INTERRUPT_RESOLVED,
+            BARGE_IN_PENDING,   // SPEAKING -> SPEAKING: user speech over the agent, not yet classified
+            BACKCHANNEL         // SPEAKING -> SPEAKING: that speech was a back-channel; playback resumes
+        };
+
+        /// What agent playback does while a barge-in is pending classification.
+        enum class PendingPlaybackMode {
+            Duck,      // keep playing, quieter
+            Pause,     // stop playback and resume from the same sample if dismissed
+            Continue   // no change
         };
 
         inline std::string toString(AgentState state) {
@@ -673,6 +684,8 @@ namespace va {
             case AgentStateTransition::BARGE_IN_INTERRUPT:        return "BARGE_IN_INTERRUPT";
             case AgentStateTransition::USER_SPOKE_WHILE_THINKING: return "USER_SPOKE_WHILE_THINKING";
             case AgentStateTransition::INTERRUPT_RESOLVED:        return "INTERRUPT_RESOLVED";
+            case AgentStateTransition::BARGE_IN_PENDING:          return "BARGE_IN_PENDING";
+            case AgentStateTransition::BACKCHANNEL:               return "BACKCHANNEL";
             }
             return "UNKNOWN";
         }
