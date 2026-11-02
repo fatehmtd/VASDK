@@ -99,8 +99,38 @@ tool.addParameter({"city", "City name", "string", /*required*/ true})
 2. **Firing** - on `AgentStateFrame{USER_STOPPED_SPEAKING}`, the fire policy decides whether to send the cached partial immediately or wait for the final transcript. A watchdog (`setFinalWatchdogTimeoutMs`, default 2000 ms) fires anyway if the final never arrives.
 3. **Streaming out** - response chunks stream downstream as `TextFrame{isFinal=false}` (UIs and transports render them live; `TTSFrameProcessor` deliberately ignores them); the last chunk carries `isFinal=true` with the full speech text - that's the one TTS synthesizes - plus `isExpecting`/`choices` when the model set them.
 4. **Tool calls** - parsed tool invocations go to the dispatcher as `ToolCallFrame`s; results come back, get injected into the transport, and the model continues. Depth is capped at 5 nested batches, and an exact repeat of the previous batch is detected and broken (small local models loop otherwise).
-5. **Cancellation** - `AgentStateFrame{INTERRUPTED / USER_SPOKE_WHILE_THINKING}` cancels the in-flight request; a generation counter discards responses that arrive after cancellation. **Follow-ups:** when the user speaks while the agent is still thinking, or barges in within `setFollowUpWindowMs()` (default 3000 ms, 0 disables) of the turn being sent, that turn is rolled back from history and its text is put in front of the next one, so "Book a flight … to Paris" reaches the LLM as one message.
+5. **Cancellation** - `AgentStateFrame{INTERRUPTED / USER_SPOKE_WHILE_THINKING}` cancels the in-flight request; a generation counter discards responses that arrive after cancellation. If the user was only pausing, the cancelled turn is merged into the next one - see [Follow-ups](#follow-ups).
 6. **Reasoning models** - `<think>…</think>`-style spans are stripped before TTS, using the template's `reasoningTags()` or an explicit `setReasoningTags()` override.
+
+### Follow-ups
+
+People pause mid-thought. When a pause ends the turn and the user then keeps talking, the LLM should get one message, not two: "Can you help me schedule a flight to Paris? Actually, make it to Toulouse." rather than a reply to the first half followed by a reply to the second.
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant L as LLMProcessor
+    participant T as LLMTransport
+    participant O as Downstream (TTS, transport, UI)
+    U->>L: final "Can you help me schedule a flight to Paris?"<br/>(turn ended at the pause)
+    L->>T: request 1 (history += that user message)
+    U->>L: speaks again: AgentStateFrame USER_SPOKE_WHILE_THINKING<br/>or BARGE_IN_INTERRUPT
+    L->>T: cancel() + rollbackExchange(request 1)
+    Note over L: keeps the first utterance as the follow-up prefix
+    U->>L: final "Actually, make it to Toulouse."
+    L->>O: TranscriptionFrame{isFollowUp} with the merged text
+    L->>T: request 2: "Can you help me schedule a flight to Paris?<br/>Actually, make it to Toulouse."
+```
+
+A turn is merged into the next one when:
+
+- the user speaks while the agent is still **thinking** (`USER_SPOKE_WHILE_THINKING`), however long that takes;
+- the user **barges in within `setFollowUpWindowMs()`** (default 3000 ms) of the turn being sent. Later barge-ins are ordinary interruptions and the new turn goes on its own;
+- the turn was **never sent**: the turn detector judged the utterance unfinished, so its final transcript was staged waiting for a turn end, and the user resumed. Those words always carry over.
+
+The interrupted request is cancelled and its exchange rolled back from history, so the model sees only the merged message, not the first half or a partial reply. Resuming again extends the same message. `setFollowUpWindowMs(0)` turns follow-ups off. Every confirmed turn goes through this, whichever fire path sends it (turn end, final transcript, partial, watchdog).
+
+Known limits: a sentence the agent already spoke before a barge-in isn't in history, so the model may repeat it; a back-channel note attached to the interrupted turn is dropped; with [speculative firing](#fire-policies---when-does-the-llm-fire) on, the merged text never matches the speculative partial, so that request is redone.
 
 ### Fire policies - when does the LLM fire?
 
