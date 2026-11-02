@@ -69,6 +69,7 @@ namespace va {
             switch (frame->getType()) {
             case transport::FrameType::AUDIO:
             case transport::FrameType::CONTROL: // process to handle pipeline state changes (e.g. flush events)
+            case transport::FrameType::TURN_STATE: // upstream end-of-turn from turn detection
             return true;
             default:
             return false;
@@ -203,7 +204,9 @@ namespace va {
 
         void VADFrameProcessor::processStarting(const va::audio::VADProvider::VADResult* vadResult)
         {
-            size_t audioProgress = _absoluteAudioOffset - _absoluteSpeechOffsets.start;
+            // Audio heard since STARTING began; the speech start offset includes lookback, which
+            // would make the decision after one frame - too early when frames are short.
+            size_t audioProgress = _absoluteAudioOffset - _stateEntryAudioOffset;
 
             const uint64_t minSpeechDurationSamples = static_cast<uint64_t>(_vadConfig.minSpeechDurationMs * _vadProvider->getAudioConfig().sampleRate / 1000);
 
@@ -314,13 +317,18 @@ namespace va {
                 spdlog::debug("[VADFrameProcessor] No voice activity detected in ENDING state.");
                 size_t maxSpeechEndSamples = static_cast<uint64_t>(_vadConfig.maxSpeechEndDurationMs * _vadProvider->getAudioConfig().sampleRate / 1000);
                 if (_absoluteAudioOffset - _stateEntryAudioOffset >= maxSpeechEndSamples) {
-                    switchToState(transport::VADState::ENDED);
-                    emitStateFrame(_absoluteSpeechOffsets.start, _absoluteAudioOffset, 0.0f);
-                    
-                    switchToState(transport::VADState::QUIET);
-                    emitStateFrame(_absoluteAudioOffset, _absoluteAudioOffset, 0.0f);
+                    endSpeech();
                 }
             }
+        }
+
+        void VADFrameProcessor::endSpeech()
+        {
+            switchToState(transport::VADState::ENDED);
+            emitStateFrame(_absoluteSpeechOffsets.start, _absoluteAudioOffset, 0.0f);
+
+            switchToState(transport::VADState::QUIET);
+            emitStateFrame(_absoluteAudioOffset, _absoluteAudioOffset, 0.0f);
         }
 
         void VADFrameProcessor::processEnded(const va::audio::VADProvider::VADResult* vadResult)
@@ -407,6 +415,17 @@ namespace va {
                 } break;
                 }
                 pushDownstream(frame);
+            }
+            else if (frame->getType() == transport::FrameType::TURN_STATE) {
+                // Turn detection is confident the user finished: skip the rest of the pause/end wait.
+                auto turn = std::dynamic_pointer_cast<transport::TurnStateFrame>(frame);
+                if (turn && turn->actor == transport::TurnStateFrame::TurnActor::USER &&
+                    turn->state == transport::TurnStateFrame::TurnState::END &&
+                    (_currentState == transport::VADState::PAUSED || _currentState == transport::VADState::ENDING)) {
+                    spdlog::info("[VADFrameProcessor] Turn end confirmed during {} - ending speech early",
+                        va::transport::toString(_currentState));
+                    endSpeech();
+                }
             }
         }
     } // namespace pipeline

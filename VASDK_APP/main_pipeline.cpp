@@ -992,6 +992,7 @@ std::optional<ProcessorBundle> setupProcessors(
 #ifdef VASDK_HAS_SMART_TURN_V3
     auto smartTurnProvider = std::make_shared<va::thirdparty::SmartTurnV3Provider>(
         modelsPath + "/smart_turn_v3.onnx", 0.5f, 8.0f, 3);
+    smartTurnProvider->setEvaluateOnPause(true);  // end the turn at the pause when it's clearly over
     if (!smartTurnProvider->initialize(audio.inputConfig, transport.sharedRingBuffer)) {
         spdlog::error("Failed to initialize SmartTurnV3Provider - turn detection disabled");
         return std::nullopt;
@@ -1073,13 +1074,14 @@ std::shared_ptr<va::pipeline::Pipeline> buildAndStartPipeline(
 #endif
     chain
         .addProcessor(procs.vadProcessor)
-        .addProcessor(procs.turnDetection);
+        .addProcessor(procs.turnDetection)
+        .addProcessor(procs.micAnimProcessor)
+        .addProcessor(procs.transcription);
 #ifdef VASDK_HAS_PYANNOTE_SPEAKER
+    // After STT: embedding the whole utterance takes ~70 ms per second of speech.
     if (procs.speakerId) chain.addProcessor(procs.speakerId);
 #endif
     chain
-        .addProcessor(procs.micAnimProcessor)
-        .addProcessor(procs.transcription)
         .addProcessor(procs.sttDebug)
         .addProcessor(procs.agentState)
         .addProcessor(procs.bargeinHandler);
@@ -1238,7 +1240,7 @@ int main(int argc, char* argv[]) {
         return -1;
     }
 
-    int frameSize = 16000 / 4;  // 125ms at 16kHz
+    int frameSize = 16000 / 10;  // 100 ms at 16 kHz: VAD/turn decisions land on this grid
     auto audioOpt = setupAudioProviders(modelsPath, frameSize);
     if (!audioOpt) return -1;
 

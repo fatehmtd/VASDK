@@ -219,6 +219,10 @@ if(VASDK_BUILD_TESTS)
     add_executable(vasdk_webrtc_transport_test tests/webrtc_transport_test.cpp)
     target_link_libraries(vasdk_webrtc_transport_test PRIVATE VASDK)
     add_test(NAME vasdk_webrtc_transport COMMAND vasdk_webrtc_transport_test)
+
+    add_executable(vasdk_vad_turn_end_test tests/vad_turn_end_test.cpp)
+    target_link_libraries(vasdk_vad_turn_end_test PRIVATE VASDK)
+    add_test(NAME vasdk_vad_turn_end COMMAND vasdk_vad_turn_end_test)
 endif()
 
 if(VASDK_BUILD_TESTS AND NOT WIN32)

@@ -66,6 +66,11 @@ namespace va {
 
             std::shared_ptr<audio::TurnDetectionProvider> _provider;
             std::atomic<bool> _agentIsSpeaking{ false };
+            bool _userSpeechOpen{ false };  // VAD between STARTING and ENDED
+            // A user turn START is held while the VAD is only STARTING and sent once speech is
+            // confirmed (ONGOING): a noise blip (STARTING -> QUIET) must not barge in on the agent.
+            transport::VADState _vadState{ transport::VADState::QUIET };
+            std::shared_ptr<transport::TurnStateFrame> _heldUserStart;
             struct Metrics {
                 va::metrics::TurnDetectionMetricsConfig config;
                 va::metrics::SamplerHandle              inference;  // provider evaluate() latency ms

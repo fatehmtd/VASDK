@@ -1011,6 +1011,7 @@ std::optional<ProcessorBundle> setupProcessors(
 #ifdef VASDK_HAS_SMART_TURN_V3
     auto smartTurn = std::make_shared<va::thirdparty::SmartTurnV3Provider>(
         modelsPath + "/smart_turn_v3.onnx", 0.5f, 8.0f, 3);
+    smartTurn->setEvaluateOnPause(true);  // end the turn at the pause when it's clearly over
     if (!smartTurn->initialize(audio.inputConfig, transport.sharedRingBuffer)) {
         spdlog::warn("[CallCenter] SmartTurnV3 init failed - using simple turn detection");
         b.turnDetection = std::make_shared<va::pipeline::TurnDetectionProcessor>();
@@ -1081,12 +1082,13 @@ std::shared_ptr<va::pipeline::Pipeline> buildAndStartPipeline(
 
     auto& chain = pipeline->addProcessor(procs.transportInput)
         .addProcessor(procs.vadProcessor)
-        .addProcessor(procs.turnDetection);
+        .addProcessor(procs.turnDetection)
+        .addProcessor(procs.transcription);
 #ifdef VASDK_HAS_PYANNOTE_SPEAKER
+    // After STT: embedding the whole utterance takes ~70 ms per second of speech.
     if (procs.speakerId) chain.addProcessor(procs.speakerId);
 #endif
     chain
-        .addProcessor(procs.transcription)
         .addProcessor(procs.recovery)       // observes ErrorFrames upstream
         .addProcessor(procs.agentState)
         .addProcessor(procs.llmProcessor)
