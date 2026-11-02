@@ -21,6 +21,10 @@ A C++17 framework for building voice assistants that listen, think, and talk bac
 
 [Full video](https://github.com/fatehmtd/VASDK/raw/master/assets/videos/vasdk-callcenter-demo.mp4)
 
+### Browser calls over WebRTC
+
+Build with `-DVASDK_BUILD_LIBDATACHANNEL_WEBRTC=ON`, run `./build/VASDK_APP/VASDK_Pipeline --webrtc-port 8765` and open `http://127.0.0.1:8765`: the browser becomes the mic and speaker (Opus, browser echo cancellation), and the [demo page](assets/webrtc/index.html) shows the pipeline live over a data channel - agent state, a VizAnim-driven voice visual and 20 s voice ribbon, the conversation with per-utterance speaker tags, a turn timeline, and latency split into end-of-turn + ASR, LLM first token and TTS first audio heard. Details: [WebRtcTransport](docs/reference/transports.md#webrtctransport).
+
 ## Why this exists
 
 The idea for VASDK took shape while I was designing a production in-vehicle voice assistant. That work made the gap obvious: there are strong voice-agent SDKs like Pipecat and LiveKit Agents, but they are primarily built around Python-first, cloud-friendly assumptions that do not map cleanly to embedded and automotive systems.
@@ -242,6 +246,7 @@ Every row is an independent target under `VASDK_3P_IMPL/`. Enable only what you 
 | TTS | PocketTTS (ONNX), Phonon (GGUF), MOSS-TTS-Nano (ONNX), Supertonic 3 (ONNX, 31 languages) | Gradium, Soniox, Deepgram, Cartesia, Fish Audio |
 | LLM | llama.cpp, or any OpenAI-compatible local server | OpenAI, Anthropic |
 | File / batch audio | FFmpeg-backed file transport | - |
+| WebRTC (browser calls) | libdatachannel + Opus, direct peer connection | - |
 | Visualization | VizAnim (audio feature extraction for UI animation) | - |
 
 Mix and match freely. With the default build options, both showcase apps run Whistle STT, Phonon TTS (PocketTTS if Phonon is off), pyannote speaker tracking, and a cloud LLM from `.env`. Each app picks one STT and one TTS at compile time: any cloud provider you build wins over the local ones (Gradium first when several are built), then Whistle > Moonshine > Parakeet > Whisper.cpp for STT and MOSS-TTS-Nano > Phonon > PocketTTS for TTS.
@@ -283,6 +288,8 @@ Where each provider's underlying code or API actually comes from, and under what
 | <a href="https://github.com/mackron/miniaudio"><img src="assets/logos/mackron.png" width="48" height="48" alt=""></a> | MiniAudio | - | [mackron/miniaudio](https://github.com/mackron/miniaudio) | Public domain (Unlicense) / MIT-0, your choice |
 | <a href="https://github.com/libsdl-org/SDL"><img src="assets/logos/libsdl-org.png" width="48" alt=""></a> | SDL3 | - | [libsdl-org/SDL](https://github.com/libsdl-org/SDL) | zlib |
 | <a href="https://ffmpeg.org"><img src="assets/logos/ffmpeg.svg" width="48" alt=""></a> | FFmpeg | [ffmpeg.org](https://ffmpeg.org) | [FFmpeg/FFmpeg](https://github.com/FFmpeg/FFmpeg) | LGPL or GPL, depending on how your system build was configured |
+| | libdatachannel (WebRTC) | - | [paullouisageneau/libdatachannel](https://github.com/paullouisageneau/libdatachannel) | MPL 2.0 |
+| | Opus (WebRTC audio codec) | [opus-codec.org](https://opus-codec.org) | [xiph/opus](https://github.com/xiph/opus) | BSD 3-Clause |
 | | VizAnim | - | custom, in-repo · [marton78/pffft](https://github.com/marton78/pffft) (FFT dependency) | Apache 2.0 (VASDK) · permissive NCAR/UCAR license (pffft) |
 
 `gladiapp`, `SonioxPP`, `deepgrampp`, `CartesiaPP`, `fishaudiopp`, and `GradiumPP` are VASDK's own thin WebSocket clients for those APIs, not an SDK published by Gladia, Soniox, Deepgram, Cartesia, Fish Audio, or Gradium themselves - the license listed is for that wrapper code, not the underlying service.
@@ -303,6 +310,9 @@ cmake -B build -S . -DVASDK_BUILD_TUI=ON
 
 # Metrics exporters (all default OFF, pick what your monitoring stack speaks)
 cmake -B build -S . -DVASDK_METRICS_PROMETHEUS=ON -DVASDK_METRICS_STATSD=ON
+
+# WebRTC transport provider + browser demo page (libdatachannel, Opus; default OFF)
+cmake -B build -S . -DVASDK_BUILD_LIBDATACHANNEL_WEBRTC=ON
 ```
 
 ### Model files
@@ -353,7 +363,7 @@ For air-gapped builds, turn the downloads off and place the files in `build/VASD
 
 ### Runtime flags
 
-Each app documents its own flag set (`--help` is always authoritative): the [VASDK_Pipeline flags](VASDK_APP/README.md#cli-flags) cover LLM selection, prompt overrides, session recording, and metrics tuning; the [VASDK_CallCenter flags](VASDK_CALLCENTER_APP/README.md#cli-flags) add `--ani` and `--persist-dir` for the CRM prefill and resume-on-redial features. Both load LLM credentials from `.env` (`--env-file` to point elsewhere), with CLI flags taking precedence over the environment.
+Each app documents its own flag set (`--help` is always authoritative): the [VASDK_Pipeline flags](VASDK_APP/README.md#cli-flags) cover LLM selection, prompt overrides, session recording, and metrics tuning; the [VASDK_CallCenter flags](VASDK_CALLCENTER_APP/README.md#cli-flags) add `--ani` and `--persist-dir` for the CRM prefill and resume-on-redial features. Both take `--webrtc-port <port>` to talk from a browser instead of the local mic and speaker (with `VASDK_BUILD_LIBDATACHANNEL_WEBRTC`). Both load LLM credentials from `.env` (`--env-file` to point elsewhere), with CLI flags taking precedence over the environment.
 
 ### Metrics
 

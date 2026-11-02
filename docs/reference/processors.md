@@ -84,7 +84,7 @@ flowchart TB
     TIn --> DSP --> VAD --> Turn --> STT --> Agent --> LLM --> Tools --> TTS --> TOut
 ```
 
-This order matters in a few places: `AgentStateProcessor` must sit between transcription and the LLM (it gates stale transcriptions), and `TurnDetectionProcessor` must see `VADStateFrame`s before transcription consumes the turn. Beyond those constraints, the chain is yours to rearrange - that's the point of the architecture.
+This order matters in a few places: `AgentStateProcessor` must sit between transcription and the LLM (it gates stale transcriptions), and `TurnDetectionProcessor` must see `VADStateFrame`s before transcription consumes the turn - and sit directly after the VAD, since it sends early end-of-turn requests upstream to it. Optional stages that read the whole utterance (speaker ID) belong after transcription so they don't delay the transcript. Beyond those constraints, the chain is yours to rearrange - that's the point of the architecture.
 
 ## Built-in processors, one by one
 
@@ -112,15 +112,21 @@ stateDiagram-v2
     RESUMING --> ONGOING: voice sustained ≥ minSpeechDurationMs
     RESUMING --> PAUSED: silence again
     ENDING --> RESUMING: voice detected
-    ENDING --> ENDED: silent ≥ maxSpeechEndDurationMs
+    ENDING --> ENDED: silent ≥ maxSpeechEndDurationMs, or turn end confirmed upstream
+    PAUSED --> ENDED: turn end confirmed upstream
     ENDED --> QUIET
 ```
 
-Tunables live in `VADConfig` (defaults: `vadThresholdMs` 200, `minSpeechDurationMs` 250, `maxSpeechPauseDurationMs` 500, `maxSpeechEndDurationMs` 1000, `resumingSilenceFramesToPause` 3). The constructor's `lookbackMultiplier` (default 4.0 × frame size) backdates `speechStartOffset` so the first syllable isn't clipped - the audio is already sitting in the ring buffer, so pre-roll is free. Needs `setRingBuffer()`.
+Tunables live in `VADConfig` (defaults: `vadThresholdMs` 200, `minSpeechDurationMs` 250, `maxSpeechPauseDurationMs` 500, `maxSpeechEndDurationMs` 1000, `resumingSilenceFramesToPause` 3). The constructor's `lookbackMultiplier` (default 4.0 × frame size) backdates `speechStartOffset` so the first syllable isn't clipped - the audio is already sitting in the ring buffer, so pre-roll is free; `minSpeechDurationMs` is counted from when STARTING began, not from that backdated offset. A `TurnStateFrame(USER, END)` arriving **upstream** while `PAUSED` or `ENDING` ends the segment immediately instead of waiting out the pause/end timers (see below). Needs `setRingBuffer()`.
 
 ### TurnDetectionProcessor
 
 ([`TurnDetectionProcessor.h`](../../VASDK/include/VASDK/TurnDetectionProcessor.h)) Converts acoustic boundaries into conversation-level `TurnStateFrame`s. Without a provider it's a passthrough rule: VAD `STARTING` → user turn start, VAD `ENDED` → user turn end. Inject a [`TurnDetectionProvider`](providers.md#turndetectionprovider) (e.g. SmartTurn v3) for model-based end-of-turn decisions, INTERRUPT classification, and confidence thresholds. `setAgentSpeaking(bool)` tells it whether TTS is playing so providers can classify a user turn as an interruption (barge-in).
+
+Two behaviors sit on top of either path:
+
+- **User turn starts wait for confirmed speech.** A user `START` produced while the VAD is only `STARTING` is held and emitted on the first `ONGOING`; if the VAD falls back to `QUIET` it is dropped. A noise or echo blip therefore can't barge in on the agent or cancel the LLM - the cost is that a real barge-in takes `minSpeechDurationMs` (250 ms in the apps) to land.
+- **Early end of turn.** When the provider returns `TURN_END` for the user while the VAD segment is still open (e.g. SmartTurn scoring a pause with `setEvaluateOnPause(true)`), the processor emits the turn `END` and also sends a `TurnStateFrame(USER, END)` upstream so the VAD closes the segment and transcription runs right away. In the showcase apps this takes the gap from the pause to the final transcript from ~1 s to ~0.1 s when the model is confident.
 
 ### SpeakerIdentificationProcessor
 

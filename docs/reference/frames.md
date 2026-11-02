@@ -54,7 +54,7 @@ Every `FrameType`, its concrete class, and what carries it:
 | --- | --- | --- | --- |
 | `AUDIO` | `AudioFrame` | **No samples** - `absoluteOffset` + `numSamples` + format metadata referencing a shared [`AudioRingBuffer`](../../VASDK/include/VASDK/AudioRingBuffer.h) | `LocalTransport` → DSP, VAD |
 | `VAD_STATE` | `VADStateFrame` | `VADState` + speech start/end offsets + confidence | `VADFrameProcessor` → turn detection, transcription |
-| `TURN_STATE` | `TurnStateFrame` | actor (`USER`/`SYSTEM`/`OTHER`), state (`START`/`END`), type (`NORMAL`/`INTERRUPT`/`OVERLAP`), confidence | `TurnDetectionProcessor` → `AgentStateProcessor` |
+| `TURN_STATE` | `TurnStateFrame` | actor (`USER`/`SYSTEM`/`OTHER`), state (`START`/`END`), type (`NORMAL`/`INTERRUPT`/`OVERLAP`), confidence | `TurnDetectionProcessor` → `AgentStateProcessor`; also **upstream** to `VADFrameProcessor` (user `END` = close the speech segment now) |
 | `TRANSCRIPTION` | `TranscriptionFrame` | full `TranscriptionResult` (text, confidence, word timings, language tags, alternatives) + `isFinal` | `TranscriptionFrameProcessor` → agent state, LLM |
 | `AGENT_STATE` | `AgentStateFrame` | current/previous `AgentState`, the `AgentStateTransition` that caused it, trigger confidence | `AgentStateProcessor` → LLM, TTS |
 | `TEXT` | `TextFrame` | text, language, `isFinal` (mid-stream vs last chunk), `isExpecting` (LLM awaits a spoken reply), UI `choices` | `LLMProcessor` → TTS, UI transports |
@@ -67,9 +67,9 @@ Every `FrameType`, its concrete class, and what carries it:
 | `METADATA` | `MetadataFrame` | key/value string pair | app-specific |
 | `ERROR` | `ErrorFrame` | severity (`WARNING`/`ERROR`/`FATAL`) + code + message - flows **upstream** | any failing stage → `RecoveryProcessor`, app |
 | `SYSTEM` | *(reserved)* | high-priority control category | - |
-| `AUDIO_FEATURES` | *(VizAnim provider)* | extracted feature vector for UI visualization | audio analysis → UI |
+| `AUDIO_FEATURES` | *(VizAnim provider)* | extracted feature vector for UI visualization | VizAnim processors → TUI, `WebRtcTransport` (as `audio_features` events) |
 | `SPEAKER_ENROLLMENT` | `SpeakerEnrollmentFrame` | speaker id + `REQUESTED` / `ENROLLED` / `FAILED` + error message | app/tool → `SpeakerIdentificationProcessor` (`REQUESTED`), which answers downstream |
-| `SPEAKER_IDENTIFICATION` | `SpeakerIdentificationFrame` | best-matching enrolled speaker id (empty = unknown) + cosine similarity | `SpeakerIdentificationProcessor` → LLM, app |
+| `SPEAKER_IDENTIFICATION` | `SpeakerIdentificationFrame` | best-matching enrolled speaker id (empty = unknown) + cosine similarity, new-vs-same flag, similarity to the tracked voice | `SpeakerIdentificationProcessor` → app, `WebRtcTransport` (as `speaker` events) |
 
 Note the asymmetry that trips people up: **`AudioFrame` (mic side) carries no audio; `SynthesisFrame` (TTS side) does.** Mic audio is a continuous firehose shared by several consumers, so it lives once in a ring buffer and frames carry offsets. Synthesized audio is bursty and single-consumer, so it rides in the frame. The [root README's ring buffer section](../../README.md#the-audio-ring-buffer) explains the design in depth.
 
