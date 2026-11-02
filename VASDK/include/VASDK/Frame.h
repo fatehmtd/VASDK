@@ -393,11 +393,13 @@ namespace va {
                 cloned->transcriptionResult = transcriptionResult;
                 cloned->isFinal = isFinal;
                 cloned->isBackchannel = isBackchannel;
+                cloned->isFollowUp = isFollowUp;
                 return cloned;
             }
 
             bool isFinal;              // Whether this is a final transcription result
             bool isBackchannel = false; // Final of a dismissed back-channel ("mm-hmm"); recorded in history, never answered
+            bool isFollowUp = false;    // Interrupted turn + its continuation, as one message: the text the LLM received
             va::audio::TranscriptionResult transcriptionResult; // Full result with word-level data, alternatives, and timing
 
             TranscriptionFrame() = default;

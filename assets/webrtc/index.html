@@ -128,6 +128,9 @@
   #chat li.assistant .who { color: color-mix(in oklab, var(--speak) 80%, var(--ink)); }
   #chat .text { display: block; max-width: 70ch; }
   #chat li.partial .text { color: var(--muted); }
+  #chat li.merged { opacity: .5; }
+  #chat li.merged .text { text-decoration: line-through; }
+  #chat li.follow-up .text::before { content: '+ '; color: var(--muted); }
   #chat .meta { display: block; margin-top: .2rem; font-size: .75rem; color: var(--muted); }
   #chat .meta:empty { display: none; }
 
@@ -662,6 +665,18 @@ function onEvent(e) {
     break;
   case 'transcript':
     if (!e.text) break;
+    if (e.follow_up) {
+      // The user resumed after a pause: the LLM got the interrupted turn and this one as one message.
+      for (let li = lastUserLi?.previousElementSibling; li; li = li.previousElementSibling)
+        if (li.classList.contains('user')) { li.classList.add('merged'); li.title = 'Merged into the next message'; break; }
+      if (lastUserLi) {
+        lastUserLi.querySelector('.text').textContent = e.text;
+        lastUserLi.classList.add('follow-up');
+        lastUserLi.title = 'Follow-up: sent together with the previous message';
+      }
+      logEvent(`follow-up sent as one message "${e.text}"`);
+      break;
+    }
     if (!partialUser) partialUser = chatLine('user partial');
     partialUser.querySelector('.text').textContent = e.text;
     if (e.final) {

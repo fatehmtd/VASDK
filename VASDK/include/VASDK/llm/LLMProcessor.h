@@ -97,6 +97,15 @@ public:
         _speculativeMinWords = minWords;
     }
 
+    /**
+     * Follow-ups: when the user resumes talking after a brief pause that ended their turn, the
+     * interrupted turn is rolled back from history and its text is sent in front of the next
+     * one, so "Book a flight ... to Paris" reaches the LLM as a single message. Applies when the
+     * user speaks while the agent is still thinking, or barges in within windowMs of the turn
+     * being sent. 0 disables it.
+     */
+    void setFollowUpWindowMs(uint32_t windowMs) { _followUpWindowMs = windowMs; }
+
     void setReasoningTags(std::string openTag, std::string closeTag) {
         _reasoningTagOpen = std::move(openTag);
         _reasoningTagClose = std::move(closeTag);
@@ -157,6 +166,14 @@ private:
     // Fires a request for a confirmed user turn; confirms or replaces a pending speculation first.
     void dispatchLLMRequest(const std::string& text, float confidence);
     void dispatchRequestNow(const std::string& text, float confidence);
+
+    // Last user turn sent to the LLM; becomes _followUpPrefix if the user cuts in to continue it.
+    std::mutex  _followUpMutex;
+    uint32_t    _followUpWindowMs{3000};
+    std::string _lastTurnText;         // as the user said it
+    std::string _lastTurnRequestText;  // as written to history (with any back-channel note)
+    std::chrono::steady_clock::time_point _lastTurnAt;
+    std::string _followUpPrefix;
 
     void handleVadStateFrame(std::shared_ptr<transport::VADStateFrame> frame);
     void cancelSpeculation(const char* reason);

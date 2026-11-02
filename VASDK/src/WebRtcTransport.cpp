@@ -55,7 +55,7 @@ std::string toEventJson(const std::shared_ptr<Frame>& frame) {
     case FrameType::TRANSCRIPTION:
         if (auto f = std::dynamic_pointer_cast<TranscriptionFrame>(frame))
             j = {{"type", "transcript"}, {"text", f->transcriptionResult.text}, {"final", f->isFinal},
-                 {"confidence", f->transcriptionResult.confidence}};
+                 {"confidence", f->transcriptionResult.confidence}, {"follow_up", f->isFollowUp}};
         break;
     case FrameType::TEXT:
         if (auto f = std::dynamic_pointer_cast<TextFrame>(frame))

@@ -831,6 +831,20 @@ void LLMProcessor::handleInterruptTransition(transport::AgentStateTransition t) 
         _requestQueue.clear();
     }
     if (_transport) _transport->cancel();
+    {
+        std::lock_guard<std::mutex> lock(_followUpMutex);
+        const bool stillThinking = t == transport::AgentStateTransition::USER_SPOKE_WHILE_THINKING;
+        const bool withinWindow  = std::chrono::steady_clock::now() - _lastTurnAt <=
+                                   std::chrono::milliseconds(_followUpWindowMs);
+        if (_followUpWindowMs > 0 && !_lastTurnText.empty() && (stillThinking || withinWindow)) {
+            spdlog::info("[LLMProcessor] User resumed after a pause; \"{}\" will be merged into the next turn",
+                         _lastTurnText.substr(0, std::min<size_t>(60, _lastTurnText.size())));
+            _followUpPrefix = _lastTurnText;
+            // Queued after the cancel: also removes a reply that completed just before it.
+            enqueueRequest([this, request = _lastTurnRequestText] { _transport->rollbackExchange(request); });
+        }
+        _lastTurnText.clear();
+    }
     _partialAlreadySent = false;
     {
         std::lock_guard<std::mutex> lock(_partialCacheMutex);
@@ -985,7 +999,28 @@ bool LLMProcessor::handleUserStoppedSpeakingTransition(std::shared_ptr<transport
     return false;
 }
 
-void LLMProcessor::dispatchLLMRequest(const std::string& text, float confidence) {
+void LLMProcessor::dispatchLLMRequest(const std::string& userText, float confidence) {
+    std::string text = userText;
+    {
+        std::lock_guard<std::mutex> lock(_followUpMutex);
+        if (!_followUpPrefix.empty()) {
+            text = _followUpPrefix + " " + userText;
+            _followUpPrefix.clear();
+            spdlog::info("[LLMProcessor] Follow-up merged with the interrupted turn: \"{}\"",
+                         text.substr(0, std::min<size_t>(60, text.size())));
+        }
+    }
+    if (text.size() != userText.size()) {
+        // Tell UIs and transports what the LLM actually receives for this turn.
+        auto merged = std::make_shared<transport::TranscriptionFrame>();
+        merged->isFinal = true;
+        merged->isFollowUp = true;
+        merged->transcriptionResult.text = text;
+        merged->transcriptionResult.confidence = confidence;
+        merged->timestamp = transport::Frame::getCurrentTimestamp();
+        merged->sourceId = getName();
+        pushDownstream(merged);
+    }
     {
         std::unique_lock<std::mutex> lk(_specMutex);
         if (_spec.active && _spec.confirmed) {
@@ -1110,6 +1145,12 @@ void LLMProcessor::dispatchRequestNow(const std::string& text, float confidence)
         if (!_backchannelNote.empty())
             requestText = "(While you were speaking I said " + _backchannelNote + ".) " + text;
         _backchannelNote.clear();
+    }
+    {
+        std::lock_guard<std::mutex> lock(_followUpMutex);
+        _lastTurnText = text;
+        _lastTurnRequestText = requestText;
+        _lastTurnAt = std::chrono::steady_clock::now();
     }
 
     auto frame = std::make_shared<transport::TranscriptionFrame>();
