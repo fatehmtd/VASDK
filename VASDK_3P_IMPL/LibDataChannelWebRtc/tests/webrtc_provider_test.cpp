@@ -4,6 +4,7 @@
 // loss reporting, sequence wrap and late-packet dropping.
 
 #include "LibDataChannelWebRtc/LibDataChannelWebRtcProvider.h"
+#include "LibDataChannelWebRtc/RtpPayload.h"
 #include "LibDataChannelWebRtc/RtpReorderBuffer.h"
 
 #include <opus.h>
@@ -55,6 +56,39 @@ void reorderTests() {
     out.clear(); lost = 0;
     run({5, 6, 5, 4}, out, lost);
     check(out == std::vector<uint16_t>({5, 6}), "reorder: late and duplicate dropped");
+
+    out.clear(); lost = 0;
+    run({20000, 20001, 100, 101}, out, lost);
+    check(out == std::vector<uint16_t>({20000, 20001, 100, 101}), "reorder: backwards restart resyncs");
+}
+
+void rtpPayloadTests() {
+    using va::webrtc::rtpPayloadRange;
+    auto range = [](std::vector<int> bytes, size_t& b, size_t& e) {
+        std::vector<std::byte> v;
+        for (int x : bytes) v.push_back(std::byte(x));
+        return rtpPayloadRange(v.data(), v.size(), b, e);
+    };
+    std::vector<int> plain(12, 0); plain[0] = 0x80; plain.insert(plain.end(), {1, 2, 3});
+    size_t b = 0, e = 0;
+    check(range(plain, b, e) && b == 12 && e == 15, "rtp: plain payload");
+
+    auto padded = plain; padded[0] |= 0x20; padded.back() = 2;
+    check(range(padded, b, e) && b == 12 && e == 13, "rtp: padding stripped");
+
+    auto overPad = std::vector<int>(80, 0); overPad[0] = 0xA0; overPad.back() = 200;
+    check(!range(overPad, b, e), "rtp: padding longer than packet rejected");
+
+    auto csrc = std::vector<int>(12, 0); csrc[0] = 0x8F;  // claims 15 CSRCs
+    check(!range(csrc, b, e), "rtp: CSRCs past the end rejected");
+
+    auto ext = std::vector<int>(12, 0); ext[0] = 0x90;  // extension bit, no extension header
+    check(!range(ext, b, e), "rtp: missing extension header rejected");
+
+    auto bigExt = std::vector<int>(20, 0); bigExt[0] = 0x90; bigExt[14] = 0xFF; bigExt[15] = 0xFF;
+    check(!range(bigExt, b, e), "rtp: extension longer than packet rejected");
+
+    check(!range({0x80, 0, 0}, b, e), "rtp: short packet rejected");
 }
 
 std::vector<int16_t> tone(size_t samples, size_t offset) {
@@ -161,6 +195,7 @@ void loopbackTest() {
 
 int main() {
     reorderTests();
+    rtpPayloadTests();
     loopbackTest();
     std::printf("webrtc provider checks done, %d failure(s)\n", failures);
     return failures == 0 ? 0 : 1;

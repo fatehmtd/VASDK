@@ -49,6 +49,10 @@ bool WebRtcTransport::initialize() {
         spdlog::error("[WebRtcTransport] Only mono 16-bit PCM is supported");
         return false;
     }
+    if (_frameSizeInSamples == 0) {
+        spdlog::error("[WebRtcTransport] Frame size must be at least 1 sample");
+        return false;
+    }
 
     _peer->onAudioReceived = [this](const int16_t* pcm, size_t samples) { onPeerAudio(pcm, samples); };
     _peer->onConnect       = [this] { onPeerConnected(); };
@@ -62,6 +66,7 @@ bool WebRtcTransport::initialize() {
     if (!_peer->open(_inputAudioConfig.sampleRate, _outputAudioConfig.sampleRate)) {
         spdlog::error("[WebRtcTransport] Provider rejected sample rates {} / {} Hz",
                       _inputAudioConfig.sampleRate, _outputAudioConfig.sampleRate);
+        release();  // drop the callbacks we just installed
         return false;
     }
 
@@ -79,8 +84,10 @@ bool WebRtcTransport::start() {
     }
     if (_running) return true;
 
+    setState(TransportState::CONNECTING);
     _running = true;
-    setState(_peer->isConnected() ? TransportState::CONNECTED : TransportState::CONNECTING);
+    // onPeerConnected ignores a peer that connected before _running was set; pick it up here.
+    if (_peer->isConnected()) setState(TransportState::CONNECTED);
     _senderThread = std::thread(&WebRtcTransport::senderThreadFunc, this);
     spdlog::info("[WebRtcTransport] Started - waiting for a peer");
     return true;
@@ -99,8 +106,8 @@ void WebRtcTransport::stop() {
 
 void WebRtcTransport::release() {
     stop();
-    if (_opened && _peer) {
-        _peer->close();
+    if (_peer) {
+        _peer->close();  // returns once no provider callback is running
         // The provider may outlive us; don't leave callbacks pointing at this transport.
         _peer->onAudioReceived = nullptr;
         _peer->onConnect = nullptr;

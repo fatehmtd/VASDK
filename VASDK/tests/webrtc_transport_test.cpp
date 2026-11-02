@@ -121,11 +121,27 @@ int main() {
     t.release();
     check(t.getState() == transport::TransportState::DISCONNECTED, "stopped -> DISCONNECTED");
 
-    // Provider veto on sample rates fails initialize().
-    transport::WebRtcTransport bad(std::make_shared<FakePeer>());
-    audio::AudioConfig c{24000, audio::AudioFormat::SHORT, 1};
-    bad.setInputAudioConfig(c);
-    check(!bad.initialize(), "initialize fails when provider rejects rates");
+    // Provider veto on sample rates fails initialize() and leaves no callbacks into the transport.
+    auto vetoPeer = std::make_shared<FakePeer>();
+    {
+        transport::WebRtcTransport bad(vetoPeer);
+        audio::AudioConfig c{24000, audio::AudioFormat::SHORT, 1};
+        bad.setInputAudioConfig(c);
+        check(!bad.initialize(), "initialize fails when provider rejects rates");
+    }
+    check(!vetoPeer->onConnect && !vetoPeer->onAudioReceived, "failed initialize clears provider callbacks");
+
+    transport::WebRtcTransport zero(std::make_shared<FakePeer>());
+    zero.setFrameSize(0);
+    check(!zero.initialize(), "frame size 0 rejected");
+
+    // A peer already connected when start() runs is picked up.
+    auto early = std::make_shared<FakePeer>();
+    transport::WebRtcTransport late(early);
+    late.initialize();
+    early->connected = true;
+    late.start();
+    check(late.isConnected(), "start() with a connected peer -> CONNECTED");
 
     std::printf("webrtc transport checks done, %d failure(s)\n", failures);
     return failures == 0 ? 0 : 1;

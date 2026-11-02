@@ -37,7 +37,8 @@ async function start() {
     pc.ontrack = e => { document.getElementById('remote').srcObject = e.streams[0] || new MediaStream([e.track]); };
     pc.onconnectionstatechange = () => {
       setStatus(pc.connectionState === 'connected' ? 'Connected - start talking' : pc.connectionState);
-      if (['failed', 'closed', 'disconnected'].includes(pc.connectionState)) stop();
+      // 'disconnected' can recover on its own; the browser moves to 'failed' if it doesn't.
+      if (['failed', 'closed'].includes(pc.connectionState)) stop();
     };
 
     await pc.setLocalDescription(await pc.createOffer());

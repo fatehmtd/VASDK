@@ -1,4 +1,5 @@
 #include "LibDataChannelWebRtcProvider.h"
+#include "RtpPayload.h"
 #include "RtpReorderBuffer.h"
 
 #include <httplib.h>
@@ -57,6 +58,8 @@ struct LibDataChannelWebRtcProvider::Impl : std::enable_shared_from_this<Impl> {
     std::atomic<int> payloadType{111};
     std::atomic<bool> connected{false};
     std::atomic<int64_t> lastMediaMs{0};
+    std::mutex offerMutex;  // one offer at a time; httplib serves requests from a thread pool
+    std::mutex cbMutex;     // held while calling onConnect/onDisconnect, so close() can wait them out
 
     // Watchdog: drops a connected peer whose media stopped
     std::thread watchdog;
@@ -97,34 +100,35 @@ struct LibDataChannelWebRtcProvider::Impl : std::enable_shared_from_this<Impl> {
         }
         // Close outside the lock: close() fires state callbacks synchronously.
         if (old) old->close();
-        if (connected.exchange(false) && owner->onDisconnect) owner->onDisconnect();
+        if (connected.exchange(false)) {
+            std::lock_guard<std::mutex> cb(cbMutex);
+            if (owner->onDisconnect) owner->onDisconnect();
+        }
         std::lock_guard<std::mutex> lock(decMutex);
         reorder.reset();
         if (decoder) opus_decoder_ctl(decoder, OPUS_RESET_STATE);
     }
 
     void onStateChange(rtc::PeerConnection* self, rtc::PeerConnection::State state) {
+        std::lock_guard<std::mutex> cb(cbMutex);
         if (currentPc().get() != self) return;  // a replaced peer winding down
         using S = rtc::PeerConnection::State;
         if (state == S::Connected) {
             spdlog::info("[LibDataChannelWebRtc] Peer connected");
             lastMediaMs = nowMs();
             if (!connected.exchange(true) && owner->onConnect) owner->onConnect();
-        } else if (state == S::Disconnected || state == S::Failed || state == S::Closed) {
+        } else if (state == S::Failed || state == S::Closed) {
+            // Disconnected is left out: ICE can recover from it, and the media watchdog catches it if not.
             spdlog::info("[LibDataChannelWebRtc] Peer gone (state {})", static_cast<int>(state));
             if (connected.exchange(false) && owner->onDisconnect) owner->onDisconnect();
         }
     }
 
     void onRtp(const rtc::binary& msg) {
-        if (msg.size() < sizeof(rtc::RtpHeader)) return;
+        size_t begin = 0, end = 0;
+        if (!rtpPayloadRange(msg.data(), msg.size(), begin, end)) return;
         auto* header = reinterpret_cast<const rtc::RtpHeader*>(msg.data());
         if (header->payloadType() != payloadType) return;
-
-        size_t begin = header->getSize() + header->getExtensionHeaderSize();
-        size_t end = msg.size();
-        if (header->padding() && end > begin) end -= std::to_integer<uint8_t>(msg.back());
-        if (end <= begin) return;
         lastMediaMs = nowMs();
 
         std::lock_guard<std::mutex> lock(decMutex);
@@ -212,6 +216,7 @@ bool LibDataChannelWebRtcProvider::open(int inputSampleRate, int outputSampleRat
 }
 
 void LibDataChannelWebRtcProvider::close() {
+    std::lock_guard<std::mutex> offerLock(_impl->offerMutex);  // don't let an in-flight offer outlive us
     {
         std::lock_guard<std::mutex> lock(_impl->watchdogMutex);
         _impl->watchdogStop = true;
@@ -219,6 +224,9 @@ void LibDataChannelWebRtcProvider::close() {
     _impl->watchdogCv.notify_all();
     if (_impl->watchdog.joinable()) _impl->watchdog.join();
     _impl->resetPeer();
+    // No peer is current now, so new state callbacks bail out; this waits for one already running.
+    // The audio callback is covered by decMutex below.
+    { std::lock_guard<std::mutex> cb(_impl->cbMutex); }
     {
         std::lock_guard<std::mutex> lock(_impl->decMutex);
         if (_impl->decoder) opus_decoder_destroy(_impl->decoder);
@@ -264,6 +272,7 @@ bool LibDataChannelWebRtcProvider::sendAudio(const int16_t* pcm, size_t samples)
 
 std::string LibDataChannelWebRtcProvider::handleOffer(const std::string& offerSdp) {
     auto impl = _impl;
+    std::lock_guard<std::mutex> offerLock(impl->offerMutex);
     if (impl->connected) {
         spdlog::warn("[LibDataChannelWebRtc] Rejecting offer: a peer is already connected");
         return {};

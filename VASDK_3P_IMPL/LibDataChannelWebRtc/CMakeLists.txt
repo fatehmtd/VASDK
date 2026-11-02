@@ -50,6 +50,7 @@ fetchcontent_makeavailable(libdatachannel)
 add_library(vasdk_libdatachannel_webrtc ${VASDK_THIRDPARTY_LIB_TYPE}
     LibDataChannelWebRtcProvider.h
     LibDataChannelWebRtcProvider.cpp
+    RtpPayload.h
     RtpReorderBuffer.h
 )
 

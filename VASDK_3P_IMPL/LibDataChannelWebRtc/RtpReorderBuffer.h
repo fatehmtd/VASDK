@@ -28,10 +28,11 @@ public:
         if (!_started) { _started = true; _next = seq; }
 
         int16_t ahead = static_cast<int16_t>(seq - _next);
-        if (ahead < 0) return;  // late or duplicate
-        if (ahead > kResyncDistance) {  // sender restarted its sequence; start over
+        if (ahead > kResyncDistance || ahead < -kResyncDistance) {  // sender restarted its sequence
             _held.clear();
             _next = seq;
+        } else if (ahead < 0) {
+            return;  // late or duplicate
         }
         _held.emplace(seq, std::move(payload));
 
