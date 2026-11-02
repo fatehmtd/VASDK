@@ -62,6 +62,12 @@ elseif(VASDK_BUILD_SDL AND TARGET vasdk_sdl_audio)
     target_compile_definitions(VASDK_CallCenter PRIVATE VASDK_HAS_SDL)
 endif()
 
+if(VASDK_BUILD_LIBDATACHANNEL_WEBRTC AND TARGET vasdk_libdatachannel_webrtc)
+    target_link_libraries(VASDK_CallCenter PRIVATE vasdk_libdatachannel_webrtc)
+    target_compile_definitions(VASDK_CallCenter PRIVATE VASDK_HAS_LIBDATACHANNEL_WEBRTC
+        VASDK_WEBRTC_DEMO_PAGE="${CMAKE_SOURCE_DIR}/assets/webrtc/index.html")
+endif()
+
 #  VAD 
 
 if(VASDK_BUILD_SILERO_VAD AND TARGET vasdk_silero_vad)

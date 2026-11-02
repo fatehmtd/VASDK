@@ -10,6 +10,7 @@ flowchart TB
     BT --> LT["LocalTransport<br/>hardware audio via<br/>GenericAudioSource/Sink"]
     BT --> HT["HttpTransport<br/>request/response over<br/>HttpInterface (libcurl)"]
     BT --> WT["WebSocketTransport<br/>server, via WebSocketInterface<br/>(cpp-httplib)"]
+    BT --> RT["WebRtcTransport<br/>one remote peer, via WebRtcInterface<br/>(libdatachannel provider)"]
     BT --> MT["MockTransport<br/>no I/O - test double"]
     HT --> LLMT["LLMTransport<br/>(see llm.md)"]
 ```
@@ -46,6 +47,36 @@ Barge-in support: `getPendingOutputAudioBytes()` reports unplayed audio and `flu
 ## WebSocketTransport
 
 ([`WebSocketTransport.h`](../../VASDK/include/VASDK/WebSocketTransport.h)) A WebSocket **server** transport backed by a `WebSocketInterface` provider (cpp-httplib implementation ships in `network/providers`; built when `VASDK_ENABLE_WEBSOCKET_SERVER=ON`, the default). Lets external clients stream frames in and out - remote UIs, browser demos, integration harnesses. Frame serialization uses nlohmann/json when built with `VASDK_HAS_JSON`.
+
+## WebRtcTransport
+
+([`WebRtcTransport.h`](../../VASDK/include/VASDK/WebRtcTransport.h)) Real-time audio with one remote peer - a browser tab, or later a room on a WebRTC platform. It keeps `LocalTransport`'s contract, so an app swaps one for the other without touching the pipeline:
+
+- Same setters before `initialize()`: `setInputAudioConfig`, `setOutputAudioConfig`, `setFrameSize`, `setRingBuffer`. Mono 16-bit PCM only.
+- Inbound peer audio is written into the shared ring buffer and surfaces as offset-only `AudioFrame`s, exactly like captured mic audio.
+- Outbound `SynthesisFrame`s are queued and sent in real-time paced 20 ms chunks (silence when idle, so the RTP clock never stalls). `getPendingOutputAudioBytes()` reports the queue; `flushOutputAudio()` fades and drops it for barge-in - wire it to `TTSFrameProcessor::setPlaybackFlush` as with `LocalTransport`.
+- State: `CONNECTING` while waiting for a peer, `CONNECTED` while one is attached (`onConnected` fires), back to `CONNECTING` when it leaves (`onDisconnected` fires, queued playback is dropped). Synthesis sent with no peer attached is dropped.
+
+The media stack sits behind [`WebRtcInterface`](../../VASDK/include/VASDK/network/WebRtcInterface.h), which carries only PCM plus connect/disconnect/error callbacks. Codecs, RTP and **signaling** are the provider's business, so the core library takes no WebRTC dependency and the same transport can front a direct PeerConnection or a platform SDK (LiveKit, Daily) that hands out decoded PCM.
+
+**`LibDataChannelWebRtcProvider`** ([`VASDK_3P_IMPL/LibDataChannelWebRtc`](../../VASDK_3P_IMPL/LibDataChannelWebRtc/LibDataChannelWebRtcProvider.h), `-DVASDK_BUILD_LIBDATACHANNEL_WEBRTC=ON`) is the shipped provider: a direct PeerConnection via [libdatachannel](https://github.com/paullouisageneau/libdatachannel) with one sendrecv Opus track.
+
+- Signaling is one non-trickle SDP exchange: `handleOffer(offerSdp)` returns the answer once ICE gathering completes. `startSignalingServer(port, host, pagePath)` exposes it as `POST /offer` (WHIP-shaped; `409` while a peer is connected) and serves a page at `GET /`. **No authentication** - it binds `127.0.0.1` by default; put it behind your own auth before exposing it.
+- Opus runs directly at the transport's rates, which must be 8/12/16/24/48 kHz (`open()` fails otherwise - there is no resampler).
+- Inbound packets pass a 3-packet reorder buffer; gaps get Opus packet-loss concealment. A peer that sends no media for 5 s is dropped (browsers stream continuously even when muted), which catches closed tabs long before the ~30 s ICE timeout.
+- DTLS uses OpenSSL (Homebrew `openssl@3` is found automatically on macOS); pass `-DUSE_MBEDTLS=ON` or `-DUSE_GNUTLS=ON` to use those instead.
+
+```cpp
+auto peer = std::make_shared<va::webrtc::LibDataChannelWebRtcProvider>();  // STUN: stun.l.google.com
+auto rtc  = std::make_shared<va::transport::WebRtcTransport>(peer);
+rtc->setRingBuffer(ringBuffer);
+rtc->initialize();
+rtc->start();
+peer->startSignalingServer(8765, "127.0.0.1", "assets/webrtc/index.html");
+tts->setPlaybackFlush([rtc] { rtc->flushOutputAudio(); });
+```
+
+Both showcase apps take `--webrtc-port <port>` (and `--webrtc-page`) when built with the provider: run, open `http://127.0.0.1:<port>`, press *Start call*. The demo page is [`assets/webrtc/index.html`](../../assets/webrtc/index.html). Browsers only grant the microphone on `localhost`/`127.0.0.1` or HTTPS, so remote use needs TLS in front. In the call-center app one process is one call: a second caller joining the same process continues the first caller's goal state.
 
 ## MockTransport
 

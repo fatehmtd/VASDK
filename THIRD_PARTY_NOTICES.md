@@ -58,6 +58,10 @@ Every VAD/STT/TTS/LLM/audio provider under `VASDK_3P_IMPL/`, plus the core libra
 | [mackron/miniaudio](https://github.com/mackron/miniaudio) | Audio I/O | GitHub (single header) | Public domain (Unlicense) / MIT-0, your choice |
 | [libsdl-org/SDL](https://github.com/libsdl-org/SDL) | Audio I/O (SDL3) | GitHub | zlib |
 | FFmpeg | File/batch audio | System-installed (`find_package`), [ffmpeg.org](https://ffmpeg.org) | LGPL or GPL, depending on how your system build was configured |
+| [paullouisageneau/libdatachannel](https://github.com/paullouisageneau/libdatachannel) | WebRTC provider (`VASDK_BUILD_LIBDATACHANNEL_WEBRTC`) | GitHub | MPL 2.0 |
+| [paullouisageneau/libjuice](https://github.com/paullouisageneau/libjuice), [cisco/libsrtp](https://github.com/cisco/libsrtp), [sctplab/usrsctp](https://github.com/sctplab/usrsctp), [SergiusTheBest/plog](https://github.com/SergiusTheBest/plog) | WebRTC provider (ICE, SRTP, SCTP, logging - libdatachannel submodules) | GitHub | MPL 2.0 (libjuice), BSD 3-Clause (libsrtp, usrsctp), MIT (plog) |
+| [xiph/opus](https://github.com/xiph/opus) | WebRTC provider (Opus codec) | GitHub | BSD 3-Clause |
+| OpenSSL | WebRTC provider (DTLS; Mbed TLS or GnuTLS via `USE_MBEDTLS`/`USE_GNUTLS` instead) | System-installed (`find_package`), [openssl.org](https://www.openssl.org) | Apache 2.0 (3.x) |
 | [gabime/spdlog](https://github.com/gabime/spdlog) | Logging (core library) | GitHub | MIT |
 | [nlohmann/json](https://github.com/nlohmann/json) | JSON (core library) | GitHub | MIT |
 | [CLIUtils/CLI11](https://github.com/CLIUtils/CLI11) | CLI parsing (showcase apps) | GitHub | BSD 3-Clause |

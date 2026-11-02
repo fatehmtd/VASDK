@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VASDK WebRTC demo</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; max-width: 32rem; margin: 4rem auto; padding: 0 1rem; }
+  button { font: inherit; padding: .6rem 1.4rem; border-radius: .5rem; border: 1px solid #888; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  #status { margin-top: 1rem; color: #555; }
+</style>
+</head>
+<body>
+<h1>Talk to the assistant</h1>
+<p>Uses your microphone over WebRTC. Headphones are not required: the browser cancels echo.</p>
+<button id="call">Start call</button>
+<button id="hangup" disabled>Hang up</button>
+<p id="status" role="status" aria-live="polite">Idle</p>
+<audio id="remote" autoplay></audio>
+<script>
+const callBtn = document.getElementById('call');
+const hangupBtn = document.getElementById('hangup');
+const status = document.getElementById('status');
+let pc = null;
+
+function setStatus(text) { status.textContent = text; }
+
+async function start() {
+  callBtn.disabled = true;
+  try {
+    const mic = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    });
+    pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+    mic.getTracks().forEach(t => pc.addTrack(t, mic));
+    pc.ontrack = e => { document.getElementById('remote').srcObject = e.streams[0] || new MediaStream([e.track]); };
+    pc.onconnectionstatechange = () => {
+      setStatus(pc.connectionState === 'connected' ? 'Connected - start talking' : pc.connectionState);
+      if (['failed', 'closed', 'disconnected'].includes(pc.connectionState)) stop();
+    };
+
+    await pc.setLocalDescription(await pc.createOffer());
+    setStatus('Gathering network candidates...');
+    // The server answers once, without trickle ICE, so send the offer with all candidates in it.
+    await new Promise(resolve => {
+      if (pc.iceGatheringState === 'complete') return resolve();
+      pc.onicegatheringstatechange = () => pc.iceGatheringState === 'complete' && resolve();
+      setTimeout(resolve, 3000);
+    });
+
+    const res = await fetch('/offer', { method: 'POST', headers: { 'Content-Type': 'application/sdp' },
+                                        body: pc.localDescription.sdp });
+    if (!res.ok) throw new Error(res.status === 409 ? 'The assistant is already in a call' : `Server said ${res.status}`);
+    await pc.setRemoteDescription({ type: 'answer', sdp: await res.text() });
+    setStatus('Connecting...');
+    hangupBtn.disabled = false;
+  } catch (err) {
+    setStatus(err.message);
+    stop();
+  }
+}
+
+function stop() {
+  if (pc) {
+    pc.getSenders().forEach(s => s.track && s.track.stop());
+    pc.close();
+    pc = null;
+  }
+  callBtn.disabled = false;
+  hangupBtn.disabled = true;
+}
+
+callBtn.addEventListener('click', start);
+hangupBtn.addEventListener('click', () => { stop(); setStatus('Call ended'); });
+</script>
+</body>
+</html>

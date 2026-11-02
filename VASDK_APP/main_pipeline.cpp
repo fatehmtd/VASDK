@@ -13,6 +13,7 @@
 #include <VASDK/llm/PromptTemplate.h>
 #include <VASDK/FrameProcessor.h>
 #include <VASDK/LocalTransport.h>
+#include <VASDK/WebRtcTransport.h>
 #include <VASDK/TransportInputProcessor.h>
 #include <VASDK/TransportOutputProcessor.h>
 #include <VASDK/TTSFrameProcessor.h>
@@ -378,6 +379,10 @@ std::string findModelsDirectory(char* argv[],
     return "";
 }
 
+#ifdef VASDK_HAS_LIBDATACHANNEL_WEBRTC
+#include "LibDataChannelWebRtc/LibDataChannelWebRtcProvider.h"
+#endif
+
 //  Data structs 
 
 struct CliArgs {
@@ -399,6 +404,8 @@ struct CliArgs {
     uint16_t    statsdPort        = 8125;
     bool        prometheusEnabled = false;
     int         prometheusPort    = 9099;
+    uint16_t    webrtcPort        = 0;     // 0 = local mic/speaker
+    std::string webrtcPage;
 };
 
 struct MetricsBundle {
@@ -442,7 +449,11 @@ struct LLMBundle {
 struct TransportBundle {
     std::shared_ptr<va::AudioRingBuffer>           sharedRingBuffer;
     std::shared_ptr<va::AudioRingBuffer>           cleanRingBuffer;
-    std::shared_ptr<va::transport::LocalTransport> localTransport;
+    std::shared_ptr<va::transport::BaseTransport>  transport;    // LocalTransport or WebRtcTransport
+    std::function<void()>                          flushOutput;  // barge-in: drop queued playback
+#ifdef VASDK_HAS_LIBDATACHANNEL_WEBRTC
+    std::shared_ptr<va::webrtc::LibDataChannelWebRtcProvider> webrtcPeer;
+#endif
 };
 
 struct ProcessorBundle {
@@ -508,6 +519,13 @@ CliArgs parseCliArgs(int argc, char* argv[]) {
         "Path to a text file containing the LLM system prompt (overrides built-in default)");
     app.add_option("--format-instruction", args.formatInstructionFile,
         "Path to a text file containing the response format instruction (overrides built-in default)");
+#ifdef VASDK_HAS_LIBDATACHANNEL_WEBRTC
+    app.add_option("--webrtc-port", args.webrtcPort,
+        "Talk over WebRTC instead of the local mic/speaker: serve signaling + demo page on "
+        "http://127.0.0.1:<port>");
+    app.add_option("--webrtc-page", args.webrtcPage, "Demo page served at / in WebRTC mode")
+        ->default_val(VASDK_WEBRTC_DEMO_PAGE);
+#endif
     app.add_option("--env-file", args.envFile,
         "Path to .env file with LLM_API_KEY / LLM_ENDPOINT / LLM_MODEL (default: .env)");
 #ifdef VASDK_METRICS_STATSD
@@ -865,31 +883,56 @@ LLMBundle setupLLMStack(const std::string& modelsPath, const std::string& llmMod
     return llmBundle;
 }
 
-std::optional<TransportBundle> setupTransport(const AudioBundle& audio, const MetricsBundle& metrics) {
+std::optional<TransportBundle> setupTransport(const AudioBundle& audio, const MetricsBundle& metrics,
+                                              const CliArgs& args) {
     TransportBundle b;
     b.sharedRingBuffer = std::make_shared<va::AudioRingBuffer>(
         (long)audio.inputConfig.sampleRate * 90, audio.inputConfig.getSampleSizeInBytes());
     b.cleanRingBuffer = std::make_shared<va::AudioRingBuffer>(
         (long)audio.inputConfig.sampleRate * 90, audio.inputConfig.getSampleSizeInBytes());
 
-    b.localTransport = std::make_shared<va::transport::LocalTransport>(audio.audioSource, audio.audioSink);
-    b.localTransport->setInputAudioConfig(audio.inputConfig);
-    b.localTransport->setOutputAudioConfig(audio.outputConfig);
-    b.localTransport->setFrameSize(audio.frameSize);
-    b.localTransport->setRingBuffer(b.sharedRingBuffer);
-    b.localTransport->setMetricsConfig(metrics.config.transport);
+#ifdef VASDK_HAS_LIBDATACHANNEL_WEBRTC
+    if (args.webrtcPort != 0) {
+        b.webrtcPeer = std::make_shared<va::webrtc::LibDataChannelWebRtcProvider>();
+        auto webrtc = std::make_shared<va::transport::WebRtcTransport>(b.webrtcPeer);
+        webrtc->setInputAudioConfig(audio.inputConfig);
+        webrtc->setOutputAudioConfig(audio.outputConfig);
+        webrtc->setFrameSize(audio.frameSize);
+        webrtc->setRingBuffer(b.sharedRingBuffer);
+        webrtc->setMetricsConfig(metrics.config.transport);
+        if (!webrtc->initialize() || !webrtc->start()) {
+            spdlog::error("Failed to start WebRtcTransport");
+            return std::nullopt;
+        }
+        if (!b.webrtcPeer->startSignalingServer(args.webrtcPort, "127.0.0.1", args.webrtcPage)) return std::nullopt;
+        spdlog::info("WebRtcTransport ready - open http://127.0.0.1:{} to talk", args.webrtcPort);
+        b.flushOutput = [webrtc] { webrtc->flushOutputAudio(); };
+        b.transport = webrtc;
+        metrics.reporter->addTransport(b.transport);
+        return b;
+    }
+#endif
 
-    if (!b.localTransport->initialize()) {
+    auto local = std::make_shared<va::transport::LocalTransport>(audio.audioSource, audio.audioSink);
+    local->setInputAudioConfig(audio.inputConfig);
+    local->setOutputAudioConfig(audio.outputConfig);
+    local->setFrameSize(audio.frameSize);
+    local->setRingBuffer(b.sharedRingBuffer);
+    local->setMetricsConfig(metrics.config.transport);
+
+    if (!local->initialize()) {
         spdlog::error("Failed to initialize LocalTransport");
         return std::nullopt;
     }
-    if (!b.localTransport->start()) {
+    if (!local->start()) {
         spdlog::error("Failed to start LocalTransport");
         return std::nullopt;
     }
     spdlog::info("LocalTransport started successfully");
 
-    metrics.reporter->addTransport(b.localTransport);
+    b.flushOutput = [local] { local->flushOutputAudio(); };
+    b.transport = local;
+    metrics.reporter->addTransport(b.transport);
     return b;
 }
 
@@ -903,10 +946,10 @@ std::optional<ProcessorBundle> setupProcessors(
     ProcessorBundle b;
 
     b.transportInput = std::make_shared<va::pipeline::TransportInputProcessor>();
-    b.transportInput->addTransport(transport.localTransport);
+    b.transportInput->addTransport(transport.transport);
 
     b.transportOutput = std::make_shared<va::pipeline::TransportOutputProcessor>();
-    b.transportOutput->addTransport(transport.localTransport, va::transport::FrameType::SYNTHESIS);
+    b.transportOutput->addTransport(transport.transport, va::transport::FrameType::SYNTHESIS);
 
     //  RNNoise noise-suppression (optional, compile-time) 
     // Set useRNNoise=true at runtime to enable noise suppression without recompiling.
@@ -978,7 +1021,7 @@ std::optional<ProcessorBundle> setupProcessors(
     b.bargeinHandler = std::make_shared<BargeInHandler>(audio.transcriptionProvider);
 
     b.tts = std::make_shared<va::pipeline::TTSFrameProcessor>(audio.ttsProvider);
-    b.tts->setPlaybackFlush([lt = transport.localTransport]() { lt->flushOutputAudio(); });
+    b.tts->setPlaybackFlush(transport.flushOutput);
 
     b.llmProcessor   = llm.processor;
     b.toolDispatcher = llm.toolDispatcher;
@@ -1207,7 +1250,7 @@ int main(int argc, char* argv[]) {
                                   args.llmEndpoint, args.llmApiKey, args.llmModel,
                                   systemPrompt, formatInstruction);
 
-    auto transportOpt = setupTransport(*audioOpt, metrics);
+    auto transportOpt = setupTransport(*audioOpt, metrics, args);
     if (!transportOpt) return -1;
 
     auto procsOpt = setupProcessors(modelsPath, *audioOpt, *transportOpt, llm, args.sessionOutputDir);
