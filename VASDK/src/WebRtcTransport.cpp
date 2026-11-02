@@ -4,6 +4,10 @@
 #include <algorithm>
 #include <chrono>
 
+#ifdef VASDK_HAS_JSON
+#include <nlohmann/json.hpp>
+#endif
+
 // Undefine Windows ERROR macro to avoid conflict with TransportState::ERROR
 #ifdef ERROR
 #undef ERROR
@@ -23,6 +27,55 @@ audio::AudioConfig defaultConfig() {
 
 bool isMonoS16(const audio::AudioConfig& c) {
     return c.channels == 1 && c.format == audio::AudioFormat::SHORT && c.sampleRate > 0;
+}
+
+/// The pipeline frames a peer's UI can show, as {"type": ...} JSON; empty for any other frame.
+std::string toEventJson(const std::shared_ptr<Frame>& frame) {
+#ifdef VASDK_HAS_JSON
+    nlohmann::json j;
+    switch (frame->getType()) {
+    case FrameType::AGENT_STATE:
+        if (auto f = std::dynamic_pointer_cast<AgentStateFrame>(frame))
+            j = {{"type", "agent_state"}, {"state", toString(f->currentState)},
+                 {"from", toString(f->previousState)}, {"reason", toString(f->transition)}};
+        break;
+    case FrameType::VAD_STATE:
+        if (auto f = std::dynamic_pointer_cast<VADStateFrame>(frame))
+            j = {{"type", "vad"}, {"state", toString(f->state)}, {"confidence", f->confidence}};
+        break;
+    case FrameType::TURN_STATE:
+        if (auto f = std::dynamic_pointer_cast<TurnStateFrame>(frame)) {
+            static const char* actors[] = {"USER", "SYSTEM", "OTHER"};
+            static const char* kinds[] = {"NORMAL", "INTERRUPT", "OVERLAP"};
+            j = {{"type", "turn"}, {"actor", actors[static_cast<int>(f->actor)]},
+                 {"state", f->state == TurnStateFrame::TurnState::START ? "START" : "END"},
+                 {"kind", kinds[static_cast<int>(f->type)]}};
+        }
+        break;
+    case FrameType::TRANSCRIPTION:
+        if (auto f = std::dynamic_pointer_cast<TranscriptionFrame>(frame))
+            j = {{"type", "transcript"}, {"text", f->transcriptionResult.text}, {"final", f->isFinal},
+                 {"confidence", f->transcriptionResult.confidence}};
+        break;
+    case FrameType::TEXT:
+        if (auto f = std::dynamic_pointer_cast<TextFrame>(frame))
+            j = {{"type", "reply"}, {"text", f->text}, {"final", f->isFinal}};
+        break;
+    case FrameType::SYNTHESIS_STATE:
+        if (auto f = std::dynamic_pointer_cast<SynthesisStateFrame>(frame))
+            j = {{"type", "tts"}, {"state", toString(f->state)}};
+        break;
+    default:
+        break;
+    }
+    if (j.is_null()) return {};
+    j["t"] = frame->timestamp;
+    // Model text may not be valid UTF-8; replace bad bytes rather than throw.
+    return j.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
+#else
+    (void)frame;
+    return {};
+#endif
 }
 } // namespace
 
@@ -119,7 +172,14 @@ void WebRtcTransport::release() {
 
 bool WebRtcTransport::sendFrame(std::shared_ptr<Frame> frame) {
     if (!frame) return false;
-    if (frame->getType() != FrameType::SYNTHESIS) return true;  // only audio goes to the peer
+    if (frame->getType() != FrameType::SYNTHESIS) {
+        // State for the peer's UI is best effort: dropping it (no peer yet, no channel) isn't a failure.
+        if (isConnected()) {
+            auto json = toEventJson(frame);
+            if (!json.empty()) _peer->sendEvent(json);
+        }
+        return true;
+    }
 
     if (!isConnected()) {
         spdlog::debug("[WebRtcTransport] No peer connected - dropping synthesis audio");

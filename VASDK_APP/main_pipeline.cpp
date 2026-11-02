@@ -451,6 +451,8 @@ struct TransportBundle {
     std::shared_ptr<va::AudioRingBuffer>           cleanRingBuffer;
     std::shared_ptr<va::transport::BaseTransport>  transport;    // LocalTransport or WebRtcTransport
     std::function<void()>                          flushOutput;  // barge-in: drop queued playback
+    // Frames sent to the transport: audio only, or (WebRTC) everything, so the page can show state.
+    std::optional<va::transport::FrameType>        outputFilter = va::transport::FrameType::SYNTHESIS;
 #ifdef VASDK_HAS_LIBDATACHANNEL_WEBRTC
     std::shared_ptr<va::webrtc::LibDataChannelWebRtcProvider> webrtcPeer;
 #endif
@@ -907,6 +909,7 @@ std::optional<TransportBundle> setupTransport(const AudioBundle& audio, const Me
         if (!b.webrtcPeer->startSignalingServer(args.webrtcPort, "127.0.0.1", args.webrtcPage)) return std::nullopt;
         spdlog::info("WebRtcTransport ready - open http://127.0.0.1:{} to talk", args.webrtcPort);
         b.flushOutput = [webrtc] { webrtc->flushOutputAudio(); };
+        b.outputFilter.reset();
         b.transport = webrtc;
         metrics.reporter->addTransport(b.transport);
         return b;
@@ -949,7 +952,7 @@ std::optional<ProcessorBundle> setupProcessors(
     b.transportInput->addTransport(transport.transport);
 
     b.transportOutput = std::make_shared<va::pipeline::TransportOutputProcessor>();
-    b.transportOutput->addTransport(transport.transport, va::transport::FrameType::SYNTHESIS);
+    b.transportOutput->addTransport(transport.transport, transport.outputFilter);
 
     //  RNNoise noise-suppression (optional, compile-time) 
     // Set useRNNoise=true at runtime to enable noise suppression without recompiling.

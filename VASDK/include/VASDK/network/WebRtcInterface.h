@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <string>
 
 namespace va {
 namespace network {
@@ -40,6 +41,13 @@ public:
      * @return false if it could not be sent (no peer, encoder error)
      */
     virtual bool sendAudio(const int16_t* pcm, size_t samples) = 0;
+
+    /**
+     * @brief Send one pipeline event (a JSON text message) to the peer, beside the audio -
+     *        e.g. a data channel - so its UI can show agent state, transcripts and so on.
+     * @return false if not sent; providers without such a channel keep this default
+     */
+    virtual bool sendEvent(const std::string& json) { (void)json; return false; }
 
     // Callbacks - set by WebRtcTransport before open(); invoked on provider threads.
     std::function<void(const int16_t* pcm, size_t samples)> onAudioReceived;

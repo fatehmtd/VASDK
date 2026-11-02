@@ -55,6 +55,7 @@ struct LibDataChannelWebRtcProvider::Impl : std::enable_shared_from_this<Impl> {
     std::shared_ptr<rtc::PeerConnection> pc;
     std::shared_ptr<rtc::Track> track;
     std::shared_ptr<rtc::RtpPacketizationConfig> rtpConfig;
+    std::shared_ptr<rtc::DataChannel> events;  // opened by the browser; carries sendEvent()
     std::atomic<int> payloadType{111};
     std::atomic<bool> connected{false};
     std::atomic<int64_t> lastMediaMs{0};
@@ -97,6 +98,7 @@ struct LibDataChannelWebRtcProvider::Impl : std::enable_shared_from_this<Impl> {
             pc.reset();
             track.reset();
             rtpConfig.reset();
+            events.reset();
         }
         // Close outside the lock: close() fires state callbacks synchronously.
         if (old) old->close();
@@ -270,6 +272,21 @@ bool LibDataChannelWebRtcProvider::sendAudio(const int16_t* pcm, size_t samples)
     return true;
 }
 
+bool LibDataChannelWebRtcProvider::sendEvent(const std::string& json) {
+    std::shared_ptr<rtc::DataChannel> dc;
+    {
+        std::lock_guard<std::mutex> lock(_impl->pcMutex);
+        dc = _impl->events;
+    }
+    if (!dc || !dc->isOpen()) return false;
+    try {
+        return dc->send(json);
+    } catch (const std::exception& e) {
+        spdlog::debug("[LibDataChannelWebRtc] event send failed: {}", e.what());
+        return false;
+    }
+}
+
 std::string LibDataChannelWebRtcProvider::handleOffer(const std::string& offerSdp) {
     auto impl = _impl;
     std::lock_guard<std::mutex> offerLock(impl->offerMutex);
@@ -333,6 +350,12 @@ std::string LibDataChannelWebRtcProvider::handleOffer(const std::string& offerSd
             nullptr);
         pc->onStateChange([weak, self](rtc::PeerConnection::State s) {
             if (auto i = weak.lock()) i->onStateChange(self, s);
+        });
+        pc->onDataChannel([weak, self](std::shared_ptr<rtc::DataChannel> dc) {
+            auto i = weak.lock();
+            if (!i) return;
+            std::lock_guard<std::mutex> lock(i->pcMutex);
+            if (i->pc.get() == self) i->events = std::move(dc);
         });
 
         auto gathered = std::make_shared<std::promise<void>>();

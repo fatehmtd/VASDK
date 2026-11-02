@@ -27,6 +27,12 @@ public:
         return true;
     }
 
+    bool sendEvent(const std::string& json) override {
+        std::lock_guard<std::mutex> l(m);
+        events.push_back(json);
+        return true;
+    }
+
     void connect() { connected = true; onConnect(); }
     void disconnect() { connected = false; onDisconnect(); }
 
@@ -34,6 +40,7 @@ public:
     std::atomic<bool> connected{false};
     std::mutex m;
     std::vector<std::vector<int16_t>> chunks;
+    std::vector<std::string> events;
 };
 
 int failures = 0;
@@ -111,6 +118,29 @@ int main() {
     t.flushOutputAudio();
     int pending = t.getPendingOutputAudioBytes();
     check(pending > 0 && pending <= 800 * 2, "flush keeps at most a 50 ms tail");
+
+    // State frames become JSON events for the page; frames it doesn't need are skipped, never failures.
+    auto agent = std::make_shared<transport::AgentStateFrame>();
+    agent->previousState = transport::AgentState::LISTENING;
+    agent->currentState = transport::AgentState::THINKING;
+    agent->transition = transport::AgentStateTransition::TRANSCRIPTION_READY;
+    auto stt = std::make_shared<transport::TranscriptionFrame>();
+    stt->isFinal = true;
+    stt->transcriptionResult.text = "say \"hi\"";
+    check(t.sendFrame(agent) && t.sendFrame(stt), "state frames accepted");
+    check(t.sendFrame(std::make_shared<transport::ControlFrame>()), "other frames accepted, not sent");
+    {
+        std::lock_guard<std::mutex> l(peer->m);
+        check(peer->events.size() == 2, "one event per state frame");
+        if (peer->events.size() == 2) {
+            auto& a = peer->events[0];
+            check(a.find("\"type\":\"agent_state\"") != std::string::npos &&
+                  a.find("\"state\":\"THINKING\"") != std::string::npos &&
+                  a.find("\"reason\":\"TRANSCRIPTION_READY\"") != std::string::npos, "agent_state event");
+            check(peer->events[1].find("\"text\":\"say \\\"hi\\\"\"") != std::string::npos,
+                  "transcript event, text JSON-escaped");
+        }
+    }
 
     peer->disconnect();
     check(t.getState() == transport::TransportState::CONNECTING && disconnects == 1,

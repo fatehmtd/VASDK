@@ -5,28 +5,135 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>VASDK WebRTC demo</title>
 <style>
-  body { font: 16px/1.5 system-ui, sans-serif; max-width: 32rem; margin: 4rem auto; padding: 0 1rem; }
+  body { font: 16px/1.5 system-ui, sans-serif; max-width: 40rem; margin: 3rem auto; padding: 0 1rem; }
   button { font: inherit; padding: .6rem 1.4rem; border-radius: .5rem; border: 1px solid #888; cursor: pointer; }
   button:disabled { opacity: .5; cursor: default; }
-  #status { margin-top: 1rem; color: #555; }
+  #status { color: #555; }
+  .row { display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; margin: 1rem 0; }
+  .badge { padding: .25rem .8rem; border-radius: 1rem; font-weight: 600; background: #eee; color: #333; }
+  .badge[data-state="LISTENING"]   { background: #dff3e4; color: #135c2b; }
+  .badge[data-state="THINKING"]    { background: #fff1c9; color: #6b4e00; }
+  .badge[data-state="SPEAKING"]    { background: #dbe9ff; color: #123f8c; }
+  .badge[data-state="INTERRUPTED"] { background: #ffe0dc; color: #8c1d12; }
+  .pill { padding: .25rem .8rem; border-radius: 1rem; background: #f3f3f3; color: #555; }
+  .pill.on { background: #135c2b; color: #fff; }
+  #chat { list-style: none; padding: 0; margin: 0; }
+  #chat li { margin: .4rem 0; padding: .5rem .75rem; border-radius: .5rem; background: #f6f6f6; }
+  #chat li.assistant { background: #eef4ff; }
+  #chat li.partial { color: #777; font-style: italic; }
+  #chat li .who { font-weight: 600; margin-right: .4rem; }
+  details { margin-top: 1.5rem; }
+  #log { font: 13px/1.4 ui-monospace, monospace; max-height: 16rem; overflow-y: auto; background: #fafafa;
+         border: 1px solid #ddd; border-radius: .5rem; padding: .5rem; margin: .5rem 0 0; list-style: none; }
+  #log .interrupt { color: #8c1d12; font-weight: 600; }
 </style>
 </head>
 <body>
 <h1>Talk to the assistant</h1>
 <p>Uses your microphone over WebRTC. Headphones are not required: the browser cancels echo.</p>
-<button id="call">Start call</button>
-<button id="hangup" disabled>Hang up</button>
-<p id="status" role="status" aria-live="polite">Idle</p>
+<div class="row">
+  <button id="call">Start call</button>
+  <button id="hangup" disabled>Hang up</button>
+  <span id="status" role="status" aria-live="polite">Idle</span>
+</div>
+
+<div class="row" aria-label="Pipeline state">
+  <span>Agent: <span id="agent" class="badge" role="status">-</span></span>
+  <span id="vad" class="pill">Mic: quiet</span>
+  <span id="tts" class="pill">Voice: idle</span>
+</div>
+
+<h2>Conversation</h2>
+<ol id="chat" role="log" aria-live="polite"></ol>
+
+<details>
+  <summary>Pipeline events</summary>
+  <ol id="log"></ol>
+</details>
+
 <audio id="remote" autoplay></audio>
 <script>
-const callBtn = document.getElementById('call');
-const hangupBtn = document.getElementById('hangup');
-const status = document.getElementById('status');
+const $ = id => document.getElementById(id);
+const callBtn = $('call'), hangupBtn = $('hangup');
 let pc = null;
 
-function setStatus(text) { status.textContent = text; }
+function setStatus(text) { $('status').textContent = text; }
 
-async function start() {
+//  Pipeline events (JSON over the "events" data channel)
+let partialUser = null;   // live STT line, replaced by the final transcript
+let reply = null;         // assistant line being streamed
+const start = performance.now();
+
+function chatLine(who, cls) {
+  const li = document.createElement('li');
+  li.className = cls;
+  const name = document.createElement('span');
+  name.className = 'who';
+  name.textContent = who;
+  li.append(name, document.createElement('span'));
+  $('chat').append(li);
+  li.scrollIntoView({ block: 'nearest' });
+  return li.lastChild;
+}
+
+function logEvent(text, cls) {
+  const li = document.createElement('li');
+  li.textContent = `${((performance.now() - start) / 1000).toFixed(2)}s  ${text}`;
+  if (cls) li.className = cls;
+  const log = $('log');
+  log.append(li);
+  while (log.children.length > 200) log.firstChild.remove();
+  log.scrollTop = log.scrollHeight;
+}
+
+const VAD_ON = ['STARTING', 'ONGOING', 'RESUMING'];
+
+function onEvent(e) {
+  switch (e.type) {
+  case 'agent_state': {
+    const badge = $('agent');
+    badge.textContent = e.state.toLowerCase();
+    badge.dataset.state = e.state;
+    const interrupted = e.state === 'INTERRUPTED';
+    logEvent(`agent ${e.from} -> ${e.state} (${e.reason})`, interrupted ? 'interrupt' : '');
+    if (interrupted && reply) { reply.textContent += ' [interrupted]'; reply = null; }
+    break;
+  }
+  case 'vad': {
+    const on = VAD_ON.includes(e.state);
+    $('vad').textContent = on ? 'Mic: you are speaking' : 'Mic: quiet';
+    $('vad').classList.toggle('on', on);
+    logEvent(`vad ${e.state}`);
+    break;
+  }
+  case 'turn':
+    if (e.kind !== 'NORMAL') logEvent(`turn ${e.actor} ${e.state} (${e.kind})`, 'interrupt');
+    break;
+  case 'transcript':
+    if (!e.text) break;
+    if (!partialUser) { partialUser = chatLine('You', 'user partial'); }
+    partialUser.textContent = e.text;
+    if (e.final) {
+      partialUser.parentElement.classList.remove('partial');
+      logEvent(`asr "${e.text}" (${Math.round(e.confidence * 100)}%)`);
+      partialUser = null;
+    }
+    break;
+  case 'reply':
+    if (!reply) reply = chatLine('Assistant', 'assistant');
+    reply.textContent += e.text;
+    if (e.final) { logEvent(`llm reply done`); reply = null; }
+    break;
+  case 'tts':
+    $('tts').textContent = e.state === 'STARTED' ? 'Voice: speaking' : `Voice: ${e.state.toLowerCase()}`;
+    $('tts').classList.toggle('on', e.state === 'STARTED');
+    logEvent(`tts ${e.state}`, e.state === 'INTERRUPTED' ? 'interrupt' : '');
+    break;
+  }
+}
+
+//  Call
+async function startCall() {
   callBtn.disabled = true;
   try {
     const mic = await navigator.mediaDevices.getUserMedia({
@@ -34,12 +141,15 @@ async function start() {
     });
     pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
     mic.getTracks().forEach(t => pc.addTrack(t, mic));
-    pc.ontrack = e => { document.getElementById('remote').srcObject = e.streams[0] || new MediaStream([e.track]); };
+    pc.ontrack = e => { $('remote').srcObject = e.streams[0] || new MediaStream([e.track]); };
     pc.onconnectionstatechange = () => {
       setStatus(pc.connectionState === 'connected' ? 'Connected - start talking' : pc.connectionState);
       // 'disconnected' can recover on its own; the browser moves to 'failed' if it doesn't.
       if (['failed', 'closed'].includes(pc.connectionState)) stop();
     };
+    // Created before the offer so it is negotiated with it.
+    const events = pc.createDataChannel('events');
+    events.onmessage = m => { try { onEvent(JSON.parse(m.data)); } catch (err) { console.warn(err, m.data); } };
 
     await pc.setLocalDescription(await pc.createOffer());
     setStatus('Gathering network candidates...');
@@ -68,11 +178,12 @@ function stop() {
     pc.close();
     pc = null;
   }
+  partialUser = reply = null;
   callBtn.disabled = false;
   hangupBtn.disabled = true;
 }
 
-callBtn.addEventListener('click', start);
+callBtn.addEventListener('click', startCall);
 hangupBtn.addEventListener('click', () => { stop(); setStatus('Call ended'); });
 </script>
 </body>

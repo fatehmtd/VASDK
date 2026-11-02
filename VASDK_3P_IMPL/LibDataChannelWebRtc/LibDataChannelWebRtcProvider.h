@@ -32,6 +32,8 @@ public:
     void close() override;
     bool isConnected() const override;
     bool sendAudio(const int16_t* pcm, size_t samples) override;
+    /// Sent on the data channel the browser opens with its offer (any label); false until it is open.
+    bool sendEvent(const std::string& json) override;
 
     /**
      * @brief Answer a remote SDP offer, replacing any peer that is not yet connected.

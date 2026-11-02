@@ -134,6 +134,12 @@ void loopbackTest() {
     track->onMessage([&](rtc::binary msg) {
         if (msg.size() > 12 && (std::to_integer<int>(msg[1]) & 0x7F) == 111) ++rtpFromProvider;
     }, nullptr);
+    // Like the demo page: an events channel created before the offer.
+    auto events = pc->createDataChannel("events");
+    std::atomic<bool> gotEvent{false};
+    events->onMessage([&](rtc::message_variant msg) {
+        if (auto* s = std::get_if<std::string>(&msg)) gotEvent = *s == "{\"type\":\"test\"}";
+    });
 
     auto gathered = std::make_shared<std::promise<void>>();
     auto done = std::make_shared<std::atomic<bool>>(false);
@@ -152,6 +158,15 @@ void loopbackTest() {
     check(provider.isConnected() && connects == 1, "peer connects, onConnect fired once");
     check(track->isOpen(), "offerer track opens");
     check(provider.handleOffer(std::string(*pc->localDescription())).empty(), "second offer refused while connected");
+
+    // Provider -> offerer event; the channel opens shortly after the peer connects.
+    bool sent = false;
+    for (int i = 0; i < 60 && !sent; ++i) {
+        sent = provider.sendEvent("{\"type\":\"test\"}");
+        if (!sent) std::this_thread::sleep_for(50ms);
+    }
+    for (int i = 0; i < 40 && !gotEvent; ++i) std::this_thread::sleep_for(25ms);
+    check(sent && gotEvent, "event reaches the offerer on its data channel");
 
     // Offerer -> provider: 1 s of tone as 20 ms Opus packets.
     int err = 0;
@@ -181,7 +196,7 @@ void loopbackTest() {
     check(rtpFromProvider >= 15, "provider audio reached the offerer as Opus RTP");
     std::printf("offerer got %d RTP packets from provider\n", rtpFromProvider.load());
 
-    // A libdatachannel offerer closes without a DTLS close alert, so this exercises the media watchdog.
+    // The offerer closing is seen via SCTP (data channel); without one the 5 s media watchdog catches it.
     pc->close();
     auto t0 = std::chrono::steady_clock::now();
     for (int i = 0; i < 200 && provider.isConnected(); ++i) std::this_thread::sleep_for(50ms);
