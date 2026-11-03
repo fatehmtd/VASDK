@@ -13,6 +13,9 @@ start_flow: "main"
 # try it with: vasdk_agentc chat agent.txtpb --session tier=gold
 session_params { name: "tier"    type: STRING default { string_value: "standard" } }
 session_params { name: "service" type: STRING }
+session_params { name: "day"     type: STRING }
+
+goal_files: ["goals/booking.txtpb"]   # the day and phone number the booking form asks for
 
 intents { name: "book"       examples: ["book", "appointment", "schedule", "bring my car in", "service"] }
 intents { name: "hours"      examples: ["hours", "open", "close", "closing"] }
@@ -34,9 +37,9 @@ flows {
     name: "welcome"
     on_enter { branch { if: "$session.tier = 'gold'" then { say { text: "Welcome back, gold member." } } } }
     on_enter { ask { say { text: "Hi, this is Acme Garage. Would you like to book a service, hear our hours, or talk to a person?" } } }
-    # Naming the service books it straight away; listed before "book" so "book an oil change" picks it.
-    routes { intent: "oil_change" steps { set { key: "$session.service" value: "'an oil change'" } } target: "booked" }
-    routes { intent: "tires" steps { set { key: "$session.service" value: "'a tire repair'" } } target: "booked" }
+    # Naming the service goes straight to booking; listed before "book" so "book an oil change" picks it.
+    routes { intent: "oil_change" steps { set { key: "$session.service" value: "'an oil change'" } } target: "booking" }
+    routes { intent: "tires" steps { set { key: "$session.service" value: "'a tire repair'" } } target: "booking" }
     routes { intent: "book" target: "service" }
     routes {
       intent: "hours"
@@ -56,19 +59,31 @@ flows {
   pages {
     name: "service"
     on_enter { ask { say { text: ["Sure. Is it for an oil change or tires?", "Which service: an oil change or tires?"] } } }
-    routes { intent: "oil_change" steps { set { key: "$session.service" value: "'an oil change'" } } target: "booked" }
-    routes { intent: "tires" steps { set { key: "$session.service" value: "'a tire repair'" } } target: "booked" }
+    routes { intent: "oil_change" steps { set { key: "$session.service" value: "'an oil change'" } } target: "booking" }
+    routes { intent: "tires" steps { set { key: "$session.service" value: "'a tire repair'" } } target: "booking" }
     routes { intent: "back" target: "welcome" }
     routes { intent: "help" steps { ask { say { text: "We do oil changes and tire repairs. Which one do you need?" } } } }
     routes { intent: "person" target: "flow:handoff" }
   }
 
+  # Asks for the day and phone number, reads them back, and books on a yes. A day said on the way
+  # in ("an oil change on Tuesday") is already filled.
+  pages {
+    name: "booking"
+    form { goal: "booking" }
+    routes { condition: "$form.confirmed" steps { set { key: "$session.day" value: "$form.day" } } target: "booked" }
+    routes { condition: "$form.failed" steps { say { text: "Let me get someone to help you with that." } } target: "flow:handoff" }
+    routes { intent: "hours" steps { say { text: "We're open 8 to 6, Monday to Saturday." } } }   # then the form asks again
+    routes { intent: "person" target: "flow:handoff" }
+    routes { intent: "back" target: "welcome" }
+  }
+
   pages {
     name: "booked"
-    on_enter { say { text: "You're booked for $session.service tomorrow at 9 AM." } }
+    on_enter { say { text: "You're booked for $session.service, $session.day at 9 AM." } }
     on_enter { branch { if: "$session.tier : ('gold', 'platinum')" then { say { text: "As a $session.tier member, there's no charge." } } } }
     on_enter { ask { say { text: "Is there anything else I can help with?" } } }
-    routes { intent: "no" steps { say { text: "Great, see you tomorrow. Goodbye!" } } target: "END_SESSION" }
+    routes { intent: "no" steps { say { text: "Great, see you then. Goodbye!" } } target: "END_SESSION" }
     routes { intent: "yes" target: "welcome" }
   }
 }

@@ -1,0 +1,48 @@
+// A goal: the values a form collects, how to ask for each, and how to confirm them.
+// Written inside an agent (`goals { ... }`) or in a file of its own listed in the agent's
+// goal_files, starting with
+//   # proto-file: vasdk/goal/goal.proto
+//   # proto-message: vasdk.goal.GoalDefinition
+syntax = "proto3";
+
+package vasdk.goal;
+
+message GoalDefinition {
+  string name = 1;
+  string objective = 2;                // what the goal is for
+  repeated Slot slots = 3;             // asked in this order
+  // Read the values back and wait for a yes before $form.confirmed is true.
+  bool require_confirmation = 4;
+  repeated string confirm = 5;         // "So that's $form.service on $form.day. Shall I book it?"
+  repeated string change = 6;          // asked after a no; unset: "What would you like to change?"
+  int32 max_reprompts = 7;             // answers in a row that don't fit before $form.failed; 0: 2
+}
+
+// One value. An answer is read from the user's words by type: the first number for
+// INTEGER and NUMBER, yes or no for BOOLEAN, one of `values` for ENUM, the spoken or written
+// digits for PHONE, and the whole answer otherwise (DATE, TIME and DATETIME in ISO form only).
+message Slot {
+  enum Type {
+    STRING = 0;
+    PHONE = 1;
+    EMAIL = 2;
+    DATE = 3;       // YYYY-MM-DD
+    TIME = 4;       // HH:MM
+    DATETIME = 5;
+    NUMBER = 6;
+    INTEGER = 7;
+    BOOLEAN = 8;
+    ENUM = 9;
+  }
+  string name = 1;                     // $form.<name>
+  Type type = 2;
+  string description = 3;
+  bool optional = 4;                   // not asked; filled only when the user says it anyway
+  string condition = 5;                // asked only while this holds: "$form.service = 'tire repair'"
+  repeated string values = 6;          // ENUM: the accepted values, matched whole and ignoring case
+  optional double min = 7;             // NUMBER, INTEGER
+  optional double max = 8;
+  bool must_be_future = 9;             // DATE, DATETIME
+  repeated string prompt = 10;         // the question; unset: "What's the <name>?"
+  repeated string reprompt = 11;       // after an answer that doesn't fit; unset: "Sorry, I didn't get that." and the prompt
+}

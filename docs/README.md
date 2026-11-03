@@ -28,7 +28,7 @@ Built on top of those:
 - **[The LLM stack](reference/llm.md)** - `LLMTransport`, prompt templates and chat formats, tools and dispatch, fire policies, streaming, cancellation.
 - **[The goal layer](reference/goal.md)** - goal-oriented conversations: slots and validation, `GoalManager`, intent routing, persistence/resume, the conversation simulator.
 - **[VAEngine](reference/engine.md)** - a complete assistant from an engine config: the standard pipeline, slots for your own processors, `say` / `injectUserText` / `interrupt`, events for transcripts, replies, state changes, tool calls and errors, and many conversations at once over shared models.
-- **[Agents](reference/flows.md)** - scripted conversations with no LLM: pages, keyword intents, routes, conditions and stored values in an agent file, checked and tested with `vasdk_agentc`.
+- **[Agents](reference/flows.md)** - scripted conversations with no LLM: pages, keyword intents, routes, conditions, stored values and forms in an agent file, checked and tested with `vasdk_agentc`.
 - **[Engine config files](reference/engine-config.md)** - choosing VAD/STT/TTS providers and LLM settings in a text-proto file instead of code: formats, `${ENV}` secrets, provider ids and options, fallbacks.
 - **[Context and metrics](reference/context-and-metrics.md)** - feeding situational context into prompts; instrumenting and exporting pipeline metrics.
 

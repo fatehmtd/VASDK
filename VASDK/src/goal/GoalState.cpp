@@ -282,6 +282,7 @@ SlotValidationResult GoalState::updateSlot(const std::string& dotPath, const std
     if (result.valid) {
         slot->value = result.normalizedValue;
         _summaryCacheDirty = true;
+        _confirmed = false;
         spdlog::info("[GoalState] Slot '{}' set to: {}", dotPath, result.normalizedValue.dump());
     }
     return result;
@@ -300,6 +301,7 @@ SlotValidationResult GoalState::updateObjectSlot(const std::string& name, const 
     if (result.valid) {
         slot->value = obj;
         _summaryCacheDirty = true;
+        _confirmed = false;
         spdlog::info("[GoalState] Object slot '{}' set to: {}", name, obj.dump());
     }
     return result;
@@ -314,11 +316,41 @@ bool GoalState::prefillSlot(const std::string& dotPath, const nlohmann::json& va
     }
     slot->value = value;
     _summaryCacheDirty = true;
+    _confirmed = false;
     spdlog::info("[GoalState] Slot '{}' pre-filled: {}", dotPath, value.dump());
     return true;
 }
 
+bool GoalState::clearSlot(const std::string& dotPath) {
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
+    GoalSlot* slot = findSlot(dotPath);
+    if (!slot) return false;
+    slot->value.reset();
+    for (auto& sub : slot->subSlots) sub.value.reset();
+    _summaryCacheDirty = true;
+    _confirmed = false;
+    return true;
+}
+
 //  Completion checks 
+
+std::vector<std::string> GoalState::missingSlots() const {
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
+    std::vector<std::string> missing;
+    for (const auto& slot : _slots)
+        if (isRequired(slot) && !isCollected(slot)) missing.push_back(slot.name);
+    return missing;
+}
+
+bool GoalState::isConfirmed() const {
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
+    return _confirmed;
+}
+
+void GoalState::setConfirmed(bool confirmed) {
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
+    _confirmed = confirmed;
+}
 
 bool GoalState::isComplete() const {
     std::lock_guard<std::recursive_mutex> lock(_mutex);

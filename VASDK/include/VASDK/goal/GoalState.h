@@ -23,9 +23,26 @@ public:
         , _repromptCount(o._repromptCount)
         , _awaitingConfirmation(o._awaitingConfirmation)
         , _confirmationAttempts(o._confirmationAttempts)
+        , _confirmed(o._confirmed)
         , _summaryCacheDirty(o._summaryCacheDirty)
         , _cachedMissing(std::move(o._cachedMissing))
         , _cachedCollected(std::move(o._cachedCollected)) {}
+
+    /// A copy holds the same values; a flow keeps one to undo a turn.
+    GoalState(const GoalState& o) {
+        std::lock_guard<std::recursive_mutex> lock(o._mutex);
+        _definition           = o._definition;
+        _slots                = o._slots;
+        _repromptCount        = o._repromptCount;
+        _awaitingConfirmation = o._awaitingConfirmation;
+        _confirmationAttempts = o._confirmationAttempts;
+        _confirmed            = o._confirmed;
+    }
+
+    GoalState& operator=(const GoalState& o) {
+        if (this != &o) *this = GoalState(o);
+        return *this;
+    }
 
     GoalState& operator=(GoalState&& o) noexcept {
         if (this != &o) {
@@ -34,6 +51,7 @@ public:
             _repromptCount        = o._repromptCount;
             _awaitingConfirmation = o._awaitingConfirmation;
             _confirmationAttempts = o._confirmationAttempts;
+            _confirmed            = o._confirmed;
             _summaryCacheDirty    = o._summaryCacheDirty;
             _cachedMissing        = std::move(o._cachedMissing);
             _cachedCollected      = std::move(o._cachedCollected);
@@ -55,9 +73,19 @@ public:
     /// Accepts nlohmann::json for any slot type; skips validation.
     bool prefillSlot(const std::string& dotPath, const nlohmann::json& value);
 
+    /// Empties a slot so it is asked again. False for an unknown slot.
+    bool clearSlot(const std::string& dotPath);
+
     //  Completion state 
 
     bool isComplete() const;
+
+    /// Required slots not collected yet, in definition order: the next one to ask is first.
+    std::vector<std::string> missingSlots() const;
+
+    /// The user said yes to the values read back. Any slot change clears it.
+    bool isConfirmed() const;
+    void setConfirmed(bool confirmed);
 
     bool isAwaitingConfirmation() const;
     void setAwaitingConfirmation(bool v);
@@ -94,6 +122,7 @@ private:
     int  _repromptCount          = 0;
     bool _awaitingConfirmation   = false;
     int  _confirmationAttempts   = 0;
+    bool _confirmed              = false;
 
     // recursive_mutex so condition lambdas can call slotValueStr() while a
     // summary is being rebuilt (both paths acquire _mutex on the same thread).

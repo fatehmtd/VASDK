@@ -58,6 +58,10 @@ FlowTestResult runFlowTest(std::shared_ptr<const CompiledAgent> agent, const vas
             const std::string actual = toText(conversation.sessionParam(name));
             if (actual != expected) fail("$session." + name + " is " + quoted(actual) + ", expected " + quoted(expected));
         }
+        for (const auto& [name, expected] : expect.form()) {
+            const std::string actual = toText(conversation.lookup({"form", name}));
+            if (actual != expected) fail("$form." + name + " is " + quoted(actual) + ", expected " + quoted(expected));
+        }
     }
     return result;
 }

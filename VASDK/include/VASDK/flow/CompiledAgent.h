@@ -11,6 +11,7 @@
 #include <vector>
 
 namespace va {
+namespace goal { struct GoalDefinition; class GoalState; }
 namespace flow {
 
 /**
@@ -40,7 +41,7 @@ public:
      */
     static std::shared_ptr<const CompiledAgent> compile(vasdk::flow::Agent agent, std::string* error = nullptr,
                                                         std::vector<std::string>* warnings = nullptr);
-    /** Loads a .txtpb, .json or .pb agent file, then compile(). */
+    /** Loads a .txtpb, .json or .pb agent file and its goal_files, then compile(). */
     static std::shared_ptr<const CompiledAgent> load(const std::string& path, std::string* error = nullptr,
                                                      std::vector<std::string>* warnings = nullptr);
 
@@ -57,6 +58,10 @@ public:
     const vasdk::flow::SessionParam* sessionParam(const std::string& name) const;
     /** An expression from the agent, parsed when it loaded; nullptr for text it doesn't hold. */
     std::shared_ptr<const Expression> expression(const std::string& text) const;
+    /** A goal from goals or goal_files, or nullptr. */
+    const vasdk::goal::GoalDefinition* goal(const std::string& name) const;
+    /** A goal's slots, empty, ready for a form to fill; nullptr for an unknown goal. */
+    std::unique_ptr<goal::GoalState> newGoalState(const std::string& name) const;
 
 private:
     CompiledAgent() = default;
@@ -68,6 +73,8 @@ private:
     std::map<std::string, std::vector<std::vector<std::string>>> _intentExamples;   // split into words
     std::map<std::string, int> _sessionParams;                                       // name → index
     std::map<std::string, std::shared_ptr<const Expression>> _expressions;           // by source text
+    std::map<std::string, int> _goals;                                               // name → index
+    std::map<std::string, std::shared_ptr<const goal::GoalDefinition>> _goalDefinitions;   // as GoalState runs them
 };
 
 /** Whether `value` fits a session param of `type`; null always does. */

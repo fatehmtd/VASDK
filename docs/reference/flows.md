@@ -109,6 +109,7 @@ Routes take a `condition` too: `routes { intent: "hours" condition: "$context.cl
 | `$input.text` | What the user said this turn. |
 | `$nlu.intent` | The intent of the route that matched this turn. |
 | `$context.<name>…` | App data from `Session::Options::context`: device state, location, anything the app's `ContextProvider` holds. |
+| `$form.<slot>`, `$form.complete`, `$form.confirmed`, `$form.failed` | On a form page: see [Forms](#forms). |
 
 Objects and lists are walked with `.field` and `[index]`: `$context.system.battery`, `$session.cars[0]`.
 
@@ -126,9 +127,81 @@ A missing value is `null` and compares false to anything but `null`. A string th
 
 **In replies**, `$session.tier` or `${session.tier}` is replaced by its value; `$$` is a dollar sign, and a missing value is empty. A full stop after a reference isn't part of it ("You have $session.points."). Lists read naturally: "Corolla, Civic and Prius".
 
-**Checked at load.** Every expression and reply is parsed when the agent loads; an error says where it is: `flow "main" page "welcome" on_enter step 3 branch if: "$session.tier = gold": column 17: unknown word 'gold' (strings need quotes)`. References must name a declared session param or one of the roots above, `set` keys must be `$session.<name>` or `$page.locals.<name>`, and defaults must fit their type.
+**Checked at load.** Every expression and reply is parsed when the agent loads; an error says where it is: `flow "main" page "welcome" on_enter step 3 branch if: "$session.tier = gold": column 17: unknown word 'gold' (strings need quotes)`. References must name a declared session param or one of the roots above, `set` keys must be `$session.<name>`, `$page.locals.<name>` or (on a form page) `$form.<slot>`, and defaults must fit their type.
 
 **From the app:** `session->setSessionParam("tier", value)` (a `google::protobuf::Value`) sets one, for example from a CRM when a call starts. Values are kept for the whole conversation, also after it ends and starts over, until the caller disconnects. A wrong type is logged and ignored; a number given for a STRING param, or a numeric string for a NUMBER one, is converted.
+
+## Forms
+
+A form collects several values on one page: it asks for each in turn, re-asks when an answer doesn't fit, reads them back, and waits for a yes. What it collects is a **goal**, written in the agent (`goals { … }`) or in a file of its own:
+
+```textproto
+# agent.txtpb
+goal_files: ["goals/booking.txtpb"]   # relative to the agent file
+
+pages {
+  name: "booking"
+  form { goal: "booking" }
+  routes { condition: "$form.confirmed" steps { set { key: "$session.day" value: "$form.day" } } target: "booked" }
+  routes { condition: "$form.failed" target: "flow:handoff" }
+  routes { intent: "hours" steps { say { text: "We're open 8 to 6." } } }   # then the form asks again
+  routes { intent: "change_day" steps { clear_slot { slot: "day" } } }
+}
+```
+```textproto
+# goals/booking.txtpb
+# proto-file: vasdk/goal/goal.proto
+# proto-message: vasdk.goal.GoalDefinition
+name: "booking"
+require_confirmation: true
+confirm: "So that's $form.service on $form.day, and we'll call you at $form.phone. Shall I book it?"
+slots { name: "service" type: ENUM values: ["oil change", "tire repair"] prompt: "Which service?" }
+slots { name: "tires" type: INTEGER min: 1 max: 4 condition: "$form.service = 'tire repair'" prompt: "How many tires?" }
+slots { name: "day" type: ENUM values: ["monday", "tuesday", "saturday"]
+        prompt: "Which day works for you?" reprompt: "Sorry, which day? We're open Monday to Saturday." }
+slots { name: "phone" type: PHONE prompt: "What's the best number to reach you?" }
+```
+
+```
+bot: Which service?
+you: a tire repair on Saturday          ← both filled: the service, and a day named in passing
+bot: How many tires?                    ← asked only for a tire repair
+you: three
+bot: What's the best number to reach you?
+you: five five five, one two three, four five six seven
+bot: So that's tire repair on saturday, and we'll call you at 555-123-4567. Shall I book it?
+you: no, make it Tuesday                ← changed straight away, then read back again
+bot: So that's tire repair on tuesday, …  Shall I book it?
+you: yes                                → $form.confirmed: the first route goes to "booked"
+```
+
+**Reading answers.** Each answer is first tried as the slot just asked for:
+
+| Type | Read from the answer | Stored as |
+|---|---|---|
+| `ENUM` | the longest of `values` found as whole words, ignoring case and punctuation | the value as declared |
+| `INTEGER`, `NUMBER` | the first number, in digits or words ("twenty five", "a hundred and two"); `min`/`max` checked | a number |
+| `BOOLEAN` | yes or no ("yeah sure", "nope"); the first one said wins | `true`/`false` |
+| `PHONE` | the digits, written or spoken one by one ("double four" too); 7 or 10 needed | `555-123-4567` |
+| `STRING`, `EMAIL`, `DATE`, `TIME`, `DATETIME` | the whole answer; dates and times only in ISO form for now | the text |
+
+Any other empty `ENUM` slot whose value is named is filled too, so "an oil change on Tuesday" fills two. That also happens with the words that led to the page.
+
+**Order.** The form asks for the first required slot still empty, in the goal's order; a slot with a `condition` is required only while it holds (it reads `$form.<slot>` only). `optional` slots aren't asked. With `require_confirmation`, it then speaks `confirm`, and:
+- *yes*: `$form.confirmed` becomes true;
+- *no* with a new `ENUM` value ("no, Tuesday"): it changes and is read back again;
+- a plain *no*: "What would you like to change?" (or the goal's `change` text). Naming a value changes it; naming a slot ("the phone number") empties it and asks for it again.
+
+**When an answer fits nothing,** the page's routes get it, so "what are your hours" or "talk to a person" still work. A route that stays on the page is followed by the form's next question. With no route, the slot's `reprompt` is asked (default: "Sorry, I didn't get that." and the prompt), and `matched` is false. After more than `max_reprompts` (default 2) answers in a row that don't fit, `$form.failed` becomes true.
+
+**Routes.** Once the form has everything (and a yes, with confirmation) or has failed, the first condition route that holds is taken. `$form.<slot>`, `$form.complete`, `$form.confirmed` and `$form.failed` can be read on the page. The values start empty each time the conversation arrives on the page, and are kept on `CURRENT_PAGE`. To keep them, copy them into session params on the way out.
+
+| Step | Example | What it does |
+|---|---|---|
+| `clear_slot` | `clear_slot { slot: "day" }` | Empties a slot: the form asks for it again, and confirms again. |
+| `set` | `set { key: "$form.phone" value: "$session.phone" }` | Fills a slot, checked like an answer: prefill from what the app knows, in `on_enter`. |
+
+**Checked at load:** an unknown goal, `$form` on a page without a form, an `ENUM` with no values, a slot condition reading anything but `$form.<slot>`, `clear_slot` of an unknown slot, `require_confirmation` without `confirm` text. A form page without a condition route gets a warning.
 
 ## Events
 
@@ -138,13 +211,14 @@ With an agent, listeners also get `page_changed` (`from_flow`/`from_page` → `t
 
 ```
 $ vasdk_agentc lint agents/garage-menu/agent.txtpb
-agents/garage-menu/agent.txtpb: ok (2 flows, 4 pages, 9 intents)
+agents/garage-menu/agent.txtpb: ok (2 flows, 5 pages, 11 intents)
 
 $ vasdk_agentc test agents/garage-menu/agent.txtpb agents/garage-menu/tests/*.txtpb
 PASS book a tire service, then say goodbye
+PASS the booking form: a day on the way in, a closed day, the hours, and changing the answers
 PASS asking for a person hands off and ends
-PASS an answer that isn't understood repeats the question
-3 of 3 passed
+…
+6 of 6 passed
 
 $ vasdk_agentc chat agents/garage-menu/agent.txtpb
 bot: Hi, this is Acme Garage. Would you like to book a service, hear our hours, or talk to a person?   [main/welcome]
@@ -164,7 +238,7 @@ turns { user: "I have a flat" expect { page: "service" } }
 turns { user: "my windshield is cracked" expect { matched: false said_contains: "can't help with that" } }
 ```
 
-  Expectations: `page`, `flow`, `said` (the whole reply), `said_contains` (case-insensitive), `matched`, `expects_reply`, `ends_session`, and `session { key: "service" value: "an oil change" }` (a param as a reply would say it). A case can set session params and context before the first turn: `session { fields { key: "tier" value { string_value: "gold" } } }`, `context { … }`. The same runs from C++ with `va::flow::runFlowTest`, and the example's cases run in `ctest` (`vasdk_agent_garage_menu`).
+  Expectations: `page`, `flow`, `said` (the whole reply), `said_contains` (case-insensitive), `matched`, `expects_reply`, `ends_session`, `session { key: "service" value: "an oil change" }` (a param as a reply would say it), and `form { key: "day" value: "tuesday" }` (a slot, or `complete`/`confirmed`/`failed`; `""` when empty). A case can set session params and context before the first turn: `session { fields { key: "tier" value { string_value: "gold" } } }`, `context { … }`. The same runs from C++ with `va::flow::runFlowTest`, and the example's cases run in `ctest` (`vasdk_agent_garage_menu`).
 - **`chat`** talks to the agent by typing, showing the page after each reply. `--session tier=gold` sets a session param first.
 
 ## In C++
@@ -176,7 +250,9 @@ turns { user: "my windshield is cracked" expect { matched: false said_contains: 
 | `flow::Expression` | `parse(text)` once, then `evaluate(lookup)` or `test(lookup)`; `renderTemplate` for replies. |
 | `flow::DialogProcessor` | The pipeline stage `Session` adds for `Options::agent`, after the turn assembler. |
 | `flow::runFlowTest` | Plays a `FlowTestCase` and returns what differed. |
+| `flow::extractSlotValue`, `extractYesNo` | How a form reads a slot's value from an answer. |
+| `goal::GoalState` | A form's values: `updateSlot`, `clearSlot`, `missingSlots`, `isConfirmed`. Shared with the LLM goal path (`GoalManager`). |
 
 ## Not yet
 
-These come in later milestones: arithmetic and dates in expressions (`days_until`, `now`), filters in replies (`|raw`), forms that collect several values, custom entities, global commands and digressions that return where you were (`END_FLOW`), handlers for no-input and repeated misunderstandings, rich replies, and custom steps written in C++.
+These come in later milestones: arithmetic and dates in expressions (`days_until`, `now`), filters in replies (`|raw`), spoken dates and times in forms ("next Tuesday"), synonyms for form values ("tyres", "puncture"), skipping a slot ("I don't know"), custom entities, global commands and digressions that return where you were (`END_FLOW`), handlers for no-input and repeated misunderstandings, rich replies, and custom steps written in C++.

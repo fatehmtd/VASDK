@@ -3,6 +3,7 @@
 name: "a gold member is welcomed back and not charged"
 session { fields { key: "tier" value { string_value: "gold" } } }
 turns { expect { page: "welcome" said_contains: "Welcome back, gold member." } }
-turns { user: "book an oil change"
-        expect { page: "booked" said_contains: ["booked for an oil change", "As a gold member, there's no charge."]
-                 session { key: "service" value: "an oil change" } } }
+turns { user: "book an oil change tomorrow"
+        expect { page: "booking" said: "And what's the best number to reach you?" session { key: "service" value: "an oil change" } } }
+turns { user: "555 123 4567" expect { said_contains: "Shall I book it?" } }
+turns { user: "yes" expect { page: "booked" said_contains: ["booked for an oil change, tomorrow", "As a gold member, there's no charge."] } }

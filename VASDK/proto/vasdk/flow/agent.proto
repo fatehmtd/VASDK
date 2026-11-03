@@ -7,6 +7,7 @@ syntax = "proto3";
 package vasdk.flow;
 
 import "google/protobuf/struct.proto";
+import "vasdk/goal/goal.proto";
 
 message Agent {
   int32 schema_version = 1;
@@ -17,6 +18,8 @@ message Agent {
   repeated Intent intents = 10;
   repeated Flow flows = 11;
   repeated SessionParam session_params = 12;   // $session.<name>: kept for the whole conversation
+  repeated vasdk.goal.GoalDefinition goals = 13;   // what forms collect (Page.form)
+  repeated string goal_files = 14;             // more goals, one per file, relative to this file
 }
 
 // A value the conversation keeps: set by `set` steps, by the app (Session::setSessionParam),
@@ -50,6 +53,18 @@ message Page {
   string name = 1;
   repeated Step on_enter = 2;   // run each time the conversation enters the page
   repeated Route routes = 3;    // tried against each user turn while on the page
+  Form form = 4;                // collect a goal's values on this page
+}
+
+// Asks for the goal's slots one by one, then confirms them (require_confirmation). Each answer
+// is tried as the current slot first, and any slot with `values` named in it is filled too; an
+// answer that fits nothing goes to the routes, and is asked again when no route matches.
+// Condition routes are tried once the form is complete (and confirmed) or has failed:
+//   routes { condition: "$form.confirmed" target: "booked" }
+// $form.<slot>, $form.complete, $form.confirmed and $form.failed read it. The values are kept
+// while the conversation stays on the page (CURRENT_PAGE too) and start empty on arrival.
+message Form {
+  string goal = 1;
 }
 
 // Matches when its intent does (the longest example wins between routes) and its condition holds.
@@ -67,6 +82,7 @@ message Step {
   oneof kind {
     Say say = 1;
     Ask ask = 2;
+    ClearSlot clear_slot = 10;
     Set set = 11;
     Branch branch = 12;
     Switch switch = 13;
@@ -86,8 +102,9 @@ message Ask {
   Say say = 1;
 }
 
-// Stores a value: key is "$session.<name>" (declared in session_params) or "$page.locals.<name>"
-// (kept until the conversation leaves the page); value is an expression ("'gold'", "$input.text").
+// Stores a value: key is "$session.<name>" (declared in session_params), "$page.locals.<name>"
+// (kept until the conversation leaves the page) or "$form.<slot>" (on a form page, checked like
+// an answer); value is an expression ("'gold'", "$input.text").
 message Set {
   string key = 1;
   string value = 2;
@@ -119,3 +136,8 @@ message Goto {
 
 // Ends the conversation once the reply has played; the next one starts at start_flow.
 message End {}
+
+// Empties one of the page's form slots, so the form asks for it again (and confirms again).
+message ClearSlot {
+  string slot = 1;
+}

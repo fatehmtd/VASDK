@@ -5,6 +5,7 @@
 
 #include <functional>
 #include <map>
+#include <optional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -49,8 +50,9 @@ public:
     /**
      * Routes the user's words on the current page: the matched route's steps run, then the
      * conversation moves to its target. Not understood: "Sorry, I can't help with that here." and the
-     * page's last question again. Before start(), or after the conversation ended, it starts
-     * over at the start page without the greeting and routes the words there.
+     * page's last question again. On a form page the words answer the form first (Page.form).
+     * Before start(), or after the conversation ended, it starts over at the start page without
+     * the greeting and routes the words there.
      */
     Reply handleText(const std::string& text);
 
@@ -71,7 +73,7 @@ public:
     /** What $context.* reads, asked each time a reference needs it (it may change any time). */
     using ContextSource = std::function<google::protobuf::Struct()>;
     void setContextSource(ContextSource source) { _context = std::move(source); }
-    /** The value a reference resolves to now ($session.tier, $page.locals.x, $input.text, ...). */
+    /** The value a reference resolves to now ($session.tier, $page.locals.x, $form.day, $input.text, ...). */
     Value lookup(const Path& path) const;
 
     /** Pages entered in one turn before it stops (a goto loop). */
@@ -81,9 +83,39 @@ private:
     struct Outcome {
         std::optional<CompiledAgent::PageRef> jump;
         bool ended = false;
+        std::string reason = "goto";
     };
+    // The current page's form: its values and where it is in asking for them.
+    struct Form {
+        Form();
+        Form(const Form& other);
+        Form& operator=(const Form& other);
+        Form(Form&& other) noexcept;
+        Form& operator=(Form&& other) noexcept;
+        ~Form();
+        const vasdk::goal::GoalDefinition* goal = nullptr;
+        std::unique_ptr<goal::GoalState> state;
+        std::string asking;                 // the slot just asked for
+        bool awaitingConfirmation = false;  // the values were read back: yes or no?
+        bool awaitingChange = false;        // "no": what to change?
+        bool failed = false;                // more answers that didn't fit than max_reprompts
+        int reprompts = 0;
+    };
+    using Texts = google::protobuf::RepeatedPtrField<std::string>;
+
     Outcome run(const google::protobuf::RepeatedPtrField<vasdk::flow::Step>& steps, Reply& reply);
+    const vasdk::flow::Route* matchRoute();
+    Outcome takeRoute(const vasdk::flow::Route& route, Reply& reply);
+    void follow(Outcome outcome, Reply& reply);
     std::string say(const vasdk::flow::Say& say, Reply& reply);
+    std::string sayOne(const Texts& texts, const void* key, Reply& reply);
+    std::string ask(const Texts& texts, const void* key, const std::string& fallback, Reply& reply);
+    bool formActive() const;
+    bool fillForm(const std::string& text);
+    bool fillNamedValues(const std::string& text, bool overwrite);
+    Outcome advanceForm(Reply& reply);
+    Outcome repromptForm(Reply& reply);
+    Outcome conditionRoute(Reply& reply);
     PageChange changeTo(CompiledAgent::PageRef target, std::string reason) const;
     void moveTo(CompiledAgent::PageRef target, std::string reason, Reply& reply);
     void end(Reply& reply);
@@ -98,8 +130,9 @@ private:
     std::string _inputText;                 // the user's words this turn
     std::string _intent;                    // the matched route's intent this turn
     ContextSource _context;
+    std::optional<Form> _form;              // set on a page with a form
     std::string _lastQuestion;                              // repeated when an answer isn't understood
-    std::map<const vasdk::flow::Say*, size_t> _sayCounts;   // which of a Say's texts comes next
+    std::map<const void*, size_t> _sayCounts;               // which of a Say's (or prompt's) texts comes next
 };
 
 } // namespace flow

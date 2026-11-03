@@ -1,0 +1,21 @@
+# proto-file: vasdk/goal/goal.proto
+# proto-message: vasdk.goal.GoalDefinition
+#
+# What the booking page's form collects. The service was chosen before the form starts ($session.service).
+name: "booking"
+objective: "Book a garage service."
+require_confirmation: true
+confirm: "So that's $session.service, $form.day, and we'll call you at $form.phone. Shall I book it?"
+slots {
+  name: "day"
+  type: ENUM
+  values: ["tomorrow", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]
+  prompt: "Which day works for you?"
+  reprompt: "Sorry, which day? We're open Monday to Saturday."
+}
+slots {
+  name: "phone"
+  type: PHONE
+  prompt: "And what's the best number to reach you?"
+  reprompt: "Sorry, I need a ten-digit phone number. What's the best number to reach you?"
+}

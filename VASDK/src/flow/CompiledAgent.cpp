@@ -1,10 +1,13 @@
 #include "flow/CompiledAgent.h"
 
 #include "engine/ProtoFileLoader.h"
+#include "flow/SlotExtraction.h"
+#include "goal/GoalState.h"
 
 #include <algorithm>
 #include <cctype>
 #include <deque>
+#include <filesystem>
 #include <functional>
 #include <set>
 
@@ -32,6 +35,28 @@ namespace {
 
 std::string quoted(const std::string& name) { return "\"" + name + "\""; }
 
+goal::SlotType slotType(vasdk::goal::Slot::Type type) {
+    using Type = vasdk::goal::Slot;
+    switch (type) {
+    case Type::PHONE: return goal::SlotType::PHONE;
+    case Type::EMAIL: return goal::SlotType::EMAIL;
+    case Type::DATE: return goal::SlotType::DATE;
+    case Type::TIME: return goal::SlotType::TIME;
+    case Type::DATETIME: return goal::SlotType::DATETIME;
+    case Type::NUMBER: return goal::SlotType::NUMBER;
+    case Type::INTEGER: return goal::SlotType::INTEGER;
+    case Type::BOOLEAN: return goal::SlotType::BOOLEAN;
+    case Type::ENUM: return goal::SlotType::ENUM;
+    default: return goal::SlotType::STRING;
+    }
+}
+
+bool isFormStatus(const std::string& field) { return field == "complete" || field == "confirmed" || field == "failed"; }
+
+bool hasSlot(const vasdk::goal::GoalDefinition& goal, const std::string& name) {
+    return std::any_of(goal.slots().begin(), goal.slots().end(), [&](const auto& slot) { return slot.name() == name; });
+}
+
 class Checker {
 public:
     std::vector<std::string> errors;
@@ -47,6 +72,16 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::load(const std::string& path
     vasdk::flow::Agent agent;
     // No ${ENV} expansion: secrets belong in the engine config, never in an agent.
     if (!engine::loadProtoFile(path, agent, error)) return nullptr;
+    const auto directory = std::filesystem::path(path).parent_path();
+    for (const auto& file : agent.goal_files()) {
+        vasdk::goal::GoalDefinition goal;
+        std::string goalError;
+        if (!engine::loadProtoFile((directory / file).string(), goal, &goalError)) {
+            if (error) *error = "goal_files " + quoted(file) + ": " + goalError;
+            return nullptr;
+        }
+        *agent.add_goals() = std::move(goal);
+    }
     return compile(std::move(agent), error, warnings);
 }
 
@@ -79,6 +114,15 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent a
         if (!fitsType(param.type(), param.default_()))
             check.error(where, "default doesn't fit its type " + vasdk::flow::SessionParam::Type_Name(param.type()));
     }
+    for (int i = 0; i < definition.goals_size(); ++i) {
+        const auto& goal = definition.goals(i);
+        const std::string where = "goal " + (goal.name().empty() ? std::to_string(i + 1) : quoted(goal.name()));
+        if (goal.name().empty()) check.error(where, "has no name");
+        else if (!compiled->_goals.emplace(goal.name(), i).second) check.error(where, "is declared twice");
+    }
+
+    // The goal whose slots $form.<slot> names: the page's form, or the goal being checked.
+    const vasdk::goal::GoalDefinition* formGoal = nullptr;
 
     // References must name something that exists: a declared session param, a page field, ...
     auto checkReferences = [&](const std::vector<Path>& references, const std::string& where) {
@@ -99,13 +143,19 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent a
                 known = field == "intent" && path.size() == 2;
             } else if (root == "context") {
                 known = path.size() >= 2;
+            } else if (root == "form") {
+                if (!formGoal) {
+                    check.error(where, pathText(path) + ": the page has no form");
+                    continue;
+                }
+                known = path.size() == 2 && (hasSlot(*formGoal, field) || isFormStatus(field));
             } else {
                 known = false;
             }
             if (!known)
                 check.error(where, "unknown reference " + pathText(path) +
                                        " (use $session.<name>, $page.name, $page.locals.<name>, $input.text, "
-                                       "$nlu.intent or $context.<name>)");
+                                       "$nlu.intent, $context.<name> or, on a form page, $form.<slot>)");
         }
     };
     auto compileExpression = [&](const std::string& text, const std::string& where) {
@@ -129,6 +179,60 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent a
         if (!templateReferences(text, references, &templateError)) check.error(where, templateError);
         checkReferences(references, where);
     };
+
+    for (const auto& goal : definition.goals()) {
+        const std::string where = "goal " + quoted(goal.name());
+        formGoal = &goal;
+        auto built = std::make_shared<goal::GoalDefinition>();
+        built->name = goal.name();
+        built->objective = goal.objective();
+        built->requireConfirmation = goal.require_confirmation();
+        std::set<std::string> slotNames;
+        for (int i = 0; i < goal.slots_size(); ++i) {
+            const auto& slot = goal.slots(i);
+            const std::string slotWhere = where + " slot " + (slot.name().empty() ? std::to_string(i + 1) : quoted(slot.name()));
+            if (slot.name().empty()) check.error(slotWhere, "has no name");
+            else if (!slotNames.insert(slot.name()).second) check.error(slotWhere, "is declared twice");
+            else if (isFormStatus(slot.name())) check.error(slotWhere, "is a reserved name ($form.complete, confirmed and failed)");
+            const bool isEnum = slot.type() == vasdk::goal::Slot::ENUM;
+            if (isEnum && slot.values().empty()) check.error(slotWhere, "is an ENUM with no values");
+            if (!isEnum && !slot.values().empty()) check.warn(slotWhere, "has values, but only ENUM slots use them");
+            if (slot.has_min() && slot.has_max() && slot.min() > slot.max()) check.error(slotWhere, "min is above max");
+            for (const auto& text : slot.prompt()) checkTemplate(text, slotWhere + " prompt");
+            for (const auto& text : slot.reprompt()) checkTemplate(text, slotWhere + " reprompt");
+
+            goal::GoalSlot running;
+            running.name = slot.name();
+            running.description = slot.description();
+            running.type = slotType(slot.type());
+            running.required = !slot.optional();
+            running.constraints.allowedValues.assign(slot.values().begin(), slot.values().end());
+            if (slot.has_min()) running.constraints.min = slot.min();
+            if (slot.has_max()) running.constraints.max = slot.max();
+            running.constraints.mustBeFuture = slot.must_be_future();
+            if (!slot.condition().empty()) {
+                if (auto expression = compileExpression(slot.condition(), slotWhere + " condition")) {
+                    for (const auto& path : expression->references())
+                        if (path[0] != "form" || isFormStatus(path.size() > 1 ? path[1] : ""))
+                            check.error(slotWhere + " condition", pathText(path) + ": a slot condition reads only $form.<slot>");
+                    running.condition = [expression](const goal::GoalState& state) {
+                        return isTruthy(expression->evaluate([&state](const Path& path) {
+                            return path.size() == 2 && path[0] == "form" ? slotValue(state, path[1]) : nullValue();
+                        }));
+                    };
+                }
+            }
+            built->slots.push_back(std::move(running));
+        }
+        if (goal.slots().empty()) check.error(where, "has no slots");
+        if (goal.require_confirmation() && goal.confirm().empty())
+            check.error(where, "has require_confirmation but no confirm text to read back");
+        for (const auto& text : goal.confirm()) checkTemplate(text, where + " confirm");
+        for (const auto& text : goal.change()) checkTemplate(text, where + " change");
+        if (goal.max_reprompts() < 0) check.error(where, "max_reprompts is negative");
+        if (!goal.name().empty()) compiled->_goalDefinitions[goal.name()] = std::move(built);
+    }
+    formGoal = nullptr;
 
     compiled->_pages.resize(definition.flows_size());
     for (int f = 0; f < definition.flows_size(); ++f) {
@@ -155,7 +259,7 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent a
     }
 
     // Steps and routes, collecting where each page leads for the reachability check.
-    std::set<std::string> usedIntents;
+    std::set<std::string> usedIntents, usedGoals;
     std::vector<std::vector<std::vector<PageRef>>> leadsTo(definition.flows_size());
     for (int f = 0; f < definition.flows_size(); ++f) {
         const auto& flow = definition.flows(f);
@@ -164,6 +268,13 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent a
             const auto& page = flow.pages(p);
             const PageRef here{f, p};
             const std::string where = "flow " + quoted(flow.name()) + " page " + quoted(page.name());
+            formGoal = nullptr;
+            if (page.has_form()) {
+                formGoal = compiled->goal(page.form().goal());
+                usedGoals.insert(page.form().goal());
+                if (page.form().goal().empty()) check.error(where, "form has no goal");
+                else if (!formGoal) check.error(where, "form: unknown goal " + quoted(page.form().goal()));
+            }
             auto checkTarget = [&](const std::string& target, const std::string& at) {
                 if (target.empty() || target == kTargetEndSession) return;
                 if (auto next = compiled->resolve(target, here)) leadsTo[f][p].push_back(*next);
@@ -190,10 +301,11 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent a
                         auto key = Expression::parse(step.set().key(), &keyError);
                         const Path* path = key ? key->reference() : nullptr;
                         const bool writable = path && ((path->size() == 2 && (*path)[0] == "session") ||
-                                                       (path->size() == 3 && (*path)[0] == "page" && (*path)[1] == "locals"));
+                                                       (path->size() == 3 && (*path)[0] == "page" && (*path)[1] == "locals") ||
+                                                       (path->size() == 2 && (*path)[0] == "form" && !isFormStatus((*path)[1])));
                         if (!writable)
                             check.error(stepWhere, "set key " + quoted(step.set().key()) +
-                                                       " must be $session.<name> or $page.locals.<name>");
+                                                       " must be $session.<name>, $page.locals.<name> or $form.<slot>");
                         else
                             checkReferences({*path}, stepWhere + " set key");
                         break;
@@ -208,6 +320,12 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent a
                         for (int c = 0; c < step.switch_().cases_size(); ++c)
                             checkSteps(step.switch_().cases(c).steps(), stepWhere + " case " + std::to_string(c + 1));
                         checkSteps(step.switch_().default_(), stepWhere + " default");
+                        break;
+                    case vasdk::flow::Step::kClearSlot:
+                        if (!formGoal) check.error(stepWhere, "clear_slot needs a form on the page");
+                        else if (!hasSlot(*formGoal, step.clear_slot().slot()))
+                            check.error(stepWhere, "clear_slot: goal " + quoted(formGoal->name()) + " has no slot " +
+                                                       quoted(step.clear_slot().slot()));
                         break;
                     case vasdk::flow::Step::kGoto:
                         if (step.goto_().target().empty()) check.error(stepWhere, "goto has no target");
@@ -236,8 +354,12 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent a
             const bool leavesOnEntry = std::any_of(page.on_enter().begin(), page.on_enter().end(), [](const auto& step) {
                 return step.has_goto_() || step.has_end();
             });
-            if (page.routes().empty() && !leavesOnEntry)
+            if (page.routes().empty() && !leavesOnEntry && !page.has_form())
                 check.warn(where, "has no routes: every answer on it is not understood");
+            const bool hasConditionRoute = std::any_of(page.routes().begin(), page.routes().end(),
+                                                       [](const auto& route) { return route.intent().empty(); });
+            if (page.has_form() && !hasConditionRoute)
+                check.warn(where, "has a form but no condition route: nothing happens once it is complete");
         }
     }
 
@@ -260,6 +382,9 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent a
     for (const auto& intent : definition.intents())
         if (!intent.name().empty() && !usedIntents.count(intent.name()))
             check.warn("intent " + quoted(intent.name()), "is not used by any route");
+    for (const auto& goal : definition.goals())
+        if (!goal.name().empty() && !usedGoals.count(goal.name()))
+            check.warn("goal " + quoted(goal.name()), "is not used by any form");
 
     if (warnings) warnings->insert(warnings->end(), check.warnings.begin(), check.warnings.end());
     if (!check.errors.empty()) {
@@ -296,6 +421,16 @@ const vasdk::flow::SessionParam* CompiledAgent::sessionParam(const std::string& 
 std::shared_ptr<const Expression> CompiledAgent::expression(const std::string& text) const {
     const auto found = _expressions.find(text);
     return found == _expressions.end() ? nullptr : found->second;
+}
+
+const vasdk::goal::GoalDefinition* CompiledAgent::goal(const std::string& name) const {
+    const auto found = _goals.find(name);
+    return found == _goals.end() ? nullptr : &_agent.goals(found->second);
+}
+
+std::unique_ptr<goal::GoalState> CompiledAgent::newGoalState(const std::string& name) const {
+    const auto found = _goalDefinitions.find(name);
+    return found == _goalDefinitions.end() ? nullptr : std::make_unique<goal::GoalState>(*found->second);
 }
 
 bool fitsType(vasdk::flow::SessionParam::Type type, const Value& value) {

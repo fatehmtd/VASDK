@@ -213,7 +213,7 @@ int main() {
         )", &error), "bad expressions don't compile");
         check(contains(error, "session param \"count\": default doesn't fit its type NUMBER"), "default type checked");
         check(contains(error, "on_enter step 1: $session.nmae: no session param \"nmae\" is declared"), "template reference checked");
-        check(contains(error, "step 2: set key \"$input.text\" must be $session.<name> or $page.locals.<name>"), "set key checked");
+        check(contains(error, "step 2: set key \"$input.text\" must be $session.<name>, $page.locals.<name> or $form.<slot>"), "set key checked");
         check(contains(error, "step 3 branch if: \"$session.tier = gold\": column 17: unknown word 'gold'"), "parse error located");
         check(contains(error, "route 1 condition: unknown reference $user.vip"), "unknown root");
 

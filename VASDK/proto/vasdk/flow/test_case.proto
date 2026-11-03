@@ -29,4 +29,5 @@ message TurnExpectation {
   optional bool expects_reply = 6;
   optional bool ends_session = 7;
   map<string, string> session = 8;     // session param name → its value as a reply would say it
+  map<string, string> form = 9;        // form slot, or complete / confirmed / failed → its value ("" when empty)
 }
