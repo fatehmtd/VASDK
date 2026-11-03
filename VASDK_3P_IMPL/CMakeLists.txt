@@ -32,6 +32,7 @@ option(VASDK_BUILD_PARAKEET "Build Parakeet transcription provider" OFF)
 option(VASDK_BUILD_MOONSHINE_STT "Build Moonshine STT provider" OFF)
 option(VASDK_BUILD_WHISPERCPP "Build WhisperCpp transcription provider" OFF)
 option(VASDK_BUILD_WHISTLE_STT "Build Whistle STT provider (Cactus Compute, prebuilt needle engine)" ON)
+option(VASDK_BUILD_VOZ_STT "Build Voz STT provider (Desert Ant Labs; needs a platform recognizer wrapping their SDK)" OFF)
 
 # Voice Synthesis
 option(VASDK_BUILD_DEEPGRAMPP_TTS "Build Deepgrampp voice synthesis provider" OFF)
@@ -445,6 +446,10 @@ endif()
 
 if(VASDK_BUILD_WHISTLE_STT)
     add_subdirectory(WhistleSTT)
+endif()
+
+if(VASDK_BUILD_VOZ_STT)
+    add_subdirectory(VozSTT)
 endif()
 
 if(VASDK_BUILD_DEEPGRAMPP_TTS)

@@ -31,7 +31,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vasdk.android.SttProvider
@@ -94,6 +100,7 @@ internal fun SettingsOverlay(
                     label = { it.label },
                     onSelect = onSttProviderChange
                 )
+                if (sttProvider == SttProvider.VOZ) VozCredit()
                 Column(modifier = Modifier.padding(top = 10.dp)) {
                     SttStreamingRow(streaming = sttStreaming, onToggle = onSttStreamingChange)
                 }
@@ -264,4 +271,21 @@ internal fun LlmModeRow(useLocalLlm: Boolean, onToggle: (Boolean) -> Unit) {
             )
         }
     }
+}
+
+/** Attribution the Desert Ant Labs license requires wherever Voz is offered. */
+@Composable
+private fun VozCredit() {
+    Text(
+        text = buildAnnotatedString {
+            append("Speech recognition powered by ")
+            withLink(LinkAnnotation.Url(
+                "https://desertant.com",
+                TextLinkStyles(SpanStyle(textDecoration = TextDecoration.Underline))
+            )) { append("Desert Ant Labs") }
+        },
+        color = TextSecondary,
+        fontSize = 12.sp,
+        modifier = Modifier.padding(top = 8.dp)
+    )
 }

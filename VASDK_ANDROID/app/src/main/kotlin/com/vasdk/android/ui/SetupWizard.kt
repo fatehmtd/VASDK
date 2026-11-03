@@ -267,7 +267,7 @@ private fun ReviewRow(label: String, value: String) {
 }
 
 private fun SttProvider.isOnDevice(): Boolean =
-    this == SttProvider.PARAKEET || this == SttProvider.WHISTLE
+    this == SttProvider.PARAKEET || this == SttProvider.WHISTLE || this == SttProvider.VOZ
 
 private fun TtsProvider.isOnDevice(): Boolean =
     this == TtsProvider.POCKET || this == TtsProvider.PHONON || this == TtsProvider.MOSS
@@ -279,7 +279,7 @@ private fun SttProvider.isMissingApiKey(): Boolean = when (this) {
     SttProvider.CARTESIA -> BuildConfig.CARTESIA_API_KEY.isEmpty()
     SttProvider.FISHAUDIO -> BuildConfig.FISHAUDIO_API_KEY.isEmpty()
     SttProvider.GRADIUM -> BuildConfig.GRADIUM_API_KEY.isEmpty()
-    SttProvider.PARAKEET, SttProvider.WHISTLE -> false
+    SttProvider.PARAKEET, SttProvider.WHISTLE, SttProvider.VOZ -> false
 }
 
 private fun TtsProvider.isMissingApiKey(): Boolean = when (this) {

@@ -23,6 +23,7 @@ set(VASDK_BUILD_POCKET_TTS ON CACHE BOOL "" FORCE)
 set(VASDK_BUILD_PHONON_TTS ON CACHE BOOL "" FORCE)
 set(VASDK_BUILD_MOSS_TTS ON CACHE BOOL "" FORCE)
 set(VASDK_BUILD_WHISTLE_STT ON CACHE BOOL "" FORCE)
+set(VASDK_BUILD_VOZ_STT ON CACHE BOOL "" FORCE)
 set(VASDK_BUILD_PYANNOTE_SPEAKER ON CACHE BOOL "" FORCE)
 set(VASDK_BUILD_SONIOXPP_STT ON CACHE BOOL "" FORCE)
 set(VASDK_BUILD_SONIOXPP_TTS ON CACHE BOOL "" FORCE)
@@ -317,6 +318,13 @@ if(VASDK_BUILD_WHISTLE_STT AND TARGET vasdk_whistle_stt AND WHISTLE_ENGINE_STATI
     target_link_libraries(vasdk_android PRIVATE vasdk_whistle_stt)
     target_compile_definitions(vasdk_android PRIVATE VASDK_HAS_WHISTLE_STT)
     message(STATUS "[vasdk_android] Whistle STT enabled")
+endif()
+
+# Voz runs inside the Kotlin SDK (ai.desertant:voz); the native provider calls it over JNI.
+if(VASDK_BUILD_VOZ_STT AND TARGET vasdk_voz_stt)
+    target_link_libraries(vasdk_android PRIVATE vasdk_voz_stt)
+    target_compile_definitions(vasdk_android PRIVATE VASDK_HAS_VOZ_STT)
+    message(STATUS "[vasdk_android] Voz STT enabled")
 endif()
 
 if(VASDK_BUILD_PYANNOTE_SPEAKER AND TARGET vasdk_pyannote_speaker)

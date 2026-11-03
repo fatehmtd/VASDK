@@ -26,7 +26,8 @@ enum class SttProvider(val id: String, val label: String) {
     CARTESIA("cartesia", "Cartesia (cloud)"),
     FISHAUDIO("fishaudio", "Fish Audio (cloud)"),
     GRADIUM("gradium", "Gradium (cloud)"),
-    WHISTLE("whistle", "Whistle (on-device)")
+    WHISTLE("whistle", "Whistle (on-device)"),
+    VOZ("voz", "Voz by Desert Ant Labs (on-device)")
 }
 
 /** On-device vs cloud TTS provider choice, exposed via the Settings UI. */
@@ -288,6 +289,16 @@ class VasdkEngine private constructor(
             if (success) {
                 Log.i(TAG, "Successfully downloaded models: $paths")
                 Thread {
+                    // The Voz SDK downloads its own model (no per-file progress to report).
+                    if (sttProvider == SttProvider.VOZ) {
+                        try {
+                            VozRecognizer.download(contextWrapper, File(contextWrapper.cacheDir, "voz"))
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to download the Voz model", e)
+                            mainHandler.post { onInitComplete.invoke(false) }
+                            return@Thread
+                        }
+                    }
                     val ok = init()
                     mainHandler.post { onInitComplete.invoke(ok) }
                 }.start()
@@ -328,7 +339,12 @@ class VasdkEngine private constructor(
             // Model dirs are only meaningful for the currently selected on-device provider;
             // the native side ignores them when the cloud (Soniox) provider is active.
             val sttModelDir = File(contextWrapper.cacheDir,
-                if (sttProvider == SttProvider.WHISTLE) "whistle" else "parakeet")
+                when (sttProvider) {
+                    SttProvider.WHISTLE -> "whistle"
+                    SttProvider.VOZ -> "voz"
+                    else -> "parakeet"
+                })
+            if (sttProvider == SttProvider.VOZ) VozRecognizer.open(contextWrapper, sttModelDir) else VozRecognizer.close()
             val ttsModelDir = File(contextWrapper.cacheDir,
                 when (ttsProvider) {
                     TtsProvider.PHONON -> "phonon_tts"
@@ -507,6 +523,7 @@ class VasdkEngine private constructor(
         synchronized(VasdkEngine::class.java) {
             if (isNativeInitialized) {
                 nativeRelease()
+                VozRecognizer.close()
                 isNativeInitialized = false
                 isNativeStarted = false
             }

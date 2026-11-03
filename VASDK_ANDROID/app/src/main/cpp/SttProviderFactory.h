@@ -3,6 +3,8 @@
 #include <VASDK/CommonAudioUtils.h>
 #include <VASDK/GenericTranscriptionProvider.h>
 
+#include <jni.h>
+
 #include <memory>
 #include <string>
 
@@ -18,10 +20,11 @@ struct SttProviderParams {
     std::string caBundlePath;
     va::audio::AudioConfig audioConfig;
     int frameSize{0};
+    JavaVM *javaVm{nullptr}; // for providers that call into Kotlin SDKs (Voz)
 };
 
 // Builds the transcription provider matching params.providerId ("soniox", "deepgram",
-// "gladia", "cartesia", "fishaudio", "gradium", "whistle", anything else -> Parakeet). If the
+// "gladia", "cartesia", "fishaudio", "gradium", "whistle", "voz", anything else -> Parakeet). If the
 // requested provider isn't compiled in, falls back through the rest in priority order
 // (Parakeet, Soniox, Deepgram, Gladia, Cartesia, Fish Audio, Gradium). Returns nullptr
 // only if none of the providers are compiled in at all.
