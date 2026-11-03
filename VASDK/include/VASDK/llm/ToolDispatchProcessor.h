@@ -3,6 +3,8 @@
 #include <VASDK/FrameProcessor.h>
 #include <VASDK/llm/Tool.h>
 #include <VASDK/llm/PromptTemplate.h>
+#include <optional>
+#include <shared_mutex>
 #include <string>
 #include <unordered_map>
 
@@ -36,6 +38,10 @@ public:
 
     void handleToolCall(std::shared_ptr<transport::ToolCallFrame> frame);
 
+    /// Runs a tool synchronously on the calling thread (no pipeline needed). Returns
+    /// {"error": ...} when the tool is unknown or disabled.
+    nlohmann::json executeTool(const std::string& name, const nlohmann::json& args) const;
+
     bool shouldProcess(std::shared_ptr<transport::Frame> frame) const override {
         return frame && frame->getType() == transport::FrameType::TOOL_CALL;
     }
@@ -44,6 +50,11 @@ public:
                       pipeline::FlowDirection direction) override;
 
 private:
+    std::optional<Tool> findEnabledTool(const std::string& name) const;
+
+    // Tool handlers (e.g. switch_goal) register/unregister tools from their own worker
+    // thread, so every access to _tools takes this lock and handlers run on a copy, unlocked.
+    mutable std::shared_mutex _toolsMutex;
     std::unordered_map<std::string, Tool> _tools;
     std::string _textFieldGuidance{
         "your reply to the user - include this field ONLY when you are not calling any tools"

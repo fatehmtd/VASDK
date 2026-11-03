@@ -1,24 +1,30 @@
 #include <VASDK/llm/ToolDispatchProcessor.h>
 #include <VASDK/Frame.h>
 #include <spdlog/spdlog.h>
+#include <optional>
 #include <thread>
 
 namespace va {
 namespace llm {
 
 void ToolDispatchProcessor::registerTool(Tool tool) {
-    _tools[tool.name()] = std::move(tool);
+    std::unique_lock lock(_toolsMutex);
+    auto name = tool.name();
+    _tools[name] = std::move(tool);
 }
 
 void ToolDispatchProcessor::unregisterTool(const std::string& name) {
+    std::unique_lock lock(_toolsMutex);
     _tools.erase(name);
 }
 
 bool ToolDispatchProcessor::hasTool(const std::string& name) const {
+    std::shared_lock lock(_toolsMutex);
     return _tools.count(name) > 0;
 }
 
 void ToolDispatchProcessor::setToolEnabled(const std::string& name, bool enabled) {
+    std::unique_lock lock(_toolsMutex);
     auto it = _tools.find(name);
     if (it != _tools.end()) {
         it->second.setEnabled(enabled);
@@ -26,6 +32,7 @@ void ToolDispatchProcessor::setToolEnabled(const std::string& name, bool enabled
 }
 
 std::string ToolDispatchProcessor::renderToolDescriptions(ChatFormat fmt) const {
+    std::shared_lock lock(_toolsMutex);
     std::vector<const Tool*> enabledTools;
     enabledTools.reserve(_tools.size());
     for (const auto& [name, tool] : _tools) {
@@ -39,11 +46,26 @@ std::string ToolDispatchProcessor::renderToolDescriptions(ChatFormat fmt) const 
 }
 
 nlohmann::json ToolDispatchProcessor::getEnabledToolsJson() const {
+    std::shared_lock lock(_toolsMutex);
     nlohmann::json tools = nlohmann::json::array();
     for (const auto& [name, tool] : _tools) {
         if (tool.isEnabled()) tools.push_back(tool.toJson());
     }
     return tools;
+}
+
+std::optional<Tool> ToolDispatchProcessor::findEnabledTool(const std::string& name) const {
+    std::shared_lock lock(_toolsMutex);
+    auto it = _tools.find(name);
+    if (it == _tools.end() || !it->second.isEnabled()) return std::nullopt;
+    return it->second;
+}
+
+nlohmann::json ToolDispatchProcessor::executeTool(const std::string& name,
+                                                  const nlohmann::json& args) const {
+    auto tool = findEnabledTool(name);
+    if (!tool) return {{"error", "unknown tool: " + name}};
+    return tool->execute(args);   // unlocked: the handler may register/unregister tools
 }
 
 void ToolDispatchProcessor::handleToolCall(
@@ -73,8 +95,8 @@ void ToolDispatchProcessor::processFrame(
         pushUpstream(resultFrame);
     };
 
-    auto it = _tools.find(name);
-    if (it == _tools.end() || !it->second.isEnabled()) {
+    auto tool = findEnabledTool(name);
+    if (!tool) {
         spdlog::warn("[ToolDispatch] Tool '{}' is disabled or unregistered - ignoring", name);
         sendErrorResult("unknown tool: " + name);
         return;
@@ -90,8 +112,9 @@ void ToolDispatchProcessor::processFrame(
     }
 
     spdlog::info("[ToolDispatch] Calling '{}' args={}", name, args.dump());
-    std::thread([this, name, args = std::move(args)]() mutable {
-        nlohmann::json result = _tools.at(name).execute(args);
+    // Run a copy without the lock: the handler may register/unregister tools itself.
+    std::thread([this, name, tool = std::move(*tool), args = std::move(args)]() mutable {
+        nlohmann::json result = tool.execute(args);
         spdlog::info("[ToolDispatch] '{}' returned: {}", name, result.dump());
 
         auto resultFrame        = std::make_shared<transport::ToolResultFrame>();
@@ -105,6 +128,7 @@ void ToolDispatchProcessor::processFrame(
 }
 
     std::vector<std::string> ToolDispatchProcessor::getToolNames() const {
+        std::shared_lock lock(_toolsMutex);
         std::vector<std::string> toolNames;
         for (const auto& tool : _tools) {
             toolNames.push_back(tool.first);

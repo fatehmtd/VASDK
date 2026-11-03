@@ -49,7 +49,7 @@ bool GoalState::isRequired(const GoalSlot& slot) const {
 
 bool GoalState::allRequiredSubSlotsCollected(const GoalSlot& slot) const {
     for (const auto& sub : slot.subSlots) {
-        if (sub.required && !sub.value.has_value()) return false;
+        if (isRequired(sub) && !sub.value.has_value()) return false;
     }
     return true;
 }
@@ -450,7 +450,7 @@ std::string GoalState::describeMissingSlot(const GoalSlot& slot) const {
         std::vector<std::string> done, missing;
         for (const auto& sub : slot.subSlots) {
             if (sub.value.has_value()) done.push_back(sub.name + "=" + sub.value->dump());
-            else if (sub.required)     missing.push_back(sub.name);
+            else if (isRequired(sub))  missing.push_back(sub.name);
         }
         line += " (COMPOSITE - use update_slot with dot path";
         if (!done.empty()) {

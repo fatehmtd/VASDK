@@ -231,6 +231,15 @@ if(VASDK_BUILD_TESTS)
     add_executable(vasdk_pipeline_description_test tests/pipeline_description_test.cpp)
     target_link_libraries(vasdk_pipeline_description_test PRIVATE VASDK)
     add_test(NAME vasdk_pipeline_description COMMAND vasdk_pipeline_description_test)
+
+    add_executable(vasdk_goal_test tests/goal_test.cpp)
+    target_link_libraries(vasdk_goal_test PRIVATE VASDK nlohmann_json::nlohmann_json)
+    add_test(NAME vasdk_goal COMMAND vasdk_goal_test)
+
+    add_executable(vasdk_tool_dispatch_race_test tests/tool_dispatch_race_test.cpp)
+    target_link_libraries(vasdk_tool_dispatch_race_test PRIVATE VASDK nlohmann_json::nlohmann_json)
+    add_test(NAME vasdk_tool_dispatch_race COMMAND vasdk_tool_dispatch_race_test)
+
 endif()
 
 if(VASDK_BUILD_TESTS AND NOT WIN32)

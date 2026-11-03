@@ -46,15 +46,12 @@ SimulationResult GoalConversationSimulator::run() {
 }
 
 void GoalConversationSimulator::executeTurn(const SimTurn& turn) {
-    // Drive each scripted tool call through ToolDispatchProcessor
+    // Run each scripted tool call synchronously: the dispatcher is not in a running pipeline,
+    // so handleToolCall() would only queue the frame and nothing would execute.
     for (const auto& call : turn.llmToolCalls) {
-        auto frame      = std::make_shared<va::transport::ToolCallFrame>();
-        frame->toolName = call.toolName;
-        frame->argsJson = call.args.dump();
-
-        spdlog::debug("[Simulator]   -> tool: {} args: {}", call.toolName, frame->argsJson);
-
-        _dispatcher->handleToolCall(frame);
+        auto result = _dispatcher->executeTool(call.toolName, call.args);
+        spdlog::debug("[Simulator]   -> tool: {} args: {} result: {}",
+                      call.toolName, call.args.dump(), result.dump());
     }
 }
 

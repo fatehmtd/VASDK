@@ -17,8 +17,8 @@ void GoalManager::prefillSlot(const std::string& dotPath, const nlohmann::json& 
 
 //  Wiring 
 
-void GoalManager::attachToLLMTransport(va::llm::LLMTransport* transport) {
-    transport->clearHistory();
+void GoalManager::attachToLLMTransport(va::llm::LLMTransport* transport, AttachOptions options) {
+    if (options.clearHistory) transport->clearHistory();
     spdlog::info("[GoalManager] Activated - goal: '{}' | slots: {}",
                  _state.definition().name, _state.definition().slots.size());
     spdlog::info("[GoalManager] Required slots: {}", _state.missingSlotsSummary());
@@ -51,8 +51,9 @@ void GoalManager::attachToLLMTransport(va::llm::LLMTransport* transport) {
 }
 
 void GoalManager::attach(va::llm::LLMTransport* transport,
-                          va::llm::ToolDispatchProcessor* dispatcher) {
-    attachToLLMTransport(transport);
+                          va::llm::ToolDispatchProcessor* dispatcher,
+                          AttachOptions options) {
+    attachToLLMTransport(transport, options);
     attachToToolDispatcher(dispatcher);
 }
 
@@ -122,6 +123,7 @@ va::llm::Tool GoalManager::makeUpdateSlotTool() {
                              slotName, _state.repromptCount(), result.errorMessage);
                 return {{"success", false}, {"error", result.errorMessage}};
             }
+            _state.setAwaitingConfirmation(false);   // data changed: any earlier confirmation is stale
             auto missing = _state.missingSlotsSummary();
             bool complete = _state.isComplete();
             spdlog::info("[GoalManager] Slot '{}' = {} | {}",
@@ -152,6 +154,7 @@ va::llm::Tool GoalManager::makeUpdateObjectSlotTool() {
                              slotName, _state.repromptCount(), result.errorMessage);
                 return {{"success", false}, {"error", result.errorMessage}};
             }
+            _state.setAwaitingConfirmation(false);   // data changed: any earlier confirmation is stale
             auto missing = _state.missingSlotsSummary();
             bool complete = _state.isComplete();
             spdlog::info("[GoalManager] Object slot '{}' = {} | {}",
@@ -220,6 +223,12 @@ va::llm::Tool GoalManager::makeCompleteGoalTool() {
                 return {{"success", false},
                         {"error", "Not all required slots are filled. Still needed: "
                                   + _state.missingSlotsSummary()}};
+            }
+            if (_state.definition().requireConfirmation && !_state.isAwaitingConfirmation()) {
+                spdlog::warn("[GoalManager] complete_goal called before the user confirmed");
+                return {{"success", false},
+                        {"error", "Confirm first: call request_confirmation() with a recap, "
+                                  "wait for the user to agree, then call complete_goal()."}};
             }
             auto slots = _state.toJson();
             spdlog::info("[GoalManager] Completing goal '{}' - collected slots: {}",
