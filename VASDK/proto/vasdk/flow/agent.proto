@@ -22,6 +22,38 @@ message Agent {
   repeated vasdk.goal.GoalDefinition goals = 13;   // what forms collect (Page.form)
   repeated string goal_files = 14;             // more goals, one per file, relative to this file
   repeated vasdk.nlu.EntityType entity_types = 15;   // @<name>: kinds of value recognised in what the user says
+  repeated Envelope envelope_defs = 16;        // shared behaviour, applied by name below, to flows and to pages
+  repeated string envelopes = 17;              // apply to every page
+}
+
+// Behaviour shared by many pages: global commands ("hours", "talk to a person"), what to do
+// when nothing matches or the user is silent, and settings. Applied by name with `envelopes`
+// on the agent, a flow or a page. A turn tries the page's own routes first, then its envelopes,
+// the flow's, and the agent's, in the order listed; handlers and settings are found the same way.
+message Envelope {
+  string name = 1;
+  string extends = 2;              // another envelope whose routes, handlers and settings come after these
+  repeated Route routes = 3;       // targets: "flow:<name>", END_FLOW, END_SESSION, CURRENT_PAGE or none
+  repeated Handler handlers = 4;
+  Settings settings = 5;
+}
+
+// What happens on an event instead of the built-in behaviour:
+//   no-match       no route understood the user ("Sorry, I can't help with that here.")
+//   no-input       the user said nothing for no_input_ms after a question (built in: the question again)
+//   max-reprompts  more than max_reprompts no-match or no-input in a row on a page (built in:
+//                  the no-match or no-input behaviour again)
+// The steps run, then the conversation moves to target; staying on the page with nothing asked,
+// the page's question is asked again.
+message Handler {
+  string event = 1;
+  repeated Step steps = 2;
+  string target = 3;
+}
+
+message Settings {
+  optional int32 no_input_ms = 1;    // silence after a question before no-input; unset: 8000 with a no-input handler, else never
+  optional int32 max_reprompts = 2;  // misses in a row before max-reprompts; unset: 2. Forms use their goal's first.
 }
 
 // A value the conversation keeps: set by `set` steps, by the app (Session::setSessionParam),
@@ -45,10 +77,13 @@ message Intent {
   repeated string examples = 2;   // "book", "oil change", "talk to a person"
 }
 
+// Entered with "flow:<name>": the conversation remembers where it was, and END_FLOW goes back
+// there and asks that page's question again (a digression). Up to 8 flows deep.
 message Flow {
   string name = 1;
   string start_page = 2;
   repeated Page pages = 3;
+  repeated string envelopes = 4;   // apply to every page of this flow
 }
 
 message Page {
@@ -56,6 +91,8 @@ message Page {
   repeated Step on_enter = 2;   // run each time the conversation enters the page
   repeated Route routes = 3;    // tried against each user turn while on the page
   Form form = 4;                // collect a goal's values on this page
+  repeated Handler handlers = 5;
+  repeated string envelopes = 6;
 }
 
 // Asks for the goal's slots one by one, then confirms them (require_confirmation). Each answer
@@ -77,8 +114,10 @@ message Route {
   string entity = 5;         // "@service": the user named one; $entity reads it in the condition and steps
   string condition = 4;      // an expression: "$session.tier = 'gold'"
   repeated Step steps = 2;   // run first, then the conversation moves to target
-  // A page of this flow, "flow:<name>" (its start page), "CURRENT_PAGE" (enter this page again)
-  // or "END_SESSION". Empty: stay on the page without entering it again.
+  // A page of this flow, "flow:<name>" (its start page, remembering where it came from),
+  // "END_FLOW" (back to where this flow was entered from; ends the conversation in the start
+  // flow), "CURRENT_PAGE" (enter this page again) or "END_SESSION". Empty: stay on the page
+  // without entering it again.
   string target = 3;
 }
 

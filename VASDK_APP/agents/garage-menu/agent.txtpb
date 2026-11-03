@@ -56,8 +56,21 @@ intents { name: "goodbye" examples: ["bye", "goodbye", "that's all", "nothing el
 intents { name: "help"    examples: ["help", "what can you do", "what do you do", "options", "explain"] }
 intents { name: "hello"   examples: ["hello", "hi", "hey"] }
 intents { name: "back"    examples: ["back", "main menu", "start over", "never mind"] }
-intents { name: "yes"     examples: ["yes", "yeah", "yep", "sure", "please"] }
+intents { name: "yes"     examples: ["yes", "yeah", "yep", "sure", "go ahead"] }
 intents { name: "no"      examples: ["no", "nope", "nothing", "that's all"] }
+
+# Works on every page: hours, prices, a person, goodbye; silence and repeated misunderstandings.
+envelopes: ["standard"]
+envelope_defs {
+  name: "standard"
+  routes { intent: "hours" steps { say { text: "We're open 8 to 6, Monday to Saturday." } } }   # then the page's question again
+  routes { intent: "price" target: "flow:prices" }   # a digression: back to where it was asked
+  routes { intent: "person" target: "flow:handoff" }
+  routes { intent: "goodbye" steps { say { text: "Thanks for calling. Goodbye!" } } target: "END_SESSION" }
+  handlers { event: "no-input" steps { say { text: ["Are you still there?", "Hello?"] } } }
+  handlers { event: "max-reprompts" steps { say { text: "Let me get someone to help you." } } target: "flow:handoff" }
+  settings { no_input_ms: 8000 max_reprompts: 2 }
+}
 
 flows {
   name: "main"
@@ -68,19 +81,12 @@ flows {
     on_enter { branch { if: "$session.tier = 'gold'" then { say { text: "Welcome back, gold member." } } } }
     on_enter { ask { say { text: "Hi, this is Acme Garage. Would you like to book a service, hear our hours, or talk to a person?" } } }
     routes { intent: "book" target: "booking" }   # "book an oil change": the form gets the service on the way in
-    routes {
+    routes {   # here, a price leads on to booking (the envelope's price route is for the other pages)
       intent: "price"
       entity: "@service"
       steps { say { text: "$entity takes about $entity.minutes minutes and costs $entity.price dollars." } }
       steps { ask { say { text: "Would you like to book it?" } } }
     }
-    routes {
-      intent: "hours"
-      steps { say { text: "We're open 8 to 6, Monday to Saturday." } }
-      steps { ask { say { text: "Anything else? You can book a service or talk to a person." } } }
-    }
-    routes { intent: "person" target: "flow:handoff" }
-    routes { intent: "goodbye" steps { say { text: "Thanks for calling. Goodbye!" } } target: "END_SESSION" }
     routes {
       intent: "help"
       steps { say { text: "I can book an oil change or a tire repair, tell you our prices and opening hours, or put you through to a person." } }
@@ -104,8 +110,6 @@ flows {
       target: "booked"
     }
     routes { condition: "$form.failed" steps { say { text: "Let me get someone to help you with that." } } target: "flow:handoff" }
-    routes { intent: "hours" steps { say { text: "We're open 8 to 6, Monday to Saturday." } } }   # then the form asks again
-    routes { intent: "person" target: "flow:handoff" }
     routes { intent: "back" target: "welcome" }
   }
 
@@ -116,6 +120,23 @@ flows {
     on_enter { ask { say { text: "Is there anything else I can help with?" } } }
     routes { intent: "no" steps { say { text: "Great, see you then. Goodbye!" } } target: "END_SESSION" }
     routes { intent: "yes" target: "welcome" }
+  }
+}
+
+# Prices, from any page; then back to where the question was asked.
+flows {
+  name: "prices"
+  start_page: "answer"
+  pages {
+    name: "answer"
+    on_enter {
+      branch {
+        if: "exists($nlu.entities.service)"
+        then { say { text: "$nlu.entities.service costs $nlu.entities.service.price dollars." } }
+        else { say { text: "An oil change is 49 dollars and a tire repair is 89." } }
+      }
+    }
+    on_enter { goto { target: "END_FLOW" } }
   }
 }
 

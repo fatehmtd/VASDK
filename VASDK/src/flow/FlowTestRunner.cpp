@@ -37,7 +37,9 @@ FlowTestResult runFlowTest(std::shared_ptr<const CompiledAgent> agent, const vas
     }
     for (int i = 0; i < testCase.turns_size(); ++i) {
         const auto& turn = testCase.turns(i);
-        const Reply reply = turn.user().empty() ? conversation.start() : conversation.handleText(turn.user());
+        const Reply reply = turn.no_input()        ? conversation.handleNoInput()
+                          : turn.user().empty()   ? conversation.start()
+                                                  : conversation.handleText(turn.user());
         const std::string where = "turn " + std::to_string(i + 1) + " " +
                                   (turn.user().empty() ? std::string("(start)") : quoted(turn.user()));
         auto fail = [&](const std::string& message) { result.failures.push_back(where + ": " + message); };
@@ -63,6 +65,8 @@ FlowTestResult runFlowTest(std::shared_ptr<const CompiledAgent> agent, const vas
             const std::string actual = toText(conversation.sessionParam(name));
             if (actual != expected) fail("$session." + name + " is " + quoted(actual) + ", expected " + quoted(expected));
         }
+        if (!expect.event().empty() && reply.event != expect.event())
+            fail("event is " + quoted(reply.event) + ", expected " + quoted(expect.event()));
         for (const auto& [name, expected] : expect.entities()) {
             const std::string actual = toText(conversation.lookup({"nlu", "entities", name}));
             if (actual != expected) fail("$nlu.entities." + name + " is " + quoted(actual) + ", expected " + quoted(expected));

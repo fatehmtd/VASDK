@@ -16,7 +16,7 @@ namespace flow {
 struct PageChange {
     std::string fromFlow, fromPage;   // empty when the conversation starts
     std::string toFlow, toPage;
-    std::string reason;               // "start", "restart", "route:<intent>", "goto"
+    std::string reason;               // "start", "restart", "route:<intent>", "goto", "return" (END_FLOW)
 };
 
 /** What one turn produced. */
@@ -24,6 +24,7 @@ struct Reply {
     std::string text;              // what to say; empty when nothing is said
     bool matched = true;           // false: no route understood the turn; text is the not-understood reply
     std::string intent;            // the matched route's intent
+    std::string event;             // no-match, no-input or max-reprompts, when the turn raised one
     bool expectsReply = false;     // the reply asks a question
     bool endsSession = false;      // the conversation ended with this reply
     std::vector<PageChange> pageChanges;
@@ -55,6 +56,13 @@ public:
      * the greeting and routes the words there.
      */
     Reply handleText(const std::string& text);
+    /**
+     * The user said nothing after a question, for noInputMs(): the no-input handler runs (or
+     * max-reprompts after too many misses in a row); without one, the question is asked again.
+     */
+    Reply handleNoInput();
+    /** How long to wait for an answer before handleNoInput(), from the page's settings; 0: never. */
+    int noInputMs() const;
 
     bool started() const { return _position.valid(); }
     bool ended() const { return _ended; }
@@ -84,12 +92,17 @@ public:
 
     /** Pages entered in one turn before it stops (a goto loop). */
     static constexpr int kMaxTransitions = 8;
+    /** Flows entered with "flow:<name>" and not yet ended; deeper, the place to return to isn't kept. */
+    static constexpr size_t kMaxFlowDepth = 8;
 
 private:
     struct Outcome {
         std::optional<CompiledAgent::PageRef> jump;
         bool ended = false;
         std::string reason = "goto";
+        bool pushFlow = false;   // entering a flow: remember where to return
+        bool endFlow = false;    // END_FLOW: return there
+        bool moves() const { return ended || endFlow || jump.has_value(); }
     };
     // The current page's form: its values and where it is in asking for them.
     struct Form {
@@ -114,7 +127,16 @@ private:
     std::optional<std::string> readSlot(const vasdk::goal::Slot& slot, const std::string& text) const;
     Outcome run(const google::protobuf::RepeatedPtrField<vasdk::flow::Step>& steps, Reply& reply);
     const vasdk::flow::Route* matchRoute();
+    const vasdk::flow::Route* matchRoute(const google::protobuf::RepeatedPtrField<vasdk::flow::Route>& routes);
+    Outcome toTarget(const std::string& target, std::string reason) const;
     Outcome takeRoute(const vasdk::flow::Route& route, Reply& reply);
+    const vasdk::flow::Handler* findHandler(const std::string& event) const;
+    int maxReprompts() const;
+    Outcome miss(const std::string& event, Reply& reply);
+    Outcome runHandler(const vasdk::flow::Handler& handler, Reply& reply);
+    void askAgain(Reply& reply);
+    void pushFrame();
+    void returnFromFlow(Reply& reply);
     void follow(Outcome outcome, Reply& reply);
     std::string say(const vasdk::flow::Say& say, Reply& reply);
     std::string sayOne(const Texts& texts, const void* key, Reply& reply);
@@ -142,6 +164,15 @@ private:
     DynamicEntityValues _dynamicEntities;
     ContextSource _context;
     std::optional<Form> _form;              // set on a page with a form
+    // Where to return to on END_FLOW: the page that entered a flow, as it was.
+    struct Frame {
+        CompiledAgent::PageRef page;
+        std::string lastQuestion;
+        std::optional<Form> form;
+        google::protobuf::Struct pageLocals;
+    };
+    std::vector<Frame> _stack;
+    int _misses = 0;                        // no-match and no-input in a row on this page
     std::string _lastQuestion;                              // repeated when an answer isn't understood
     std::map<const void*, size_t> _sayCounts;               // which of a Say's (or prompt's) texts comes next
 };

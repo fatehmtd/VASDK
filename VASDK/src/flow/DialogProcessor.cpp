@@ -35,6 +35,15 @@ public:
     const std::string name;
     const std::vector<vasdk::nlu::EntityValue> values;
 };
+
+// The no-input timer fired, handled on the processor's own thread.
+class NoInputFrame : public transport::Frame {
+public:
+    explicit NoInputFrame(uint64_t generation) : generation(generation) {}
+    transport::FrameType getType() const override { return transport::FrameType::CONTROL; }
+    std::shared_ptr<transport::Frame> clone() const override { return std::make_shared<NoInputFrame>(generation); }
+    const uint64_t generation;
+};
 } // namespace
 
 DialogProcessor::DialogProcessor(std::shared_ptr<const CompiledAgent> agent)
@@ -45,7 +54,60 @@ bool DialogProcessor::shouldProcess(std::shared_ptr<transport::Frame> frame) con
     return type == transport::FrameType::USER_TURN || type == transport::FrameType::AGENT_STATE ||
            dynamic_cast<const ConnectionFrame*>(frame.get()) != nullptr ||
            dynamic_cast<const SessionParamFrame*>(frame.get()) != nullptr ||
-           dynamic_cast<const EntityValuesFrame*>(frame.get()) != nullptr;
+           dynamic_cast<const EntityValuesFrame*>(frame.get()) != nullptr ||
+           dynamic_cast<const NoInputFrame*>(frame.get()) != nullptr;
+}
+
+bool DialogProcessor::start() {
+    {
+        std::lock_guard<std::mutex> lock(_timerMutex);
+        _timerStop = false;
+    }
+    if (!_timerThread.joinable()) _timerThread = std::thread(&DialogProcessor::noInputTimerLoop, this);
+    return FrameProcessor::start();
+}
+
+void DialogProcessor::stop() {
+    {
+        std::lock_guard<std::mutex> lock(_timerMutex);
+        _timerStop = true;
+    }
+    _timerChanged.notify_all();
+    if (_timerThread.joinable()) _timerThread.join();
+    FrameProcessor::stop();
+}
+
+void DialogProcessor::armNoInput(int ms) {
+    std::lock_guard<std::mutex> lock(_timerMutex);
+    ++_noInputGeneration;
+    _noInputDeadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);
+    _timerChanged.notify_all();
+}
+
+void DialogProcessor::disarmNoInput() {
+    std::lock_guard<std::mutex> lock(_timerMutex);
+    if (!_noInputDeadline) return;
+    ++_noInputGeneration;
+    _noInputDeadline.reset();
+    _timerChanged.notify_all();
+}
+
+void DialogProcessor::noInputTimerLoop() {
+    std::unique_lock<std::mutex> lock(_timerMutex);
+    while (!_timerStop) {
+        if (!_noInputDeadline) {
+            _timerChanged.wait(lock);
+            continue;
+        }
+        const auto deadline = *_noInputDeadline;
+        const auto generation = _noInputGeneration;
+        if (_timerChanged.wait_until(lock, deadline) == std::cv_status::timeout && generation == _noInputGeneration) {
+            _noInputDeadline.reset();
+            lock.unlock();
+            enqueueFrame(std::make_shared<NoInputFrame>(generation), pipeline::FlowDirection::DOWNSTREAM);
+            lock.lock();
+        }
+    }
 }
 
 void DialogProcessor::setSessionParam(const std::string& name, const Value& value) {
@@ -72,7 +134,21 @@ void DialogProcessor::processFrame(std::shared_ptr<transport::Frame> frame, pipe
         return;
     }
     if (frame->getType() == transport::FrameType::USER_TURN) {
+        disarmNoInput();
         handleTurn(frame);
+        return;
+    }
+    if (auto noInput = dynamic_cast<const NoInputFrame*>(frame.get())) {
+        {
+            std::lock_guard<std::mutex> lock(_timerMutex);
+            if (noInput->generation != _noInputGeneration) return;   // moved on since it fired
+        }
+        _beforeLastTurn = _conversation;
+        const auto reply = _conversation.handleNoInput();
+        spdlog::info("[Dialog] no input → {} on {}/{}", reply.event, _conversation.flowName(), _conversation.pageName());
+        if (_observer) _observer(reply, _conversation);
+        if (reply.endsSession) _greetingPending = true;
+        speak(reply);
         return;
     }
     if (auto param = dynamic_cast<const SessionParamFrame*>(frame.get())) {
@@ -102,6 +178,14 @@ void DialogProcessor::processFrame(std::shared_ptr<transport::Frame> frame, pipe
     pushDownstream(frame);
     const auto& state = static_cast<const transport::AgentStateFrame&>(*frame);
     _agentState = state.currentState;
+    // A question has finished playing: wait for an answer. Anything else stops waiting.
+    if (state.transition == transport::AgentStateTransition::SYNTHESIS_COMPLETED &&
+        state.currentState == transport::AgentState::LISTENING && _awaitingAnswer) {
+        if (const int ms = _conversation.noInputMs(); ms > 0) armNoInput(ms);
+    } else if (state.transition != transport::AgentStateTransition::FOLLOW_UP_WINDOW_CLOSED ||
+               state.currentState != transport::AgentState::LISTENING) {
+        disarmNoInput();
+    }
     // Activated (at start when always on, else by the wake word or button): greet if it's due.
     if (state.previousState == transport::AgentState::IDLE && state.currentState == transport::AgentState::LISTENING)
         greetIfReady();
@@ -134,6 +218,7 @@ void DialogProcessor::handleTurn(std::shared_ptr<transport::Frame> frame) {
 }
 
 void DialogProcessor::speak(const Reply& reply) {
+    _awaitingAnswer = reply.expectsReply;
     if (reply.text.empty()) return;
     auto text = std::make_shared<transport::TextFrame>();
     text->text = reply.text;

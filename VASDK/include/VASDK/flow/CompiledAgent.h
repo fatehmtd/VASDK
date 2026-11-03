@@ -63,6 +63,14 @@ public:
     const vasdk::goal::GoalDefinition* goal(const std::string& name) const;
     /** A goal's slots, empty, ready for a form to fill; nullptr for an unknown goal. */
     std::unique_ptr<goal::GoalState> newGoalState(const std::string& name) const;
+    /** What a page's turns are matched against, innermost first: the page's own routes and handlers,
+     *  then its envelopes, its flow's and the agent's (each followed by what it extends). */
+    struct Layer {
+        const google::protobuf::RepeatedPtrField<vasdk::flow::Route>* routes;
+        const google::protobuf::RepeatedPtrField<vasdk::flow::Handler>* handlers;
+        const vasdk::flow::Settings* settings;   // nullptr for the page's own layer
+    };
+    const std::vector<Layer>& layers(PageRef where) const { return _layers[where.flow][where.page]; }
     /** The agent's entities, and the @sys.* ones. */
     const EntityCatalog& entities() const { return _entities; }
 
@@ -79,6 +87,8 @@ private:
     std::map<std::string, int> _goals;                                               // name → index
     std::map<std::string, std::shared_ptr<const goal::GoalDefinition>> _goalDefinitions;   // as GoalState runs them
     EntityCatalog _entities;
+    std::map<std::string, int> _envelopes;                                           // name → index
+    std::vector<std::vector<std::vector<Layer>>> _layers;                            // per flow, per page
 };
 
 /** Whether `value` fits a session param of `type`; null always does. */
@@ -87,6 +97,12 @@ VASDK_EXPORT bool fitsType(vasdk::flow::SessionParam::Type type, const Value& va
 /** Route and Goto targets with a meaning of their own. */
 inline constexpr const char* kTargetEndSession = "END_SESSION";
 inline constexpr const char* kTargetCurrentPage = "CURRENT_PAGE";
+inline constexpr const char* kTargetEndFlow = "END_FLOW";
+
+/** Handler events. */
+inline constexpr const char* kEventNoMatch = "no-match";
+inline constexpr const char* kEventNoInput = "no-input";
+inline constexpr const char* kEventMaxReprompts = "max-reprompts";
 
 /** "@service" → "service"; "" when it doesn't start with @. */
 VASDK_EXPORT std::string entityName(const std::string& reference);

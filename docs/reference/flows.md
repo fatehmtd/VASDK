@@ -51,9 +51,9 @@ flows {
 |---|---|
 | `start_flow` | The flow a conversation starts in, at its `start_page`. |
 | `intents` | What the user wants, by keyword phrase: an intent matches when the user's words contain one of its `examples`, in order, as whole words ("book" doesn't match "bookkeeping"). Case and punctuation are ignored. |
-| `flows` | Named groups of pages. `target: "flow:handoff"` goes to another flow's start page. |
+| `flows` | Named groups of pages. `target: "flow:handoff"` goes to another flow's start page, remembering where it came from: `END_FLOW` goes back (see [Shared behaviour and navigation](#shared-behaviour-and-navigation)). |
 | `pages` | `on_enter` steps run each time the conversation enters the page; `routes` are tried against each user turn while it's there. |
-| `routes` | `intent` to match, `steps` to run, then `target`: a page of this flow, `flow:<name>`, `CURRENT_PAGE` (enter this page again) or `END_SESSION`. No target: stay on the page without entering it again. |
+| `routes` | `intent` to match, `steps` to run, then `target`: a page of this flow, `flow:<name>`, `END_FLOW`, `CURRENT_PAGE` (enter this page again) or `END_SESSION`. No target: stay on the page without entering it again, and ask its question again unless the steps asked something. |
 
 Steps:
 
@@ -68,12 +68,53 @@ Everything said in one turn is joined into one reply: a route's steps, then the 
 
 ## How a turn is answered
 
-1. **Matching.** Every route on the current page is scored by the longest example of its intent found in the user's words, if its `condition` holds. The best score wins; on a tie, the first route. "cancel my appointment" picks `cancel` (three words) over `book` ("appointment", one word). When no intent route matches, the first route with only a condition that holds is taken.
-2. **Not understood.** No route matched: the reply is "Sorry, I can't help with that here." and the page's last question. With an LLM, the turn goes to the LLM instead.
+1. **Matching.** Every route on the current page is scored by the longest example of its intent found in the user's words, if its `condition` holds. The best score wins; on a tie, the first route. "cancel my appointment" picks `cancel` (three words) over `book` ("appointment", one word). When no intent route matches, the first route with only a condition that holds is taken. Only when nothing on the page matches are its envelopes' routes tried, then the flow's and the agent's: a page route always wins over a shared one, however short its example.
+2. **Not understood.** No route matched: the `no-match` handler runs, or by default the reply is "Sorry, I can't help with that here." and the page's last question. With an LLM, the turn goes to the LLM instead.
 3. **Start.** The start page's `on_enter` (the greeting) runs once the assistant is listening (at start when always on, else on the wake word or button) and someone is connected to hear it: a browser peer over WebRTC, a caller. With the local mic that's at once. If the user speaks first, their words are routed on the start page without the greeting. When the peer or caller disconnects, the next one starts a new conversation with its own greeting.
 4. **End.** After an `end` step or `END_SESSION`, the conversation starts over: the greeting plays on the next activation, or, when always on, the next turn is routed on the start page.
 5. **Resumed turns.** When the user carries on talking after a turn was answered (`UserTurnFrame::replacesPrevious`), the agent goes back to where it was before that turn and routes the whole sentence.
 6. **Loops.** A turn that enters more than 8 pages (a `goto` loop) stops on the page it reached, with an error in the log.
+
+## Shared behaviour and navigation
+
+**Envelopes** hold what many pages share: global commands, what to do when nothing matches or the user is silent, and settings. Declare them once and apply them by name to the whole agent, a flow or a page:
+
+```textproto
+envelopes: ["standard"]                 # every page
+envelope_defs {
+  name: "standard"
+  routes { intent: "hours"  steps { say { text: "We're open 8 to 6." } } }   # then the page's question again
+  routes { intent: "prices" target: "flow:prices" }                         # a digression: back afterwards
+  routes { intent: "person" target: "flow:handoff" }
+  handlers { event: "no-input"      steps { say { text: ["Are you still there?", "Hello?"] } } }
+  handlers { event: "max-reprompts" steps { say { text: "Let me get someone." } } target: "flow:handoff" }
+  settings { no_input_ms: 8000 max_reprompts: 2 }
+}
+envelope_defs { name: "booking" extends: "standard" settings { max_reprompts: 1 } }
+flows { name: "booking" envelopes: ["booking"] … }   # a flow's pages; pages take `envelopes` too
+```
+
+**Layering.** For each turn, the page's own routes come first, then the page's envelopes, the flow's and the agent's, in the order listed, each followed by the envelope it `extends`. The first layer with a match wins. Handlers and settings are found the same way, so an inner one replaces an outer one. An envelope's targets can't name a page (it would be a different page wherever it's used): `flow:<name>`, `END_FLOW`, `END_SESSION` or `CURRENT_PAGE`.
+
+**Handlers** replace the built-in behaviour for an event. Pages take `handlers` too:
+
+| Event | When | Built in |
+|---|---|---|
+| `no-match` | No route understood the user | "Sorry, I can't help with that here." and the question again |
+| `no-input` | Silence for `no_input_ms` after a question has played | The question again |
+| `max-reprompts` | More than `max_reprompts` (default 2) no-match or no-input in a row on a page | The no-match or no-input behaviour again |
+
+The handler's steps run, then it moves to its `target`. If it stays on the page and asked nothing, the page's question is asked again (on a form page, the form's). The no-input timer runs only when a `no-input` handler or `no_input_ms` applies to the page; it starts once the question has finished playing and stops when the user starts speaking. On a form page, answers that don't fit are re-asked by the form, and `max-reprompts` runs once the form fails and no `$form.failed` route takes it. `Reply::event` says which one ran; test cases check it and `vasdk_agentc chat` shows it.
+
+**Flows as digressions.** `flow:<name>` remembers the page it left, with its form values and question. `END_FLOW` goes back there and asks that question again:
+
+```
+bot: Which day works for you?                [main/booking]
+you: how much is an oil change               → flow:prices, which says the price, then END_FLOW
+bot: An oil change costs 49 dollars. Which day works for you?   [main/booking]
+```
+
+Flows nest up to 8 deep; deeper, the way back isn't kept. `END_FLOW` in the start flow ends the conversation, and `END_SESSION` forgets every way back.
 
 ## Stored values and conditions
 
@@ -260,14 +301,14 @@ With an agent, listeners also get `page_changed` (`from_flow`/`from_page` → `t
 
 ```
 $ vasdk_agentc lint agents/garage-menu/agent.txtpb
-agents/garage-menu/agent.txtpb: ok (2 flows, 4 pages, 10 intents, 2 entities)
+agents/garage-menu/agent.txtpb: ok (3 flows, 5 pages, 10 intents, 2 entities)
 
 $ vasdk_agentc test agents/garage-menu/agent.txtpb agents/garage-menu/tests/*.txtpb
 PASS book a tire repair, then say goodbye
 PASS the booking form: values on the way in, a closed day, the hours, and changing the answers
 PASS asking for a person hands off and ends
 …
-8 of 8 passed
+10 of 10 passed
 
 $ vasdk_agentc chat agents/garage-menu/agent.txtpb
 bot: Hi, this is Acme Garage. Would you like to book a service, hear our hours, or talk to a person?   [main/welcome]
@@ -287,8 +328,8 @@ turns { user: "I have a flat" expect { page: "service" } }
 turns { user: "my windshield is cracked" expect { matched: false said_contains: "can't help with that" } }
 ```
 
-  Expectations: `page`, `flow`, `said` (the whole reply), `said_contains` (case-insensitive), `matched`, `expects_reply`, `ends_session`, `session { key: "service" value: "an oil change" }` (a param as a reply would say it), `form { key: "day" value: "tuesday" }` (a slot, or `complete`/`confirmed`/`failed`; `""` when empty), and `entities { key: "service" value: "oil_change" }` (`$nlu.entities`). A case can set session params and context before the first turn: `session { fields { key: "tier" value { string_value: "gold" } } }`, `context { … }`. The same runs from C++ with `va::flow::runFlowTest`, and the example's cases run in `ctest` (`vasdk_agent_garage_menu`).
-- **`chat`** talks to the agent by typing, showing the page after each reply. `--session tier=gold` sets a session param first.
+  Expectations: `page`, `flow`, `said` (the whole reply), `said_contains` (case-insensitive), `matched`, `expects_reply`, `ends_session`, `session { key: "service" value: "an oil change" }` (a param as a reply would say it), `form { key: "day" value: "tuesday" }` (a slot, or `complete`/`confirmed`/`failed`; `""` when empty), `entities { key: "service" value: "oil_change" }` (`$nlu.entities`), and `event` (`no-match`, `no-input`, `max-reprompts`). A turn with `no_input: true` is silence instead of words. A case can set session params and context before the first turn: `session { fields { key: "tier" value { string_value: "gold" } } }`, `context { … }`. The same runs from C++ with `va::flow::runFlowTest`, and the example's cases run in `ctest` (`vasdk_agent_garage_menu`).
+- **`chat`** talks to the agent by typing, showing the page (and any event) after each reply. An empty line is silence (no-input). `--session tier=gold` sets a session param first.
 - **`try`** shows what a sentence matches, without running the conversation:
 
 ```
@@ -305,7 +346,7 @@ $ vasdk_agentc try agents/garage-menu/agent.txtpb --entity @sys.phone "five five
 | Type | Use |
 |---|---|
 | `flow::CompiledAgent` | `load(path)` or `compile(proto)`: checked once, immutable, shared by every session that runs it. |
-| `flow::FlowRuntime` | One conversation's place in an agent: `start()`, `handleText(text)` → `Reply` (text, matched, intent, expects reply, ends session, page changes), `setSessionParam`, `setContextSource`. Copyable. |
+| `flow::FlowRuntime` | One conversation's place in an agent: `start()`, `handleText(text)` and `handleNoInput()` → `Reply` (text, matched, intent, event, expects reply, ends session, page changes), `noInputMs()`, `setSessionParam`, `setEntityValues`, `setContextSource`. Copyable, way back included. |
 | `flow::Expression` | `parse(text)` once, then `evaluate(lookup)` or `test(lookup)`; `renderTemplate` for replies. |
 | `flow::DialogProcessor` | The pipeline stage `Session` adds for `Options::agent`, after the turn assembler. |
 | `flow::runFlowTest` | Plays a `FlowTestCase` and returns what differed. |
@@ -315,4 +356,4 @@ $ vasdk_agentc try agents/garage-menu/agent.txtpb --entity @sys.phone "five five
 
 ## Not yet
 
-These come in later milestones: arithmetic and dates in expressions (`days_until`, `now`), filters in replies (`|raw`), spoken dates and times in forms ("next Tuesday"), skipping a slot ("I don't know"), fuzzy and sound-alike matching of entity values, `@entity` inside intent examples, entities built from others ("a white Toyota from 2019"), values filled by tools, global commands and digressions that return where you were (`END_FLOW`), handlers for no-input and repeated misunderstandings, rich replies, and custom steps written in C++.
+These come in later milestones: arithmetic and dates in expressions (`days_until`, `now`), filters in replies (`|raw`), spoken dates and times in forms ("next Tuesday"), skipping a slot ("I don't know"), fuzzy and sound-alike matching of entity values, `@entity` inside intent examples, entities built from others ("a white Toyota from 2019"), values filled by tools, guards and before/after steps in envelopes, rich replies, and custom steps written in C++.

@@ -330,6 +330,14 @@ if(VASDK_BUILD_TESTS)
         target_link_libraries(vasdk_entity_test PRIVATE VASDK)
         add_test(NAME vasdk_entity COMMAND vasdk_entity_test)
 
+        add_executable(vasdk_envelope_layering_test tests/envelope_layering_test.cpp)
+        target_link_libraries(vasdk_envelope_layering_test PRIVATE VASDK)
+        add_test(NAME vasdk_envelope_layering COMMAND vasdk_envelope_layering_test)
+
+        add_executable(vasdk_flow_navigation_test tests/flow_navigation_test.cpp)
+        target_link_libraries(vasdk_flow_navigation_test PRIVATE VASDK)
+        add_test(NAME vasdk_flow_navigation COMMAND vasdk_flow_navigation_test)
+
         add_executable(vasdk_engine_events_test tests/engine_events_test.cpp)
         target_link_libraries(vasdk_engine_events_test PRIVATE VASDK)
         add_test(NAME vasdk_engine_events COMMAND vasdk_engine_events_test)

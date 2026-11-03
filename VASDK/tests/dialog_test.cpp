@@ -306,6 +306,46 @@ int main() {
         recorder->stop();
     }
     {
+        // No-input: silence once a question has played raises no-input; speech cancels the wait.
+        auto silentAgent = compile(R"agent(
+            start_flow: "main"
+            envelopes: ["standard"]
+            envelope_defs { name: "standard" handlers { event: "no-input" steps { say { text: "Still there?" } } }
+                            settings { no_input_ms: 150 } }
+            flows { name: "main" start_page: "welcome"
+                    pages { name: "welcome" on_enter { ask { say { text: "How can I help?" } } } } }
+        )agent");
+        check(silentAgent != nullptr, "the no-input agent compiles");
+        auto dialog = std::make_shared<flow::DialogProcessor>(silentAgent);
+        auto recorder = std::make_shared<Recorder>();
+        dialog->setDownstream(recorder);
+        recorder->initialize();
+        recorder->start();
+        dialog->initialize();
+        dialog->start();
+        auto state = [&](transport::AgentState previous, transport::AgentState current, transport::AgentStateTransition why) {
+            auto frame = std::make_shared<transport::AgentStateFrame>();
+            frame->previousState = previous;
+            frame->currentState = current;
+            frame->transition = why;
+            dialog->processFrame(frame, pipeline::FlowDirection::DOWNSTREAM);
+        };
+        using transport::AgentState;
+        using transport::AgentStateTransition;
+        state(AgentState::IDLE, AgentState::LISTENING, AgentStateTransition::PIPELINE_START);   // greets
+        state(AgentState::SPEAKING, AgentState::LISTENING, AgentStateTransition::SYNTHESIS_COMPLETED);
+        std::this_thread::sleep_for(300ms);
+        auto texts = recorder->settled();
+        check(texts.size() == 2 && texts[1].text == "Still there? How can I help?" && texts[1].isExpecting,
+              "silence after the question played: no-input");
+        state(AgentState::SPEAKING, AgentState::LISTENING, AgentStateTransition::SYNTHESIS_COMPLETED);
+        state(AgentState::LISTENING, AgentState::LISTENING, AgentStateTransition::USER_STARTED_SPEAKING);
+        std::this_thread::sleep_for(300ms);
+        check(recorder->settled().size() == 2, "the user starting to speak cancels it");
+        dialog->stop();
+        recorder->stop();
+    }
+    {
         // Nobody connected yet (a browser peer, a call): the greeting waits for them; when they
         // leave, the next one gets a new conversation and its own greeting.
         auto dialog = std::make_shared<flow::DialogProcessor>(agent);

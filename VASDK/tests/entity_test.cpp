@@ -184,9 +184,9 @@ int main() {
     FlowRuntime other(agent);
     other.start();
     reply = other.handleText("how much is a lube");
-    check(other.pageName() == "welcome" && reply.text == "That costs 49 dollars.", "$nlu.entities and its attribute");
+    check(other.pageName() == "welcome" && reply.text == "That costs 49 dollars. Hi.", "$nlu.entities and its attribute");
     reply = other.handleText("my plate is alpha bravo one two three");
-    check(reply.text == "Plate AB123." && toText(other.sessionParam("plate")) == "AB123", "extract into a session param");
+    check(reply.text == "Plate AB123. Hi." && toText(other.sessionParam("plate")) == "AB123", "extract into a session param");
 
     // Dynamic values from the app
     FlowRuntime later(agent);

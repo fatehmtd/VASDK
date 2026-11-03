@@ -4,8 +4,13 @@
 #include "../FrameProcessor.h"
 #include "FlowRuntime.h"
 
+#include <chrono>
+#include <condition_variable>
 #include <functional>
 #include <memory>
+#include <mutex>
+#include <optional>
+#include <thread>
 
 namespace va {
 namespace flow {
@@ -18,6 +23,8 @@ namespace flow {
  * else on the wake word or button) and someone is there to hear it (setConnected), and again
  * after the conversation ended. When the caller leaves, the next one starts a new conversation.
  * A turn the user resumed (UserTurnFrame::replacesPrevious) undoes the previous one first.
+ * After a question has played, silence for the page's no_input_ms raises no-input
+ * (FlowRuntime::handleNoInput); the user starting to speak cancels it.
  */
 class VASDK_EXPORT DialogProcessor : public pipeline::FrameProcessor {
 public:
@@ -25,6 +32,8 @@ public:
 
     std::string getName() const override { return "Dialog"; }
     bool shouldProcess(std::shared_ptr<transport::Frame> frame) const override;
+    bool start() override;
+    void stop() override;
     void processFrame(std::shared_ptr<transport::Frame> frame, pipeline::FlowDirection direction) override;
 
     /** With an LLM after this stage: turns no route understands go on to it instead of the
@@ -51,6 +60,9 @@ private:
     void handleTurn(std::shared_ptr<transport::Frame> frame);
     void greetIfReady();
     void speak(const Reply& reply);
+    void armNoInput(int ms);
+    void disarmNoInput();
+    void noInputTimerLoop();
 
     FlowRuntime _conversation;
     FlowRuntime _beforeLastTurn;   // restored when the user resumes the last turn
@@ -61,6 +73,14 @@ private:
     bool _passUnmatchedTurns = false;
     ReplyObserver _observer;
     FlowRuntime::ContextSource _contextSource;
+    bool _awaitingAnswer = false;   // the last reply asked a question
+    // The no-input timer: a deadline, and a generation that makes a fired timer stale once moved on.
+    std::thread _timerThread;
+    std::mutex _timerMutex;
+    std::condition_variable _timerChanged;
+    std::optional<std::chrono::steady_clock::time_point> _noInputDeadline;
+    uint64_t _noInputGeneration = 0;
+    bool _timerStop = false;
 };
 
 } // namespace flow

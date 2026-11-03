@@ -301,15 +301,167 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent a
         check.error("agent", "start_flow " + quoted(definition.start_flow()) + " is not one of its flows");
     }
 
-    // Steps and routes, collecting where each page leads for the reachability check.
-    std::set<std::string> usedIntents, usedGoals;
+    // Envelopes by name, and their extends chains.
+    for (int e = 0; e < definition.envelope_defs_size(); ++e) {
+        const auto& envelope = definition.envelope_defs(e);
+        const std::string where = "envelope " + (envelope.name().empty() ? std::to_string(e + 1) : quoted(envelope.name()));
+        if (envelope.name().empty()) check.error(where, "has no name");
+        else if (!compiled->_envelopes.emplace(envelope.name(), e).second) check.error(where, "is declared twice");
+    }
+    for (const auto& envelope : definition.envelope_defs()) {
+        std::set<std::string> chain{envelope.name()};
+        for (const auto* at = &envelope; !at->extends().empty();) {
+            const auto base = compiled->_envelopes.find(at->extends());
+            if (base == compiled->_envelopes.end()) {
+                check.error("envelope " + quoted(at->name()), "extends unknown envelope " + quoted(at->extends()));
+                break;
+            }
+            if (!chain.insert(at->extends()).second) {
+                check.error("envelope " + quoted(envelope.name()), "extends itself through " + quoted(at->extends()));
+                break;
+            }
+            at = &definition.envelope_defs(base->second);
+        }
+    }
+
+    // Steps, routes and handlers, collecting where each page leads for the reachability check.
+    std::set<std::string> usedIntents, usedGoals, usedEnvelopes;
     std::vector<std::vector<std::vector<PageRef>>> leadsTo(definition.flows_size());
+    std::vector<PageRef> reachedFromAnywhere;   // flows an envelope can enter
+    PageRef here;              // the page being checked
+    bool inEnvelope = false;   // envelope targets can't name a page: it would differ on each page
+    auto checkTarget = [&](const std::string& target, const std::string& at) {
+        if (target.empty() || target == kTargetEndSession || target == kTargetEndFlow) return;
+        if (inEnvelope) {
+            if (target == kTargetCurrentPage) return;
+            if (auto next = target.rfind("flow:", 0) == 0 ? compiled->resolve(target, {}) : std::nullopt) {
+                reachedFromAnywhere.push_back(*next);
+                return;
+            }
+            check.error(at, "unknown target " + quoted(target) +
+                                " (an envelope's targets are flow:<name>, END_FLOW, END_SESSION or CURRENT_PAGE)");
+            return;
+        }
+        if (auto next = compiled->resolve(target, here)) leadsTo[here.flow][here.page].push_back(*next);
+        else check.error(at, "unknown target " + quoted(target));
+    };
+    auto checkWritable = [&](const std::string& key, const std::string& at, const std::string& label) {
+        auto expression = Expression::parse(key);
+        const Path* path = expression ? expression->reference() : nullptr;
+        const bool writable = path && ((path->size() == 2 && (*path)[0] == "session") ||
+                                       (path->size() == 3 && (*path)[0] == "page" && (*path)[1] == "locals") ||
+                                       (path->size() == 2 && (*path)[0] == "form" && !isFormStatus((*path)[1])));
+        if (!writable)
+            check.error(at, label + " " + quoted(key) + " must be $session.<name>, $page.locals.<name> or $form.<slot>");
+        else
+            checkReferences({*path}, at + " " + label);
+    };
+    using Steps = google::protobuf::RepeatedPtrField<vasdk::flow::Step>;
+    std::function<void(const Steps&, const std::string&)> checkSteps = [&](const Steps& steps, const std::string& at) {
+        for (int s = 0; s < steps.size(); ++s) {
+            const auto& step = steps.Get(s);
+            const std::string stepWhere = at + " step " + std::to_string(s + 1);
+            switch (step.kind_case()) {
+            case vasdk::flow::Step::kSay:
+                if (step.say().text().empty()) check.error(stepWhere, "say has no text");
+                for (const auto& text : step.say().text()) checkTemplate(text, stepWhere);
+                break;
+            case vasdk::flow::Step::kAsk:
+                if (step.ask().say().text().empty()) check.error(stepWhere, "ask has no text");
+                for (const auto& text : step.ask().say().text()) checkTemplate(text, stepWhere);
+                break;
+            case vasdk::flow::Step::kSet:
+                compileExpression(step.set().value(), stepWhere + " set value");
+                checkWritable(step.set().key(), stepWhere, "set key");
+                break;
+            case vasdk::flow::Step::kExtract:
+                checkEntity(step.extract().entity(), stepWhere + " extract");
+                checkWritable(step.extract().into(), stepWhere, "extract into");
+                break;
+            case vasdk::flow::Step::kBranch:
+                compileExpression(step.branch().if_(), stepWhere + " branch if");
+                checkSteps(step.branch().then(), stepWhere + " then");
+                checkSteps(step.branch().else_(), stepWhere + " else");
+                break;
+            case vasdk::flow::Step::kSwitch:
+                compileExpression(step.switch_().on(), stepWhere + " switch on");
+                for (int c = 0; c < step.switch_().cases_size(); ++c)
+                    checkSteps(step.switch_().cases(c).steps(), stepWhere + " case " + std::to_string(c + 1));
+                checkSteps(step.switch_().default_(), stepWhere + " default");
+                break;
+            case vasdk::flow::Step::kClearSlot:
+                if (!formGoal) check.error(stepWhere, "clear_slot needs a form on the page");
+                else if (!hasSlot(*formGoal, step.clear_slot().slot()))
+                    check.error(stepWhere, "clear_slot: goal " + quoted(formGoal->name()) + " has no slot " +
+                                               quoted(step.clear_slot().slot()));
+                break;
+            case vasdk::flow::Step::kGoto:
+                if (step.goto_().target().empty()) check.error(stepWhere, "goto has no target");
+                checkTarget(step.goto_().target(), stepWhere);
+                break;
+            case vasdk::flow::Step::kEnd:
+                break;
+            case vasdk::flow::Step::KIND_NOT_SET:
+                check.error(stepWhere, "is empty");
+                break;
+            }
+        }
+    };
+    auto checkRoutes = [&](const google::protobuf::RepeatedPtrField<vasdk::flow::Route>& routes, const std::string& where) {
+        for (int r = 0; r < routes.size(); ++r) {
+            const auto& route = routes.Get(r);
+            const std::string routeWhere = where + " route " + std::to_string(r + 1);
+            if (route.intent().empty() && route.entity().empty() && route.condition().empty())
+                check.error(routeWhere, "has no intent, entity or condition");
+            else if (!route.intent().empty() && !compiled->_intentExamples.count(route.intent()))
+                check.error(routeWhere, "unknown intent " + quoted(route.intent()));
+            if (!route.entity().empty()) checkEntity(route.entity(), routeWhere);
+            routeEntity = route.entity();
+            if (!route.condition().empty()) compileExpression(route.condition(), routeWhere + " condition");
+            usedIntents.insert(route.intent());
+            checkSteps(route.steps(), routeWhere);
+            routeEntity.clear();
+            checkTarget(route.target(), routeWhere);
+        }
+    };
+    auto checkHandlers = [&](const google::protobuf::RepeatedPtrField<vasdk::flow::Handler>& handlers, const std::string& where) {
+        for (int h = 0; h < handlers.size(); ++h) {
+            const auto& handler = handlers.Get(h);
+            const std::string handlerWhere = where + " handler " + std::to_string(h + 1);
+            if (handler.event() != kEventNoMatch && handler.event() != kEventNoInput && handler.event() != kEventMaxReprompts)
+                check.error(handlerWhere, "unknown event " + quoted(handler.event()) + " (no-match, no-input or max-reprompts)");
+            checkSteps(handler.steps(), handlerWhere);
+            checkTarget(handler.target(), handlerWhere);
+        }
+    };
+    auto checkEnvelopeNames = [&](const google::protobuf::RepeatedPtrField<std::string>& names, const std::string& where) {
+        for (const auto& name : names) {
+            usedEnvelopes.insert(name);
+            if (!compiled->_envelopes.count(name)) check.error(where, "unknown envelope " + quoted(name));
+        }
+    };
+
+    // Envelopes are checked once, for no page in particular.
+    inEnvelope = true;
+    for (const auto& envelope : definition.envelope_defs()) {
+        const std::string where = "envelope " + quoted(envelope.name());
+        checkRoutes(envelope.routes(), where);
+        checkHandlers(envelope.handlers(), where);
+        if (envelope.settings().has_no_input_ms() && envelope.settings().no_input_ms() < 0)
+            check.error(where, "no_input_ms is negative");
+        if (envelope.settings().has_max_reprompts() && envelope.settings().max_reprompts() < 0)
+            check.error(where, "max_reprompts is negative");
+    }
+    inEnvelope = false;
+    checkEnvelopeNames(definition.envelopes(), "agent envelopes");
+
     for (int f = 0; f < definition.flows_size(); ++f) {
         const auto& flow = definition.flows(f);
         leadsTo[f].resize(flow.pages_size());
+        checkEnvelopeNames(flow.envelopes(), "flow " + quoted(flow.name()) + " envelopes");
         for (int p = 0; p < flow.pages_size(); ++p) {
             const auto& page = flow.pages(p);
-            const PageRef here{f, p};
+            here = PageRef{f, p};
             const std::string where = "flow " + quoted(flow.name()) + " page " + quoted(page.name());
             formGoal = nullptr;
             if (page.has_form()) {
@@ -318,94 +470,15 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent a
                 if (page.form().goal().empty()) check.error(where, "form has no goal");
                 else if (!formGoal) check.error(where, "form: unknown goal " + quoted(page.form().goal()));
             }
-            auto checkTarget = [&](const std::string& target, const std::string& at) {
-                if (target.empty() || target == kTargetEndSession) return;
-                if (auto next = compiled->resolve(target, here)) leadsTo[f][p].push_back(*next);
-                else check.error(at, "unknown target " + quoted(target));
-            };
-            auto checkWritable = [&](const std::string& key, const std::string& at, const std::string& label) {
-                auto expression = Expression::parse(key);
-                const Path* path = expression ? expression->reference() : nullptr;
-                const bool writable = path && ((path->size() == 2 && (*path)[0] == "session") ||
-                                               (path->size() == 3 && (*path)[0] == "page" && (*path)[1] == "locals") ||
-                                               (path->size() == 2 && (*path)[0] == "form" && !isFormStatus((*path)[1])));
-                if (!writable)
-                    check.error(at, label + " " + quoted(key) + " must be $session.<name>, $page.locals.<name> or $form.<slot>");
-                else
-                    checkReferences({*path}, at + " " + label);
-            };
-            using Steps = google::protobuf::RepeatedPtrField<vasdk::flow::Step>;
-            std::function<void(const Steps&, const std::string&)> checkSteps = [&](const Steps& steps,
-                                                                                  const std::string& at) {
-                for (int s = 0; s < steps.size(); ++s) {
-                    const auto& step = steps.Get(s);
-                    const std::string stepWhere = at + " step " + std::to_string(s + 1);
-                    switch (step.kind_case()) {
-                    case vasdk::flow::Step::kSay:
-                        if (step.say().text().empty()) check.error(stepWhere, "say has no text");
-                        for (const auto& text : step.say().text()) checkTemplate(text, stepWhere);
-                        break;
-                    case vasdk::flow::Step::kAsk:
-                        if (step.ask().say().text().empty()) check.error(stepWhere, "ask has no text");
-                        for (const auto& text : step.ask().say().text()) checkTemplate(text, stepWhere);
-                        break;
-                    case vasdk::flow::Step::kSet:
-                        compileExpression(step.set().value(), stepWhere + " set value");
-                        checkWritable(step.set().key(), stepWhere, "set key");
-                        break;
-                    case vasdk::flow::Step::kExtract:
-                        checkEntity(step.extract().entity(), stepWhere + " extract");
-                        checkWritable(step.extract().into(), stepWhere, "extract into");
-                        break;
-                    case vasdk::flow::Step::kBranch:
-                        compileExpression(step.branch().if_(), stepWhere + " branch if");
-                        checkSteps(step.branch().then(), stepWhere + " then");
-                        checkSteps(step.branch().else_(), stepWhere + " else");
-                        break;
-                    case vasdk::flow::Step::kSwitch:
-                        compileExpression(step.switch_().on(), stepWhere + " switch on");
-                        for (int c = 0; c < step.switch_().cases_size(); ++c)
-                            checkSteps(step.switch_().cases(c).steps(), stepWhere + " case " + std::to_string(c + 1));
-                        checkSteps(step.switch_().default_(), stepWhere + " default");
-                        break;
-                    case vasdk::flow::Step::kClearSlot:
-                        if (!formGoal) check.error(stepWhere, "clear_slot needs a form on the page");
-                        else if (!hasSlot(*formGoal, step.clear_slot().slot()))
-                            check.error(stepWhere, "clear_slot: goal " + quoted(formGoal->name()) + " has no slot " +
-                                                       quoted(step.clear_slot().slot()));
-                        break;
-                    case vasdk::flow::Step::kGoto:
-                        if (step.goto_().target().empty()) check.error(stepWhere, "goto has no target");
-                        checkTarget(step.goto_().target(), stepWhere);
-                        break;
-                    case vasdk::flow::Step::kEnd:
-                        break;
-                    case vasdk::flow::Step::KIND_NOT_SET:
-                        check.error(stepWhere, "is empty");
-                        break;
-                    }
-                }
-            };
+            checkEnvelopeNames(page.envelopes(), where + " envelopes");
             checkSteps(page.on_enter(), where + " on_enter");
-            for (int r = 0; r < page.routes_size(); ++r) {
-                const auto& route = page.routes(r);
-                const std::string routeWhere = where + " route " + std::to_string(r + 1);
-                if (route.intent().empty() && route.entity().empty() && route.condition().empty())
-                    check.error(routeWhere, "has no intent, entity or condition");
-                else if (!route.intent().empty() && !compiled->_intentExamples.count(route.intent()))
-                    check.error(routeWhere, "unknown intent " + quoted(route.intent()));
-                if (!route.entity().empty()) checkEntity(route.entity(), routeWhere);
-                routeEntity = route.entity();
-                if (!route.condition().empty()) compileExpression(route.condition(), routeWhere + " condition");
-                usedIntents.insert(route.intent());
-                checkSteps(route.steps(), routeWhere);
-                routeEntity.clear();
-                checkTarget(route.target(), routeWhere);
-            }
+            checkRoutes(page.routes(), where);
+            checkHandlers(page.handlers(), where);
             const bool leavesOnEntry = std::any_of(page.on_enter().begin(), page.on_enter().end(), [](const auto& step) {
                 return step.has_goto_() || step.has_end();
             });
-            if (page.routes().empty() && !leavesOnEntry && !page.has_form())
+            const bool sharesRoutes = !page.envelopes().empty() || !flow.envelopes().empty() || !definition.envelopes().empty();
+            if (page.routes().empty() && !leavesOnEntry && !page.has_form() && !sharesRoutes)
                 check.warn(where, "has no routes: every answer on it is not understood");
             const bool hasConditionRoute = std::any_of(page.routes().begin(), page.routes().end(), [](const auto& route) {
                 return route.intent().empty() && route.entity().empty();
@@ -414,10 +487,44 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent a
                 check.warn(where, "has a form but no condition route: nothing happens once it is complete");
         }
     }
+    formGoal = nullptr;
+    for (const auto& envelope : definition.envelope_defs())
+        if (!envelope.name().empty() && !usedEnvelopes.count(envelope.name())) {
+            bool extended = false;
+            for (const auto& other : definition.envelope_defs()) extended = extended || other.extends() == envelope.name();
+            if (!extended) check.warn("envelope " + quoted(envelope.name()), "is not applied anywhere");
+        }
+
+    // Each page's layers, innermost first: its own, then its envelopes, its flow's and the agent's,
+    // each followed by what it extends.
+    if (check.errors.empty()) {
+        compiled->_layers.resize(definition.flows_size());
+        for (int f = 0; f < definition.flows_size(); ++f) {
+            const auto& flow = definition.flows(f);
+            for (const auto& page : flow.pages()) {
+                std::vector<Layer> layers{{&page.routes(), &page.handlers(), nullptr}};
+                std::set<std::string> seen;
+                auto add = [&](const google::protobuf::RepeatedPtrField<std::string>& names) {
+                    for (const auto& name : names)
+                        for (std::string at = name; !at.empty() && seen.insert(at).second;) {
+                            const auto& envelope = definition.envelope_defs(compiled->_envelopes.at(at));
+                            layers.push_back({&envelope.routes(), &envelope.handlers(), &envelope.settings()});
+                            at = envelope.extends();
+                        }
+                };
+                add(page.envelopes());
+                add(flow.envelopes());
+                add(definition.envelopes());
+                compiled->_layers[f].push_back(std::move(layers));
+            }
+        }
+    }
 
     if (compiled->_startPage.valid()) {
         std::set<std::pair<int, int>> reached{{compiled->_startPage.flow, compiled->_startPage.page}};
         std::deque<PageRef> pending{compiled->_startPage};
+        for (const auto& entered : reachedFromAnywhere)
+            if (reached.insert({entered.flow, entered.page}).second) pending.push_back(entered);
         while (!pending.empty()) {
             const PageRef at = pending.front();
             pending.pop_front();

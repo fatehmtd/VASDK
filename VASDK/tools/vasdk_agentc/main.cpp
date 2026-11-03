@@ -2,7 +2,8 @@
 //   vasdk_agentc lint agent.txtpb                  problems, with where they are; exit 1 on errors
 //   vasdk_agentc test agent.txtpb case.txtpb...    plays each FlowTestCase; exit 1 on a failure
 //   vasdk_agentc chat agent.txtpb [--session name=value]...
-//                                                  talk to it by typing; Ctrl-D quits
+//                                                  talk to it by typing; an empty line is silence
+//                                                  (no-input); Ctrl-D quits
 //   vasdk_agentc try agent.txtpb [--entity @name] "words"
 //                                                  the intent and entities found in the words
 
@@ -55,8 +56,9 @@ std::string describe(const va::flow::EntityMatch& match) {
 }
 
 void print(const va::flow::Reply& reply, const va::flow::FlowRuntime& conversation) {
-    std::printf("bot: %s   [%s/%s]%s\n", reply.text.empty() ? "(nothing)" : reply.text.c_str(),
+    std::printf("bot: %s   [%s/%s]%s%s\n", reply.text.empty() ? "(nothing)" : reply.text.c_str(),
                 conversation.flowName().c_str(), conversation.pageName().c_str(),
+                reply.event.empty() ? "" : ("  (" + reply.event + ")").c_str(),
                 reply.endsSession ? "  (conversation ended)" : "");
 }
 
@@ -152,8 +154,7 @@ int main(int argc, char** argv) {
         print(conversation.start(), conversation);
         std::string line;
         while (std::printf("you: "), std::fflush(stdout), std::getline(std::cin, line)) {
-            if (line.empty()) continue;
-            print(conversation.handleText(line), conversation);
+            print(line.empty() ? conversation.handleNoInput() : conversation.handleText(line), conversation);
         }
         std::printf("\n");
         return 0;

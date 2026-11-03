@@ -24,6 +24,7 @@ message EntityValues {
 message TestTurn {
   string user = 1;   // what the user says; empty: the conversation starts (the start page's greeting)
   TurnExpectation expect = 2;
+  bool no_input = 3;  // the user says nothing (no-input), instead of `user`
 }
 
 // Every field set must hold after the turn; unset fields aren't checked.
@@ -38,4 +39,5 @@ message TurnExpectation {
   map<string, string> session = 8;     // session param name → its value as a reply would say it
   map<string, string> form = 9;        // form slot, or complete / confirmed / failed → its value ("" when empty)
   map<string, string> entities = 10;   // entity → the value found in this turn's words ($nlu.entities.<name>)
+  string event = 11;                   // the event this turn raised: no-match, no-input or max-reprompts
 }

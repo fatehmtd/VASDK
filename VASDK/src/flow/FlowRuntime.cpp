@@ -177,6 +177,7 @@ Reply FlowRuntime::start() {
     Reply reply;
     _ended = false;
     _inputText.clear();
+    _stack.clear();
     moveTo(_agent->startPage(), "start", reply);
     return reply;
 }
@@ -188,6 +189,8 @@ Reply FlowRuntime::handleText(const std::string& text) {
         _position = _agent->startPage();
         _ended = false;
         _lastQuestion.clear();
+        _stack.clear();
+        _misses = 0;
         _form.reset();
         if (const auto* goal = _agent->goal(_agent->page(_position).form().goal())) {
             _form.emplace();
@@ -200,6 +203,7 @@ Reply FlowRuntime::handleText(const std::string& text) {
     _intent.clear();
     _entity.reset();
     if (formActive() && fillForm(text)) {   // an answer for the form
+        _misses = 0;
         follow(advanceForm(reply), reply);
         return reply;
     }
@@ -210,21 +214,87 @@ Reply FlowRuntime::handleText(const std::string& text) {
             return reply;
         }
         reply.matched = false;
-        reply.text = kNotUnderstood;
-        append(reply.text, _lastQuestion);
-        reply.expectsReply = !_lastQuestion.empty();
+        follow(miss(kEventNoMatch, reply), reply);
         return reply;
     }
+    _misses = 0;
     auto outcome = takeRoute(*best, reply);
-    // Staying on the page: the form asks for what it still needs (a cleared slot, say).
-    if (!outcome.ended && !outcome.jump && formActive()) outcome = advanceForm(reply);
+    // Staying on the page: the form asks for what it still needs (a cleared slot, say), and
+    // anything else asks its question again ("We're open 8 to 6." then the question).
+    if (!outcome.moves() && formActive()) outcome = advanceForm(reply);
+    else if (!outcome.moves() && !reply.expectsReply && !reply.endsSession) askAgain(reply);
     follow(std::move(outcome), reply);
     return reply;
 }
 
+Reply FlowRuntime::handleNoInput() {
+    Reply reply;
+    if (!started() || _ended) return reply;
+    _inputText.clear();
+    _intent.clear();
+    _entity.reset();
+    reply.matched = false;
+    follow(miss(kEventNoInput, reply), reply);
+    return reply;
+}
+
+int FlowRuntime::noInputMs() const {
+    if (!started() || _ended) return 0;
+    for (const auto& layer : _agent->layers(_position))
+        if (layer.settings && layer.settings->has_no_input_ms()) return layer.settings->no_input_ms();
+    return findHandler(kEventNoInput) ? 8000 : 0;
+}
+
+int FlowRuntime::maxReprompts() const {
+    for (const auto& layer : _agent->layers(_position))
+        if (layer.settings && layer.settings->has_max_reprompts()) return layer.settings->max_reprompts();
+    return 2;
+}
+
+const vasdk::flow::Handler* FlowRuntime::findHandler(const std::string& event) const {
+    for (const auto& layer : _agent->layers(_position))
+        for (const auto& handler : *layer.handlers)
+            if (handler.event() == event) return &handler;
+    return nullptr;
+}
+
+// No route understood the user, or they said nothing: the handler for it, or for max-reprompts
+// once too many came in a row; without one, the built-in reply and the question again.
+FlowRuntime::Outcome FlowRuntime::miss(const std::string& event, Reply& reply) {
+    const auto* handler = ++_misses > maxReprompts() ? findHandler(kEventMaxReprompts) : nullptr;
+    reply.event = handler ? kEventMaxReprompts : event;
+    if (!handler) handler = findHandler(event);
+    if (handler) return runHandler(*handler, reply);
+    if (event == kEventNoMatch) append(reply.text, kNotUnderstood);
+    askAgain(reply);
+    return {};
+}
+
+FlowRuntime::Outcome FlowRuntime::runHandler(const vasdk::flow::Handler& handler, Reply& reply) {
+    auto outcome = run(handler.steps(), reply);
+    if (!outcome.moves()) outcome = toTarget(handler.target(), "handler:" + handler.event());
+    if (!outcome.moves() && !reply.expectsReply) askAgain(reply);
+    return outcome;
+}
+
+// The page's question again: the form's, or the last one asked.
+void FlowRuntime::askAgain(Reply& reply) {
+    if (formActive()) {
+        advanceForm(reply);
+        return;
+    }
+    append(reply.text, _lastQuestion);
+    reply.expectsReply = !_lastQuestion.empty();
+}
+
 const vasdk::flow::Route* FlowRuntime::matchRoute() {
+    for (const auto& layer : _agent->layers(_position))
+        if (const auto* route = matchRoute(*layer.routes)) return route;
+    return nullptr;
+}
+
+const vasdk::flow::Route* FlowRuntime::matchRoute(const google::protobuf::RepeatedPtrField<vasdk::flow::Route>& routes) {
     const auto words = splitWords(_inputText);
-    const auto& routes = _agent->page(_position).routes();
     // A route's entity must be in the words; $entity reads it while its condition is checked.
     auto entityHolds = [this](const vasdk::flow::Route& route) {
         _entity.reset();
@@ -256,18 +326,63 @@ const vasdk::flow::Route* FlowRuntime::matchRoute() {
     return nullptr;
 }
 
+FlowRuntime::Outcome FlowRuntime::toTarget(const std::string& target, std::string reason) const {
+    Outcome outcome;
+    if (target.empty()) return outcome;
+    if (target == kTargetEndSession) {
+        outcome.ended = true;
+    } else if (target == kTargetEndFlow) {
+        outcome.endFlow = true;
+    } else {
+        outcome.jump = _agent->resolve(target, _position);
+        outcome.pushFlow = target.rfind("flow:", 0) == 0;
+        outcome.reason = std::move(reason);
+    }
+    return outcome;
+}
+
 FlowRuntime::Outcome FlowRuntime::takeRoute(const vasdk::flow::Route& route, Reply& reply) {
     reply.intent = _intent = route.intent();
     auto outcome = run(route.steps(), reply);
-    if (outcome.ended || route.target() == kTargetEndSession) return {std::nullopt, true};
-    if (outcome.jump) return outcome;
-    if (!route.target().empty()) return {_agent->resolve(route.target(), _position), false, "route:" + route.intent()};
-    return {};
+    if (outcome.moves()) return outcome;
+    return toTarget(route.target(), "route:" + route.intent());
 }
 
 void FlowRuntime::follow(Outcome outcome, Reply& reply) {
-    if (outcome.ended) end(reply);
-    else if (outcome.jump) moveTo(*outcome.jump, std::move(outcome.reason), reply);
+    if (outcome.ended) {
+        end(reply);
+    } else if (outcome.endFlow) {
+        returnFromFlow(reply);
+    } else if (outcome.jump) {
+        if (outcome.pushFlow) pushFrame();
+        moveTo(*outcome.jump, std::move(outcome.reason), reply);
+    }
+}
+
+void FlowRuntime::pushFrame() {
+    if (_stack.size() >= kMaxFlowDepth) {
+        spdlog::error("[FlowRuntime] {} flows deep: \"{}\" won't be returned to", kMaxFlowDepth, pageName());
+        return;
+    }
+    _stack.push_back({_position, _lastQuestion, _form, _pageLocals});
+}
+
+// END_FLOW: back to the page that entered this flow, as it was, and its question again. In the
+// start flow there's nowhere to go back to: the conversation ends.
+void FlowRuntime::returnFromFlow(Reply& reply) {
+    if (_stack.empty()) {
+        end(reply);
+        return;
+    }
+    Frame frame = std::move(_stack.back());
+    _stack.pop_back();
+    reply.pageChanges.push_back(changeTo(frame.page, "return"));
+    _position = frame.page;
+    _lastQuestion = std::move(frame.lastQuestion);
+    _form = std::move(frame.form);
+    _pageLocals = std::move(frame.pageLocals);
+    _misses = 0;
+    askAgain(reply);
 }
 
 FlowRuntime::Outcome FlowRuntime::run(const google::protobuf::RepeatedPtrField<vasdk::flow::Step>& steps,
@@ -297,7 +412,7 @@ FlowRuntime::Outcome FlowRuntime::run(const google::protobuf::RepeatedPtrField<v
         case vasdk::flow::Step::kBranch: {
             const auto& branch = step.branch();
             const auto outcome = run(holds(branch.if_()) ? branch.then() : branch.else_(), reply);
-            if (outcome.ended || outcome.jump) return outcome;
+            if (outcome.moves()) return outcome;
             break;
         }
         case vasdk::flow::Step::kSwitch: {
@@ -311,16 +426,16 @@ FlowRuntime::Outcome FlowRuntime::run(const google::protobuf::RepeatedPtrField<v
                 }
             }
             const auto outcome = run(*chosen, reply);
-            if (outcome.ended || outcome.jump) return outcome;
+            if (outcome.moves()) return outcome;
             break;
         }
-        case vasdk::flow::Step::kGoto: {
-            const auto& target = step.goto_().target();
-            if (target == kTargetEndSession) return {std::nullopt, true};
-            return {_agent->resolve(target, _position), false};
+        case vasdk::flow::Step::kGoto:
+            return toTarget(step.goto_().target(), "goto");
+        case vasdk::flow::Step::kEnd: {
+            Outcome outcome;
+            outcome.ended = true;
+            return outcome;
         }
-        case vasdk::flow::Step::kEnd:
-            return {std::nullopt, true};
         case vasdk::flow::Step::KIND_NOT_SET:
             break;
         }
@@ -444,11 +559,16 @@ FlowRuntime::Outcome FlowRuntime::advanceForm(Reply& reply) {
 FlowRuntime::Outcome FlowRuntime::repromptForm(Reply& reply) {
     auto& form = *_form;
     reply.matched = false;
-    const int maxReprompts = form.goal->max_reprompts() > 0 ? form.goal->max_reprompts() : 2;
-    if (++form.reprompts > maxReprompts && !form.failed) {
+    reply.event = kEventNoMatch;
+    const int limit = form.goal->max_reprompts() > 0 ? form.goal->max_reprompts() : maxReprompts();
+    if (++form.reprompts > limit && !form.failed) {
         form.failed = true;
         auto outcome = conditionRoute(reply);
-        if (outcome.ended || outcome.jump || !reply.text.empty()) return outcome;
+        if (outcome.moves() || !reply.text.empty()) return outcome;
+        if (const auto* handler = findHandler(kEventMaxReprompts)) {
+            reply.event = kEventMaxReprompts;
+            return runHandler(*handler, reply);
+        }
     }
     const auto& goal = *form.goal;
     if (form.awaitingConfirmation) {
@@ -499,6 +619,7 @@ void FlowRuntime::moveTo(CompiledAgent::PageRef target, std::string reason, Repl
         _position = *next;
         _lastQuestion.clear();
         _pageLocals.Clear();
+        _misses = 0;
         const auto* goal = _agent->goal(_agent->page(_position).form().goal());
         if (!goal) {
             _form.reset();
@@ -512,10 +633,11 @@ void FlowRuntime::moveTo(CompiledAgent::PageRef target, std::string reason, Repl
             if (!samePage && !_inputText.empty()) fillNamedValues(_inputText, false);   // "book an oil change"
             outcome = advanceForm(reply);
         }
-        if (outcome.ended) {
-            end(reply);
+        if (outcome.ended || outcome.endFlow) {
+            follow(std::move(outcome), reply);
             return;
         }
+        if (outcome.jump && outcome.pushFlow) pushFrame();
         next = outcome.jump;
         reason = outcome.reason;
     }
@@ -523,6 +645,7 @@ void FlowRuntime::moveTo(CompiledAgent::PageRef target, std::string reason, Repl
 
 void FlowRuntime::end(Reply& reply) {
     _ended = true;
+    _stack.clear();
     reply.endsSession = true;
     reply.expectsReply = false;
 }
