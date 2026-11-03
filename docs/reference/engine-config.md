@@ -52,6 +52,26 @@ Each `ProviderSpec` has:
 
 - `fallback`: ids to try, in order, when `id` is not built into the binary or fails to start (a missing model file, for example). Options apply to `id` only; a fallback starts with its defaults. The log shows which provider was used and why the others were skipped.
 
+## Activation
+
+```textproto
+activation { mode: WAKE_WORD follow_up { listen_ms: 8000 } }
+providers { wake_word { id: "my-wake-word" } }
+```
+
+`mode` sets when the assistant listens:
+
+| Mode | Before a conversation | After each reply, when the follow-up window closes |
+| --- | --- | --- |
+| `ALWAYS_ON` (default) | always listening | still listening |
+| `WAKE_WORD` | asleep until the wake phrase; needs a `providers.wake_word` | asleep |
+| `PUSH_TO_TALK` | listens while the app holds the button (`Session::pushToTalk`) | asleep |
+| `HYBRID` | wake phrase or button | asleep |
+
+`follow_up.listen_ms` keeps the mic open after **every** reply, so the user can answer without the wake phrase or button. The window starts once the reply has finished playing, or was interrupted. Speech that starts in it is a new turn. Unset: 8000 ms; `0` closes it at once; `-1` never closes it. `Session::setFollowUpListenMs()` changes it at run time, for example from a settings screen. Apps get `listening_window` events to drive a mic indicator.
+
+No wake-word provider ships yet (milestone 28), so `WAKE_WORD` and `HYBRID` need one registered under `audio::WakeWordProvider`, as [`activation_test.cpp`](../../VASDK/tests/activation_test.cpp) does.
+
 ## Turn-taking
 
 ```textproto

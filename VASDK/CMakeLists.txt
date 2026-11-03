@@ -48,6 +48,7 @@ add_library(VASDK SHARED
     ./src/Pipeline.cpp
     ./src/TurnDetectionProcessor.cpp
     ./src/TurnAssemblerProcessor.cpp
+    ./src/WakeWordProcessor.cpp
     ./src/SpeakerIdentificationProcessor.cpp
     ./src/AgentStateProcessor.cpp
     # Goal-oriented call center framework (va::goal namespace)
@@ -286,6 +287,14 @@ if(VASDK_BUILD_TESTS)
         add_executable(vasdk_engine_assembly_test tests/engine_assembly_test.cpp)
         target_link_libraries(vasdk_engine_assembly_test PRIVATE VASDK)
         add_test(NAME vasdk_engine_assembly COMMAND vasdk_engine_assembly_test)
+
+        add_executable(vasdk_activation_test tests/activation_test.cpp)
+        target_link_libraries(vasdk_activation_test PRIVATE VASDK)
+        add_test(NAME vasdk_activation COMMAND vasdk_activation_test)
+
+        add_executable(vasdk_follow_up_window_test tests/follow_up_window_test.cpp)
+        target_link_libraries(vasdk_follow_up_window_test PRIVATE VASDK)
+        add_test(NAME vasdk_follow_up_window COMMAND vasdk_follow_up_window_test)
 
         add_executable(vasdk_session_test tests/session_test.cpp)
         target_link_libraries(vasdk_session_test PRIVATE VASDK)

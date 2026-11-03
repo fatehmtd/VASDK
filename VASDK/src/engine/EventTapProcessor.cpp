@@ -71,6 +71,28 @@ void EventDispatcher::run() {
     }
 }
 
+void EventTapProcessor::postListeningWindow(const transport::AgentStateFrame& frame) {
+    vasdk::engine::Event event;
+    auto* window = event.mutable_listening_window();
+    if (frame.listenWindowMs != 0) {
+        window->set_state(vasdk::engine::ListeningWindow::OPENED);
+        window->set_closes_in_ms(frame.listenWindowMs);
+        _listeningWindowOpen = true;
+    } else if (!_listeningWindowOpen) {
+        return;
+    } else if (frame.transition == transport::AgentStateTransition::USER_STARTED_SPEAKING) {
+        window->set_state(vasdk::engine::ListeningWindow::EXTENDED);
+        window->set_reason("user_speaking");
+        _listeningWindowOpen = false;
+    } else {
+        window->set_state(vasdk::engine::ListeningWindow::CLOSED);
+        window->set_reason(frame.transition == transport::AgentStateTransition::FOLLOW_UP_WINDOW_CLOSED
+                               ? "timeout" : transport::toString(frame.transition));
+        _listeningWindowOpen = false;
+    }
+    _dispatcher->post(std::move(event));
+}
+
 bool EventTapProcessor::shouldProcess(std::shared_ptr<transport::Frame> frame) const {
     switch (frame->getType()) {
     case transport::FrameType::TRANSCRIPTION:
@@ -123,6 +145,9 @@ void EventTapProcessor::processFrame(std::shared_ptr<transport::Frame> frame, pi
         change->set_state(transport::toString(agentState->currentState));
         change->set_previous_state(transport::toString(agentState->previousState));
         change->set_transition(transport::toString(agentState->transition));
+        _dispatcher->post(std::move(event));
+        event.Clear();
+        postListeningWindow(*agentState);
         break;
     }
     case transport::FrameType::ERROR: {

@@ -128,6 +128,12 @@ namespace va {
                 _interruptPending = false;
             }
             _interruptTimeoutThread = std::thread(&AgentStateProcessor::interruptTimeoutLoop, this);
+            {
+                std::lock_guard<std::mutex> lock(_followUpMutex);
+                _followUpStop = false;
+                _followUpArmed = false;
+            }
+            _followUpThread = std::thread(&AgentStateProcessor::followUpLoop, this);
 
             if (_alwaysOn) {
                 transitionTo(transport::AgentState::LISTENING,
@@ -144,6 +150,12 @@ namespace va {
             }
             _interruptCv.notify_all();
             if (_interruptTimeoutThread.joinable()) _interruptTimeoutThread.join();
+            {
+                std::lock_guard<std::mutex> lock(_followUpMutex);
+                _followUpStop = true;
+            }
+            _followUpCv.notify_all();
+            if (_followUpThread.joinable()) _followUpThread.join();
             FrameProcessor::stop();
         }
 
@@ -245,6 +257,7 @@ namespace va {
 
         void AgentStateProcessor::handleUserTurnStarted(std::shared_ptr<transport::TurnStateFrame> frame)
         {
+            _userSpeaking = true;
             switch (_currentState.load()) {
             case transport::AgentState::SPEAKING: {
                 if (frame->type != transport::TurnStateFrame::TurnType::INTERRUPT) break;
@@ -275,12 +288,15 @@ namespace va {
                 startInterruptTimeout();
                 break;
             case transport::AgentState::LISTENING: {
+                cancelFollowUpWindow();
                 {
                     std::lock_guard<std::mutex> lock(_backchannelMutex);
                     _finalAfterSpeakingMode = FinalAfterSpeakingMode::None;  // a new turn supersedes it
                 }
+                // Reported although the state is unchanged: the turn assembler keeps the words of a
+                // paused sentence for its next turn, and the LLM drops its speculative request.
                 transitionTo(transport::AgentState::LISTENING,
-                    transport::AgentStateTransition::USER_STARTED_SPEAKING);
+                    transport::AgentStateTransition::USER_STARTED_SPEAKING, 0.0f, true);
                 break;
             }
             default:
@@ -291,6 +307,7 @@ namespace va {
 
         void AgentStateProcessor::handleUserTurnEnded(std::shared_ptr<transport::TurnStateFrame> frame)
         {
+            _userSpeaking = false;
             if (_currentState.load() == transport::AgentState::SPEAKING) {
                 handleOverlapUserTurnEnded();
                 return;
@@ -330,8 +347,7 @@ namespace va {
                 break;
             case transport::AgentState::INTERRUPTED: {
                 cancelInterruptTimeout();
-                resolveInterrupt(_alwaysOn ? transport::AgentState::LISTENING
-                                           : transport::AgentState::IDLE);
+                resolveInterrupt();
                 break;
             }
             default:
@@ -421,6 +437,12 @@ namespace va {
             case transport::TriggerType::BUTTON_PRESS:
                 handleButtonPressTrigger(frame);
                 break;
+            case transport::TriggerType::SCHEDULED:   // a reminder or app event wants the user's attention
+                handleWakeWordTrigger(frame);
+                break;
+            case transport::TriggerType::PUSH_TO_TALK:
+                handlePushToTalkTrigger(frame);
+                break;
             default:
                 break;
             }
@@ -481,6 +503,30 @@ namespace va {
             }
         }
 
+        void AgentStateProcessor::handlePushToTalkTrigger(std::shared_ptr<transport::TriggerFrame> frame)
+        {
+            if (frame->triggerData == "down") {
+                _pushToTalkHeld = true;
+                cancelFollowUpWindow();
+                switch (_currentState.load()) {
+                case transport::AgentState::IDLE:
+                    transitionTo(transport::AgentState::LISTENING, transport::AgentStateTransition::PUSH_TO_TALK);
+                    break;
+                case transport::AgentState::SPEAKING:
+                case transport::AgentState::THINKING:
+                    handleButtonPressTrigger(frame);   // talking over the reply cuts it, like the cancel button
+                    break;
+                default:
+                    break;
+                }
+                return;
+            }
+            _pushToTalkHeld = false;
+            // Released mid-sentence: the turn ends on its own and gets its answer.
+            if (!_alwaysOn && !_userSpeaking && _currentState.load() == transport::AgentState::LISTENING)
+                transitionTo(transport::AgentState::IDLE, transport::AgentStateTransition::PUSH_TO_TALK);
+        }
+
         void AgentStateProcessor::handleSynthesisStateFrame(
             std::shared_ptr<transport::SynthesisStateFrame> frame)
         {
@@ -493,7 +539,7 @@ namespace va {
 
         void AgentStateProcessor::transitionTo(
             transport::AgentState next, transport::AgentStateTransition reason,
-            float confidence, bool emitWhenUnchanged)
+            float confidence, bool emitWhenUnchanged, int listenWindowMs)
         {
             auto prev = _currentState.exchange(next);
             if (prev == next && !emitWhenUnchanged) return;  // no-op if state unchanged
@@ -530,16 +576,17 @@ namespace va {
                 }
             }
 
-            emitAgentStateFrame(next, prev, reason, confidence);
+            emitAgentStateFrame(next, prev, reason, confidence, listenWindowMs);
         }
 
         void AgentStateProcessor::emitAgentStateFrame(
             transport::AgentState current,
             transport::AgentState previous,
             transport::AgentStateTransition reason,
-            float confidence)
+            float confidence, int listenWindowMs)
         {
             auto f = std::make_shared<transport::AgentStateFrame>();
+            f->listenWindowMs = listenWindowMs;
             f->currentState = current;
             f->previousState = previous;
             f->transition = reason;
@@ -583,11 +630,8 @@ namespace va {
                 if (fired && _interruptPending) {
                     _interruptPending = false;
                     lock.unlock();
-                    auto next = _alwaysOn ? transport::AgentState::LISTENING
-                                          : transport::AgentState::IDLE;
-                    spdlog::warn("[AgentStateProcessor] Interrupt timeout - forcing {}",
-                        transport::toString(next));
-                    resolveInterrupt(next);
+                    spdlog::warn("[AgentStateProcessor] Interrupt timeout - resolving it");
+                    resolveInterrupt();
                 }
             }
         }
@@ -762,15 +806,71 @@ namespace va {
                     clearOverlapLocked();
                 }
             }
-            transitionTo(_alwaysOn ? transport::AgentState::LISTENING : transport::AgentState::IDLE,
-                transport::AgentStateTransition::SYNTHESIS_COMPLETED);
+            finishReply(transport::AgentStateTransition::SYNTHESIS_COMPLETED);
             if (forwardNow) pushDownstream(forwardNow);
             if (replay && _currentState.load() == transport::AgentState::LISTENING) replayHeldTurn(replay);
         }
 
-        void AgentStateProcessor::resolveInterrupt(transport::AgentState next)
+        void AgentStateProcessor::finishReply(transport::AgentStateTransition reason)
         {
-            transitionTo(next, transport::AgentStateTransition::INTERRUPT_RESOLVED);
+            // Push-to-talk held through the reply: the user is answering now.
+            const int windowMs = _pushToTalkHeld ? -1 : _followUpListenMs.load();
+            if (windowMs == 0) {
+                transitionTo(_alwaysOn ? transport::AgentState::LISTENING : transport::AgentState::IDLE, reason);
+                return;
+            }
+            transitionTo(transport::AgentState::LISTENING, reason, 0.0f, false, windowMs);
+            {
+                std::lock_guard<std::mutex> lock(_followUpMutex);
+                _followUpOpen = true;
+            }
+            if (windowMs > 0) armFollowUpWindow(windowMs);
+        }
+
+        void AgentStateProcessor::armFollowUpWindow(int ms)
+        {
+            {
+                std::lock_guard<std::mutex> lock(_followUpMutex);
+                _followUpArmed = true;
+                _followUpDeadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);
+            }
+            _followUpCv.notify_one();
+        }
+
+        void AgentStateProcessor::cancelFollowUpWindow()
+        {
+            {
+                std::lock_guard<std::mutex> lock(_followUpMutex);
+                _followUpOpen = _followUpArmed = false;
+            }
+            _followUpCv.notify_one();
+        }
+
+        void AgentStateProcessor::followUpLoop()
+        {
+            std::unique_lock<std::mutex> lock(_followUpMutex);
+            while (true) {
+                _followUpCv.wait(lock, [this] { return _followUpArmed || _followUpStop; });
+                if (_followUpStop) return;
+                const auto deadline = _followUpDeadline;
+                if (_followUpCv.wait_until(lock, deadline, [this, deadline] {
+                        return _followUpStop || !_followUpArmed || _followUpDeadline != deadline; }))
+                    continue;   // stopped, cancelled, or re-armed by a newer reply
+                _followUpArmed = _followUpOpen = false;
+                lock.unlock();
+                // Nobody spoke: back to waiting for the wake word or button.
+                if (_currentState.load() == transport::AgentState::LISTENING && !_userSpeaking) {
+                    transitionTo(_alwaysOn ? transport::AgentState::LISTENING : transport::AgentState::IDLE,
+                                 transport::AgentStateTransition::FOLLOW_UP_WINDOW_CLOSED, 0.0f, true);
+                }
+                lock.lock();
+            }
+        }
+
+        void AgentStateProcessor::resolveInterrupt()
+        {
+            finishReply(transport::AgentStateTransition::INTERRUPT_RESOLVED);
+            const auto next = _currentState.load();
             std::shared_ptr<transport::TranscriptionFrame> replay;
             {
                 std::lock_guard<std::mutex> lock(_backchannelMutex);

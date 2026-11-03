@@ -19,6 +19,7 @@ message Providers {
   ProviderSpec stt = 2;
   ProviderSpec tts = 3;
   ProviderSpec turn = 4;               // end-of-turn model; none built in: VAD silence decides
+  ProviderSpec wake_word = 5;          // used by the WAKE_WORD and HYBRID activation modes
 }
 
 message LlmConfig {
@@ -42,9 +43,27 @@ message TurnTaking {
   bool streaming_transcription = 2;    // STT runs while the user speaks and sends partial results
 }
 
+// When the assistant listens.
+message Activation {
+  enum Mode {
+    ALWAYS_ON = 0;      // always listening
+    WAKE_WORD = 1;      // asleep until the wake phrase (needs a providers.wake_word)
+    PUSH_TO_TALK = 2;   // listens while the app holds the button (Session::pushToTalk)
+    HYBRID = 3;         // wake phrase or button
+  }
+  Mode mode = 1;
+  FollowUp follow_up = 2;
+}
+
+// After every reply the mic stays open, so the user can answer without the wake phrase or button.
+message FollowUp {
+  optional int32 listen_ms = 1;        // unset: 8000; 0: close at once; -1: never close
+}
+
 message EngineConfig {
   string models_dir = 1;               // base directory for local model files
   Providers providers = 2;
   LlmConfig llm = 3;                   // unset: the app's command-line or built-in defaults
   TurnTaking turn_taking = 4;
+  Activation activation = 5;
 }

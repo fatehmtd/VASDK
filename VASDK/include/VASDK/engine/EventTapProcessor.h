@@ -70,6 +70,8 @@ public:
 private:
     std::shared_ptr<EventDispatcher> _dispatcher;
     std::string _reply;   // the agent reply streamed so far
+    bool _listeningWindowOpen = false;
+    void postListeningWindow(const transport::AgentStateFrame& frame);
 };
 
 } // namespace engine

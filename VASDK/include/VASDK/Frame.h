@@ -471,7 +471,8 @@ namespace va {
             WAKE_WORD,
             BUTTON_PRESS,
             APP_COMMAND,
-            SCHEDULED
+            SCHEDULED,
+            PUSH_TO_TALK    // triggerData "down" while the button is held, "up" when released
         };
 
         class VASDK_EXPORT TriggerFrame : public Frame {
@@ -685,7 +686,9 @@ namespace va {
             USER_SPOKE_WHILE_THINKING,
             INTERRUPT_RESOLVED,
             BARGE_IN_PENDING,   // SPEAKING -> SPEAKING: user speech over the agent, not yet classified
-            BACKCHANNEL         // SPEAKING -> SPEAKING: that speech was a back-channel; playback resumes
+            BACKCHANNEL,        // SPEAKING -> SPEAKING: that speech was a back-channel; playback resumes
+            PUSH_TO_TALK,       // IDLE -> LISTENING on the button going down; LISTENING -> IDLE on release
+            FOLLOW_UP_WINDOW_CLOSED  // nobody spoke in the follow-up window: IDLE, or LISTENING when always on
         };
 
         /// What agent playback does while a barge-in is pending classification.
@@ -721,6 +724,8 @@ namespace va {
             case AgentStateTransition::INTERRUPT_RESOLVED:        return "INTERRUPT_RESOLVED";
             case AgentStateTransition::BARGE_IN_PENDING:          return "BARGE_IN_PENDING";
             case AgentStateTransition::BACKCHANNEL:               return "BACKCHANNEL";
+            case AgentStateTransition::PUSH_TO_TALK:              return "PUSH_TO_TALK";
+            case AgentStateTransition::FOLLOW_UP_WINDOW_CLOSED:   return "FOLLOW_UP_WINDOW_CLOSED";
             }
             return "UNKNOWN";
         }
@@ -739,6 +744,7 @@ namespace va {
                 cloned->previousState     = previousState;
                 cloned->transition        = transition;
                 cloned->triggerConfidence = triggerConfidence;
+                cloned->listenWindowMs    = listenWindowMs;
                 return cloned;
             }
 
@@ -748,6 +754,9 @@ namespace va {
             /// Confidence of the event that triggered this transition (0–1).
             /// For USER_STOPPED_SPEAKING this is the turn-detection model probability.
             float                triggerConfidence{ 0.0f };
+            /// Set when a reply ends: the follow-up window that opened, in ms (-1: until further notice).
+            /// 0: no window opened.
+            int                  listenWindowMs{ 0 };
         };
 
         /**

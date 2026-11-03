@@ -5,6 +5,7 @@
 #include "GenericVoiceSynthesisProvider.h"
 #include "TurnDetectionProvider.h"
 #include "VADProvider.h"
+#include "WakeWordProvider.h"
 #include "engine/ProtoFileLoader.h"
 
 #include <spdlog/spdlog.h>
@@ -60,6 +61,12 @@ std::shared_ptr<Runtime::ProviderSet> Runtime::createProviderSet(std::string* er
     if (!providers.turn().id().empty() || !_registry.ids<audio::TurnDetectionProvider>().empty()) {
         set->turn = _registry.create<audio::TurnDetectionProvider>(providers.turn(), input, &reason);
         if (!set->turn) return fail("Turn detection: " + reason);
+    }
+    const auto mode = _config.activation().mode();
+    if (mode == vasdk::engine::Activation::WAKE_WORD || mode == vasdk::engine::Activation::HYBRID) {
+        set->wakeWord = _registry.create<audio::WakeWordProvider>(providers.wake_word(), input, &reason);
+        if (!set->wakeWord) return fail("Wake word: " + reason);
+        if (!set->wakeWord->initialize(_options.inputAudio)) return fail("Wake word: " + set->wakeWord->getName() + " failed to start");
     }
     return set;
 }

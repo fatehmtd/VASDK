@@ -23,7 +23,7 @@ class Runtime;
 /**
  * @brief One conversation: the standard pipeline over a Runtime's providers.
  *
- *   input → trigger → [AfterInput] → VAD → turn → STT → [AfterTranscription]
+ *   input → trigger → [wake word] → [AfterInput] → VAD → turn → STT → [AfterTranscription]
  *     → agent state → turn assembly → LLM → tools → [BeforeSynthesis] → TTS → [BeforeOutput] → output
  *
  * The LLM stages are there only when the config has an `llm` endpoint (or
@@ -90,6 +90,18 @@ public:
     void injectUserText(const std::string& text);
     /** Stops the assistant's current reply, like a barge-in. Thread-safe. */
     void interrupt();
+    /**
+     * The push-to-talk button: true while held, false on release. Listens while held (a reply
+     * in progress is cut); releasing stops listening unless the user is mid-sentence, whose turn
+     * then gets its answer. Thread-safe.
+     */
+    void pushToTalk(bool held);
+    /**
+     * How long the mic stays open after each reply for the user to answer without the wake
+     * phrase or button, in ms: overrides the config's activation.follow_up.listen_ms (default
+     * 8000). 0 closes it at once, -1 never. Thread-safe; applies from the next reply.
+     */
+    void setFollowUpListenMs(int ms);
 
     const std::string& id() const;
     bool hasLLM() const;

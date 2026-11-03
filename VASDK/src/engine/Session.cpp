@@ -10,6 +10,7 @@
 #include "TurnAssemblerProcessor.h"
 #include "TurnDetectionProcessor.h"
 #include "VADFrameProcessor.h"
+#include "WakeWordProcessor.h"
 #include "engine/EventTapProcessor.h"
 #include "engine/Runtime.h"
 #include "llm/LLMFirePolicy.h"
@@ -93,6 +94,7 @@ struct Session::State {
 
     std::shared_ptr<pipeline::TransportInputProcessor> transportInput;
     std::shared_ptr<pipeline::TriggerProcessor> trigger;
+    std::shared_ptr<pipeline::WakeWordProcessor> wakeWord;   // WAKE_WORD and HYBRID modes
     std::shared_ptr<pipeline::VADFrameProcessor> vad;
     std::shared_ptr<pipeline::TurnDetectionProcessor> turnDetection;
     std::shared_ptr<pipeline::TranscriptionFrameProcessor> transcription;
@@ -113,6 +115,7 @@ struct Session::State {
 
     std::vector<std::shared_ptr<FrameProcessor>> chain() const {
         std::vector<std::shared_ptr<FrameProcessor>> processors{transportInput, trigger};
+        if (wakeWord) processors.push_back(wakeWord);
         auto addSlot = [&](Slot slot) {
             auto found = slots.find(slot);
             if (found != slots.end()) processors.insert(processors.end(), found->second.begin(), found->second.end());
@@ -198,7 +201,18 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
     state->transcription->setRingBuffer(state->ringBuffer);
 
     state->agentState = std::make_shared<pipeline::AgentStateProcessor>();
-    state->agentState->setAlwaysOn(true);
+    const auto& activation = config.activation();
+    state->agentState->setAlwaysOn(activation.mode() == vasdk::engine::Activation::ALWAYS_ON);
+    state->agentState->setFollowUpListenMs(
+        activation.follow_up().has_listen_ms() ? activation.follow_up().listen_ms() : 8000);
+    if (providers.wakeWord) {
+        state->wakeWord = std::make_shared<pipeline::WakeWordProcessor>(providers.wakeWord);
+        state->wakeWord->setRingBuffer(state->ringBuffer);
+        state->wakeWord->setAgentIdle([agentState = std::weak_ptr<pipeline::AgentStateProcessor>(state->agentState)] {
+            auto current = agentState.lock();
+            return current && current->getState() == transport::AgentState::IDLE;
+        });
+    }
     state->agentState->setBackchannelConfig(options.backchannel);
     // Batch transcription only, as the desktop app always had it; the call center (streaming)
     // never cleared the STT buffer on a barge-in.
@@ -358,6 +372,12 @@ void Session::injectUserText(const std::string& text) {
 }
 
 void Session::interrupt() { _state->trigger->trigger(transport::TriggerType::BUTTON_PRESS); }
+
+void Session::pushToTalk(bool held) {
+    _state->trigger->trigger(transport::TriggerType::PUSH_TO_TALK, held ? "down" : "up");
+}
+
+void Session::setFollowUpListenMs(int ms) { _state->agentState->setFollowUpListenMs(ms); }
 
 const std::string& Session::id() const { return _state->options.id; }
 bool Session::hasLLM() const { return _state->llm != nullptr; }

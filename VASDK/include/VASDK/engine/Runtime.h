@@ -18,6 +18,7 @@ class VADProvider;
 class GenericTranscriptionProvider;
 class GenericVoiceSynthesisProvider;
 class TurnDetectionProvider;
+class WakeWordProvider;
 }
 
 namespace engine {
@@ -57,6 +58,7 @@ public:
         std::shared_ptr<audio::GenericTranscriptionProvider> stt;
         std::shared_ptr<audio::GenericVoiceSynthesisProvider> tts;
         std::shared_ptr<audio::TurnDetectionProvider> turn;   ///< null: the VAD's silence ends the turn
+        std::shared_ptr<audio::WakeWordProvider> wakeWord;    ///< only in the WAKE_WORD and HYBRID modes
     };
 
     /**

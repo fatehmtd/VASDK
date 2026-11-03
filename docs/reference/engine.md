@@ -31,7 +31,7 @@ engine->stop();
 ## The pipeline
 
 ```
-input → trigger → [AfterInput] → VAD → turn → STT → [AfterTranscription]
+input → trigger → [wake word] → [AfterInput] → VAD → turn → STT → [AfterTranscription]
   → agent state → turn assembly → LLM → tools → [BeforeSynthesis] → TTS → [BeforeOutput] → output
 ```
 
@@ -65,6 +65,8 @@ Processors that read the mic audio directly use `inputRingBuffer()`.
 | `say(text)` | Speaks `text` as the assistant. |
 | `injectUserText(text)` | Sends `text` as a finished user turn, as if it had been spoken. Needs an LLM. |
 | `interrupt()` | Stops the current reply, the same way a barge-in does. |
+| `pushToTalk(held)` | The push-to-talk button: listens while held, and cuts a reply in progress. Released mid-sentence, the user's turn still gets its answer. |
+| `setFollowUpListenMs(ms)` | How long the mic stays open after each reply; overrides the config's [`activation.follow_up`](engine-config.md#activation). |
 | `registerTool(tool)` | Makes a tool available to the LLM; call it before `start()`. |
 
 `say`, `injectUserText` and `interrupt` are thread-safe: the frame is queued and flows through the pipeline like any other.
@@ -80,6 +82,7 @@ Processors that read the mic audio directly use `inputRingBuffer()`.
 | `agent_state` | Every state change: `IDLE`, `LISTENING`, `THINKING`, `SPEAKING`, `INTERRUPTED`, with the transition that caused it. |
 | `tool_call` | A tool the LLM called, with its arguments and result, when it returns. |
 | `error` | A processor or transport reported a failure, e.g. the LLM endpoint is unreachable. |
+| `listening_window` | The mic stays open after a reply: `OPENED` (with `closes_in_ms`), `EXTENDED` when the user starts answering, `CLOSED` when it times out. For a live mic indicator. |
 
 ```cpp
 engine->addListener([](const vasdk::engine::Event& event) {

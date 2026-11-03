@@ -3,6 +3,7 @@
 // turn sent on its partial drops the late final; resumed turns are merged (replacing the previous
 // one only when it was already sent, and only within the window); back-channels are not turns.
 
+#include <VASDK/AgentStateProcessor.h>
 #include <VASDK/TurnAssemblerProcessor.h>
 
 #include <chrono>
@@ -186,6 +187,39 @@ int main() {
         const auto turns = rig.recorder->settledTurns();
         check(texts(turns) == Texts{"Book a flight to Paris."}, "[unsent] merged into the next turn");
         check(turns.size() == 1 && !turns[0].replacesPrevious, "[unsent] nothing to replace");
+    }
+    {
+        // The same pause through the real state machine: the early final moves the agent to THINKING,
+        // so the resumed speech arrives as an interrupt that resolves while the user still talks.
+        Rig rig;
+        auto agent = std::make_shared<pipeline::AgentStateProcessor>();
+        agent->setAlwaysOn(true);
+        agent->setDownstream(rig.assembler);
+        agent->initialize();
+        agent->start();
+        auto send = [&](std::shared_ptr<transport::Frame> frame) {
+            agent->processFrame(frame, pipeline::FlowDirection::DOWNSTREAM);
+        };
+        auto final = [&](const std::string& text) {
+            auto frame = std::make_shared<transport::TranscriptionFrame>();
+            frame->isFinal = true;
+            frame->transcriptionResult.text = text;
+            frame->transcriptionResult.confidence = 0.9f;
+            send(frame);
+        };
+        auto user = [&](transport::TurnStateFrame::TurnState state) {
+            send(std::make_shared<transport::TurnStateFrame>(transport::TurnStateFrame::TurnActor::USER, state,
+                                                             transport::TurnStateFrame::TurnType::NORMAL));
+        };
+        user(transport::TurnStateFrame::TurnState::START);
+        final("Book a flight to");   // final during the pause, before the turn end
+        user(transport::TurnStateFrame::TurnState::START);   // resumes
+        std::this_thread::sleep_for(600ms);                    // longer than the 500 ms interrupt timeout
+        user(transport::TurnStateFrame::TurnState::END);
+        final("Paris.");
+        check(texts(rig.recorder->settledTurns()) == Texts{"Book a flight to Paris."},
+              "[pipeline] a paused sentence stays one turn");
+        agent->stop();
     }
     {
         Rig rig;

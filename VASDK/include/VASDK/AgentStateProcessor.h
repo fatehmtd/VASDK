@@ -93,7 +93,9 @@ namespace va {
          *    does not emit SynthesisStateFrame{INTERRUPTED}
          *
          * Always-on mode (default): IDLE → LISTENING automatically on start().
-         * Wake-word mode: remains IDLE until TriggerFrame{WAKE_WORD/APP_COMMAND} arrives.
+         * Wake-word mode: remains IDLE until TriggerFrame{WAKE_WORD/APP_COMMAND/SCHEDULED} arrives.
+         * Push-to-talk: TriggerFrame{PUSH_TO_TALK, "down"} listens; "up" stops unless the user is mid-turn.
+         * After each reply, setFollowUpListenMs() keeps the mic open for an answer without a trigger.
          *
          * See docs/reference/processors.md for the full state machine diagram.
          */
@@ -114,6 +116,17 @@ namespace va {
              * false: agent stays IDLE until a TriggerFrame{WAKE_WORD/APP_COMMAND} arrives.
              */
             void setAlwaysOn(bool alwaysOn) { _alwaysOn = alwaysOn; }
+
+            /**
+             * @brief How long the mic stays open after every reply, in ms (follow-up listening).
+             *
+             * Starts once the reply has played out, or was interrupted. Speech that starts within it
+             * is a new turn, no wake word or button needed; it cancels the window. When nobody speaks,
+             * the agent goes IDLE (always-on: stays LISTENING), with FOLLOW_UP_WINDOW_CLOSED.
+             * 0 (default): no window, as before: IDLE straight away unless always-on. -1: never closes.
+             * Thread-safe; applies from the next reply.
+             */
+            void setFollowUpListenMs(int ms) { _followUpListenMs = ms; }
 
             /**
              * @brief Timeout before forcing INTERRUPTED → LISTENING if TTS does not
@@ -149,11 +162,11 @@ namespace va {
 
         private:
             void transitionTo(transport::AgentState next, transport::AgentStateTransition reason,
-                              float confidence = 0.0f, bool emitWhenUnchanged = false);
+                              float confidence = 0.0f, bool emitWhenUnchanged = false, int listenWindowMs = 0);
             void emitAgentStateFrame(transport::AgentState current,
                                      transport::AgentState previous,
                                      transport::AgentStateTransition reason,
-                                     float confidence = 0.0f);
+                                     float confidence = 0.0f, int listenWindowMs = 0);
 
             void handleTurnStateFrame(std::shared_ptr<transport::TurnStateFrame> frame);
             void handleUserTurnStateFrame(std::shared_ptr<transport::TurnStateFrame> frame);
@@ -168,6 +181,7 @@ namespace va {
             void handleAppCommandTrigger(std::shared_ptr<transport::TriggerFrame> frame);
             void handleWakeWordTrigger(std::shared_ptr<transport::TriggerFrame> frame);
             void handleButtonPressTrigger(std::shared_ptr<transport::TriggerFrame> frame);
+            void handlePushToTalkTrigger(std::shared_ptr<transport::TriggerFrame> frame);
             void handleSynthesisStateFrame(std::shared_ptr<transport::SynthesisStateFrame> frame);
 
             void startInterruptTimeout();
@@ -189,11 +203,28 @@ namespace va {
             std::string overlapTextLocked() const;
             std::shared_ptr<transport::TranscriptionFrame> takeOverlapTranscriptionLocked(bool includePartial);
             void replayHeldTurn(std::shared_ptr<transport::TranscriptionFrame> heldTranscription);
-            void resolveInterrupt(transport::AgentState next);
+            void resolveInterrupt();
+            // After a reply ends or is interrupted: LISTENING with a follow-up window, or IDLE.
+            void finishReply(transport::AgentStateTransition reason);
+            void armFollowUpWindow(int ms);
+            void cancelFollowUpWindow();
+            void followUpLoop();
 
             std::atomic<transport::AgentState> _currentState{ transport::AgentState::IDLE };
             bool _alwaysOn{ true };
             uint32_t _interruptTimeoutMs{ 500 };
+            std::atomic<int> _followUpListenMs{ 0 };
+            std::atomic<bool> _pushToTalkHeld{ false };
+            std::atomic<bool> _userSpeaking{ false };   // between the user's turn start and end
+
+            // Follow-up window timer
+            std::thread             _followUpThread;
+            std::mutex              _followUpMutex;
+            std::condition_variable _followUpCv;
+            std::chrono::steady_clock::time_point _followUpDeadline;
+            bool                    _followUpArmed{ false };   // a timed window is counting down
+            bool                    _followUpOpen{ false };    // a window is open, timed or not
+            bool                    _followUpStop{ false };
 
             // Interrupt timeout fallback thread
             std::thread             _interruptTimeoutThread;
