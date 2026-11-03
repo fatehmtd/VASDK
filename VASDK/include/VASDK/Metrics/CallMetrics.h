@@ -8,8 +8,7 @@
 namespace va {
 namespace metrics {
 
-/// Per-call KPI data collected by GoalManager and SessionManager.
-/// Flushed to MetricsReporter when a session ends via SessionManager::destroySession().
+/// Per-call KPI data collected by GoalManager.
 ///
 /// Prometheus metrics derived from this struct:
 ///   call_goal_completions_total{intent, goal_name}          counter

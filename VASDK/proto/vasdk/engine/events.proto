@@ -6,6 +6,7 @@ package vasdk.engine;
 
 message Event {
   int64 timestamp_ms = 1;   // milliseconds since the Unix epoch
+  string session_id = 2;    // Session::Options::id; empty for an unnamed session
   oneof kind {
     Transcript transcript = 10;
     AgentReply agent_reply = 11;

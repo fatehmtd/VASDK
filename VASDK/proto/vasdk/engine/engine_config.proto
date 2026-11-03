@@ -25,10 +25,26 @@ message LlmConfig {
   string endpoint = 1;
   string model = 2;
   string api_key = 3;
+  int32 history = 4;                   // messages kept in the conversation; 0: 10
+  bool speculative_firing = 5;         // start the request on the partial at a pause (needs streaming_transcription)
+  int32 speculative_min_words = 6;     // 0: 3
+  repeated string tool_filler_phrases = 7;  // said in turn while a tool runs, e.g. "One moment."
+}
+
+// How quickly the assistant decides the user has finished speaking.
+message TurnTaking {
+  enum Preset {
+    BALANCED = 0;   // desktop assistant: 250 ms to start, 500 ms pauses within speech
+    SNAPPY = 1;     // phone calls: 150 ms to start, 200 ms pauses
+    PATIENT = 2;    // people who stop to think: longer minimum speech and end silence
+  }
+  Preset preset = 1;
+  bool streaming_transcription = 2;    // STT runs while the user speaks and sends partial results
 }
 
 message EngineConfig {
   string models_dir = 1;               // base directory for local model files
   Providers providers = 2;
   LlmConfig llm = 3;                   // unset: the app's command-line or built-in defaults
+  TurnTaking turn_taking = 4;
 }

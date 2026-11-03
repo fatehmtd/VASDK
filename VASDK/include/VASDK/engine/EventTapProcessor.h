@@ -34,8 +34,10 @@ public:
     /** Returns an id for removeListener(). Listeners may add or remove listeners themselves. */
     int addListener(EventListener listener);
     void removeListener(int id);
-    /** Thread-safe. Stamps timestamp_ms when it is unset. */
+    /** Thread-safe. Stamps timestamp_ms and session_id when they are unset. */
     void post(vasdk::engine::Event event);
+    /** Set before the first post(). */
+    void setSessionId(std::string id) { _sessionId = std::move(id); }
 
 private:
     void run();
@@ -45,6 +47,7 @@ private:
     std::deque<std::shared_ptr<vasdk::engine::Event>> _queue;
     std::vector<std::pair<int, std::shared_ptr<EventListener>>> _listeners;
     size_t _maxQueued;
+    std::string _sessionId;
     int _nextId = 1;
     size_t _dropped = 0;
     bool _stopping = false;

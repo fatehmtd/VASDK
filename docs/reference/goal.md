@@ -1,6 +1,6 @@
 # The goal layer
 
-*Reference for everything under `va::goal`, plus `SessionManager`. Headers in [`VASDK/include/VASDK/goal/`](../../VASDK/include/VASDK/goal/) are the source of truth if this page and the code ever disagree.*
+*Reference for everything under `va::goal`. Headers in [`VASDK/include/VASDK/goal/`](../../VASDK/include/VASDK/goal/) are the source of truth if this page and the code ever disagree.*
 
 The goal layer turns a conversational assistant into a **task completer**: instead of chatting open-endedly, the agent works toward a defined objective - collect these five pieces of information, validate them, confirm, then fire an action against your systems. It's the layer behind the [call center showcase](../../VASDK_CALLCENTER_APP/README.md), and the newest, fastest-moving part of the SDK.
 
@@ -82,13 +82,9 @@ Callbacks: `setOnComplete(fn)` (after `complete_goal` fires the external action 
 
 ([`GoalConversationSimulator.h`](../../VASDK/include/VASDK/goal/GoalConversationSimulator.h)) Scripts a conversation as `SimTurn`s (user utterance + the tool calls the "LLM" makes in response) and runs them against real `GoalManager`/`GoalState` validation logic - no model, no audio, fully deterministic. `SimulationResult` reports success, final slots, completion, and escalation. This is how slot-filling and escalation logic get regression-tested in CI.
 
-## SessionManager - many calls at once
+## Many calls at once
 
-([`SessionManager.h`](../../VASDK/include/VASDK/SessionManager.h)) Multi-session orchestration for server deployments:
-
-- **`ResourcePool<T>`** - a thread-safe pool of pre-initialized provider instances. `acquire(timeout)` blocks (default 5 s) and returns `nullptr` on exhaustion; `release()` returns the instance. Loading an STT model takes seconds; pooling means a new call grabs a warm one.
-- **`SessionManagerConfig`** - `maxConcurrentSessions` (default 10), `maxCallDuration` (default 30 min), a `persistence` backend, `goalSetForDNIS` (different dialed numbers offer different goal sets), and `pipelineFactory` (your function that builds a fully-wired pipeline given the call metadata and the session's pooled STT/TTS).
-- **`SessionManager`** - `createSession(CallMetadata{callId, callerANI, calledDNIS})` acquires providers and builds the pipeline (`nullptr` when limits are hit - busy-signal the call); `destroySession(callId)` stops the pipeline and returns providers to the pool. VAD is shared across sessions (it's cheap and stateless per the provider contract); STT/TTS are per-session.
+Run each call as an `engine::Session` over one shared `engine::Runtime`, optionally kept by id in a `SessionManager`: see [VAEngine - many conversations at once](engine.md#many-conversations-at-once). Goal code reaches a session's LLM and tools through `Session::llmTransport()` and `toolDispatcher()`.
 
 ## Maturity note
 

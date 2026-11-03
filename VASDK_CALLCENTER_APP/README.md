@@ -1,6 +1,6 @@
 # VASDK_CallCenter: the goal-oriented call center showcase
 
-`VASDK_CallCenter` demonstrates the `goal/` layer of VASDK: a voice agent that doesn't just chat, but works toward completing a concrete task with the caller. It reuses the same audio/VAD/STT/TTS wiring as [`VASDK_Pipeline`](../VASDK_APP/README.md) and layers the goal engine on top. [`callcenter_pipeline.cpp`](callcenter_pipeline.cpp) is the full source.
+`VASDK_CallCenter` demonstrates the `goal/` layer of VASDK: a voice agent that doesn't just chat, but works toward completing a concrete task with the caller. The call runs as an [engine session](../docs/reference/engine.md#many-conversations-at-once), the same engine as [`VASDK_Pipeline`](../VASDK_APP/README.md), with phone-call turn-taking and the goal engine on top. [`callcenter_pipeline.cpp`](callcenter_pipeline.cpp) is the full source.
 
 ## Call flow
 

@@ -94,6 +94,30 @@ Listeners run in order on one engine thread, never a pipeline thread, so a slow 
 
 `Options::transport` is any `va::transport::AudioTransport`: `LocalTransport` (mic and speaker) or `WebRtcTransport` (a browser). The engine sets its audio formats, frame size and ring buffer, starts it in `start()`, and stops it in `stop()`. Set `Options::sendAllFramesToTransport` when the other end shows the agent's state (the WebRTC demo page does); otherwise only speech audio is sent.
 
+## Many conversations at once
+
+`VAEngine` is one conversation with its own providers. A server handling many calls creates one `engine::Runtime` and one `engine::Session` per call ([`Runtime.h`](../../VASDK/include/VASDK/engine/Runtime.h), [`Session.h`](../../VASDK/include/VASDK/engine/Session.h)). A session has everything described above: the pipeline, slots, controls and events.
+
+```cpp
+va::engine::Runtime::Options limits;
+limits.maxSessions = 10;
+auto runtime = va::engine::Runtime::create("engine.txtpb", registry, limits, &error);
+
+va::SessionManager calls(runtime);   // optional: sessions by id
+va::engine::Session::Options call;
+call.id = callId;                    // in logs and in every event's session_id
+call.transport = transportForTheCall;
+if (auto session = calls.createSession(call, &error)) session->start();
+else rejectCall(error);              // all 10 sessions busy
+// ... on hang-up:
+calls.destroySession(callId);
+```
+
+- **Models load once per concurrent call.** The runtime keeps sets of providers (VAD, STT, TTS, turn model). A session takes one while it runs and hands it back when it ends, so the next call reuses it instead of loading the models again. The first set loads in `Runtime::create`, so a misconfigured provider fails there. Each further set loads the first time that many calls run at once.
+- **Sessions are isolated.** Each has its own pipeline, mic ring buffer, LLM conversation and event thread. An LLM transport passed in `Options::llmTransport` holds the conversation, so give each session its own.
+- **Limits.** `Runtime::Options::maxSessions` caps concurrent sessions; `createSession` returns `nullptr` with an error beyond it.
+- `Session::toolDispatcher()` and `llmTransport()` give goal code what it needs to swap prompts and tools during a call. [`VASDK_CallCenter`](../../VASDK_CALLCENTER_APP/callcenter_pipeline.cpp) is a full example.
+
 ## Availability
 
 `VAEngine` needs engine config support (`VASDK_ENABLE_ENGINE_CONFIG`, on by default on desktop). The Android app still wires its own pipeline.

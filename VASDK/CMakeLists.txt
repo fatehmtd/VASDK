@@ -58,7 +58,6 @@ add_library(VASDK SHARED
     ./src/goal/ConditionEvaluator.cpp
     ./src/goal/GoalDefinitionLoader.cpp
     ./src/goal/GoalConversationSimulator.cpp
-    ./src/SessionManager.cpp
     ./src/RecoveryProcessor.cpp
     # Context providers
     ./src/context/ContextProvider.cpp
@@ -177,6 +176,9 @@ if(VASDK_ENABLE_ENGINE_CONFIG)
     target_sources(VASDK PRIVATE
         ./src/engine/ProtoFileLoader.cpp
         ./src/engine/EventTapProcessor.cpp
+        ./src/engine/Runtime.cpp
+        ./src/engine/Session.cpp
+        ./src/SessionManager.cpp
         ./src/VAEngine.cpp
         ./proto/vasdk/engine/engine_config.proto
         ./proto/vasdk/engine/events.proto
@@ -284,6 +286,10 @@ if(VASDK_BUILD_TESTS)
         add_executable(vasdk_engine_assembly_test tests/engine_assembly_test.cpp)
         target_link_libraries(vasdk_engine_assembly_test PRIVATE VASDK)
         add_test(NAME vasdk_engine_assembly COMMAND vasdk_engine_assembly_test)
+
+        add_executable(vasdk_session_test tests/session_test.cpp)
+        target_link_libraries(vasdk_session_test PRIVATE VASDK)
+        add_test(NAME vasdk_session COMMAND vasdk_session_test)
 
         add_executable(vasdk_engine_events_test tests/engine_events_test.cpp)
         target_link_libraries(vasdk_engine_events_test PRIVATE VASDK)

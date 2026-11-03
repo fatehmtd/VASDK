@@ -39,6 +39,7 @@ void EventDispatcher::post(vasdk::engine::Event event) {
         event.set_timestamp_ms(std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::system_clock::now().time_since_epoch()).count());
     }
+    if (event.session_id().empty() && !_sessionId.empty()) event.set_session_id(_sessionId);
     {
         std::lock_guard<std::mutex> lock(_mutex);
         if (_queue.size() >= _maxQueued) {

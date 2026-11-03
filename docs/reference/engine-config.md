@@ -52,6 +52,42 @@ Each `ProviderSpec` has:
 
 - `fallback`: ids to try, in order, when `id` is not built into the binary or fails to start (a missing model file, for example). Options apply to `id` only; a fallback starts with its defaults. The log shows which provider was used and why the others were skipped.
 
+## Turn-taking
+
+```textproto
+turn_taking { preset: SNAPPY streaming_transcription: true }
+```
+
+`preset` sets how quickly the assistant decides the user has finished speaking:
+
+| Preset | Speech to start / minimum speech / pause within speech / silence to end (ms) | For |
+| --- | --- | --- |
+| `BALANCED` (default) | 250 / 250 / 500 / 250 | a desktop assistant |
+| `SNAPPY` | 150 / 150 / 200 / 150 | phone calls (VASDK_CallCenter) |
+| `PATIENT` | 250 / 400 / 500 / 600 | people who stop to think |
+
+`streaming_transcription` runs the STT while the user speaks, so partial results arrive before the turn ends. Speculative firing needs it.
+
+## LLM
+
+```textproto
+llm {
+  endpoint: "${LLM_ENDPOINT}" model: "${LLM_MODEL}" api_key: "${LLM_API_KEY}"
+  history: 12
+  speculative_firing: true speculative_min_words: 3
+  tool_filler_phrases: ["One moment.", "Let me check that."]
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `endpoint`, `model`, `api_key` | An OpenAI-compatible chat endpoint. Without an endpoint (and no LLM passed in code), there is no LLM. |
+| `history` | Messages kept in the conversation; default 10. |
+| `speculative_firing`, `speculative_min_words` | Start the request on the partial at a pause of at least `speculative_min_words` words (default 3); the reply is held until the final transcript matches. Needs `streaming_transcription`. |
+| `tool_filler_phrases` | Said in turn while a tool runs, so the caller doesn't hear silence. |
+
+These apply also when the app passes its own LLM transport in code, as VASDK_CallCenter does.
+
 `models_dir` sets the base directory for local model files. When it is unset, VASDK_Pipeline uses the `models/` folder it finds next to the executable. A relative path is resolved from the current directory.
 
 ## Using it from C++
