@@ -219,6 +219,8 @@ void pausedReply() {
     const auto t0 = std::chrono::steady_clock::now();
     rig.send(text("One. ", false));
     rig.send(text("Two.", true));
+    // Text complete but still synthesizing: unknown, not "0 ms left" (that read as the tail and blocked barge-in)
+    check(rig.tts->getRemainingReplyPlaybackMs() == -1, "still synthesizing: remaining playback unknown", mode);
     std::this_thread::sleep_for(60ms);
     check(rig.tts->getRemainingReplyPlaybackMs() >= 0, "reply text complete: remaining playback known", mode);
     rig.send(agent(transport::AgentStateTransition::BARGE_IN_PENDING));

@@ -66,8 +66,8 @@ public:
     }
 
     /**
-     * @brief Milliseconds of the current reply still to be played, or -1 while the reply text is
-     *        still arriving or no reply is playing. Feeds AgentStateProcessor's tail-overlap rule.
+     * @brief Milliseconds of the current reply still to be played, or -1 while the reply is
+     *        still being synthesized or no reply is playing. Feeds AgentStateProcessor's tail-overlap rule.
      */
     int getRemainingReplyPlaybackMs();
 
@@ -154,6 +154,7 @@ private:
     std::chrono::steady_clock::time_point _holdReleaseTime;
 
     std::thread             _drainThread;
+    std::mutex              _drainThreadMutex;  // start/cancel run on the pipeline, provider and stop() threads
     std::mutex              _drainMutex;
     std::condition_variable _drainCv;
     bool                    _drainStop{ false };

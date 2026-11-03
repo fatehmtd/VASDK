@@ -191,7 +191,8 @@ namespace va {
 
         int TTSFrameProcessor::getRemainingReplyPlaybackMs() {
             std::lock_guard<std::mutex> lock(_turnMutex);
-            if (!_turnActive || !_textClosed) return -1;
+            // Until every sentence is synthesized the reply's length isn't known; 0 would read as "almost done".
+            if (!_turnActive || !_textClosed || !_draining) return -1;
             const auto remaining = _playbackPaused
                 ? _playbackRemainingWhilePaused
                 : std::chrono::duration_cast<std::chrono::microseconds>(_playbackEndTime - std::chrono::steady_clock::now());
@@ -322,6 +323,7 @@ namespace va {
         }
 
         void TTSFrameProcessor::startDrainWait() {
+            std::lock_guard<std::mutex> threadLock(_drainThreadMutex);
             {
                 std::lock_guard<std::mutex> lock(_drainMutex);
                 if (_drainThread.joinable()) _drainStop = true;
@@ -336,6 +338,7 @@ namespace va {
         }
 
         void TTSFrameProcessor::cancelDrainWait() {
+            std::lock_guard<std::mutex> threadLock(_drainThreadMutex);
             {
                 std::lock_guard<std::mutex> lock(_drainMutex);
                 _drainStop = true;
