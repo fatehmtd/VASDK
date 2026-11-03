@@ -7,8 +7,10 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace google::protobuf { class Value; }
+namespace vasdk::nlu { class EntityValue; }
 
 namespace va {
 
@@ -119,6 +121,12 @@ public:
      * until the caller disconnects. Thread-safe; needs Options::agent.
      */
     void setSessionParam(const std::string& name, const google::protobuf::Value& value);
+    /**
+     * Replaces the values of a `dynamic` list entity for this conversation, e.g. the appointment
+     * times still free today, or the caller's cars. Applies from the next turn; kept until the
+     * caller disconnects. Thread-safe; needs Options::agent.
+     */
+    void setEntityValues(const std::string& name, const std::vector<vasdk::nlu::EntityValue>& values);
 
     const std::string& id() const;
     bool hasLLM() const;

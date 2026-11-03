@@ -1,0 +1,49 @@
+// Entities: kinds of value the assistant recognises in what the user says, named @<name> in an
+// agent. Declared in the agent's entity_types; see docs/reference/flows.md#entities.
+syntax = "proto3";
+
+package vasdk.nlu;
+
+import "google/protobuf/struct.proto";
+
+message EntityType {
+  string name = 1;               // @name
+  string description = 2;
+  oneof kind {
+    ListEntity list = 10;        // a fixed set of values, each with synonyms
+    PatternEntity pattern = 11;  // a regular expression
+    DerivedEntity derived = 12;  // another entity, narrowed
+  }
+  // List only: the app may replace the values for one conversation (Session::setEntityValues),
+  // e.g. the appointment times still free today. The declared values are the defaults.
+  bool dynamic = 20;
+}
+
+// One value of a list entity. `value` is what conditions compare and what's stored; `spoken` is
+// how replies say it; any of `synonyms`, `spoken` or `value` heard in the user's words matches.
+message EntityValue {
+  string value = 1;                          // "oil_change"
+  repeated string synonyms = 2;              // "oil change", "lube"
+  string spoken = 3;                         // "an oil change"; unset: the value
+  google.protobuf.Struct attributes = 4;     // price, duration...: $form.service.price
+}
+
+message ListEntity {
+  repeated EntityValue values = 1;
+}
+
+// Matched against the user's words joined (with spaces, or none with strip_spaces), whole.
+message PatternEntity {
+  string regex = 1;              // ECMAScript syntax, case-insensitive: "[a-z]{2}[0-9]{3}[a-z]{2}"
+  bool strip_spaces = 2;         // "ab 123 cd" matches as "ab123cd"
+  bool spelled = 3;              // spelled out: "alpha bravo one two three" → "ab123"; implies strip_spaces
+  bool uppercase = 4;            // the value is stored in upper case
+}
+
+// The values of `base` that also meet these constraints.
+message DerivedEntity {
+  string base = 1;               // "@sys.integer", "@sys.number", or a list or pattern entity
+  optional double min = 2;       // numbers
+  optional double max = 3;
+  string condition = 4;          // an expression on $value: "$value != 'tire_repair'"
+}

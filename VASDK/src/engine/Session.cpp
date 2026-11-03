@@ -504,6 +504,14 @@ void Session::setSessionParam(const std::string& name, const google::protobuf::V
     _state->dialog->setSessionParam(name, value);
 }
 
+void Session::setEntityValues(const std::string& name, const std::vector<vasdk::nlu::EntityValue>& values) {
+    if (!_state->dialog) {
+        spdlog::warn("{} setEntityValues ignored: no agent", _state->logTag);
+        return;
+    }
+    _state->dialog->setEntityValues(name, values);
+}
+
 const std::string& Session::id() const { return _state->options.id; }
 bool Session::hasLLM() const { return _state->llm != nullptr; }
 

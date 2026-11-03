@@ -3,6 +3,8 @@
 //   vasdk_agentc test agent.txtpb case.txtpb...    plays each FlowTestCase; exit 1 on a failure
 //   vasdk_agentc chat agent.txtpb [--session name=value]...
 //                                                  talk to it by typing; Ctrl-D quits
+//   vasdk_agentc try agent.txtpb [--entity @name] "words"
+//                                                  the intent and entities found in the words
 
 #include <VASDK/flow/CompiledAgent.h>
 #include <VASDK/flow/FlowRuntime.h>
@@ -22,7 +24,8 @@ int usage() {
     std::fprintf(stderr,
                  "usage: vasdk_agentc lint <agent>\n"
                  "       vasdk_agentc test <agent> <case>...\n"
-                 "       vasdk_agentc chat <agent> [--session name=value]...\n");
+                 "       vasdk_agentc chat <agent> [--session name=value]...\n"
+                 "       vasdk_agentc try <agent> [--entity @name] <words>\n");
     return 2;
 }
 
@@ -41,6 +44,14 @@ std::shared_ptr<const va::flow::CompiledAgent> load(const std::string& path, boo
         }
     }
     return agent;
+}
+
+std::string describe(const va::flow::EntityMatch& match) {
+    std::string text = "@" + match.entity + " = " + va::flow::toText(match.value);
+    if (match.spoken != va::flow::toText(match.value)) text += "  spoken \"" + match.spoken + "\"";
+    text += "  heard \"" + match.raw + "\"";
+    for (const auto& [name, value] : match.attributes.fields()) text += "  " + name + "=" + va::flow::toText(value);
+    return text;
 }
 
 void print(const va::flow::Reply& reply, const va::flow::FlowRuntime& conversation) {
@@ -62,8 +73,9 @@ int main(int argc, char** argv) {
         if (!agent) return 1;
         int pages = 0;
         for (const auto& flow : agent->definition().flows()) pages += flow.pages_size();
-        std::printf("%s: ok (%d flows, %d pages, %d intents)\n", agentPath.c_str(),
-                    agent->definition().flows_size(), pages, agent->definition().intents_size());
+        std::printf("%s: ok (%d flows, %d pages, %d intents, %d entities)\n", agentPath.c_str(),
+                    agent->definition().flows_size(), pages, agent->definition().intents_size(),
+                    agent->definition().entity_types_size());
         return 0;
     }
     if (command == "test") {
@@ -79,6 +91,40 @@ int main(int argc, char** argv) {
         }
         std::printf("%d of %d passed\n", argc - 3 - failed, argc - 3);
         return failed == 0 ? 0 : 1;
+    }
+    if (command == "try") {
+        std::string entity, words;
+        for (int i = 3; i < argc; ++i) {
+            const std::string argument = argv[i];
+            if (argument == "--entity" && i + 1 < argc) entity = va::flow::entityName(argv[++i]);
+            else words += (words.empty() ? "" : " ") + argument;
+        }
+        if (words.empty()) return usage();
+        auto agent = load(agentPath, false);
+        if (!agent) return 1;
+        if (!entity.empty()) {
+            if (!agent->entities().knows(entity)) {
+                std::fprintf(stderr, "unknown entity @%s\n", entity.c_str());
+                return 1;
+            }
+            const auto match = agent->entities().find(entity, words);
+            std::printf("%s\n", match ? describe(*match).c_str() : ("@" + entity + ": not found").c_str());
+            return match ? 0 : 1;
+        }
+        // The intent the longest example picks, among every intent (pages narrow this down).
+        const auto split = va::flow::splitWords(words);
+        std::string intent;
+        int best = 0;
+        for (const auto& candidate : agent->definition().intents()) {
+            const int score = agent->matchIntent(candidate.name(), split);
+            if (score > best) {
+                best = score;
+                intent = candidate.name();
+            }
+        }
+        std::printf("intent: %s\n", intent.empty() ? "(none)" : (intent + " (" + std::to_string(best) + (best == 1 ? " word)" : " words)")).c_str());
+        for (const auto& match : agent->entities().findAll(words)) std::printf("%s\n", describe(match).c_str());
+        return 0;
     }
     if (command == "chat") {
         auto agent = load(agentPath, false);

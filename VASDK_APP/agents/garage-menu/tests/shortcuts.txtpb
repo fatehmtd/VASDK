@@ -2,5 +2,5 @@
 # proto-message: vasdk.flow.FlowTestCase
 name: "greetings, help and naming the service on the welcome page"
 turns { user: "hey what's up" expect { page: "welcome" said_contains: "Acme Garage" } }
-turns { user: "explain what you can do for me" expect { page: "welcome" said_contains: "oil change or a tire service" expects_reply: true } }
-turns { user: "Flattire." expect { page: "booking" said: "Which day works for you?" session { key: "service" value: "a tire repair" } } }
+turns { user: "explain what you can do for me" expect { page: "welcome" said_contains: "oil change or a tire repair" expects_reply: true } }
+turns { user: "Flattire." expect { page: "booking" said: "Which day works for you?" form { key: "service" value: "tire_repair" } } }

@@ -6,12 +6,19 @@ syntax = "proto3";
 package vasdk.flow;
 
 import "google/protobuf/struct.proto";
+import "vasdk/nlu/entity.proto";
 
 message FlowTestCase {
   string name = 1;
   repeated TestTurn turns = 2;
   google.protobuf.Struct session = 3;   // session params set before the first turn
   google.protobuf.Struct context = 4;   // what $context.* reads
+  repeated EntityValues entities = 5;   // dynamic entities' values for this conversation
+}
+
+message EntityValues {
+  string name = 1;                      // the entity, without @
+  repeated vasdk.nlu.EntityValue values = 2;
 }
 
 message TestTurn {
@@ -30,4 +37,5 @@ message TurnExpectation {
   optional bool ends_session = 7;
   map<string, string> session = 8;     // session param name → its value as a reply would say it
   map<string, string> form = 9;        // form slot, or complete / confirmed / failed → its value ("" when empty)
+  map<string, string> entities = 10;   // entity → the value found in this turn's words ($nlu.entities.<name>)
 }

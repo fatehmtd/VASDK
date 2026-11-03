@@ -1,8 +1,9 @@
 # proto-file: vasdk/flow/agent.proto
 # proto-message: vasdk.flow.Agent
 #
-# A menu-style garage assistant with no LLM: book a service, hear the hours, or reach a person.
+# A garage assistant with no LLM: book a service, hear the hours, or reach a person.
 #   vasdk_agentc chat VASDK_APP/agents/garage-menu/agent.txtpb
+#   vasdk_agentc try VASDK_APP/agents/garage-menu/agent.txtpb "my tyres are flat"
 #   VASDK_Pipeline --agent VASDK_APP/agents/garage-menu/agent.txtpb
 schema_version: 1
 name: "garage-menu"
@@ -14,20 +15,49 @@ start_flow: "main"
 session_params { name: "tier"    type: STRING default { string_value: "standard" } }
 session_params { name: "service" type: STRING }
 session_params { name: "day"     type: STRING }
+session_params { name: "time"    type: STRING }
 
-goal_files: ["goals/booking.txtpb"]   # the day and phone number the booking form asks for
+goal_files: ["goals/booking.txtpb"]   # what the booking form asks for
 
-intents { name: "book"       examples: ["book", "appointment", "schedule", "bring my car in", "service"] }
-intents { name: "hours"      examples: ["hours", "open", "close", "closing"] }
-intents { name: "person"     examples: ["person", "human", "agent", "representative", "someone"] }
-intents { name: "goodbye"    examples: ["bye", "goodbye", "that's all", "nothing else"] }
-intents { name: "oil_change" examples: ["oil"] }
-intents { name: "tires"      examples: ["tire", "tires", "tyre", "tyres", "flat", "flattire", "puncture"] }   # STT may join "flat tire"
-intents { name: "help"       examples: ["help", "what can you do", "what do you do", "options", "explain"] }
-intents { name: "hello"      examples: ["hello", "hi", "hey"] }
-intents { name: "back"       examples: ["back", "main menu", "start over", "never mind"] }
-intents { name: "yes"        examples: ["yes", "yeah", "yep", "sure", "please"] }
-intents { name: "no"         examples: ["no", "nope", "nothing", "that's all"] }
+entity_types {
+  name: "service"
+  description: "A service the garage offers"
+  list {
+    values {
+      value: "oil_change" spoken: "an oil change"
+      synonyms: ["oil change", "oil", "change the oil", "lube"]
+      attributes { fields { key: "price" value { number_value: 49 } } fields { key: "minutes" value { number_value: 30 } } }
+    }
+    values {
+      value: "tire_repair" spoken: "a tire repair"
+      synonyms: ["tire", "tires", "tyre", "tyres", "flat", "flattire", "puncture"]   # STT may join "flat tire"
+      attributes { fields { key: "price" value { number_value: 89 } } fields { key: "minutes" value { number_value: 45 } } }
+    }
+  }
+}
+
+# The times still free. These are the defaults; an app replaces them for each conversation with
+# Session::setEntityValues("available_time", ...), e.g. from its calendar.
+entity_types {
+  name: "available_time"
+  dynamic: true
+  list {
+    values { value: "09:00" spoken: "9 AM"  synonyms: ["9", "nine", "9 am", "morning"] }
+    values { value: "11:00" spoken: "11 AM" synonyms: ["11", "eleven", "11 am"] }
+    values { value: "14:00" spoken: "2 PM"  synonyms: ["2", "two", "2 pm", "afternoon"] }
+  }
+}
+
+intents { name: "book"    examples: ["book", "appointment", "schedule", "bring my car in", "service"] }
+intents { name: "price"   examples: ["how much", "price", "cost", "costs"] }
+intents { name: "hours"   examples: ["hours", "open", "close", "closing"] }
+intents { name: "person"  examples: ["person", "human", "agent", "representative", "someone"] }
+intents { name: "goodbye" examples: ["bye", "goodbye", "that's all", "nothing else"] }
+intents { name: "help"    examples: ["help", "what can you do", "what do you do", "options", "explain"] }
+intents { name: "hello"   examples: ["hello", "hi", "hey"] }
+intents { name: "back"    examples: ["back", "main menu", "start over", "never mind"] }
+intents { name: "yes"     examples: ["yes", "yeah", "yep", "sure", "please"] }
+intents { name: "no"      examples: ["no", "nope", "nothing", "that's all"] }
 
 flows {
   name: "main"
@@ -37,10 +67,13 @@ flows {
     name: "welcome"
     on_enter { branch { if: "$session.tier = 'gold'" then { say { text: "Welcome back, gold member." } } } }
     on_enter { ask { say { text: "Hi, this is Acme Garage. Would you like to book a service, hear our hours, or talk to a person?" } } }
-    # Naming the service goes straight to booking; listed before "book" so "book an oil change" picks it.
-    routes { intent: "oil_change" steps { set { key: "$session.service" value: "'an oil change'" } } target: "booking" }
-    routes { intent: "tires" steps { set { key: "$session.service" value: "'a tire repair'" } } target: "booking" }
-    routes { intent: "book" target: "service" }
+    routes { intent: "book" target: "booking" }   # "book an oil change": the form gets the service on the way in
+    routes {
+      intent: "price"
+      entity: "@service"
+      steps { say { text: "$entity takes about $entity.minutes minutes and costs $entity.price dollars." } }
+      steps { ask { say { text: "Would you like to book it?" } } }
+    }
     routes {
       intent: "hours"
       steps { say { text: "We're open 8 to 6, Monday to Saturday." } }
@@ -50,28 +83,26 @@ flows {
     routes { intent: "goodbye" steps { say { text: "Thanks for calling. Goodbye!" } } target: "END_SESSION" }
     routes {
       intent: "help"
-      steps { say { text: "I can book an oil change or a tire service, tell you our opening hours, or put you through to a person." } }
+      steps { say { text: "I can book an oil change or a tire repair, tell you our prices and opening hours, or put you through to a person." } }
       steps { ask { say { text: "What would you like?" } } }
     }
-    routes { intent: "hello" target: "CURRENT_PAGE" }   # last: "hi, I'd like to book" still books
+    routes { intent: "yes" target: "booking" }        # "would you like to book it?"
+    routes { intent: "hello" target: "CURRENT_PAGE" }  # last: "hi, I'd like to book" still books
+    routes { entity: "@service" target: "booking" }   # just naming one: "my tyres are flat"
   }
 
-  pages {
-    name: "service"
-    on_enter { ask { say { text: ["Sure. Is it for an oil change or tires?", "Which service: an oil change or tires?"] } } }
-    routes { intent: "oil_change" steps { set { key: "$session.service" value: "'an oil change'" } } target: "booking" }
-    routes { intent: "tires" steps { set { key: "$session.service" value: "'a tire repair'" } } target: "booking" }
-    routes { intent: "back" target: "welcome" }
-    routes { intent: "help" steps { ask { say { text: "We do oil changes and tire repairs. Which one do you need?" } } } }
-    routes { intent: "person" target: "flow:handoff" }
-  }
-
-  # Asks for the day and phone number, reads them back, and books on a yes. A day said on the way
-  # in ("an oil change on Tuesday") is already filled.
+  # Asks for the service, day, time and phone number, reads them back, and books on a yes.
+  # Anything said on the way in ("an oil change on Tuesday") is already filled.
   pages {
     name: "booking"
     form { goal: "booking" }
-    routes { condition: "$form.confirmed" steps { set { key: "$session.day" value: "$form.day" } } target: "booked" }
+    routes {
+      condition: "$form.confirmed"
+      steps { set { key: "$session.service" value: "$form.service.spoken" } }
+      steps { set { key: "$session.day" value: "$form.day" } }
+      steps { set { key: "$session.time" value: "$form.time.spoken" } }
+      target: "booked"
+    }
     routes { condition: "$form.failed" steps { say { text: "Let me get someone to help you with that." } } target: "flow:handoff" }
     routes { intent: "hours" steps { say { text: "We're open 8 to 6, Monday to Saturday." } } }   # then the form asks again
     routes { intent: "person" target: "flow:handoff" }
@@ -80,7 +111,7 @@ flows {
 
   pages {
     name: "booked"
-    on_enter { say { text: "You're booked for $session.service, $session.day at 9 AM." } }
+    on_enter { say { text: "You're booked for $session.service, $session.day at $session.time." } }
     on_enter { branch { if: "$session.tier : ('gold', 'platinum')" then { say { text: "As a $session.tier member, there's no charge." } } } }
     on_enter { ask { say { text: "Is there anything else I can help with?" } } }
     routes { intent: "no" steps { say { text: "Great, see you then. Goodbye!" } } target: "END_SESSION" }

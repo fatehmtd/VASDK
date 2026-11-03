@@ -88,26 +88,75 @@ Value FlowRuntime::sessionParam(const std::string& name) const {
     return found == _session.fields().end() ? nullValue() : found->second;
 }
 
-Value FlowRuntime::lookup(const Path& path) const {
+bool FlowRuntime::setEntityValues(const std::string& name, std::vector<vasdk::nlu::EntityValue> values,
+                                  std::string* error) {
+    const auto* type = _agent->entities().type(name);
+    if (!type || !type->dynamic()) {
+        if (error) *error = "entity \"" + name + "\" is not a dynamic list entity";
+        return false;
+    }
+    _dynamicEntities[name] = std::move(values);
+    return true;
+}
+
+Value FlowRuntime::resolve(const Path& path, bool spoken) const {
     const std::string& root = path[0];
     const std::string field = path.size() > 1 ? path[1] : "";
     auto fromFields = [&](const google::protobuf::Struct& fields, const std::string& name, size_t rest) {
         const auto found = fields.fields().find(name);
         return found == fields.fields().end() ? nullValue() : valueAt(found->second, path, rest);
     };
+    const auto& entities = _agent->entities();
     if (root == "session") return fromFields(_session, field, 2);
     if (root == "page" && field == "name") return stringValue(pageName());
     if (root == "page" && field == "locals" && path.size() > 2) return fromFields(_pageLocals, path[2], 3);
     if (root == "input" && field == "text") return stringValue(_inputText);
     if (root == "nlu" && field == "intent") return _intent.empty() ? nullValue() : stringValue(_intent);
+    if (root == "nlu" && field == "entities" && path.size() > 2) {
+        const auto match = entities.find(path[2], _inputText, _dynamicEntities);
+        return match ? entityField(*match, path, 3, spoken) : nullValue();
+    }
+    if (root == "entity") return _entity ? entityField(*_entity, path, 1, spoken) : nullValue();
+    if (root == "entities") {
+        Value list;
+        for (const auto& value : entities.spokenValues(field, _dynamicEntities)) *list.mutable_list_value()->add_values() = stringValue(value);
+        return list;
+    }
     if (root == "context" && _context) return fromFields(_context(), field, 2);
     if (root == "form" && _form) {
         if (field == "complete") return boolValue(_form->state->isComplete());
         if (field == "confirmed") return boolValue(_form->state->isConfirmed());
         if (field == "failed") return boolValue(_form->failed);
-        return valueAt(slotValue(*_form->state, field), path, 2);
+        const Value value = slotValue(*_form->state, field);
+        const auto slot = std::find_if(_form->goal->slots().begin(), _form->goal->slots().end(),
+                                       [&](const auto& candidate) { return candidate.name() == field; });
+        if (slot == _form->goal->slots().end() || slot->entity().empty() || value.kind_case() == Value::kNullValue)
+            return valueAt(value, path, 2);
+        return entityField(entities.describe(entityName(slot->entity()), value, _dynamicEntities), path, 2, spoken);
     }
     return nullValue();
+}
+
+// Writes a value to a set or extract key, checked when the agent loaded.
+void FlowRuntime::store(const std::string& key, const Value& value) {
+    const Path path = splitReference(key);
+    std::string error;
+    if (path.size() == 2 && path[0] == "session") {
+        if (!setSessionParam(path[1], value, &error)) spdlog::error("[FlowRuntime] {}: {}", key, error);
+    } else if (path.size() == 3 && path[0] == "page" && path[1] == "locals") {
+        (*_pageLocals.mutable_fields())[path[2]] = value;
+    } else if (path.size() == 2 && path[0] == "form" && _form) {
+        const auto result = _form->state->updateSlot(path[1], toText(value));
+        if (!result.valid) spdlog::error("[FlowRuntime] {}: {}", key, result.errorMessage);
+    }
+}
+
+// A slot's value in an answer: by its entity, else by its type.
+std::optional<std::string> FlowRuntime::readSlot(const vasdk::goal::Slot& slot, const std::string& text) const {
+    if (slot.entity().empty()) return extractSlotValue(slot, text);
+    const auto match = _agent->entities().find(entityName(slot.entity()), text, _dynamicEntities);
+    if (!match) return std::nullopt;
+    return toText(match->value);
 }
 
 Value FlowRuntime::evaluate(const std::string& expression) const {
@@ -149,6 +198,7 @@ Reply FlowRuntime::handleText(const std::string& text) {
 
     _inputText = text;
     _intent.clear();
+    _entity.reset();
     if (formActive() && fillForm(text)) {   // an answer for the form
         follow(advanceForm(reply), reply);
         return reply;
@@ -174,19 +224,35 @@ Reply FlowRuntime::handleText(const std::string& text) {
 
 const vasdk::flow::Route* FlowRuntime::matchRoute() {
     const auto words = splitWords(_inputText);
+    const auto& routes = _agent->page(_position).routes();
+    // A route's entity must be in the words; $entity reads it while its condition is checked.
+    auto entityHolds = [this](const vasdk::flow::Route& route) {
+        _entity.reset();
+        if (route.entity().empty()) return true;
+        _entity = _agent->entities().find(entityName(route.entity()), _inputText, _dynamicEntities);
+        return _entity.has_value();
+    };
     const vasdk::flow::Route* best = nullptr;
+    std::optional<EntityMatch> bestEntity;
     int bestScore = 0;
-    for (const auto& route : _agent->page(_position).routes()) {
+    for (const auto& route : routes) {
         if (route.intent().empty()) continue;
         const int score = _agent->matchIntent(route.intent(), words);
-        if (score > bestScore && holds(route.condition())) {   // ties: the first route wins
+        if (score > bestScore && entityHolds(route) && holds(route.condition())) {   // ties: the first route wins
             best = &route;
+            bestEntity = _entity;
             bestScore = score;
         }
     }
-    if (best) return best;
-    for (const auto& route : _agent->page(_position).routes())
-        if (route.intent().empty() && holds(route.condition())) return &route;
+    if (best) {
+        _entity = bestEntity;
+        return best;
+    }
+    for (const auto& route : routes)
+        if (route.intent().empty() && !route.entity().empty() && entityHolds(route) && holds(route.condition())) return &route;
+    _entity.reset();
+    for (const auto& route : routes)
+        if (route.intent().empty() && route.entity().empty() && holds(route.condition())) return &route;
     return nullptr;
 }
 
@@ -215,20 +281,13 @@ FlowRuntime::Outcome FlowRuntime::run(const google::protobuf::RepeatedPtrField<v
             _lastQuestion = say(step.ask().say(), reply);
             reply.expectsReply = true;
             break;
-        case vasdk::flow::Step::kSet: {
-            const Value value = evaluate(step.set().value());
-            const Path path = splitReference(step.set().key());
-            std::string error;
-            if (path.size() == 2 && path[0] == "session") {
-                if (!setSessionParam(path[1], value, &error)) spdlog::error("[FlowRuntime] set {}: {}", step.set().key(), error);
-            } else if (path.size() == 3 && path[0] == "page" && path[1] == "locals") {
-                (*_pageLocals.mutable_fields())[path[2]] = value;
-            } else if (path.size() == 2 && path[0] == "form" && _form) {
-                const auto result = _form->state->updateSlot(path[1], toText(value));
-                if (!result.valid) spdlog::error("[FlowRuntime] set {}: {}", step.set().key(), result.errorMessage);
-            }
+        case vasdk::flow::Step::kSet:
+            store(step.set().key(), evaluate(step.set().value()));
             break;
-        }
+        case vasdk::flow::Step::kExtract:
+            if (const auto match = _agent->entities().find(entityName(step.extract().entity()), _inputText, _dynamicEntities))
+                store(step.extract().into(), match->value);
+            break;
         case vasdk::flow::Step::kClearSlot:
             if (_form) {
                 _form->state->clearSlot(step.clear_slot().slot());
@@ -277,7 +336,7 @@ std::string FlowRuntime::sayOne(const Texts& texts, const void* key, Reply& repl
     if (texts.empty()) return {};
     auto& count = _sayCounts[key];
     const std::string text = renderTemplate(texts.Get(static_cast<int>(count++ % texts.size())),
-                                            [this](const Path& path) { return lookup(path); });
+                                            [this](const Path& path) { return resolve(path, true); });
     append(reply.text, text);
     return text;
 }
@@ -303,9 +362,13 @@ bool FlowRuntime::formActive() const {
 bool FlowRuntime::fillNamedValues(const std::string& text, bool overwrite) {
     bool filled = false;
     for (const auto& slot : _form->goal->slots()) {
-        if (slot.type() != vasdk::goal::Slot::ENUM || slot.name() == _form->asking) continue;
+        // Only values that can't be mistaken: a list value, or a list or pattern entity.
+        const auto* entity = _agent->entities().type(entityName(slot.entity()));
+        const bool named = slot.entity().empty() ? slot.type() == vasdk::goal::Slot::ENUM
+                                                 : entity && (entity->has_list() || entity->has_pattern());
+        if (!named || slot.name() == _form->asking) continue;
         if (!overwrite && !_form->state->slotValueJson(slot.name()).is_null()) continue;
-        const auto value = extractSlotValue(slot, text);
+        const auto value = readSlot(slot, text);
         if (!value || toText(slotValue(*_form->state, slot.name())) == *value) continue;
         filled = _form->state->updateSlot(slot.name(), *value).valid || filled;
     }
@@ -343,7 +406,7 @@ bool FlowRuntime::fillForm(const std::string& text) {
             const auto slot = std::find_if(form.goal->slots().begin(), form.goal->slots().end(),
                                            [&](const auto& candidate) { return candidate.name() == form.asking; });
             if (slot != form.goal->slots().end())
-                if (const auto value = extractSlotValue(*slot, text))
+                if (const auto value = readSlot(*slot, text))
                     used = form.state->updateSlot(form.asking, *value).valid;
         }
         used = fillNamedValues(text, false) || used;
@@ -409,7 +472,7 @@ FlowRuntime::Outcome FlowRuntime::repromptForm(Reply& reply) {
 
 FlowRuntime::Outcome FlowRuntime::conditionRoute(Reply& reply) {
     for (const auto& route : _agent->page(_position).routes())
-        if (route.intent().empty() && holds(route.condition())) return takeRoute(route, reply);
+        if (route.intent().empty() && route.entity().empty() && holds(route.condition())) return takeRoute(route, reply);
     return {};
 }
 

@@ -1,0 +1,7 @@
+# proto-file: vasdk/flow/test_case.proto
+# proto-message: vasdk.flow.FlowTestCase
+name: "the app replaces the free times for the day"
+entities { name: "available_time" values { value: "16:30" spoken: "half past four" synonyms: ["half four", "4:30", "four thirty"] } }
+turns { user: "my tyres are punctured on monday" expect { page: "booking" said: "We have half past four free. Which time suits you?" } }
+turns { user: "nine" expect { matched: false said: "Sorry, that time isn't free. We have half past four." } }
+turns { user: "four thirty" expect { form { key: "time" value: "16:30" } said: "And what's the best number to reach you?" } }

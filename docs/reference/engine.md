@@ -69,6 +69,7 @@ Processors that read the mic audio directly use `inputRingBuffer()`.
 | `pushToTalk(held)` | The push-to-talk button: listens while held, and cuts a reply in progress. Released mid-sentence, the user's turn still gets its answer. |
 | `setFollowUpListenMs(ms)` | How long the mic stays open after each reply; overrides the config's [`activation.follow_up`](engine-config.md#activation). |
 | `setSessionParam(name, value)` | With an agent: sets a declared `$session.<name>`, e.g. the caller's tier. `Options::context` gives the agent's `$context.*` a `ContextProvider`. See [Agents](flows.md#stored-values-and-conditions). |
+| `setEntityValues(name, values)` | With an agent: replaces a `dynamic` entity's values for this conversation, e.g. the appointment times still free today. See [Entities](flows.md#entities). |
 | `registerTool(tool)` | Makes a tool available to the LLM; call it before `start()`. |
 
 `say`, `injectUserText` and `interrupt` are thread-safe: the frame is queued and flows through the pipeline like any other.

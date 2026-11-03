@@ -42,6 +42,8 @@ public:
     void setConnected(bool connected);
     /** Sets a session param, as FlowRuntime::setSessionParam; errors are logged. Thread-safe. */
     void setSessionParam(const std::string& name, const Value& value);
+    /** Replaces a dynamic entity's values, as FlowRuntime::setEntityValues; errors are logged. Thread-safe. */
+    void setEntityValues(const std::string& name, std::vector<vasdk::nlu::EntityValue> values);
     /** What $context.* reads; called on the pipeline thread, so it must be thread-safe. Before start(). */
     void setContextSource(FlowRuntime::ContextSource source);
 

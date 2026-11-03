@@ -2,9 +2,9 @@
 # proto-message: vasdk.flow.FlowTestCase
 name: "an answer that isn't understood repeats the question"
 turns { expect { page: "welcome" } }
-turns { user: "book" expect { page: "service" } }
 turns { user: "my windshield is cracked"
-        expect { page: "service" matched: false expects_reply: true
-                 said: "Sorry, I can't help with that here. Sure. Is it for an oil change or tires?" } }
+        expect { page: "welcome" matched: false expects_reply: true
+                 said: "Sorry, I can't help with that here. Hi, this is Acme Garage. Would you like to book a service, hear our hours, or talk to a person?" } }
+turns { user: "book" expect { page: "booking" } }
+turns { user: "a car wash" expect { matched: false said: "We do oil changes and tire repairs. Which one do you need?" } }
 turns { user: "go back to the main menu" expect { page: "welcome" said_contains: "book a service" } }
-turns { user: "book" expect { page: "service" said: "Which service: an oil change or tires?" } }   # the second wording

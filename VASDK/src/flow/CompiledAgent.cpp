@@ -51,6 +51,16 @@ goal::SlotType slotType(vasdk::goal::Slot::Type type) {
     }
 }
 
+// The GoalState type that stores an entity's values.
+goal::SlotType entitySlotType(const EntityCatalog& entities, const std::string& name) {
+    std::string base = name;
+    if (const auto* type = entities.type(name); type && type->has_derived()) base = entityName(type->derived().base());
+    if (base == "sys.integer" || base == "sys.number") return goal::SlotType::NUMBER;
+    if (base == "sys.phone") return goal::SlotType::PHONE;
+    if (base == "sys.yes_no") return goal::SlotType::BOOLEAN;
+    return goal::SlotType::STRING;
+}
+
 bool isFormStatus(const std::string& field) { return field == "complete" || field == "confirmed" || field == "failed"; }
 
 bool hasSlot(const vasdk::goal::GoalDefinition& goal, const std::string& name) {
@@ -121,8 +131,21 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent a
         else if (!compiled->_goals.emplace(goal.name(), i).second) check.error(where, "is declared twice");
     }
 
+    {
+        std::vector<std::string> entityErrors;
+        compiled->_entities.build(definition.entity_types(), entityErrors);
+        check.errors.insert(check.errors.end(), entityErrors.begin(), entityErrors.end());
+    }
+    auto checkEntity = [&](const std::string& reference, const std::string& where) {
+        if (!compiled->_entities.knows(entityName(reference)))
+            check.error(where, "unknown entity " + quoted(reference) + " (declare it in entity_types, or use @sys.integer, "
+                                                                        "@sys.number, @sys.phone or @sys.yes_no)");
+    };
+
     // The goal whose slots $form.<slot> names: the page's form, or the goal being checked.
     const vasdk::goal::GoalDefinition* formGoal = nullptr;
+    // The entity $entity reads: a route's, while its condition and steps are checked.
+    std::string routeEntity;
 
     // References must name something that exists: a declared session param, a page field, ...
     auto checkReferences = [&](const std::vector<Path>& references, const std::string& where) {
@@ -140,7 +163,16 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent a
             } else if (root == "input") {
                 known = field == "text" && path.size() == 2;
             } else if (root == "nlu") {
-                known = field == "intent" && path.size() == 2;
+                known = (field == "intent" && path.size() == 2) ||
+                        (field == "entities" && path.size() >= 3 && compiled->_entities.knows(path[2]));
+            } else if (root == "entity") {
+                if (routeEntity.empty()) {
+                    check.error(where, pathText(path) + ": $entity is read only in a route with an entity");
+                    continue;
+                }
+            } else if (root == "entities") {
+                const auto* type = compiled->_entities.type(field);
+                known = path.size() == 2 && type && type->has_list();
             } else if (root == "context") {
                 known = path.size() >= 2;
             } else if (root == "form") {
@@ -148,14 +180,18 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent a
                     check.error(where, pathText(path) + ": the page has no form");
                     continue;
                 }
-                known = path.size() == 2 && (hasSlot(*formGoal, field) || isFormStatus(field));
+                const auto slot = std::find_if(formGoal->slots().begin(), formGoal->slots().end(),
+                                               [&](const auto& candidate) { return candidate.name() == field; });
+                known = (path.size() == 2 && (slot != formGoal->slots().end() || isFormStatus(field))) ||
+                        (path.size() > 2 && slot != formGoal->slots().end() && !slot->entity().empty());
             } else {
                 known = false;
             }
             if (!known)
                 check.error(where, "unknown reference " + pathText(path) +
                                        " (use $session.<name>, $page.name, $page.locals.<name>, $input.text, "
-                                       "$nlu.intent, $context.<name> or, on a form page, $form.<slot>)");
+                                       "$nlu.intent, $nlu.entities.<entity>, $entities.<list entity>, $context.<name> "
+                                       "or, on a form page, $form.<slot>)");
         }
     };
     auto compileExpression = [&](const std::string& text, const std::string& where) {
@@ -195,8 +231,14 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent a
             else if (!slotNames.insert(slot.name()).second) check.error(slotWhere, "is declared twice");
             else if (isFormStatus(slot.name())) check.error(slotWhere, "is a reserved name ($form.complete, confirmed and failed)");
             const bool isEnum = slot.type() == vasdk::goal::Slot::ENUM;
-            if (isEnum && slot.values().empty()) check.error(slotWhere, "is an ENUM with no values");
-            if (!isEnum && !slot.values().empty()) check.warn(slotWhere, "has values, but only ENUM slots use them");
+            if (!slot.entity().empty()) {
+                checkEntity(slot.entity(), slotWhere);
+                if (!slot.values().empty()) check.error(slotWhere, "has both an entity and values");
+            } else if (isEnum && slot.values().empty()) {
+                check.error(slotWhere, "is an ENUM with no values (or give it an entity)");
+            } else if (!isEnum && !slot.values().empty()) {
+                check.warn(slotWhere, "has values, but only ENUM slots use them");
+            }
             if (slot.has_min() && slot.has_max() && slot.min() > slot.max()) check.error(slotWhere, "min is above max");
             for (const auto& text : slot.prompt()) checkTemplate(text, slotWhere + " prompt");
             for (const auto& text : slot.reprompt()) checkTemplate(text, slotWhere + " reprompt");
@@ -204,7 +246,8 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent a
             goal::GoalSlot running;
             running.name = slot.name();
             running.description = slot.description();
-            running.type = slotType(slot.type());
+            running.type = slot.entity().empty() ? slotType(slot.type())
+                                                 : entitySlotType(compiled->_entities, entityName(slot.entity()));
             running.required = !slot.optional();
             running.constraints.allowedValues.assign(slot.values().begin(), slot.values().end());
             if (slot.has_min()) running.constraints.min = slot.min();
@@ -280,6 +323,17 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent a
                 if (auto next = compiled->resolve(target, here)) leadsTo[f][p].push_back(*next);
                 else check.error(at, "unknown target " + quoted(target));
             };
+            auto checkWritable = [&](const std::string& key, const std::string& at, const std::string& label) {
+                auto expression = Expression::parse(key);
+                const Path* path = expression ? expression->reference() : nullptr;
+                const bool writable = path && ((path->size() == 2 && (*path)[0] == "session") ||
+                                               (path->size() == 3 && (*path)[0] == "page" && (*path)[1] == "locals") ||
+                                               (path->size() == 2 && (*path)[0] == "form" && !isFormStatus((*path)[1])));
+                if (!writable)
+                    check.error(at, label + " " + quoted(key) + " must be $session.<name>, $page.locals.<name> or $form.<slot>");
+                else
+                    checkReferences({*path}, at + " " + label);
+            };
             using Steps = google::protobuf::RepeatedPtrField<vasdk::flow::Step>;
             std::function<void(const Steps&, const std::string&)> checkSteps = [&](const Steps& steps,
                                                                                   const std::string& at) {
@@ -295,21 +349,14 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent a
                         if (step.ask().say().text().empty()) check.error(stepWhere, "ask has no text");
                         for (const auto& text : step.ask().say().text()) checkTemplate(text, stepWhere);
                         break;
-                    case vasdk::flow::Step::kSet: {
+                    case vasdk::flow::Step::kSet:
                         compileExpression(step.set().value(), stepWhere + " set value");
-                        std::string keyError;
-                        auto key = Expression::parse(step.set().key(), &keyError);
-                        const Path* path = key ? key->reference() : nullptr;
-                        const bool writable = path && ((path->size() == 2 && (*path)[0] == "session") ||
-                                                       (path->size() == 3 && (*path)[0] == "page" && (*path)[1] == "locals") ||
-                                                       (path->size() == 2 && (*path)[0] == "form" && !isFormStatus((*path)[1])));
-                        if (!writable)
-                            check.error(stepWhere, "set key " + quoted(step.set().key()) +
-                                                       " must be $session.<name>, $page.locals.<name> or $form.<slot>");
-                        else
-                            checkReferences({*path}, stepWhere + " set key");
+                        checkWritable(step.set().key(), stepWhere, "set key");
                         break;
-                    }
+                    case vasdk::flow::Step::kExtract:
+                        checkEntity(step.extract().entity(), stepWhere + " extract");
+                        checkWritable(step.extract().into(), stepWhere, "extract into");
+                        break;
                     case vasdk::flow::Step::kBranch:
                         compileExpression(step.branch().if_(), stepWhere + " branch if");
                         checkSteps(step.branch().then(), stepWhere + " then");
@@ -343,12 +390,16 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent a
             for (int r = 0; r < page.routes_size(); ++r) {
                 const auto& route = page.routes(r);
                 const std::string routeWhere = where + " route " + std::to_string(r + 1);
-                if (route.intent().empty() && route.condition().empty()) check.error(routeWhere, "has no intent or condition");
+                if (route.intent().empty() && route.entity().empty() && route.condition().empty())
+                    check.error(routeWhere, "has no intent, entity or condition");
                 else if (!route.intent().empty() && !compiled->_intentExamples.count(route.intent()))
                     check.error(routeWhere, "unknown intent " + quoted(route.intent()));
+                if (!route.entity().empty()) checkEntity(route.entity(), routeWhere);
+                routeEntity = route.entity();
                 if (!route.condition().empty()) compileExpression(route.condition(), routeWhere + " condition");
                 usedIntents.insert(route.intent());
                 checkSteps(route.steps(), routeWhere);
+                routeEntity.clear();
                 checkTarget(route.target(), routeWhere);
             }
             const bool leavesOnEntry = std::any_of(page.on_enter().begin(), page.on_enter().end(), [](const auto& step) {
@@ -356,8 +407,9 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent a
             });
             if (page.routes().empty() && !leavesOnEntry && !page.has_form())
                 check.warn(where, "has no routes: every answer on it is not understood");
-            const bool hasConditionRoute = std::any_of(page.routes().begin(), page.routes().end(),
-                                                       [](const auto& route) { return route.intent().empty(); });
+            const bool hasConditionRoute = std::any_of(page.routes().begin(), page.routes().end(), [](const auto& route) {
+                return route.intent().empty() && route.entity().empty();
+            });
             if (page.has_form() && !hasConditionRoute)
                 check.warn(where, "has a form but no condition route: nothing happens once it is complete");
         }
@@ -421,6 +473,10 @@ const vasdk::flow::SessionParam* CompiledAgent::sessionParam(const std::string& 
 std::shared_ptr<const Expression> CompiledAgent::expression(const std::string& text) const {
     const auto found = _expressions.find(text);
     return found == _expressions.end() ? nullptr : found->second;
+}
+
+std::string entityName(const std::string& reference) {
+    return !reference.empty() && reference[0] == '@' ? reference.substr(1) : std::string();
 }
 
 const vasdk::goal::GoalDefinition* CompiledAgent::goal(const std::string& name) const {

@@ -70,11 +70,17 @@ public:
     bool setSessionParam(const std::string& name, const Value& value, std::string* error = nullptr);
     /** A session param's value; null when unset or undeclared. */
     Value sessionParam(const std::string& name) const;
+    /**
+     * Replaces a dynamic entity's values for this conversation (the times still free today, the
+     * caller's cars). False, with `error` set, for an entity that isn't a dynamic list.
+     */
+    bool setEntityValues(const std::string& name, std::vector<vasdk::nlu::EntityValue> values,
+                         std::string* error = nullptr);
     /** What $context.* reads, asked each time a reference needs it (it may change any time). */
     using ContextSource = std::function<google::protobuf::Struct()>;
     void setContextSource(ContextSource source) { _context = std::move(source); }
-    /** The value a reference resolves to now ($session.tier, $page.locals.x, $form.day, $input.text, ...). */
-    Value lookup(const Path& path) const;
+    /** The value a reference resolves to now ($session.tier, $form.day, $nlu.entities.service, ...). */
+    Value lookup(const Path& path) const { return resolve(path, false); }
 
     /** Pages entered in one turn before it stops (a goto loop). */
     static constexpr int kMaxTransitions = 8;
@@ -103,6 +109,9 @@ private:
     };
     using Texts = google::protobuf::RepeatedPtrField<std::string>;
 
+    Value resolve(const Path& path, bool spoken) const;   // spoken: entity values as replies say them
+    void store(const std::string& key, const Value& value);
+    std::optional<std::string> readSlot(const vasdk::goal::Slot& slot, const std::string& text) const;
     Outcome run(const google::protobuf::RepeatedPtrField<vasdk::flow::Step>& steps, Reply& reply);
     const vasdk::flow::Route* matchRoute();
     Outcome takeRoute(const vasdk::flow::Route& route, Reply& reply);
@@ -129,6 +138,8 @@ private:
     google::protobuf::Struct _pageLocals;   // cleared on entering a page
     std::string _inputText;                 // the user's words this turn
     std::string _intent;                    // the matched route's intent this turn
+    std::optional<EntityMatch> _entity;     // the matched route's entity this turn ($entity)
+    DynamicEntityValues _dynamicEntities;
     ContextSource _context;
     std::optional<Form> _form;              // set on a page with a form
     std::string _lastQuestion;                              // repeated when an answer isn't understood

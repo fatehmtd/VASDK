@@ -24,6 +24,17 @@ public:
     const std::string name;
     const Value value;
 };
+
+// setEntityValues() from an app thread, applied on the processor's own thread.
+class EntityValuesFrame : public transport::Frame {
+public:
+    EntityValuesFrame(std::string name, std::vector<vasdk::nlu::EntityValue> values)
+        : name(std::move(name)), values(std::move(values)) {}
+    transport::FrameType getType() const override { return transport::FrameType::CONTROL; }
+    std::shared_ptr<transport::Frame> clone() const override { return std::make_shared<EntityValuesFrame>(name, values); }
+    const std::string name;
+    const std::vector<vasdk::nlu::EntityValue> values;
+};
 } // namespace
 
 DialogProcessor::DialogProcessor(std::shared_ptr<const CompiledAgent> agent)
@@ -33,11 +44,16 @@ bool DialogProcessor::shouldProcess(std::shared_ptr<transport::Frame> frame) con
     const auto type = frame->getType();
     return type == transport::FrameType::USER_TURN || type == transport::FrameType::AGENT_STATE ||
            dynamic_cast<const ConnectionFrame*>(frame.get()) != nullptr ||
-           dynamic_cast<const SessionParamFrame*>(frame.get()) != nullptr;
+           dynamic_cast<const SessionParamFrame*>(frame.get()) != nullptr ||
+           dynamic_cast<const EntityValuesFrame*>(frame.get()) != nullptr;
 }
 
 void DialogProcessor::setSessionParam(const std::string& name, const Value& value) {
     enqueueFrame(std::make_shared<SessionParamFrame>(name, value), pipeline::FlowDirection::DOWNSTREAM);
+}
+
+void DialogProcessor::setEntityValues(const std::string& name, std::vector<vasdk::nlu::EntityValue> values) {
+    enqueueFrame(std::make_shared<EntityValuesFrame>(name, std::move(values)), pipeline::FlowDirection::DOWNSTREAM);
 }
 
 void DialogProcessor::setContextSource(FlowRuntime::ContextSource source) {
@@ -62,6 +78,11 @@ void DialogProcessor::processFrame(std::shared_ptr<transport::Frame> frame, pipe
     if (auto param = dynamic_cast<const SessionParamFrame*>(frame.get())) {
         std::string error;
         if (!_conversation.setSessionParam(param->name, param->value, &error)) spdlog::error("[Dialog] {}", error);
+        return;
+    }
+    if (auto entityValues = dynamic_cast<const EntityValuesFrame*>(frame.get())) {
+        std::string error;
+        if (!_conversation.setEntityValues(entityValues->name, entityValues->values, &error)) spdlog::error("[Dialog] {}", error);
         return;
     }
     if (auto connection = dynamic_cast<const ConnectionFrame*>(frame.get())) {

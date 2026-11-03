@@ -1,0 +1,5 @@
+# proto-file: vasdk/flow/test_case.proto
+# proto-message: vasdk.flow.FlowTestCase
+name: "a price from the service's attributes, then booking it"
+turns { user: "how much is an oil change" expect { page: "welcome" said: "an oil change takes about 30 minutes and costs 49 dollars. Would you like to book it?" entities { key: "service" value: "oil_change" } } }
+turns { user: "yes" expect { page: "booking" said: "Sure. Is it for an oil change or a tire repair?" } }

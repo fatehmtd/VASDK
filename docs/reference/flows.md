@@ -19,7 +19,7 @@ In the desktop app: `VASDK_Pipeline --config config/engine.txtpb --agent agents/
 
 ## An agent file
 
-Agents are text proto ([`agent.proto`](../../VASDK/proto/vasdk/flow/agent.proto)); JSON and binary load too. This is a trimmed copy of the [example](../../VASDK_APP/agents/garage-menu/agent.txtpb):
+Agents are text proto ([`agent.proto`](../../VASDK/proto/vasdk/flow/agent.proto)); JSON and binary load too. A small menu agent (the [example](../../VASDK_APP/agents/garage-menu/agent.txtpb) grows this with a form and entities):
 
 ```textproto
 # proto-file: vasdk/flow/agent.proto
@@ -109,6 +109,7 @@ Routes take a `condition` too: `routes { intent: "hours" condition: "$context.cl
 | `$input.text` | What the user said this turn. |
 | `$nlu.intent` | The intent of the route that matched this turn. |
 | `$context.<name>…` | App data from `Session::Options::context`: device state, location, anything the app's `ContextProvider` holds. |
+| `$nlu.entities.<entity>`, `$entity`, `$entities.<entity>` | Entities in this turn's words, a route's entity, and every value of a list entity: see [Entities](#entities). |
 | `$form.<slot>`, `$form.complete`, `$form.confirmed`, `$form.failed` | On a form page: see [Forms](#forms). |
 
 Objects and lists are walked with `.field` and `[index]`: `$context.system.battery`, `$session.cars[0]`.
@@ -196,12 +197,60 @@ Any other empty `ENUM` slot whose value is named is filled too, so "an oil chang
 
 **Routes.** Once the form has everything (and a yes, with confirmation) or has failed, the first condition route that holds is taken. `$form.<slot>`, `$form.complete`, `$form.confirmed` and `$form.failed` can be read on the page. The values start empty each time the conversation arrives on the page, and are kept on `CURRENT_PAGE`. To keep them, copy them into session params on the way out.
 
+A slot can also be read as an [entity](#entities): `slots { name: "service" entity: "@service" }` accepts its synonyms, stores its value, speaks its spoken form, and gives `$form.service.price`.
+
 | Step | Example | What it does |
 |---|---|---|
 | `clear_slot` | `clear_slot { slot: "day" }` | Empties a slot: the form asks for it again, and confirms again. |
 | `set` | `set { key: "$form.phone" value: "$session.phone" }` | Fills a slot, checked like an answer: prefill from what the app knows, in `on_enter`. |
 
 **Checked at load:** an unknown goal, `$form` on a page without a form, an `ENUM` with no values, a slot condition reading anything but `$form.<slot>`, `clear_slot` of an unknown slot, `require_confirmation` without `confirm` text. A form page without a condition route gets a warning.
+
+## Entities
+
+An entity is a kind of value the assistant recognises in what people say, declared once and used by name (`@service`) in routes, forms, conditions and replies.
+
+```textproto
+entity_types {
+  name: "service"
+  list {
+    values { value: "oil_change"  spoken: "an oil change" synonyms: ["oil change", "lube", "change the oil"]
+             attributes { fields { key: "price" value { number_value: 49 } } } }
+    values { value: "tire_repair" spoken: "a tire repair" synonyms: ["tire", "tyres", "flat", "puncture"]
+             attributes { fields { key: "price" value { number_value: 89 } } } }
+  }
+}
+entity_types { name: "plate"      pattern { regex: "[a-z]{2}[0-9]{3}[a-z]{2}" spelled: true uppercase: true } }
+entity_types { name: "party_size" derived { base: "@sys.integer" min: 1 max: 12 } }
+entity_types { name: "free_time"  dynamic: true list { values { value: "09:00" spoken: "9 AM" synonyms: ["nine", "morning"] } } }
+```
+
+| Kind | Matches | Its value |
+|---|---|---|
+| `list` | the `value`, `spoken` form or any synonym, as whole words, ignoring case and punctuation | `value`; replies say `spoken` |
+| `pattern` | the regex (ECMAScript, ignoring case) against a run of words joined by spaces, or by nothing with `strip_spaces`. With `spelled`, words are read letter by letter first: "alpha bravo one two" → `ab12`; letters and digits as the STT writes them ("AB 12") work too | the words joined; `uppercase` stores them in upper case |
+| `derived` | what its `base` matches (`@sys.*`, a list or a pattern), within `min`/`max` and where `condition` (on `$value`) holds | the base's value |
+
+**System entities**, with nothing to declare: `@sys.integer` and `@sys.number` (digits or words: "twenty five", "a hundred and two", "2.5"; "five five" is two numbers), `@sys.phone` (7 to 11 digits in a row, written or spoken, "double four" too) and `@sys.yes_no`.
+
+**Where they're used:**
+
+| Where | Example |
+|---|---|
+| Routes | `routes { entity: "@service" condition: "$entity = 'tire_repair'" target: "tires" }`. With an intent too, both must match; with no intent, entity routes are tried after the intent routes and before the condition-only ones. |
+| `$entity` | In that route's condition and steps: `"$entity takes $entity.minutes minutes."` |
+| Form slots | `slots { name: "service" entity: "@service" }`: read as the entity, stored as its value. List and pattern entities named in passing fill their slots too. |
+| `$nlu.entities.<entity>` | Found in this turn's words, on any page: `exists($nlu.entities.plate)`. |
+| `extract` | `extract { entity: "@plate" into: "$session.plate" }` stores this turn's match, if any. |
+| `$entities.<entity>` | Every value of a list entity, spoken: "We have $entities.free_time free." → "We have 9 AM, 11 AM and 2 PM free." |
+
+Each reference reads the value in conditions (`$form.service = 'oil_change'`) and the spoken form in replies ("You're booked for $form.service" → "an oil change"). Fields give the rest: `.value`, `.spoken`, `.raw` (the words heard), `.entity`, and any attribute (`$form.service.price`).
+
+**Dynamic entities** have values that change per conversation: the times still free today, the caller's cars. The declared values are defaults; the app replaces them with `session->setEntityValues("free_time", values)` (a list of `vasdk::nlu::EntityValue`), kept until the caller disconnects. A test case sets them with `entities { name: "free_time" values { … } }`.
+
+**When entities overlap** in one sentence ("a flat tire" holds `@service` and `@part`'s "tire"), the longest match wins, then pattern over list over derived, then the first declared. A single entity asked for by name (a route, a slot, `extract`) is matched on its own.
+
+**Checked at load:** a synonym of two values of one entity, a regex that doesn't compile, a derived base that isn't a system, list or pattern entity, a derived condition reading anything but `$value`, `dynamic` on a non-list, and any unknown `@name`.
 
 ## Events
 
@@ -211,19 +260,19 @@ With an agent, listeners also get `page_changed` (`from_flow`/`from_page` → `t
 
 ```
 $ vasdk_agentc lint agents/garage-menu/agent.txtpb
-agents/garage-menu/agent.txtpb: ok (2 flows, 5 pages, 11 intents)
+agents/garage-menu/agent.txtpb: ok (2 flows, 4 pages, 10 intents, 2 entities)
 
 $ vasdk_agentc test agents/garage-menu/agent.txtpb agents/garage-menu/tests/*.txtpb
-PASS book a tire service, then say goodbye
-PASS the booking form: a day on the way in, a closed day, the hours, and changing the answers
+PASS book a tire repair, then say goodbye
+PASS the booking form: values on the way in, a closed day, the hours, and changing the answers
 PASS asking for a person hands off and ends
 …
-6 of 6 passed
+8 of 8 passed
 
 $ vasdk_agentc chat agents/garage-menu/agent.txtpb
 bot: Hi, this is Acme Garage. Would you like to book a service, hear our hours, or talk to a person?   [main/welcome]
 you: I'd like to bring my car in
-bot: Sure. Is it for an oil change or tires?   [main/service]
+bot: Sure. Is it for an oil change or a tire repair?   [main/booking]
 ```
 
 - **`lint`** prints every problem with where it is. Errors stop the agent from loading (`flow "main" page "welcome" route 1: unknown intent "bok"`): a missing start flow or page, an unknown intent or target, a duplicate name, an empty step. Warnings don't: a page never reached, an intent no route uses, a page with no routes.
@@ -238,8 +287,18 @@ turns { user: "I have a flat" expect { page: "service" } }
 turns { user: "my windshield is cracked" expect { matched: false said_contains: "can't help with that" } }
 ```
 
-  Expectations: `page`, `flow`, `said` (the whole reply), `said_contains` (case-insensitive), `matched`, `expects_reply`, `ends_session`, `session { key: "service" value: "an oil change" }` (a param as a reply would say it), and `form { key: "day" value: "tuesday" }` (a slot, or `complete`/`confirmed`/`failed`; `""` when empty). A case can set session params and context before the first turn: `session { fields { key: "tier" value { string_value: "gold" } } }`, `context { … }`. The same runs from C++ with `va::flow::runFlowTest`, and the example's cases run in `ctest` (`vasdk_agent_garage_menu`).
+  Expectations: `page`, `flow`, `said` (the whole reply), `said_contains` (case-insensitive), `matched`, `expects_reply`, `ends_session`, `session { key: "service" value: "an oil change" }` (a param as a reply would say it), `form { key: "day" value: "tuesday" }` (a slot, or `complete`/`confirmed`/`failed`; `""` when empty), and `entities { key: "service" value: "oil_change" }` (`$nlu.entities`). A case can set session params and context before the first turn: `session { fields { key: "tier" value { string_value: "gold" } } }`, `context { … }`. The same runs from C++ with `va::flow::runFlowTest`, and the example's cases run in `ctest` (`vasdk_agent_garage_menu`).
 - **`chat`** talks to the agent by typing, showing the page after each reply. `--session tier=gold` sets a session param first.
+- **`try`** shows what a sentence matches, without running the conversation:
+
+```
+$ vasdk_agentc try agents/garage-menu/agent.txtpb "can I book a lube for the afternoon"
+intent: book (1 word)
+@service = oil_change  spoken "an oil change"  heard "lube"  price=49  minutes=30
+@available_time = 14:00  spoken "2 PM"  heard "afternoon"
+$ vasdk_agentc try agents/garage-menu/agent.txtpb --entity @sys.phone "five five five, one two three, double four six seven"
+@sys.phone = 5551234467  heard "five five five one two three double four six seven"
+```
 
 ## In C++
 
@@ -251,8 +310,9 @@ turns { user: "my windshield is cracked" expect { matched: false said_contains: 
 | `flow::DialogProcessor` | The pipeline stage `Session` adds for `Options::agent`, after the turn assembler. |
 | `flow::runFlowTest` | Plays a `FlowTestCase` and returns what differed. |
 | `flow::extractSlotValue`, `extractYesNo` | How a form reads a slot's value from an answer. |
+| `flow::EntityCatalog` | `agent->entities()`: `find(name, text)`, `findAll(text)`, `describe(name, value)` → `EntityMatch` (value, spoken, raw, attributes). |
 | `goal::GoalState` | A form's values: `updateSlot`, `clearSlot`, `missingSlots`, `isConfirmed`. Shared with the LLM goal path (`GoalManager`). |
 
 ## Not yet
 
-These come in later milestones: arithmetic and dates in expressions (`days_until`, `now`), filters in replies (`|raw`), spoken dates and times in forms ("next Tuesday"), synonyms for form values ("tyres", "puncture"), skipping a slot ("I don't know"), custom entities, global commands and digressions that return where you were (`END_FLOW`), handlers for no-input and repeated misunderstandings, rich replies, and custom steps written in C++.
+These come in later milestones: arithmetic and dates in expressions (`days_until`, `now`), filters in replies (`|raw`), spoken dates and times in forms ("next Tuesday"), skipping a slot ("I don't know"), fuzzy and sound-alike matching of entity values, `@entity` inside intent examples, entities built from others ("a white Toyota from 2019"), values filled by tools, global commands and digressions that return where you were (`END_FLOW`), handlers for no-input and repeated misunderstandings, rich replies, and custom steps written in C++.

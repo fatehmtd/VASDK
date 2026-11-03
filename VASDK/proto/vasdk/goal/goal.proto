@@ -18,7 +18,7 @@ message GoalDefinition {
   int32 max_reprompts = 7;             // answers in a row that don't fit before $form.failed; 0: 2
 }
 
-// One value. An answer is read from the user's words by type: the first number for
+// One value. An answer is read from the user's words by entity, or else by type: a number for
 // INTEGER and NUMBER, yes or no for BOOLEAN, one of `values` for ENUM, the spoken or written
 // digits for PHONE, and the whole answer otherwise (DATE, TIME and DATETIME in ISO form only).
 message Slot {
@@ -45,4 +45,8 @@ message Slot {
   bool must_be_future = 9;             // DATE, DATETIME
   repeated string prompt = 10;         // the question; unset: "What's the <name>?"
   repeated string reprompt = 11;       // after an answer that doesn't fit; unset: "Sorry, I didn't get that." and the prompt
+  // "@service": the value is read as this entity (with its synonyms), stored as its value, and
+  // spoken in its spoken form; $form.<name>.<attribute> reads its attributes. `type` and
+  // `values` are then not used.
+  string entity = 12;
 }

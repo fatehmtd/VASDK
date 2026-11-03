@@ -183,12 +183,14 @@ if(VASDK_ENABLE_ENGINE_CONFIG)
         ./src/VAEngine.cpp
         ./src/flow/Expression.cpp
         ./src/flow/SlotExtraction.cpp
+        ./src/flow/Entities.cpp
         ./src/flow/CompiledAgent.cpp
         ./src/flow/FlowRuntime.cpp
         ./src/flow/DialogProcessor.cpp
         ./src/flow/FlowTestRunner.cpp
         ./proto/vasdk/engine/engine_config.proto
         ./proto/vasdk/engine/events.proto
+        ./proto/vasdk/nlu/entity.proto
         ./proto/vasdk/goal/goal.proto
         ./proto/vasdk/flow/agent.proto
         ./proto/vasdk/flow/test_case.proto
@@ -323,6 +325,10 @@ if(VASDK_BUILD_TESTS)
         add_executable(vasdk_form_primitives_test tests/form_primitives_test.cpp)
         target_link_libraries(vasdk_form_primitives_test PRIVATE VASDK)
         add_test(NAME vasdk_form_primitives COMMAND vasdk_form_primitives_test)
+
+        add_executable(vasdk_entity_test tests/entity_test.cpp)
+        target_link_libraries(vasdk_entity_test PRIVATE VASDK)
+        add_test(NAME vasdk_entity COMMAND vasdk_entity_test)
 
         add_executable(vasdk_engine_events_test tests/engine_events_test.cpp)
         target_link_libraries(vasdk_engine_events_test PRIVATE VASDK)

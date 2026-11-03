@@ -26,6 +26,11 @@ FlowTestResult runFlowTest(std::shared_ptr<const CompiledAgent> agent, const vas
         std::string error;
         if (!conversation.setSessionParam(name, value, &error)) result.failures.push_back("session: " + error);
     }
+    for (const auto& entity : testCase.entities()) {
+        std::string error;
+        if (!conversation.setEntityValues(entity.name(), {entity.values().begin(), entity.values().end()}, &error))
+            result.failures.push_back("entities: " + error);
+    }
     if (testCase.has_context()) {
         const auto context = testCase.context();
         conversation.setContextSource([context] { return context; });
@@ -57,6 +62,10 @@ FlowTestResult runFlowTest(std::shared_ptr<const CompiledAgent> agent, const vas
         for (const auto& [name, expected] : expect.session()) {
             const std::string actual = toText(conversation.sessionParam(name));
             if (actual != expected) fail("$session." + name + " is " + quoted(actual) + ", expected " + quoted(expected));
+        }
+        for (const auto& [name, expected] : expect.entities()) {
+            const std::string actual = toText(conversation.lookup({"nlu", "entities", name}));
+            if (actual != expected) fail("$nlu.entities." + name + " is " + quoted(actual) + ", expected " + quoted(expected));
         }
         for (const auto& [name, expected] : expect.form()) {
             const std::string actual = toText(conversation.lookup({"form", name}));

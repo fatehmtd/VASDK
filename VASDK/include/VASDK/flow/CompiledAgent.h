@@ -1,6 +1,7 @@
 #pragma once
 
 #include "vasdk_export.h"
+#include "Entities.h"
 #include "Expression.h"
 #include "vasdk/flow/agent.pb.h"
 
@@ -62,6 +63,8 @@ public:
     const vasdk::goal::GoalDefinition* goal(const std::string& name) const;
     /** A goal's slots, empty, ready for a form to fill; nullptr for an unknown goal. */
     std::unique_ptr<goal::GoalState> newGoalState(const std::string& name) const;
+    /** The agent's entities, and the @sys.* ones. */
+    const EntityCatalog& entities() const { return _entities; }
 
 private:
     CompiledAgent() = default;
@@ -75,6 +78,7 @@ private:
     std::map<std::string, std::shared_ptr<const Expression>> _expressions;           // by source text
     std::map<std::string, int> _goals;                                               // name → index
     std::map<std::string, std::shared_ptr<const goal::GoalDefinition>> _goalDefinitions;   // as GoalState runs them
+    EntityCatalog _entities;
 };
 
 /** Whether `value` fits a session param of `type`; null always does. */
@@ -83,6 +87,9 @@ VASDK_EXPORT bool fitsType(vasdk::flow::SessionParam::Type type, const Value& va
 /** Route and Goto targets with a meaning of their own. */
 inline constexpr const char* kTargetEndSession = "END_SESSION";
 inline constexpr const char* kTargetCurrentPage = "CURRENT_PAGE";
+
+/** "@service" → "service"; "" when it doesn't start with @. */
+VASDK_EXPORT std::string entityName(const std::string& reference);
 
 /** "Book an oil-change!" → {"book", "an", "oil", "change"}: lower case, punctuation dropped. */
 VASDK_EXPORT std::vector<std::string> splitWords(const std::string& text);

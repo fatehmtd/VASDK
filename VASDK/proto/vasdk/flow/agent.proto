@@ -8,6 +8,7 @@ package vasdk.flow;
 
 import "google/protobuf/struct.proto";
 import "vasdk/goal/goal.proto";
+import "vasdk/nlu/entity.proto";
 
 message Agent {
   int32 schema_version = 1;
@@ -20,6 +21,7 @@ message Agent {
   repeated SessionParam session_params = 12;   // $session.<name>: kept for the whole conversation
   repeated vasdk.goal.GoalDefinition goals = 13;   // what forms collect (Page.form)
   repeated string goal_files = 14;             // more goals, one per file, relative to this file
+  repeated vasdk.nlu.EntityType entity_types = 15;   // @<name>: kinds of value recognised in what the user says
 }
 
 // A value the conversation keeps: set by `set` steps, by the app (Session::setSessionParam),
@@ -67,10 +69,12 @@ message Form {
   string goal = 1;
 }
 
-// Matches when its intent does (the longest example wins between routes) and its condition holds.
-// A route with only a condition is tried when no intent route matched, in order.
+// Matches when its intent does (the longest example wins between routes), its entity is in the
+// user's words, and its condition holds. When no intent route matches, the routes with an entity
+// and no intent are tried in order, then those with only a condition.
 message Route {
   string intent = 1;
+  string entity = 5;         // "@service": the user named one; $entity reads it in the condition and steps
   string condition = 4;      // an expression: "$session.tier = 'gold'"
   repeated Step steps = 2;   // run first, then the conversation moves to target
   // A page of this flow, "flow:<name>" (its start page), "CURRENT_PAGE" (enter this page again)
@@ -82,6 +86,7 @@ message Step {
   oneof kind {
     Say say = 1;
     Ask ask = 2;
+    Extract extract = 6;
     ClearSlot clear_slot = 10;
     Set set = 11;
     Branch branch = 12;
@@ -136,6 +141,13 @@ message Goto {
 
 // Ends the conversation once the reply has played; the next one starts at start_flow.
 message End {}
+
+// Stores the entity found in the user's words this turn, if any: into is a `set` key.
+//   extract { entity: "@license_plate" into: "$session.plate" }
+message Extract {
+  string entity = 1;
+  string into = 2;
+}
 
 // Empties one of the page's form slots, so the form asks for it again (and confirms again).
 message ClearSlot {
