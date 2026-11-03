@@ -44,6 +44,7 @@ Model files are found automatically: the app searches for a `VASDK_3P_IMPL/model
 | Flag | Purpose |
 | --- | --- |
 | `--config <path>` | Engine config (`.txtpb`, `.json` or `.pb`): VAD/STT/TTS provider ids and options, models dir, LLM endpoint/model/key. `--llm-*` flags override it. See [Engine config files](../docs/reference/engine-config.md) and the example in [`config/engine.txtpb`](config/engine.txtpb) |
+| `--agent <path>` | Agent file: its pages answer each turn before any LLM, e.g. [`agents/garage-menu/agent.txtpb`](agents/garage-menu/agent.txtpb). See [Agents](../docs/reference/flows.md) |
 | `--llm-model-path <path>` | GGUF model for llama.cpp local inference (only with `VASDK_HAS_LLAMACPP`); overrides the OpenAI-compatible transport when set |
 | `--llm-endpoint <url>` | OpenAI-compatible endpoint (falls back to `LLM_ENDPOINT`/`OPENAI_BASE_URL`) |
 | `--llm-api-key <key>` | LLM API key (falls back to `LLM_API_KEY`/`OPENROUTER_API_KEY`/`OPENAI_API_KEY`) |

@@ -1,0 +1,71 @@
+// An agent: what the assistant says and how the conversation moves between pages, with no LLM.
+// Written in text proto (agent.txtpb); JSON and binary load too. Start a file with
+//   # proto-file: vasdk/flow/agent.proto
+//   # proto-message: vasdk.flow.Agent
+syntax = "proto3";
+
+package vasdk.flow;
+
+message Agent {
+  int32 schema_version = 1;
+  string name = 2;
+  string locale = 3;       // "en-US": the only one understood so far
+  string start_flow = 4;   // the flow a conversation starts in, at its start_page
+
+  repeated Intent intents = 10;
+  repeated Flow flows = 11;
+}
+
+// What the user wants, recognised by keyword phrases: the intent matches when the user's words
+// contain one of the examples, in order. The longest phrase found wins between intents.
+message Intent {
+  string name = 1;
+  repeated string examples = 2;   // "book", "oil change", "talk to a person"
+}
+
+message Flow {
+  string name = 1;
+  string start_page = 2;
+  repeated Page pages = 3;
+}
+
+message Page {
+  string name = 1;
+  repeated Step on_enter = 2;   // run each time the conversation enters the page
+  repeated Route routes = 3;    // tried against each user turn while on the page
+}
+
+message Route {
+  string intent = 1;
+  repeated Step steps = 2;   // run first, then the conversation moves to target
+  // A page of this flow, "flow:<name>" (its start page), "CURRENT_PAGE" (enter this page again)
+  // or "END_SESSION". Empty: stay on the page without entering it again.
+  string target = 3;
+}
+
+message Step {
+  oneof kind {
+    Say say = 1;
+    Ask ask = 2;
+    Goto goto = 14;
+    End end = 17;
+  }
+}
+
+// Speaks one of the texts, in turn each time the step runs.
+message Say {
+  repeated string text = 1;
+}
+
+// A question: the user is expected to answer, and it is repeated when the answer isn't understood.
+message Ask {
+  Say say = 1;
+}
+
+// Moves to `target` (as Route.target) at once; the steps after it don't run.
+message Goto {
+  string target = 1;
+}
+
+// Ends the conversation once the reply has played; the next one starts at start_flow.
+message End {}

@@ -13,6 +13,7 @@
 #include "WakeWordProcessor.h"
 #include "engine/EventTapProcessor.h"
 #include "engine/Runtime.h"
+#include "flow/DialogProcessor.h"
 #include "llm/LLMFirePolicy.h"
 #include "llm/LLMProcessor.h"
 #include "llm/OpenAITransport.h"
@@ -102,6 +103,7 @@ struct Session::State {
     std::shared_ptr<FrameProcessor> bargeInHandler;   // only with back-channel handling off
     std::shared_ptr<pipeline::TurnAssemblerProcessor> turnAssembler;
     std::shared_ptr<FrameInjector> userInput;
+    std::shared_ptr<flow::DialogProcessor> dialog;   // only with Options::agent
     std::shared_ptr<llm::LLMTransport> llmTransport;
     std::shared_ptr<llm::LLMProcessor> llm;
     std::shared_ptr<llm::ToolDispatchProcessor> tools = std::make_shared<llm::ToolDispatchProcessor>();
@@ -125,7 +127,9 @@ struct Session::State {
         addSlot(Slot::AfterTranscription);
         processors.push_back(agentState);
         if (bargeInHandler) processors.push_back(bargeInHandler);
-        if (llm) processors.insert(processors.end(), {turnAssembler, userInput, llm, tools});
+        if (turnAssembler) processors.insert(processors.end(), {turnAssembler, userInput});
+        if (dialog) processors.push_back(dialog);
+        if (llm) processors.insert(processors.end(), {llm, tools});
         addSlot(Slot::BeforeSynthesis);
         processors.insert(processors.end(), {speech, eventTap, tts});
         addSlot(Slot::BeforeOutput);
@@ -190,6 +194,8 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
         vadConfig.maxSpeechPauseDurationMs = 500, vadConfig.maxSpeechEndDurationMs = 250;
         break;
     }
+    // Echo cancellation turns the user's voice down while the assistant talks: confirm sooner then.
+    vadConfig.bargeInMinSpeechDurationMs = 150;
     state->vad->setConfig(vadConfig);
     state->vad->setRingBuffer(state->ringBuffer);
 
@@ -214,6 +220,10 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
         });
     }
     state->agentState->setBackchannelConfig(options.backchannel);
+    state->vad->setAgentSpeaking([agentState = std::weak_ptr<pipeline::AgentStateProcessor>(state->agentState)] {
+        auto current = agentState.lock();
+        return current && current->getState() == transport::AgentState::SPEAKING;
+    });
     // Batch transcription only, as the desktop app always had it; the call center (streaming)
     // never cleared the STT buffer on a barge-in.
     if (!options.backchannel.enabled && !turnTaking.streaming_transcription())
@@ -293,10 +303,53 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
         state->llm->setConfidenceThreshold(0.07f);
         state->llm->setStreamSpeech(true);  // speak each sentence as the LLM streams it
         state->llm->setToolDispatcher(state->tools);
+    } else if (!options.agent) {
+        spdlog::info("{} No LLM or agent configured: the assistant only speaks say() text", state->logTag);
+    }
+
+    //  Agent (optional): answers turns from its pages, before the LLM
+    if (options.agent) {
+        state->dialog = std::make_shared<flow::DialogProcessor>(options.agent);
+        state->dialog->setPassUnmatchedTurns(state->llm != nullptr);
+        state->dialog->setReplyObserver([events = std::weak_ptr<EventDispatcher>(state->events)](
+                                            const flow::Reply& reply, const flow::FlowRuntime& conversation) {
+            auto dispatcher = events.lock();
+            if (!dispatcher) return;
+            for (const auto& change : reply.pageChanges) {
+                vasdk::engine::Event event;
+                auto* changed = event.mutable_page_changed();
+                changed->set_from_flow(change.fromFlow);
+                changed->set_from_page(change.fromPage);
+                changed->set_to_flow(change.toFlow);
+                changed->set_to_page(change.toPage);
+                changed->set_reason(change.reason);
+                dispatcher->post(std::move(event));
+            }
+            if (reply.endsSession) {
+                vasdk::engine::Event event;
+                event.mutable_session_ended()->set_flow(conversation.flowName());
+                event.mutable_session_ended()->set_page(conversation.pageName());
+                dispatcher->post(std::move(event));
+            }
+        });
+    }
+    if (state->dialog) {
+        // The greeting waits for someone to hear it: a browser peer, a phone call. Handlers the
+        // app set on the transport still run.
+        auto& audio = *options.transport;
+        auto dialog = std::weak_ptr<flow::DialogProcessor>(state->dialog);
+        audio.onConnected = [previous = audio.onConnected, dialog] {
+            if (previous) previous();
+            if (auto processor = dialog.lock()) processor->setConnected(true);
+        };
+        audio.onDisconnected = [previous = audio.onDisconnected, dialog] {
+            if (previous) previous();
+            if (auto processor = dialog.lock()) processor->setConnected(false);
+        };
+    }
+    if (state->llm || state->dialog) {
         state->turnAssembler = std::make_shared<pipeline::TurnAssemblerProcessor>();
         state->turnAssembler->setFirePolicy(std::make_shared<llm::FinalOnlyFirePolicy>());
-    } else {
-        spdlog::info("{} No LLM configured: the assistant only speaks say() text", state->logTag);
     }
 
     state->options = std::move(options);
@@ -323,6 +376,7 @@ bool Session::start(std::string* error) {
     if (_state->pipeline) return fail("already started");
     auto& transport = *_state->options.transport;
     if (!transport.initialize() || !transport.start()) return fail("transport " + transport.getName() + " failed to start");
+    if (_state->dialog) _state->dialog->setConnected(transport.isConnected());
 
     auto pipeline = std::make_shared<pipeline::Pipeline>();
     for (auto& processor : _state->chain()) pipeline->addProcessor(processor);
@@ -355,8 +409,8 @@ void Session::say(const std::string& text) {
 }
 
 void Session::injectUserText(const std::string& text) {
-    if (!_state->llm) {
-        spdlog::warn("{} injectUserText ignored: no LLM configured", _state->logTag);
+    if (!_state->llm && !_state->dialog) {
+        spdlog::warn("{} injectUserText ignored: no LLM or agent configured", _state->logTag);
         return;
     }
     // What a spoken turn reaches the LLM as: the final transcript (for listeners), then the turn.

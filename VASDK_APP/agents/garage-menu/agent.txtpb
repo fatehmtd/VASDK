@@ -1,0 +1,77 @@
+# proto-file: vasdk/flow/agent.proto
+# proto-message: vasdk.flow.Agent
+#
+# A menu-style garage assistant with no LLM: book a service, hear the hours, or reach a person.
+#   vasdk_agentc chat VASDK_APP/agents/garage-menu/agent.txtpb
+#   VASDK_Pipeline --agent VASDK_APP/agents/garage-menu/agent.txtpb
+schema_version: 1
+name: "garage-menu"
+locale: "en-US"
+start_flow: "main"
+
+intents { name: "book"       examples: ["book", "appointment", "schedule", "bring my car in", "service"] }
+intents { name: "hours"      examples: ["hours", "open", "close", "closing"] }
+intents { name: "person"     examples: ["person", "human", "agent", "representative", "someone"] }
+intents { name: "goodbye"    examples: ["bye", "goodbye", "that's all", "nothing else"] }
+intents { name: "oil_change" examples: ["oil"] }
+intents { name: "tires"      examples: ["tire", "tires", "tyre", "tyres", "flat", "flattire", "puncture"] }   # STT may join "flat tire"
+intents { name: "help"       examples: ["help", "what can you do", "what do you do", "options", "explain"] }
+intents { name: "hello"      examples: ["hello", "hi", "hey"] }
+intents { name: "back"       examples: ["back", "main menu", "start over", "never mind"] }
+intents { name: "yes"        examples: ["yes", "yeah", "yep", "sure", "please"] }
+intents { name: "no"         examples: ["no", "nope", "nothing", "that's all"] }
+
+flows {
+  name: "main"
+  start_page: "welcome"
+
+  pages {
+    name: "welcome"
+    on_enter { ask { say { text: "Hi, this is Acme Garage. Would you like to book a service, hear our hours, or talk to a person?" } } }
+    # Naming the service books it straight away; listed before "book" so "book an oil change" picks it.
+    routes { intent: "oil_change" steps { say { text: "An oil change, got it." } } target: "booked" }
+    routes { intent: "tires" steps { say { text: "Tires, got it." } } target: "booked" }
+    routes { intent: "book" target: "service" }
+    routes {
+      intent: "hours"
+      steps { say { text: "We're open 8 to 6, Monday to Saturday." } }
+      steps { ask { say { text: "Anything else? You can book a service or talk to a person." } } }
+    }
+    routes { intent: "person" target: "flow:handoff" }
+    routes { intent: "goodbye" steps { say { text: "Thanks for calling. Goodbye!" } } target: "END_SESSION" }
+    routes {
+      intent: "help"
+      steps { say { text: "I can book an oil change or a tire service, tell you our opening hours, or put you through to a person." } }
+      steps { ask { say { text: "What would you like?" } } }
+    }
+    routes { intent: "hello" target: "CURRENT_PAGE" }   # last: "hi, I'd like to book" still books
+  }
+
+  pages {
+    name: "service"
+    on_enter { ask { say { text: ["Sure. Is it for an oil change or tires?", "Which service: an oil change or tires?"] } } }
+    routes { intent: "oil_change" steps { say { text: "An oil change, got it." } } target: "booked" }
+    routes { intent: "tires" steps { say { text: "Tires, got it." } } target: "booked" }
+    routes { intent: "back" target: "welcome" }
+    routes { intent: "help" steps { ask { say { text: "We do oil changes and tire repairs. Which one do you need?" } } } }
+    routes { intent: "person" target: "flow:handoff" }
+  }
+
+  pages {
+    name: "booked"
+    on_enter { say { text: "You're booked for tomorrow at 9 AM." } }
+    on_enter { ask { say { text: "Is there anything else I can help with?" } } }
+    routes { intent: "no" steps { say { text: "Great, see you tomorrow. Goodbye!" } } target: "END_SESSION" }
+    routes { intent: "yes" target: "welcome" }
+  }
+}
+
+flows {
+  name: "handoff"
+  start_page: "transfer"
+  pages {
+    name: "transfer"
+    on_enter { say { text: "Connecting you to a person now." } }
+    on_enter { end {} }
+  }
+}

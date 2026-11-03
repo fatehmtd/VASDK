@@ -187,6 +187,7 @@ namespace va {
                 spdlog::debug("[VADFrameProcessor] VAD detected voice activity in QUIET state, preparing to switch to STARTING...");
                 switchToState(va::transport::VADState::STARTING);
                 _isInSpeech = true;
+                _lastStartingFrameVoiced = true;
 
                 // Speech offsets are absolute; VAD result offsets are relative to the current audio buffer
                 int lookbackSamples = static_cast<int>(_lookbackMultiplier * (_absoluteAudioOffset - _absoluteAudioPreOffset));
@@ -208,9 +209,12 @@ namespace va {
             // would make the decision after one frame - too early when frames are short.
             size_t audioProgress = _absoluteAudioOffset - _stateEntryAudioOffset;
 
-            const uint64_t minSpeechDurationSamples = static_cast<uint64_t>(_vadConfig.minSpeechDurationMs * _vadProvider->getAudioConfig().sampleRate / 1000);
+            const bool bargeIn = _vadConfig.bargeInMinSpeechDurationMs > 0 && _agentSpeaking && _agentSpeaking();
+            const uint64_t minSpeechDurationMs = bargeIn ? _vadConfig.bargeInMinSpeechDurationMs : _vadConfig.minSpeechDurationMs;
+            const uint64_t minSpeechDurationSamples = static_cast<uint64_t>(minSpeechDurationMs * _vadProvider->getAudioConfig().sampleRate / 1000);
 
             if (vadResult) {
+                _lastStartingFrameVoiced = true;
                 // Update end offset as more VAD results arrive, so ONGOING reflects accurate speech start time
                 size_t previousEnd = _absoluteSpeechOffsets.end;
                 _absoluteSpeechOffsets.end += vadResult->offset + vadResult->length;
@@ -230,13 +234,17 @@ namespace va {
             }
             else {
                 spdlog::debug("[VADFrameProcessor] No voice activity detected in STARTING state. Audio progress since potential speech start: {} samples", audioProgress);
-                if (audioProgress >= minSpeechDurationSamples) {
+                if (audioProgress >= minSpeechDurationSamples && _lastStartingFrameVoiced) {
+                    spdlog::debug("[VADFrameProcessor] One quiet frame after voice in STARTING - waiting a frame before deciding");
+                }
+                else if (audioProgress >= minSpeechDurationSamples) {
                     switchToState(transport::VADState::QUIET);
                     emitStateFrame(_absoluteSpeechOffsets.end, _absoluteSpeechOffsets.end, 0.0f);
                 }
                 else {
                     spdlog::debug("[VADFrameProcessor] Minimum speech duration not yet met in STARTING state, remaining in STARTING.");
                 }
+                _lastStartingFrameVoiced = false;
             }
         }
 

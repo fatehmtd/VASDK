@@ -1,0 +1,214 @@
+#include "flow/CompiledAgent.h"
+
+#include "engine/ProtoFileLoader.h"
+
+#include <algorithm>
+#include <cctype>
+#include <deque>
+#include <set>
+
+namespace va {
+namespace flow {
+
+std::vector<std::string> splitWords(const std::string& text) {
+    std::vector<std::string> words;
+    std::string word;
+    for (const char c : text) {
+        const auto byte = static_cast<unsigned char>(c);
+        // Letters, digits, apostrophes ("don't") and any non-ASCII byte (accented letters) make words.
+        if (std::isalnum(byte) || c == '\'' || byte >= 0x80) {
+            word += static_cast<char>(std::tolower(byte));
+        } else if (!word.empty()) {
+            words.push_back(std::move(word));
+            word.clear();
+        }
+    }
+    if (!word.empty()) words.push_back(std::move(word));
+    return words;
+}
+
+namespace {
+
+std::string quoted(const std::string& name) { return "\"" + name + "\""; }
+
+class Checker {
+public:
+    std::vector<std::string> errors;
+    std::vector<std::string> warnings;
+    void error(const std::string& where, const std::string& message) { errors.push_back(where + ": " + message); }
+    void warn(const std::string& where, const std::string& message) { warnings.push_back(where + ": " + message); }
+};
+
+} // namespace
+
+std::shared_ptr<const CompiledAgent> CompiledAgent::load(const std::string& path, std::string* error,
+                                                         std::vector<std::string>* warnings) {
+    vasdk::flow::Agent agent;
+    // No ${ENV} expansion: secrets belong in the engine config, never in an agent.
+    if (!engine::loadProtoFile(path, agent, error)) return nullptr;
+    return compile(std::move(agent), error, warnings);
+}
+
+std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent agent, std::string* error,
+                                                            std::vector<std::string>* warnings) {
+    std::shared_ptr<CompiledAgent> compiled(new CompiledAgent());
+    compiled->_agent = std::move(agent);
+    const auto& definition = compiled->_agent;
+    Checker check;
+
+    // Names first: targets and intents are resolved against them.
+    for (int i = 0; i < definition.intents_size(); ++i) {
+        const auto& intent = definition.intents(i);
+        const std::string where = "intent " + (intent.name().empty() ? std::to_string(i + 1) : quoted(intent.name()));
+        if (intent.name().empty()) check.error(where, "has no name");
+        else if (compiled->_intentExamples.count(intent.name())) check.error(where, "is declared twice");
+        auto& examples = compiled->_intentExamples[intent.name()];
+        for (const auto& example : intent.examples()) {
+            auto words = splitWords(example);
+            if (words.empty()) check.error(where, "example " + quoted(example) + " has no words");
+            else examples.push_back(std::move(words));
+        }
+        if (intent.examples().empty()) check.error(where, "has no examples");
+    }
+    compiled->_pages.resize(definition.flows_size());
+    for (int f = 0; f < definition.flows_size(); ++f) {
+        const auto& flow = definition.flows(f);
+        const std::string where = "flow " + (flow.name().empty() ? std::to_string(f + 1) : quoted(flow.name()));
+        if (flow.name().empty()) check.error(where, "has no name");
+        else if (!compiled->_flows.emplace(flow.name(), f).second) check.error(where, "is declared twice");
+        for (int p = 0; p < flow.pages_size(); ++p) {
+            const auto& name = flow.pages(p).name();
+            if (name.empty()) check.error(where + " page " + std::to_string(p + 1), "has no name");
+            else if (!compiled->_pages[f].emplace(name, p).second)
+                check.error(where + " page " + quoted(name), "is declared twice");
+        }
+        if (flow.start_page().empty()) check.error(where, "has no start_page");
+        else if (!compiled->_pages[f].count(flow.start_page()))
+            check.error(where, "start_page " + quoted(flow.start_page()) + " is not one of its pages");
+    }
+    if (definition.start_flow().empty()) {
+        check.error("agent", "has no start_flow");
+    } else if (auto start = compiled->resolve("flow:" + definition.start_flow(), {}); start) {
+        compiled->_startPage = *start;
+    } else if (!compiled->_flows.count(definition.start_flow())) {
+        check.error("agent", "start_flow " + quoted(definition.start_flow()) + " is not one of its flows");
+    }
+
+    // Steps and routes, collecting where each page leads for the reachability check.
+    std::set<std::string> usedIntents;
+    std::vector<std::vector<std::vector<PageRef>>> leadsTo(definition.flows_size());
+    for (int f = 0; f < definition.flows_size(); ++f) {
+        const auto& flow = definition.flows(f);
+        leadsTo[f].resize(flow.pages_size());
+        for (int p = 0; p < flow.pages_size(); ++p) {
+            const auto& page = flow.pages(p);
+            const PageRef here{f, p};
+            const std::string where = "flow " + quoted(flow.name()) + " page " + quoted(page.name());
+            auto checkTarget = [&](const std::string& target, const std::string& at) {
+                if (target.empty() || target == kTargetEndSession) return;
+                if (auto next = compiled->resolve(target, here)) leadsTo[f][p].push_back(*next);
+                else check.error(at, "unknown target " + quoted(target));
+            };
+            auto checkSteps = [&](const google::protobuf::RepeatedPtrField<vasdk::flow::Step>& steps,
+                                  const std::string& at) {
+                for (int s = 0; s < steps.size(); ++s) {
+                    const auto& step = steps.Get(s);
+                    const std::string stepWhere = at + " step " + std::to_string(s + 1);
+                    switch (step.kind_case()) {
+                    case vasdk::flow::Step::kSay:
+                        if (step.say().text().empty()) check.error(stepWhere, "say has no text");
+                        break;
+                    case vasdk::flow::Step::kAsk:
+                        if (step.ask().say().text().empty()) check.error(stepWhere, "ask has no text");
+                        break;
+                    case vasdk::flow::Step::kGoto:
+                        if (step.goto_().target().empty()) check.error(stepWhere, "goto has no target");
+                        checkTarget(step.goto_().target(), stepWhere);
+                        break;
+                    case vasdk::flow::Step::kEnd:
+                        break;
+                    case vasdk::flow::Step::KIND_NOT_SET:
+                        check.error(stepWhere, "is empty");
+                        break;
+                    }
+                }
+            };
+            checkSteps(page.on_enter(), where + " on_enter");
+            for (int r = 0; r < page.routes_size(); ++r) {
+                const auto& route = page.routes(r);
+                const std::string routeWhere = where + " route " + std::to_string(r + 1);
+                if (route.intent().empty()) check.error(routeWhere, "has no intent");
+                else if (!compiled->_intentExamples.count(route.intent()))
+                    check.error(routeWhere, "unknown intent " + quoted(route.intent()));
+                usedIntents.insert(route.intent());
+                checkSteps(route.steps(), routeWhere);
+                checkTarget(route.target(), routeWhere);
+            }
+            const bool leavesOnEntry = std::any_of(page.on_enter().begin(), page.on_enter().end(), [](const auto& step) {
+                return step.has_goto_() || step.has_end();
+            });
+            if (page.routes().empty() && !leavesOnEntry)
+                check.warn(where, "has no routes: every answer on it is not understood");
+        }
+    }
+
+    if (compiled->_startPage.valid()) {
+        std::set<std::pair<int, int>> reached{{compiled->_startPage.flow, compiled->_startPage.page}};
+        std::deque<PageRef> pending{compiled->_startPage};
+        while (!pending.empty()) {
+            const PageRef at = pending.front();
+            pending.pop_front();
+            for (const auto& next : leadsTo[at.flow][at.page])
+                if (reached.insert({next.flow, next.page}).second) pending.push_back(next);
+        }
+        for (int f = 0; f < definition.flows_size(); ++f)
+            for (int p = 0; p < definition.flows(f).pages_size(); ++p)
+                if (!reached.count({f, p}))
+                    check.warn("flow " + quoted(definition.flows(f).name()) + " page " +
+                                   quoted(definition.flows(f).pages(p).name()),
+                               "is never reached from the start page");
+    }
+    for (const auto& intent : definition.intents())
+        if (!intent.name().empty() && !usedIntents.count(intent.name()))
+            check.warn("intent " + quoted(intent.name()), "is not used by any route");
+
+    if (warnings) warnings->insert(warnings->end(), check.warnings.begin(), check.warnings.end());
+    if (!check.errors.empty()) {
+        if (error) {
+            error->clear();
+            for (const auto& line : check.errors) *error += (error->empty() ? "" : "\n") + line;
+        }
+        return nullptr;
+    }
+    return compiled;
+}
+
+std::optional<CompiledAgent::PageRef> CompiledAgent::resolve(const std::string& target, PageRef from) const {
+    if (target == kTargetCurrentPage) return from.valid() ? std::optional<PageRef>(from) : std::nullopt;
+    static const std::string flowPrefix = "flow:";
+    if (target.compare(0, flowPrefix.size(), flowPrefix) == 0) {
+        const auto flow = _flows.find(target.substr(flowPrefix.size()));
+        if (flow == _flows.end()) return std::nullopt;
+        const auto page = _pages[flow->second].find(_agent.flows(flow->second).start_page());
+        if (page == _pages[flow->second].end()) return std::nullopt;
+        return PageRef{flow->second, page->second};
+    }
+    if (from.flow < 0) return std::nullopt;
+    const auto page = _pages[from.flow].find(target);
+    if (page == _pages[from.flow].end()) return std::nullopt;
+    return PageRef{from.flow, page->second};
+}
+
+int CompiledAgent::matchIntent(const std::string& intent, const std::vector<std::string>& words) const {
+    const auto found = _intentExamples.find(intent);
+    if (found == _intentExamples.end()) return 0;
+    int best = 0;
+    for (const auto& example : found->second)
+        if (static_cast<int>(example.size()) > best &&
+            std::search(words.begin(), words.end(), example.begin(), example.end()) != words.end())
+            best = static_cast<int>(example.size());
+    return best;
+}
+
+} // namespace flow
+} // namespace va

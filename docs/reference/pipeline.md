@@ -36,8 +36,8 @@ sequenceDiagram
     Pipeline->>P1: initialize()
     Pipeline->>PN: initialize()
     App->>Pipeline: start()
-    Pipeline->>P1: start() - thread spawns
     Pipeline->>PN: start() - thread spawns
+    Pipeline->>P1: start() - thread spawns
     Note over P1,PN: frames flow, each stage on its own thread
     App->>Pipeline: stop()
     Pipeline->>P1: stop() - thread joins
@@ -47,6 +47,7 @@ sequenceDiagram
 Things worth knowing before you wire one up:
 
 - **Order of `addProcessor()` calls is the chain order.** There is no reordering, no graph - a pipeline is a straight line. Fan-in/fan-out happens at the ends via `TransportInputProcessor`/`TransportOutputProcessor`, not in the middle.
+- **`start()` goes from the output end back to the input**, so a frame a processor sends while starting (`AgentStateProcessor`'s `PIPELINE_START`, an agent's greeting) finds every stage after it already running.
 - **`build()` must precede `start()`**, and processor-specific setup that must happen "before `initialize()`" (e.g. `TransportInputProcessor::addTransport()`, ring-buffer wiring) must happen **before `build()`**, because `build()` is what calls `initialize()`.
 - **`setInputTransport`/`setOutputTransport` don't route frames by themselves** - frame I/O goes through `TransportInputProcessor`/`TransportOutputProcessor` in the chain. The pipeline-level setters exist so the pipeline can manage the transports' lifecycle alongside the processors'.
 - **A `Pipeline` is one session.** For concurrent sessions (multiple simultaneous calls), build one pipeline per session and pool the expensive providers - that's what [`engine::Runtime` and its sessions](engine.md#many-conversations-at-once) do.

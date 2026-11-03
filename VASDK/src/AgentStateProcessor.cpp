@@ -333,7 +333,12 @@ namespace va {
 
         void AgentStateProcessor::handleSystemTurnStarted(std::shared_ptr<transport::TurnStateFrame> frame)
         {
-            if (_currentState.load() == transport::AgentState::THINKING) {
+            const auto state = _currentState.load();
+            // From LISTENING too: speech nobody asked for (an agent's greeting, say()) is spoken
+            // like a reply, so the user can cut it and its echo isn't taken for a turn.
+            if (state == transport::AgentState::THINKING ||
+                (state == transport::AgentState::LISTENING && !_userSpeaking)) {
+                cancelFollowUpWindow();
                 transitionTo(transport::AgentState::SPEAKING,
                     transport::AgentStateTransition::SYNTHESIS_STARTED);
             }

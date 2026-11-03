@@ -3,6 +3,7 @@
 #include <ctime>
 #include <VASDK/Pipeline.h>
 #include <VASDK/VAEngine.h>
+#include <VASDK/flow/CompiledAgent.h>
 #include "vasdk/engine/events.pb.h"
 #include <VASDK/llm/Tool.h>
 #include <VASDK/FrameProcessor.h>
@@ -177,6 +178,13 @@ void addConsoleListener(va::VAEngine& engine) {
         case vasdk::engine::Event::kError:
             spdlog::error("[{}] {}", event.error().source(), event.error().message());
             break;
+        case vasdk::engine::Event::kPageChanged:
+            spdlog::info("[page {}/{} → {}/{}] {}", event.page_changed().from_flow(), event.page_changed().from_page(),
+                         event.page_changed().to_flow(), event.page_changed().to_page(), event.page_changed().reason());
+            break;
+        case vasdk::engine::Event::kSessionEnded:
+            spdlog::info("[conversation ended on {}/{}]", event.session_ended().flow(), event.session_ended().page());
+            break;
         default:
             break;
         }
@@ -217,6 +225,7 @@ std::string findModelsDirectory(char* argv[],
 
 struct CliArgs {
     std::string engineConfigPath;
+    std::string agentPath;
     std::string llmModelPath;
     std::string llmEndpoint;
     std::string llmApiKey;
@@ -265,6 +274,9 @@ CliArgs parseCliArgs(int argc, char* argv[]) {
     app.add_option("--config", args.engineConfigPath,
         "Engine config file (.txtpb, .json or .pb): providers, models dir and LLM settings. "
         "Command-line LLM options override it.");
+    app.add_option("--agent", args.agentPath,
+        "Agent file (.txtpb, .json or .pb): its pages answer each turn, before any LLM, "
+        "e.g. agents/garage-menu/agent.txtpb");
     app.add_option("--llm-endpoint", args.llmEndpoint,
         "OpenAI-compatible LLM endpoint URL (falls back to LLM_ENDPOINT / OPENAI_BASE_URL env vars)");
     app.add_option("--llm-api-key", args.llmApiKey,
@@ -673,7 +685,13 @@ int main(int argc, char* argv[]) {
     spdlog::set_level(spdlog::level::info);
 #endif
     spdlog::info("VASDK Voice Assistant - Pipeline Mode");
-    if (!localLlm) {
+    // An agent with no LLM model named runs on its own: what its pages don't understand gets
+    // "Sorry, I can't help with that here." rather than an LLM call.
+    const bool agentOnly = !args.agentPath.empty() && !localLlm && args.llmModel.empty();
+    if (agentOnly) {
+        spdlog::info("  LLM:         none (the agent answers alone; --llm-model adds one for what it doesn't understand)");
+        engineConfig.clear_llm();
+    } else if (!localLlm) {
         spdlog::info("  LLM endpoint:{}", args.llmEndpoint);
         spdlog::info("  LLM model:   {}", args.llmModel.empty() ? "(not set)" : args.llmModel);
         if (args.llmApiKey.empty()) {
@@ -708,6 +726,14 @@ int main(int argc, char* argv[]) {
     options.metricsConfig = metrics.config;
     AudioIO io = createAudioIO(args, options.inputAudio);
     options.transport = io.transport;
+    if (!args.agentPath.empty()) {
+        std::string agentError;
+        options.agent = va::flow::CompiledAgent::load(args.agentPath, &agentError);
+        if (!options.agent) {
+            spdlog::error("{}: {}", args.agentPath, agentError);
+            return -1;
+        }
+    }
 #ifdef VASDK_HAS_LIBDATACHANNEL_WEBRTC
     options.sendAllFramesToTransport = io.webrtcPeer != nullptr;   // the page shows the agent's state
 #endif

@@ -109,7 +109,7 @@ stateDiagram-v2
     [*] --> QUIET
     QUIET --> STARTING: voice detected
     STARTING --> ONGOING: sustained ≥ minSpeechDurationMs
-    STARTING --> QUIET: too short (noise burst)
+    STARTING --> QUIET: too short (noise burst),<br/>or two quiet frames at the decision
     ONGOING --> PAUSED: silence (hesitation)
     PAUSED --> RESUMING: voice again
     PAUSED --> ENDING: silent ≥ maxSpeechPauseDurationMs
@@ -121,7 +121,7 @@ stateDiagram-v2
     ENDED --> QUIET
 ```
 
-Tunables live in `VADConfig` (defaults: `vadThresholdMs` 200, `minSpeechDurationMs` 250, `maxSpeechPauseDurationMs` 500, `maxSpeechEndDurationMs` 1000, `resumingSilenceFramesToPause` 3). The constructor's `lookbackMultiplier` (default 4.0 × frame size) backdates `speechStartOffset` so the first syllable isn't clipped - the audio is already sitting in the ring buffer, so pre-roll is free; `minSpeechDurationMs` is counted from when STARTING began, not from that backdated offset. A `TurnStateFrame(USER, END)` arriving **upstream** while `PAUSED` or `ENDING` ends the segment immediately instead of waiting out the pause/end timers (see below). Needs `setRingBuffer()`.
+Tunables live in `VADConfig` (defaults: `vadThresholdMs` 200, `minSpeechDurationMs` 250, `maxSpeechPauseDurationMs` 500, `maxSpeechEndDurationMs` 1000, `resumingSilenceFramesToPause` 3). The constructor's `lookbackMultiplier` (default 4.0 × frame size) backdates `speechStartOffset` so the first syllable isn't clipped - the audio is already sitting in the ring buffer, so pre-roll is free; `minSpeechDurationMs` is counted from when STARTING began, not from that backdated offset. At that point one quiet frame right after voice is tolerated (the decision waits a frame), so a dip in steady speech isn't thrown away; two quiet frames in a row, or a lone blip, still go back to `QUIET`. `bargeInMinSpeechDurationMs` replaces `minSpeechDurationMs` while the assistant speaks (`setAgentSpeaking(callback)`): echo cancellation turns the user's voice down during the overlap, so waiting the full time loses interruptions. Sessions use 150 ms. A `TurnStateFrame(USER, END)` arriving **upstream** while `PAUSED` or `ENDING` ends the segment immediately instead of waiting out the pause/end timers (see below). Needs `setRingBuffer()`.
 
 ### TurnDetectionProcessor
 
@@ -129,7 +129,7 @@ Tunables live in `VADConfig` (defaults: `vadThresholdMs` 200, `minSpeechDuration
 
 Two behaviors sit on top of either path:
 
-- **User turn starts wait for confirmed speech.** A user `START` produced while the VAD is only `STARTING` is held and emitted on the first `ONGOING`; if the VAD falls back to `QUIET` it is dropped. A noise or echo blip therefore can't barge in on the agent or cancel the LLM - the cost is that a real barge-in takes `minSpeechDurationMs` (250 ms in the apps) to land.
+- **User turn starts wait for confirmed speech.** A user `START` produced while the VAD is only `STARTING` is held and emitted on the first `ONGOING`; if the VAD falls back to `QUIET` it is dropped. A noise or echo blip therefore can't barge in on the agent or cancel the LLM - the cost is that a real barge-in takes `bargeInMinSpeechDurationMs` (150 ms in sessions) or else `minSpeechDurationMs` to land.
 - **Early end of turn.** When the provider returns `TURN_END` for the user while the VAD segment is still open (e.g. SmartTurn scoring a pause with `setEvaluateOnPause(true)`), the processor emits the turn `END` and also sends a `TurnStateFrame(USER, END)` upstream so the VAD closes the segment and transcription runs right away. In the showcase apps this takes the gap from the pause to the final transcript from ~1 s to ~0.1 s when the model is confident. Ending at a pause needs the provider's `pauseThreshold()` (default 0.85, `setPauseThreshold()`), higher than its regular threshold: a pause is often just a breath, and an uncertain turn still ends once the VAD confirms silence. If the user resumes after the turn did end, `LLMProcessor` merges both utterances into one message ([follow-ups](llm.md#follow-ups)).
 
 ### SpeakerIdentificationProcessor
@@ -150,6 +150,7 @@ stateDiagram-v2
     IDLE --> LISTENING: always-on start(), wake word,<br/>or app command trigger
     LISTENING --> THINKING: user turn ended, or<br/>final transcription ready
     THINKING --> SPEAKING: TTS starts<br/>(system turn started)
+    LISTENING --> SPEAKING: unprompted speech starts<br/>(an agent's greeting, say()), user silent
     THINKING --> INTERRUPTED: user speaks<br/>while thinking
     SPEAKING --> SPEAKING: speech over the agent pending,<br/>then back-channel dismissed
     SPEAKING --> INTERRUPTED: barge-in committed<br/>or cancel-speech command
@@ -157,7 +158,7 @@ stateDiagram-v2
     INTERRUPTED --> LISTENING: SynthesisStateFrame INTERRUPTED,<br/>or interruptTimeoutMs fallback (500 ms)
 ```
 
-Key behaviors: `TranscriptionFrame`s arriving outside `LISTENING` are **dropped** (they're stale - e.g. echo of the assistant's own voice); `setAlwaysOn(false)` switches to wake-word mode, where the agent stays `IDLE` until a `TriggerFrame` arrives *and* returns to `IDLE` instead of `LISTENING` after synthesis completes or an interrupt resolves; an `APP_COMMAND` trigger with data `"deactivate"` forces `IDLE` from any state; and the `INTERRUPTED` state has a timeout fallback (`setInterruptTimeoutMs`, default 500 ms) in case TTS never confirms the cancellation.
+Key behaviors: `TranscriptionFrame`s arriving outside `LISTENING` are **dropped** (they're stale - e.g. echo of the assistant's own voice); `setAlwaysOn(false)` switches to wake-word mode, where the agent stays `IDLE` until a `TriggerFrame` arrives *and* returns to `IDLE` once the follow-up window after a reply closes (`setFollowUpListenMs`; 0, the processor default, closes it as soon as the reply ends or an interrupt resolves); an `APP_COMMAND` trigger with data `"deactivate"` forces `IDLE` from any state; and the `INTERRUPTED` state has a timeout fallback (`setInterruptTimeoutMs`, default 500 ms) in case TTS never confirms the cancellation.
 
 #### Back-channels: speech over the agent that isn't an interruption
 

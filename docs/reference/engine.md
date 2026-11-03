@@ -32,7 +32,7 @@ engine->stop();
 
 ```
 input → trigger → [wake word] → [AfterInput] → VAD → turn → STT → [AfterTranscription]
-  → agent state → turn assembly → LLM → tools → [BeforeSynthesis] → TTS → [BeforeOutput] → output
+  → agent state → turn assembly → [dialog] → LLM → tools → [BeforeSynthesis] → TTS → [BeforeOutput] → output
 ```
 
 `describe()` returns the actual chain with each provider, and `start()` logs it:
@@ -41,7 +41,8 @@ input → trigger → [wake word] → [AfterInput] → VAD → turn → STT → 
 [VAEngine] Started: TransportInputProcessor (LocalTransport) → TriggerProcessor → VADFrameProcessor (SileroVAD) → TurnDetectionProcessor (SmartTurnV3Provider) → TranscriptionFrameProcessor (WhistleTranscriptionProvider) → AgentStateProcessor → TurnAssembler → UserTextInput → LLMProcessor (OpenAITransport) → ToolDispatchProcessor → SpeechInput → EventTap → TTSFrameProcessor (PocketVoiceSynthesisProvider) → TransportOutputProcessor (LocalTransport)
 ```
 
-- **LLM.** The LLM and tool stages are there when the config has an `llm` endpoint, or when `Options::llmTransport` is set (for example a llama.cpp model). Without either, the assistant still listens and speaks `say()` text, but nothing answers the user.
+- **Agent.** The dialog stage is there when `Options::agent` is set: an agent file's pages answer each turn with no LLM, and a turn no route understands goes on to the LLM when there is one. See [Agents](flows.md).
+- **LLM.** The LLM and tool stages are there when the config has an `llm` endpoint, or when `Options::llmTransport` is set (for example a llama.cpp model). With neither an agent nor an LLM, the assistant still listens and speaks `say()` text, but nothing answers the user.
 - **Turn detection.** When no turn model is built in, the VAD's silence ends the turn.
 - **Defaults.** VAD timing, STT settings and LLM sampling use the values VASDK_Pipeline has always used. Back-channel handling comes from `Options::backchannel`.
 
@@ -63,7 +64,7 @@ Processors that read the mic audio directly use `inputRingBuffer()`.
 | Call | Effect |
 |---|---|
 | `say(text)` | Speaks `text` as the assistant. |
-| `injectUserText(text)` | Sends `text` as a finished user turn, as if it had been spoken. Needs an LLM. |
+| `injectUserText(text)` | Sends `text` as a finished user turn, as if it had been spoken. Needs an LLM or an agent. |
 | `interrupt()` | Stops the current reply, the same way a barge-in does. |
 | `pushToTalk(held)` | The push-to-talk button: listens while held, and cuts a reply in progress. Released mid-sentence, the user's turn still gets its answer. |
 | `setFollowUpListenMs(ms)` | How long the mic stays open after each reply; overrides the config's [`activation.follow_up`](engine-config.md#activation). |
@@ -83,6 +84,8 @@ Processors that read the mic audio directly use `inputRingBuffer()`.
 | `tool_call` | A tool the LLM called, with its arguments and result, when it returns. |
 | `error` | A processor or transport reported a failure, e.g. the LLM endpoint is unreachable. |
 | `listening_window` | The mic stays open after a reply: `OPENED` (with `closes_in_ms`), `EXTENDED` when the user starts answering, `CLOSED` when it times out. For a live mic indicator. |
+| `page_changed` | With an agent: the conversation moved to another page (`from_flow`/`from_page` → `to_flow`/`to_page`), with the reason: `start`, `restart`, `route:<intent>` or `goto`. |
+| `session_ended` | With an agent: an `end` step or `END_SESSION` ended the conversation; the next one starts over at the start page. |
 
 ```cpp
 engine->addListener([](const vasdk::engine::Event& event) {

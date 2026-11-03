@@ -86,6 +86,8 @@ turn_taking { preset: SNAPPY streaming_transcription: true }
 | `SNAPPY` | 150 / 150 / 200 / 150 | phone calls (VASDK_CallCenter) |
 | `PATIENT` | 250 / 400 / 500 / 600 | people who stop to think |
 
+In every preset, interrupting the assistant needs only 150 ms of speech: echo cancellation turns the user's voice down while the assistant talks.
+
 `streaming_transcription` runs the STT while the user speaks, so partial results arrive before the turn ends. Speculative firing needs it.
 
 ## LLM

@@ -79,6 +79,13 @@ endif()
 # VAD, STT and TTS providers: every one built in this tree, picked by id from --config
 target_link_libraries(VASDK_Pipeline PRIVATE vasdk_provider_catalog)
 
+# The example agents' scripted conversations (vasdk.flow.FlowTestCase files)
+if(VASDK_BUILD_TESTS AND TARGET vasdk_agentc)
+    file(GLOB GARAGE_MENU_TESTS ${CMAKE_CURRENT_SOURCE_DIR}/agents/garage-menu/tests/*.txtpb)
+    add_test(NAME vasdk_agent_garage_menu
+             COMMAND vasdk_agentc test ${CMAKE_CURRENT_SOURCE_DIR}/agents/garage-menu/agent.txtpb ${GARAGE_MENU_TESTS})
+endif()
+
 if(VASDK_BUILD_FFMPEG_AUDIO AND TARGET vasdk_ffmpeg_audio)
     target_link_libraries(VASDK_Pipeline PRIVATE vasdk_ffmpeg_audio)
     target_compile_definitions(VASDK_Pipeline PRIVATE VASDK_HAS_FFMPEG_AUDIO)

@@ -181,8 +181,14 @@ if(VASDK_ENABLE_ENGINE_CONFIG)
         ./src/engine/Session.cpp
         ./src/SessionManager.cpp
         ./src/VAEngine.cpp
+        ./src/flow/CompiledAgent.cpp
+        ./src/flow/FlowRuntime.cpp
+        ./src/flow/DialogProcessor.cpp
+        ./src/flow/FlowTestRunner.cpp
         ./proto/vasdk/engine/engine_config.proto
         ./proto/vasdk/engine/events.proto
+        ./proto/vasdk/flow/agent.proto
+        ./proto/vasdk/flow/test_case.proto
     )
     protobuf_generate(TARGET VASDK
         IMPORT_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/proto
@@ -190,6 +196,9 @@ if(VASDK_ENABLE_ENGINE_CONFIG)
     target_include_directories(VASDK PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/proto>)
     target_link_libraries(VASDK PUBLIC protobuf::libprotobuf)
     target_compile_definitions(VASDK PUBLIC VASDK_HAS_ENGINE_CONFIG)
+    # Checks, tests and chats with agent files: vasdk_agentc lint|test|chat agent.txtpb
+    add_executable(vasdk_agentc ./tools/vasdk_agentc/main.cpp)
+    target_link_libraries(vasdk_agentc PRIVATE VASDK)
     message(STATUS "VASDK: engine config files enabled")
 endif()
 
@@ -299,6 +308,10 @@ if(VASDK_BUILD_TESTS)
         add_executable(vasdk_session_test tests/session_test.cpp)
         target_link_libraries(vasdk_session_test PRIVATE VASDK)
         add_test(NAME vasdk_session COMMAND vasdk_session_test)
+
+        add_executable(vasdk_dialog_test tests/dialog_test.cpp)
+        target_link_libraries(vasdk_dialog_test PRIVATE VASDK)
+        add_test(NAME vasdk_dialog COMMAND vasdk_dialog_test)
 
         add_executable(vasdk_engine_events_test tests/engine_events_test.cpp)
         target_link_libraries(vasdk_engine_events_test PRIVATE VASDK)

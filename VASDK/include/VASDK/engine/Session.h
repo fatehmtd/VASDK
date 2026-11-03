@@ -11,6 +11,7 @@
 namespace va {
 
 class AudioRingBuffer;
+namespace flow { class CompiledAgent; }
 namespace llm { class LLMTransport; class Tool; class ToolDispatchProcessor; }
 namespace metrics { class MetricsReporter; }
 namespace pipeline { class FrameProcessor; class Pipeline; }
@@ -24,10 +25,12 @@ class Runtime;
  * @brief One conversation: the standard pipeline over a Runtime's providers.
  *
  *   input → trigger → [wake word] → [AfterInput] → VAD → turn → STT → [AfterTranscription]
- *     → agent state → turn assembly → LLM → tools → [BeforeSynthesis] → TTS → [BeforeOutput] → output
+ *     → agent state → turn assembly → dialog → LLM → tools → [BeforeSynthesis] → TTS → [BeforeOutput] → output
  *
- * The LLM stages are there only when the config has an `llm` endpoint (or
- * Options::llmTransport is set); without them the session still speaks say() text.
+ * The dialog stage is there when Options::agent is set: the agent's pages answer each turn,
+ * and turns no route understands go on to the LLM when there is one. The LLM stages are there
+ * only when the config has an `llm` endpoint (or Options::llmTransport is set); with neither,
+ * the session still speaks say() text.
  * What happens (transcripts, replies, state changes, tool calls, errors) reaches
  * listeners added with addListener().
  *
@@ -55,6 +58,9 @@ public:
         /** Use this LLM transport (a local model, say) instead of the config's `llm` endpoint.
          *  It holds the conversation history, so give each session its own. */
         std::shared_ptr<llm::LLMTransport> llmTransport;
+        /** Answer turns from this agent's pages (CompiledAgent::load), before any LLM. Sessions
+         *  may share one agent; each keeps its own place in it. */
+        std::shared_ptr<const flow::CompiledAgent> agent;
         /** Send every frame to the transport, not just speech audio: for a UI that shows state (WebRTC page). */
         bool sendAllFramesToTransport = false;
         pipeline::BackchannelConfig backchannel;
@@ -86,7 +92,7 @@ public:
 
     /** Speaks `text` as the assistant. Thread-safe. */
     void say(const std::string& text);
-    /** Sends `text` as a finished user turn, as if spoken. Needs an LLM. Thread-safe. */
+    /** Sends `text` as a finished user turn, as if spoken. Needs an LLM or an agent. Thread-safe. */
     void injectUserText(const std::string& text);
     /** Stops the assistant's current reply, like a barge-in. Thread-safe. */
     void interrupt();

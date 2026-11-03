@@ -156,6 +156,15 @@ int main() {
         Rig rig(true, 0);
         rig.turn(transport::TurnStateFrame::TurnActor::USER, transport::TurnStateFrame::TurnState::START);
         check(rig.is(State::LISTENING, Transition::USER_STARTED_SPEAKING), "speech start reported with no window open");
+        rig.turn(transport::TurnStateFrame::TurnActor::SYSTEM, transport::TurnStateFrame::TurnState::START);
+        check(rig.agent->getState() == State::LISTENING, "speech nobody asked for waits while the user speaks");
+    }
+    {
+        Rig rig(true, 0);
+        rig.turn(transport::TurnStateFrame::TurnActor::SYSTEM, transport::TurnStateFrame::TurnState::START);
+        check(rig.is(State::SPEAKING, Transition::SYNTHESIS_STARTED), "a greeting from LISTENING is spoken as a reply");
+        rig.turn(transport::TurnStateFrame::TurnActor::SYSTEM, transport::TurnStateFrame::TurnState::END);
+        check(rig.is(State::LISTENING, Transition::SYNTHESIS_COMPLETED), "and listening resumes after it");
     }
     {
         Rig rig(false, 0);

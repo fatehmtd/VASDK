@@ -14,6 +14,8 @@ message Event {
     ToolCall tool_call = 13;
     Error error = 15;
     ListeningWindow listening_window = 16;
+    PageChanged page_changed = 20;
+    SessionEnded session_ended = 23;
   }
 }
 
@@ -70,4 +72,19 @@ message Error {
   string source = 2;          // the processor or component that failed, e.g. "LLM"
   string message = 3;
   int32 code = 4;
+}
+
+// The conversation moved to another page of the agent (Session::Options::agent).
+message PageChanged {
+  string from_flow = 1;   // empty when the conversation starts
+  string from_page = 2;
+  string to_flow = 3;
+  string to_page = 4;
+  string reason = 5;      // "start", "restart", "route:<intent>", "goto"
+}
+
+// The agent ended the conversation (an end step or END_SESSION); the next one starts over.
+message SessionEnded {
+  string flow = 1;   // where it ended
+  string page = 2;
 }
