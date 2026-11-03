@@ -32,13 +32,13 @@ engine->stop();
 
 ```
 input → trigger → [AfterInput] → VAD → turn → STT → [AfterTranscription]
-  → agent state → LLM → tools → [BeforeSynthesis] → TTS → [BeforeOutput] → output
+  → agent state → turn assembly → LLM → tools → [BeforeSynthesis] → TTS → [BeforeOutput] → output
 ```
 
 `describe()` returns the actual chain with each provider, and `start()` logs it:
 
 ```
-[VAEngine] Started: TransportInputProcessor (LocalTransport) → TriggerProcessor → VADFrameProcessor (SileroVAD) → TurnDetectionProcessor (SmartTurnV3Provider) → TranscriptionFrameProcessor (WhistleTranscriptionProvider) → AgentStateProcessor → UserTextInput → LLMProcessor (OpenAITransport) → ToolDispatchProcessor → SpeechInput → EventTap → TTSFrameProcessor (PocketVoiceSynthesisProvider) → TransportOutputProcessor (LocalTransport)
+[VAEngine] Started: TransportInputProcessor (LocalTransport) → TriggerProcessor → VADFrameProcessor (SileroVAD) → TurnDetectionProcessor (SmartTurnV3Provider) → TranscriptionFrameProcessor (WhistleTranscriptionProvider) → AgentStateProcessor → TurnAssembler → UserTextInput → LLMProcessor (OpenAITransport) → ToolDispatchProcessor → SpeechInput → EventTap → TTSFrameProcessor (PocketVoiceSynthesisProvider) → TransportOutputProcessor (LocalTransport)
 ```
 
 - **LLM.** The LLM and tool stages are there when the config has an `llm` endpoint, or when `Options::llmTransport` is set (for example a llama.cpp model). Without either, the assistant still listens and speaks `say()` text, but nothing answers the user.

@@ -33,7 +33,8 @@ namespace va {
             TOOL_CALL,        // LLM-requested tool invocation
             TOOL_RESULT,      // Result returned by a tool handler
             SPEAKER_ENROLLMENT,     // Speaker enrollment request / outcome
-            SPEAKER_IDENTIFICATION  // Which enrolled speaker produced an utterance
+            SPEAKER_IDENTIFICATION, // Which enrolled speaker produced an utterance
+            USER_TURN               // One complete user turn, assembled by TurnAssemblerProcessor
         };
 
         inline std::string toString(FrameType type) {
@@ -56,6 +57,7 @@ namespace va {
             case FrameType::TOOL_RESULT:      return "TOOL_RESULT";
             case FrameType::SPEAKER_ENROLLMENT:     return "SPEAKER_ENROLLMENT";
             case FrameType::SPEAKER_IDENTIFICATION: return "SPEAKER_IDENTIFICATION";
+            case FrameType::USER_TURN:        return "USER_TURN";
             }
             return "UNKNOWN";
         }
@@ -403,6 +405,37 @@ namespace va {
             va::audio::TranscriptionResult transcriptionResult; // Full result with word-level data, alternatives, and timing
 
             TranscriptionFrame() = default;
+        };
+
+        /**
+         * @brief One complete user turn: what to answer, emitted once the turn has ended.
+         *
+         * TurnAssemblerProcessor builds it from final transcriptions and turn-end signals;
+         * VAEngine::injectUserText sends one directly. Dialog processors (the LLM) answer
+         * these rather than raw transcriptions.
+         */
+        class VASDK_EXPORT UserTurnFrame : public Frame {
+            public:
+            FrameType getType() const override { return FrameType::USER_TURN; }
+
+            std::shared_ptr<Frame> clone() const override {
+                auto cloned = std::make_shared<UserTurnFrame>();
+                cloned->timestamp = timestamp;
+                cloned->sequenceId = sequenceId;
+                cloned->frameId = frameId;
+                cloned->sourceId = sourceId;
+                cloned->text = text;
+                cloned->confidence = confidence;
+                cloned->replacesPrevious = replacesPrevious;
+                cloned->turnId = turnId;
+                return cloned;
+            }
+
+            std::string text;               // includes any earlier words the user resumed (merged)
+            float confidence = 0.0f;
+            bool replacesPrevious = false;  // the user resumed the previous turn: `text` starts with it,
+                                            // so the previous exchange must be undone before answering
+            uint64_t turnId = 0;            // increases with every turn
         };
 
         /**

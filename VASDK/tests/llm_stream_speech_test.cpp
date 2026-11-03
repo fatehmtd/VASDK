@@ -13,7 +13,9 @@
 //     the final differs, or when the speculative reply wants a tool;
 //   - a follow-up: the user resumes while the agent is thinking, so the interrupted turn and the new
 //     one reach the LLM as a single message.
+// Frames go through a TurnAssemblerProcessor first, as in a real pipeline: it decides the turns.
 
+#include <VASDK/TurnAssemblerProcessor.h>
 #include <VASDK/llm/LLMProcessor.h>
 #include <VASDK/llm/AnthropicTransport.h>
 #include <VASDK/llm/OpenAITransport.h>
@@ -129,6 +131,7 @@ void check(bool ok, const char* what) {
 struct Rig {
     std::shared_ptr<FakeHttp> http = std::make_shared<FakeHttp>();
     std::shared_ptr<llm::LLMTransport> transport;
+    std::shared_ptr<pipeline::TurnAssemblerProcessor> assembler = std::make_shared<pipeline::TurnAssemblerProcessor>();
     std::shared_ptr<llm::LLMProcessor> llm;
     std::shared_ptr<Recorder> recorder = std::make_shared<Recorder>();
 
@@ -163,14 +166,18 @@ struct Rig {
         recorder->start();
         llm->initialize();
         llm->start();
+        assembler->setDownstream(llm);
+        assembler->initialize();
+        assembler->start();
     }
     ~Rig() {
+        assembler->stop();
         llm->stop();
         if (tools) tools->stop();
         recorder->stop();
     }
 
-    void send(std::shared_ptr<transport::Frame> f) { llm->processFrame(f, pipeline::FlowDirection::DOWNSTREAM); }
+    void send(std::shared_ptr<transport::Frame> f) { assembler->processFrame(f, pipeline::FlowDirection::DOWNSTREAM); }
 
     // Agent listening, streaming STT partial cached, then the VAD reports a sustained pause.
     void userPausesAfter(const std::string& partialText) {
@@ -200,12 +207,12 @@ struct Rig {
     void userSays(const std::string& text) {
         auto stopped = std::make_shared<transport::AgentStateFrame>();
         stopped->transition = transport::AgentStateTransition::USER_STOPPED_SPEAKING;
-        llm->processFrame(stopped, pipeline::FlowDirection::DOWNSTREAM);
+        send(stopped);
         auto final = std::make_shared<transport::TranscriptionFrame>();
         final->isFinal = true;
         final->transcriptionResult.text = text;
         final->transcriptionResult.confidence = 1.0f;
-        llm->processFrame(final, pipeline::FlowDirection::DOWNSTREAM);
+        send(final);
     }
 };
 
@@ -237,7 +244,7 @@ void bargeInAbortsAndRollsBack() {
 
     auto interrupt = std::make_shared<transport::AgentStateFrame>();
     interrupt->transition = transport::AgentStateTransition::BARGE_IN_INTERRUPT;
-    rig.llm->processFrame(interrupt, pipeline::FlowDirection::DOWNSTREAM);
+    rig.send(interrupt);
     const size_t spokenAtInterrupt = rig.recorder->snapshot().size();
     std::this_thread::sleep_for(1500ms);
 
@@ -382,7 +389,7 @@ void backchannelGoesWithTheNextMessage() {
 void followUpMergedWithInterruptedTurn() {
     for (const bool enabled : {true, false}) {
         Rig rig(kReply);
-        if (!enabled) rig.llm->setFollowUpWindowMs(0);
+        if (!enabled) rig.assembler->setResumeMergeMs(0);
         rig.userSays("Book a flight");
         std::this_thread::sleep_for(100ms);  // request in flight, nothing spoken yet
         auto resumed = std::make_shared<transport::AgentStateFrame>();

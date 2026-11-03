@@ -47,6 +47,7 @@ add_library(VASDK SHARED
     ./src/AudioDSPProcessor.cpp
     ./src/Pipeline.cpp
     ./src/TurnDetectionProcessor.cpp
+    ./src/TurnAssemblerProcessor.cpp
     ./src/SpeakerIdentificationProcessor.cpp
     ./src/AgentStateProcessor.cpp
     # Goal-oriented call center framework (va::goal namespace)
@@ -262,6 +263,10 @@ if(VASDK_BUILD_TESTS)
     add_executable(vasdk_goal_test tests/goal_test.cpp)
     target_link_libraries(vasdk_goal_test PRIVATE VASDK nlohmann_json::nlohmann_json)
     add_test(NAME vasdk_goal COMMAND vasdk_goal_test)
+
+    add_executable(vasdk_turn_assembler_test tests/turn_assembler_test.cpp)
+    target_link_libraries(vasdk_turn_assembler_test PRIVATE VASDK)
+    add_test(NAME vasdk_turn_assembler COMMAND vasdk_turn_assembler_test)
 
     add_executable(vasdk_tool_dispatch_race_test tests/tool_dispatch_race_test.cpp)
     target_link_libraries(vasdk_tool_dispatch_race_test PRIVATE VASDK nlohmann_json::nlohmann_json)

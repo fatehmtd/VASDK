@@ -7,6 +7,7 @@
 #include "TransportInputProcessor.h"
 #include "TransportOutputProcessor.h"
 #include "TriggerProcessor.h"
+#include "TurnAssemblerProcessor.h"
 #include "TurnDetectionProcessor.h"
 #include "VADFrameProcessor.h"
 #include "engine/EventTapProcessor.h"
@@ -91,6 +92,7 @@ struct VAEngine::State {
     std::shared_ptr<pipeline::TranscriptionFrameProcessor> transcription;
     std::shared_ptr<pipeline::AgentStateProcessor> agentState;
     std::shared_ptr<FrameProcessor> bargeInHandler;   // only with back-channel handling off
+    std::shared_ptr<pipeline::TurnAssemblerProcessor> turnAssembler;
     std::shared_ptr<FrameInjector> userInput;
     std::shared_ptr<llm::LLMTransport> llmTransport;
     std::shared_ptr<llm::LLMProcessor> llm;
@@ -114,7 +116,7 @@ struct VAEngine::State {
         addSlot(Slot::AfterTranscription);
         processors.push_back(agentState);
         if (bargeInHandler) processors.push_back(bargeInHandler);
-        if (llm) processors.insert(processors.end(), {userInput, llm, tools});
+        if (llm) processors.insert(processors.end(), {turnAssembler, userInput, llm, tools});
         addSlot(Slot::BeforeSynthesis);
         processors.insert(processors.end(), {speech, eventTap, tts});
         addSlot(Slot::BeforeOutput);
@@ -268,9 +270,10 @@ std::unique_ptr<VAEngine> VAEngine::create(const vasdk::engine::EngineConfig& co
         state->llm->setMaxHistoryLength(10);
         state->llm->setProcessPartialTranscriptions(false);
         state->llm->setConfidenceThreshold(0.07f);
-        state->llm->setFirePolicy(std::make_shared<llm::FinalOnlyFirePolicy>());
         state->llm->setStreamSpeech(true);  // speak each sentence as the LLM streams it
         state->llm->setToolDispatcher(state->tools);
+        state->turnAssembler = std::make_shared<pipeline::TurnAssemblerProcessor>();
+        state->turnAssembler->setFirePolicy(std::make_shared<llm::FinalOnlyFirePolicy>());
     } else {
         spdlog::info("[VAEngine] No LLM configured: the assistant only speaks say() text");
     }
@@ -339,15 +342,16 @@ void VAEngine::injectUserText(const std::string& text) {
         spdlog::warn("[VAEngine] injectUserText ignored: no LLM configured");
         return;
     }
-    // The same frames a spoken turn ends with: the final transcript, then the user's turn end.
+    // What a spoken turn reaches the LLM as: the final transcript (for listeners), then the turn.
     auto transcription = std::make_shared<transport::TranscriptionFrame>();
     transcription->isFinal = true;
     transcription->transcriptionResult.text = text;
     transcription->transcriptionResult.confidence = 1.0f;
     _state->userInput->inject(transcription);
-    _state->userInput->inject(std::make_shared<transport::TurnStateFrame>(
-        transport::TurnStateFrame::TurnActor::USER, transport::TurnStateFrame::TurnState::END,
-        transport::TurnStateFrame::TurnType::NORMAL));
+    auto turn = std::make_shared<transport::UserTurnFrame>();
+    turn->text = text;
+    turn->confidence = 1.0f;
+    _state->userInput->inject(turn);
 }
 
 void VAEngine::interrupt() { _state->trigger->trigger(transport::TriggerType::BUTTON_PRESS); }

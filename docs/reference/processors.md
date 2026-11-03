@@ -79,15 +79,16 @@ flowchart TB
     Turn["TurnDetectionProcessor<br/><i>VAD_STATE → TURN_STATE</i>"]
     STT["TranscriptionFrameProcessor<br/><i>VAD_STATE + ring buffer → TRANSCRIPTION</i>"]
     Agent["AgentStateProcessor<br/><i>TURN_STATE / TRANSCRIPTION / TRIGGER → AGENT_STATE</i>"]
-    LLM["LLMProcessor<br/><i>TRANSCRIPTION + AGENT_STATE → TEXT / TOOL_CALL</i>"]
+    Assembler["TurnAssemblerProcessor<br/><i>TRANSCRIPTION + TURN_STATE + AGENT_STATE → USER_TURN</i>"]
+    LLM["LLMProcessor<br/><i>USER_TURN + AGENT_STATE → TEXT / TOOL_CALL</i>"]
     Tools["ToolDispatchProcessor<br/><i>TOOL_CALL → TOOL_RESULT</i>"]
     TTS["TTSFrameProcessor<br/><i>TEXT → SYNTHESIS (+ SYNTHESIS_STATE upstream)</i>"]
     TOut["TransportOutputProcessor<br/><i>fan-out to transports</i>"]
 
-    TIn --> DSP --> VAD --> Turn --> STT --> Agent --> LLM --> Tools --> TTS --> TOut
+    TIn --> DSP --> VAD --> Turn --> STT --> Agent --> Assembler --> LLM --> Tools --> TTS --> TOut
 ```
 
-This order matters in a few places: `AgentStateProcessor` must sit between transcription and the LLM (it gates stale transcriptions), and `TurnDetectionProcessor` must see `VADStateFrame`s before transcription consumes the turn - and sit directly after the VAD, since it sends early end-of-turn requests upstream to it. Optional stages that read the whole utterance (speaker ID) belong after transcription so they don't delay the transcript. Beyond those constraints, the chain is yours to rearrange - that's the point of the architecture.
+This order matters in a few places: `AgentStateProcessor` must sit between transcription and the LLM (it gates stale transcriptions), `TurnAssemblerProcessor` must sit after it and before the LLM, and `TurnDetectionProcessor` must see `VADStateFrame`s before transcription consumes the turn - and sit directly after the VAD, since it sends early end-of-turn requests upstream to it. Optional stages that read the whole utterance (speaker ID) belong after transcription so they don't delay the transcript. Beyond those constraints, the chain is yours to rearrange - that's the point of the architecture.
 
 ## Built-in processors, one by one
 
@@ -193,9 +194,13 @@ The policy is chosen when building the pipeline:
 
 `enabled = false` restores the plain hard barge-in. Back-channels while `THINKING` aren't covered: any speech then still cancels the reply. The phrase and interrupt-word lists are English by default; set your own for other languages.
 
+### TurnAssemblerProcessor
+
+([`TurnAssemblerProcessor.h`](../../VASDK/include/VASDK/TurnAssemblerProcessor.h)) Decides when the user's turn is complete and emits one `UserTurnFrame` for it. A turn needs both the turn end (`AgentStateFrame{USER_STOPPED_SPEAKING}` or `TurnStateFrame{USER, END}`) and its final transcription, in either order. If the final never arrives, a watchdog (default 2000 ms, `setFinalWatchdogTimeoutMs`) sends what it has. A pluggable [fire policy](llm.md#fire-policies---when-does-the-llm-fire) (`setFirePolicy`, default `EagerFirePolicy`) decides whether a partial may stand in for a late or empty final. It also merges a resumed turn into the one before it ([follow-ups](llm.md#follow-ups), `setResumeMergeMs`). Every frame passes through unchanged. Anything that answers the user, such as `LLMProcessor`, answers `UserTurnFrame`s, so turn-taking behaves the same whatever does the answering.
+
 ### LLMProcessor
 
-([`llm/LLMProcessor.h`](../../VASDK/include/VASDK/llm/LLMProcessor.h)) Bridges the pipeline to an [`LLMTransport`](llm.md#llmtransport). Listens for transcriptions and agent-state transitions, decides *when* to fire a request (pluggable [`LLMFirePolicy`](llm.md#fire-policies--when-does-the-llm-fire), default `EagerFirePolicy`: fire on the cached partial as soon as the turn ends), parses the model's structured response into speech text + tool calls, and coordinates the tool round-trip with `ToolDispatchProcessor` (bounded at 5 nested tool batches, with self-imitation-loop detection). A watchdog (default 2000 ms, `setFinalWatchdogTimeoutMs`) fires the request from the best available partial if the final transcript never arrives. Details of parsing, reasoning tags, and streaming: [llm.md](llm.md).
+([`llm/LLMProcessor.h`](../../VASDK/include/VASDK/llm/LLMProcessor.h)) Bridges the pipeline to an [`LLMTransport`](llm.md#llmtransport). Answers each `UserTurnFrame` from the `TurnAssemblerProcessor` before it, parses the model's structured response into speech text + tool calls, and coordinates the tool round-trip with `ToolDispatchProcessor` (bounded at 5 nested tool batches, with self-imitation-loop detection). Agent-state transitions cancel replies in flight. Details of parsing, reasoning tags, speculative firing and streaming: [llm.md](llm.md).
 
 ### ToolDispatchProcessor
 

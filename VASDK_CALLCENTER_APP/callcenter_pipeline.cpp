@@ -22,6 +22,7 @@
 #include <VASDK/AudioDSPProcessor.h>
 #include <VASDK/TurnDetectionProcessor.h>
 #include <VASDK/AgentStateProcessor.h>
+#include <VASDK/TurnAssemblerProcessor.h>
 #include <VASDK/LocalTransport.h>
 #include <VASDK/WebRtcTransport.h>
 #include <VASDK/TransportInputProcessor.h>
@@ -584,6 +585,7 @@ struct ProcessorBundle {
 #endif
     std::shared_ptr<va::pipeline::TranscriptionFrameProcessor>   transcription;
     std::shared_ptr<va::pipeline::AgentStateProcessor>           agentState;
+    std::shared_ptr<va::pipeline::TurnAssemblerProcessor>        turnAssembler;
     std::shared_ptr<va::llm::LLMProcessor>                       llmProcessor;
     std::shared_ptr<va::llm::ToolDispatchProcessor>              toolDispatcher;
     std::shared_ptr<va::pipeline::TTSFrameProcessor>             tts;
@@ -858,7 +860,6 @@ GoalLLMBundle setupGoalLLMStack(const CliArgs& args) {
     goalLLMBundle.processor->setMaxHistoryLength(12);
     goalLLMBundle.processor->setProcessPartialTranscriptions(false);
     goalLLMBundle.processor->setConfidenceThreshold(0.07f);
-    goalLLMBundle.processor->setFirePolicy(std::make_shared<va::llm::FinalOnlyFirePolicy>());
     goalLLMBundle.processor->setStreamSpeech(true);  // speak each sentence as the LLM streams it
     // Covers the tool round trip (slot updates, lookups) instead of leaving the caller in silence.
     goalLLMBundle.processor->setToolFillerPhrases({"One moment.", "Let me check that.", "Just a second."});
@@ -1082,6 +1083,8 @@ std::optional<ProcessorBundle> setupProcessors(
     b.transcription->setRingBuffer(transport.sharedRingBuffer);
 
     // LLM + tools
+    b.turnAssembler = std::make_shared<va::pipeline::TurnAssemblerProcessor>();
+    b.turnAssembler->setFirePolicy(std::make_shared<va::llm::FinalOnlyFirePolicy>());
     b.llmProcessor = llm.processor;
     b.toolDispatcher = llm.toolDispatcher;
 
@@ -1131,6 +1134,7 @@ std::shared_ptr<va::pipeline::Pipeline> buildAndStartPipeline(
     chain
         .addProcessor(procs.recovery)       // observes ErrorFrames upstream
         .addProcessor(procs.agentState)
+        .addProcessor(procs.turnAssembler)
         .addProcessor(procs.llmProcessor)
         .addProcessor(procs.toolDispatcher)
         .addProcessor(procs.tts)

@@ -27,7 +27,7 @@ namespace transport { class AudioTransport; }
  * ProviderRegistry and wires the standard pipeline:
  *
  *   input → trigger → [AfterInput] → VAD → turn → STT → [AfterTranscription]
- *     → agent state → LLM → tools → [BeforeSynthesis] → TTS → [BeforeOutput] → output
+ *     → agent state → turn assembly → LLM → tools → [BeforeSynthesis] → TTS → [BeforeOutput] → output
  *
  * The LLM stages are there only when the config has an `llm` endpoint (or
  * Options::llmTransport is set); without them the engine still speaks say() text.

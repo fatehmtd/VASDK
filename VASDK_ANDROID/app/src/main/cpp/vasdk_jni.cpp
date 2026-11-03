@@ -340,8 +340,9 @@ Java_com_vasdk_android_VasdkEngine_nativeInit(JNIEnv *env, jobject thiz, jstring
     session->llmProcessor->setProcessPartialTranscriptions(false);
     session->llmProcessor->setMaxHistoryLength(useLocalLLM ? 40 : 100);
     session->llmProcessor->setConfidenceThreshold(0.1f);
-    session->llmProcessor->setFinalWatchdogTimeoutMs(1000000);
-    session->llmProcessor->setFirePolicy(std::make_shared<va::llm::FinalOnlyFirePolicy>());
+    session->turnAssembler = std::make_shared<va::pipeline::TurnAssemblerProcessor>();
+    session->turnAssembler->setFinalWatchdogTimeoutMs(1000000);
+    session->turnAssembler->setFirePolicy(std::make_shared<va::llm::FinalOnlyFirePolicy>());
     session->llmProcessor->setStreamSpeech(true);  // the local llama.cpp transport streams PunctuationChunker chunks
 
     // TTS processor - the provider is chosen at runtime (see VasdkEngine's Settings UI /
@@ -547,6 +548,7 @@ Java_com_vasdk_android_VasdkEngine_nativeInit(JNIEnv *env, jobject thiz, jstring
 #endif
 
     chain.addProcessor(session->transcriptionProcessor).addProcessor(
+            session->turnAssembler).addProcessor(
             session->llmProcessor).addProcessor(
             session->toolDispatcher)  // intercept TOOL_CALL frames, execute tools
             .addProcessor(session->bridge);          // intercept TEXT frames from LLM before TTS

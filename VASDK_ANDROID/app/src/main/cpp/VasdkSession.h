@@ -5,6 +5,7 @@
 #include "audio_source/AAudioSource.h"
 
 #include <VASDK/AgentStateProcessor.h>
+#include <VASDK/TurnAssemblerProcessor.h>
 #include <VASDK/LocalTransport.h>
 #include <VASDK/Pipeline.h>
 #include <VASDK/TTSFrameProcessor.h>
@@ -38,6 +39,7 @@ struct VasdkSession {
 #endif
     std::shared_ptr<va::pipeline::AgentStateProcessor> agentStateProcessor;
     std::shared_ptr<va::pipeline::TranscriptionFrameProcessor> transcriptionProcessor;
+    std::shared_ptr<va::pipeline::TurnAssemblerProcessor> turnAssembler;
     std::shared_ptr<va::llm::LLMProcessor> llmProcessor;
     std::shared_ptr<va::llm::LLMTransport> llmTransport;
     bool useLocalLLM{false};

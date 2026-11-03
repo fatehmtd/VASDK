@@ -89,13 +89,13 @@ void AggregatingLLMProcessor::flushAggregatedContent() {
         combinedText += _aggregatedTexts[i];
     }
 
-    auto textFrame = std::make_shared<transport::TextFrame>();
-    textFrame->text = combinedText;
-    textFrame->timestamp = transport::Frame::getCurrentTimestamp();
-    textFrame->sequenceId = 0;
-    textFrame->frameId = "aggregated";
+    auto turn = std::make_shared<transport::UserTurnFrame>();
+    turn->text = combinedText;
+    turn->confidence = 1.0f;
+    turn->timestamp = transport::Frame::getCurrentTimestamp();
+    turn->frameId = "aggregated";
 
-    LLMProcessor::processDownstream(textFrame);
+    LLMProcessor::processDownstream(turn);
 
     _aggregatedTexts.clear();
     _lastInputTimestamp = 0;
