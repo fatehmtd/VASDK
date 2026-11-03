@@ -175,8 +175,10 @@ if(VASDK_ENABLE_ENGINE_CONFIG)
     # descriptors twice and abort at startup.
     target_sources(VASDK PRIVATE
         ./src/engine/ProtoFileLoader.cpp
+        ./src/engine/EventTapProcessor.cpp
         ./src/VAEngine.cpp
         ./proto/vasdk/engine/engine_config.proto
+        ./proto/vasdk/engine/events.proto
     )
     protobuf_generate(TARGET VASDK
         IMPORT_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/proto
@@ -277,6 +279,10 @@ if(VASDK_BUILD_TESTS)
         add_executable(vasdk_engine_assembly_test tests/engine_assembly_test.cpp)
         target_link_libraries(vasdk_engine_assembly_test PRIVATE VASDK)
         add_test(NAME vasdk_engine_assembly COMMAND vasdk_engine_assembly_test)
+
+        add_executable(vasdk_engine_events_test tests/engine_events_test.cpp)
+        target_link_libraries(vasdk_engine_events_test PRIVATE VASDK)
+        add_test(NAME vasdk_engine_events COMMAND vasdk_engine_events_test)
     endif()
 endif()
 

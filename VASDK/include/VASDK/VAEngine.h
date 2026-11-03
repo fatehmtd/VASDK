@@ -3,6 +3,7 @@
 #include "vasdk_export.h"
 #include "AgentStateProcessor.h"
 #include "CommonAudioUtils.h"
+#include "engine/EventTapProcessor.h"
 #include "metrics/MetricsConfig.h"
 
 #include <memory>
@@ -30,6 +31,8 @@ namespace transport { class AudioTransport; }
  *
  * The LLM stages are there only when the config has an `llm` endpoint (or
  * Options::llmTransport is set); without them the engine still speaks say() text.
+ * What happens (transcripts, replies, state changes, tool calls, errors) reaches
+ * listeners added with addListener().
  *
  * @code
  * va::engine::ProviderRegistry registry;
@@ -87,6 +90,14 @@ public:
     bool addProcessor(Slot slot, std::shared_ptr<pipeline::FrameProcessor> processor);
     /** Makes a tool available to the LLM. Can be called before start(). */
     void registerTool(const llm::Tool& tool);
+
+    /**
+     * Calls `listener` with every vasdk::engine::Event, in order, on the engine's event thread
+     * (never a pipeline thread): keep it quick. Any time, before or after start().
+     * Returns an id for removeListener().
+     */
+    int addListener(engine::EventListener listener);
+    void removeListener(int id);
 
     /** Starts the transport and the pipeline. */
     bool start(std::string* error = nullptr);

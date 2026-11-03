@@ -92,6 +92,7 @@ void ToolDispatchProcessor::processFrame(
         resultFrame->resultJson = nlohmann::json{{"error", errorMessage}}.dump();
         resultFrame->timestamp  = transport::Frame::getCurrentTimestamp();
         resultFrame->sourceId   = getName();
+        if (_resultObserver) _resultObserver(name, toolFrame->argsJson, resultFrame->resultJson);
         pushUpstream(resultFrame);
     };
 
@@ -122,6 +123,7 @@ void ToolDispatchProcessor::processFrame(
         resultFrame->resultJson = result.dump();
         resultFrame->timestamp  = transport::Frame::getCurrentTimestamp();
         resultFrame->sourceId   = getName();
+        if (_resultObserver) _resultObserver(name, args.dump(), resultFrame->resultJson);
 
         pushUpstream(resultFrame);
     }).detach();

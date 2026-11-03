@@ -38,7 +38,7 @@ input → trigger → [AfterInput] → VAD → turn → STT → [AfterTranscript
 `describe()` returns the actual chain with each provider, and `start()` logs it:
 
 ```
-[VAEngine] Started: TransportInputProcessor (LocalTransport) → TriggerProcessor → VADFrameProcessor (SileroVAD) → TurnDetectionProcessor (SmartTurnV3Provider) → TranscriptionFrameProcessor (WhistleTranscriptionProvider) → AgentStateProcessor → UserTextInput → LLMProcessor (OpenAITransport) → ToolDispatchProcessor → SpeechInput → TTSFrameProcessor (PocketVoiceSynthesisProvider) → TransportOutputProcessor (LocalTransport)
+[VAEngine] Started: TransportInputProcessor (LocalTransport) → TriggerProcessor → VADFrameProcessor (SileroVAD) → TurnDetectionProcessor (SmartTurnV3Provider) → TranscriptionFrameProcessor (WhistleTranscriptionProvider) → AgentStateProcessor → UserTextInput → LLMProcessor (OpenAITransport) → ToolDispatchProcessor → SpeechInput → EventTap → TTSFrameProcessor (PocketVoiceSynthesisProvider) → TransportOutputProcessor (LocalTransport)
 ```
 
 - **LLM.** The LLM and tool stages are there when the config has an `llm` endpoint, or when `Options::llmTransport` is set (for example a llama.cpp model). Without either, the assistant still listens and speaks `say()` text, but nothing answers the user.
@@ -68,6 +68,27 @@ Processors that read the mic audio directly use `inputRingBuffer()`.
 | `registerTool(tool)` | Makes a tool available to the LLM; call it before `start()`. |
 
 `say`, `injectUserText` and `interrupt` are thread-safe: the frame is queued and flows through the pipeline like any other.
+
+## Events
+
+`addListener` gets everything the assistant hears, says and does, without writing a processor. Each event is a `vasdk.engine.Event` ([`events.proto`](../../VASDK/proto/vasdk/engine/events.proto)) holding one of:
+
+| Event | When |
+|---|---|
+| `transcript` | The user said something (partial and final results), or `injectUserText` sent it. Back-channels ("mm-hmm") are marked. |
+| `agent_reply` | Once per streamed piece of the reply; `text` is the whole reply so far, `is_final` marks the end, with `expects_reply` and `choices`. `say()` text arrives as one final piece. |
+| `agent_state` | Every state change: `IDLE`, `LISTENING`, `THINKING`, `SPEAKING`, `INTERRUPTED`, with the transition that caused it. |
+| `tool_call` | A tool the LLM called, with its arguments and result, when it returns. |
+| `error` | A processor or transport reported a failure, e.g. the LLM endpoint is unreachable. |
+
+```cpp
+engine->addListener([](const vasdk::engine::Event& event) {
+    if (event.has_transcript() && event.transcript().is_final()) fmt::print("you: {}\n", event.transcript().text());
+    if (event.has_agent_reply() && event.agent_reply().is_final()) fmt::print("assistant: {}\n", event.agent_reply().text());
+});
+```
+
+Listeners run in order on one engine thread, never a pipeline thread, so a slow listener can't stall the audio. Keep them quick anyway: if they fall more than 1024 events behind, the oldest are dropped with a warning. A listener that throws is logged and the others still run. `removeListener(id)` takes one off; listeners can be added before or after `start()`.
 
 ## Transports
 

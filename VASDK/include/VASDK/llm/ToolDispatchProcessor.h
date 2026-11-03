@@ -3,6 +3,7 @@
 #include <VASDK/FrameProcessor.h>
 #include <VASDK/llm/Tool.h>
 #include <VASDK/llm/PromptTemplate.h>
+#include <functional>
 #include <optional>
 #include <shared_mutex>
 #include <string>
@@ -38,6 +39,12 @@ public:
 
     void handleToolCall(std::shared_ptr<transport::ToolCallFrame> frame);
 
+    /// Called with each tool call's name, arguments and result (or {"error": ...}) as the result
+    /// is sent back to the LLM, on the tool's thread. Set before the pipeline starts.
+    using ResultObserver = std::function<void(const std::string& name, const std::string& argsJson,
+                                              const std::string& resultJson)>;
+    void setResultObserver(ResultObserver observer) { _resultObserver = std::move(observer); }
+
     /// Runs a tool synchronously on the calling thread (no pipeline needed). Returns
     /// {"error": ...} when the tool is unknown or disabled.
     nlohmann::json executeTool(const std::string& name, const nlohmann::json& args) const;
@@ -56,6 +63,7 @@ private:
     // thread, so every access to _tools takes this lock and handlers run on a copy, unlocked.
     mutable std::shared_mutex _toolsMutex;
     std::unordered_map<std::string, Tool> _tools;
+    ResultObserver _resultObserver;
     std::string _textFieldGuidance{
         "your reply to the user - include this field ONLY when you are not calling any tools"
     };

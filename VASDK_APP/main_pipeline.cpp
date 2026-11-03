@@ -3,6 +3,7 @@
 #include <ctime>
 #include <VASDK/Pipeline.h>
 #include <VASDK/VAEngine.h>
+#include "vasdk/engine/events.pb.h"
 #include <VASDK/llm/Tool.h>
 #include <VASDK/FrameProcessor.h>
 #include <VASDK/LocalTransport.h>
@@ -154,79 +155,33 @@ class TimeTool : public va::llm::Tool {
 };
 
 
-class STTDebugProcessor : public va::pipeline::FrameProcessor {
-    public:
-    std::string getName() const override { return "STTDebugProcessor"; }
-
-    bool shouldProcess(std::shared_ptr<va::transport::Frame> frame) const override {
-        return frame->getType() == va::transport::FrameType::TRANSCRIPTION;
-    }
-
-    void processFrame(std::shared_ptr<va::transport::Frame> frame, va::pipeline::FlowDirection direction) override {
-        if (direction == va::pipeline::FlowDirection::DOWNSTREAM) {
-            auto tf = std::dynamic_pointer_cast<va::transport::TranscriptionFrame>(frame);
-            if (tf) {
-                printResults(*tf);
-            }
+// A live console of the conversation, from the engine's events.
+void addConsoleListener(va::VAEngine& engine) {
+    engine.addListener([](const vasdk::engine::Event& event) {
+        switch (event.kind_case()) {
+        case vasdk::engine::Event::kTranscript:
+            if (event.transcript().is_final())
+                spdlog::info("you: {}{}", event.transcript().text(), event.transcript().is_backchannel() ? " (back-channel)" : "");
+            break;
+        case vasdk::engine::Event::kAgentReply:
+            if (event.agent_reply().is_final()) spdlog::info("assistant: {}", event.agent_reply().text());
+            break;
+        case vasdk::engine::Event::kAgentState:
+            spdlog::info("[{} → {}] {}", event.agent_state().previous_state(), event.agent_state().state(),
+                         event.agent_state().transition());
+            break;
+        case vasdk::engine::Event::kToolCall:
+            spdlog::info("[tool] {}({}) → {}", event.tool_call().name(), event.tool_call().arguments_json(),
+                         event.tool_call().result_json());
+            break;
+        case vasdk::engine::Event::kError:
+            spdlog::error("[{}] {}", event.error().source(), event.error().message());
+            break;
+        default:
+            break;
         }
-        pushDownstream(frame);
-    }
-
-    private:
-    void logTranscriptionDetails(const va::transport::TranscriptionFrame& tf) const {
-        //if(!tf.isFinal) return;
-        const auto& r = tf.transcriptionResult;
-        const char* kind = tf.isFinal ? "FINAL" : "PARTIAL";
-
-        spdlog::info("--- STT {} -----------------------------------", kind);
-        spdlog::info(" Text      : \"{}\"", r.text);
-        spdlog::info(" Confidence: {:.1f}%", r.confidence * 100.0f);
-
-        if (r.startTimeMs > 0 || r.endTimeMs > 0)
-            spdlog::info(" Timing    : {}ms - {}ms", r.startTimeMs, r.endTimeMs);
-
-        if (!r.languageTags.empty()) {
-            std::string langs;
-            for (const auto& l : r.languageTags) {
-                if (!langs.empty()) langs += ", ";
-                langs += l.code + " (" + std::to_string(static_cast<int>(l.confidence * 100)) + "%)";
-            }
-            spdlog::info(" Languages : {}", langs);
-        }
-
-        if (!r.alternatives.empty()) {
-            spdlog::info(" Alternatives ({}):", r.alternatives.size());
-            for (size_t i = 0; i < r.alternatives.size(); ++i)
-                spdlog::info("   [{}] \"{}\"", i + 1, r.alternatives[i]);
-        }
-
-        if (!r.words.empty()) {
-            spdlog::info(" Words ({}):", r.words.size());
-            for (const auto& w : r.words) {
-                std::string extra;
-                if (!w.languageTags.empty()) extra += "  lang=" + w.languageTags.front().code;
-                if (!w.alternatives.empty()) extra += "  alt=\"" + w.alternatives.front() + "\"";
-                spdlog::info("   {:>6}ms - {:>6}ms  {:.0f}%  \"{}\"{}",
-                    w.startTimeMs, w.endTimeMs,
-                    w.confidence * 100.0f,
-                    w.text, extra);
-            }
-        }
-
-        spdlog::info("------------------------------------------");
-    }
-
-    void printResults(const va::transport::TranscriptionFrame& tf) const {
-        std::string finalStr = tf.transcriptionResult.text;
-        if (finalStr.empty()) {
-            for (const auto& w : tf.transcriptionResult.words) {
-                finalStr += w.text + " ";
-            }
-        }
-
-        spdlog::info("Transcription result [{}]: \"{}\" (confidence: {:.1f}%)", tf.isFinal ? "FINAL" : "PARTIAL", finalStr, tf.transcriptionResult.confidence * 100.0f);
-    }
-};
+    });
+}
 
 void signalHandler(int signal) {
     spdlog::info("Received signal {}, shutting down...", signal);
@@ -595,7 +550,6 @@ AppProcessors addAppProcessors(va::VAEngine& engine, const CliArgs& args, const 
         spdlog::error("Failed to initialize PyannoteEmbeddingProvider - speaker tracking disabled");
     }
 #endif
-    engine.addProcessor(Slot::AfterTranscription, std::make_shared<STTDebugProcessor>());
 
     engine.addProcessor(Slot::BeforeOutput, std::make_shared<va::thirdparty::OutputAudioVizAnimFrameProcessor>(
         inputConfig, inputConfig.sampleRate * 10));
@@ -772,6 +726,7 @@ int main(int argc, char* argv[]) {
     engine->registerTool(WeatherTool{});
     engine->registerTool(TimeTool{});
     AppProcessors app = addAppProcessors(*engine, args, io, modelsPath, options.inputAudio, options.outputAudio);
+    addConsoleListener(*engine);
     if (!engine->start(&error)) return -1;
 
 #ifdef VASDK_HAS_LIBDATACHANNEL_WEBRTC

@@ -101,6 +101,7 @@ void HttpTransport::onHttpError(const va::network::NetworkError& error) {
     errFrame->errorCode    = error.nativeCode ? error.nativeCode : error.httpStatusCode;
     errFrame->errorMessage = error.message;
     errFrame->severity     = ErrorSeverity::ERROR;
+    errFrame->sourceId     = getName();
     enqueueReceivedFrame(errFrame);
 
     fireOnError(errFrame->errorCode, error.message);

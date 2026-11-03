@@ -72,6 +72,7 @@ bool WebSocketTransport::initialize() {
         errFrame->errorCode    = err.nativeCode ? err.nativeCode : err.httpStatusCode;
         errFrame->errorMessage = err.message;
         errFrame->severity     = ErrorSeverity::ERROR;
+        errFrame->sourceId     = getName();
         enqueueReceivedFrame(errFrame);
         fireOnError(errFrame->errorCode, err.message);
     };

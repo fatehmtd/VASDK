@@ -9,6 +9,7 @@
 #include "TriggerProcessor.h"
 #include "TurnDetectionProcessor.h"
 #include "VADFrameProcessor.h"
+#include "engine/EventTapProcessor.h"
 #include "engine/ProtoFileLoader.h"
 #include "engine/ProviderRegistry.h"
 #include "llm/LLMFirePolicy.h"
@@ -16,6 +17,7 @@
 #include "llm/OpenAITransport.h"
 #include "llm/PromptTemplate.h"
 #include "llm/ToolDispatchProcessor.h"
+#include "vasdk/engine/events.pb.h"
 #include "metrics/MetricsBinder.h"
 #include "metrics/MetricsReporter.h"
 
@@ -78,6 +80,7 @@ private:
 
 struct VAEngine::State {
     Options options;
+    std::shared_ptr<engine::EventDispatcher> events = std::make_shared<engine::EventDispatcher>();
     std::shared_ptr<AudioRingBuffer> ringBuffer;
     std::shared_ptr<audio::GenericTranscriptionProvider> transcriptionProvider;
 
@@ -93,6 +96,7 @@ struct VAEngine::State {
     std::shared_ptr<llm::LLMProcessor> llm;
     std::shared_ptr<llm::ToolDispatchProcessor> tools = std::make_shared<llm::ToolDispatchProcessor>();
     std::shared_ptr<FrameInjector> speech;
+    std::shared_ptr<engine::EventTapProcessor> eventTap;
     std::shared_ptr<pipeline::TTSFrameProcessor> tts;
     std::shared_ptr<pipeline::TransportOutputProcessor> transportOutput;
 
@@ -112,7 +116,7 @@ struct VAEngine::State {
         if (bargeInHandler) processors.push_back(bargeInHandler);
         if (llm) processors.insert(processors.end(), {userInput, llm, tools});
         addSlot(Slot::BeforeSynthesis);
-        processors.insert(processors.end(), {speech, tts});
+        processors.insert(processors.end(), {speech, eventTap, tts});
         addSlot(Slot::BeforeOutput);
         processors.push_back(transportOutput);
         return processors;
@@ -212,6 +216,20 @@ std::unique_ptr<VAEngine> VAEngine::create(const vasdk::engine::EngineConfig& co
             return ttsProcessor ? ttsProcessor->getRemainingReplyPlaybackMs() : -1;
         });
     state->speech = std::make_shared<FrameInjector>("SpeechInput");
+    state->eventTap = std::make_shared<engine::EventTapProcessor>(state->events);
+    // Tool calls don't reach the tap: results go back upstream to the LLM.
+    state->tools->setResultObserver([events = std::weak_ptr<engine::EventDispatcher>(state->events)](
+                                        const std::string& name, const std::string& argsJson,
+                                        const std::string& resultJson) {
+        auto dispatcher = events.lock();
+        if (!dispatcher) return;
+        vasdk::engine::Event event;
+        auto* call = event.mutable_tool_call();
+        call->set_name(name);
+        call->set_arguments_json(argsJson);
+        call->set_result_json(resultJson);
+        dispatcher->post(std::move(event));
+    });
     state->userInput = std::make_shared<FrameInjector>("UserTextInput");
 
     state->transportOutput = std::make_shared<pipeline::TransportOutputProcessor>();
@@ -273,6 +291,9 @@ bool VAEngine::addProcessor(Slot slot, std::shared_ptr<FrameProcessor> processor
 
 void VAEngine::registerTool(const llm::Tool& tool) { _state->tools->registerTool(tool); }
 
+int VAEngine::addListener(engine::EventListener listener) { return _state->events->addListener(std::move(listener)); }
+void VAEngine::removeListener(int id) { _state->events->removeListener(id); }
+
 bool VAEngine::start(std::string* error) {
     auto fail = [error](const std::string& message) {
         spdlog::error("[VAEngine] {}", message);
@@ -289,8 +310,11 @@ bool VAEngine::start(std::string* error) {
         metrics::MetricsBinder::bind(*pipeline, _state->options.metricsConfig, reporter);
         reporter->addTransport(_state->options.transport);
     }
-    if (!pipeline->build()) return fail("pipeline failed to build");
-    if (!pipeline->start()) return fail("pipeline failed to start");
+    if (!pipeline->build() || !pipeline->start()) {
+        pipeline->stop();
+        transport.stop();
+        return fail("pipeline failed to start");
+    }
     _state->pipeline = pipeline;
     spdlog::info("[VAEngine] Started: {}", describe());
     return true;
