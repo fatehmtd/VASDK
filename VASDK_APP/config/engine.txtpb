@@ -8,7 +8,7 @@
 # models_dir: "models"        # default: the models/ folder found next to the executable
 
 providers {
-  vad { id: "silero" }
+  vad { id: "silero" }   # options { [type.googleapis.com/vasdk.providers.SileroOptions] { threshold: 0.6 } } hears quieter speech
 
   # Local: whistle, moonshine, parakeet. Cloud: gradium, soniox, deepgram, cartesia, fishaudio.
   stt { id: "whistle" fallback: ["parakeet", "moonshine"] }
@@ -25,6 +25,21 @@ providers {
   # A cloud provider with its key from the environment:
   # tts { id: "cartesia" options { [type.googleapis.com/vasdk.providers.CloudOptions] { api_key: "${CARTESIA_API_KEY}" } } }
 }
+
+# How quickly the assistant decides you've finished, and what counts as interrupting it.
+# Values set here replace the preset's (and the --backchannel-* command-line options) one by one.
+turn_taking {
+  preset: BALANCED                    # SNAPPY for phone calls, PATIENT for people who pause to think
+  # voice_activity { end_silence_ms: 400 pause_ms: 600 min_speech_ms: 250 barge_in_min_speech_ms: 150 }
+  # backchannel { pending_playback: DUCK commit_after_ms: 600 interrupt_words: ["stop", "wait"] }
+}
+
+# Audio between the transport and the providers (the defaults are shown).
+# audio {
+#   input  { sample_rate: 16000 encoding: PCM_16 channels: 1 }
+#   output { sample_rate: 16000 encoding: PCM_16 channels: 1 }
+#   frame_ms: 100
+# }
 
 # Command-line --llm-* options override these; unset values fall back to LLM_* environment variables.
 llm {

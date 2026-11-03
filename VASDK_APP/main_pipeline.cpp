@@ -70,6 +70,7 @@
 // Engine config + provider catalog (VAD, STT, TTS and turn detection are picked by id from the config)
 #include <VASDK/engine/ProtoFileLoader.h>
 #include <VASDK/engine/ProviderRegistry.h>
+#include <VASDK/engine/Runtime.h>
 #include <vasdk/engine/engine_config.pb.h>
 #include "ProviderCatalog/ProviderCatalog.h"
 
@@ -724,6 +725,14 @@ int main(int argc, char* argv[]) {
     options.backchannel = args.backchannelConfig;
     options.metricsReporter = metrics.reporter;
     options.metricsConfig = metrics.config;
+    {
+        std::string audioError;   // the devices open in the config's formats, as the engine will use them
+        if (!va::engine::applyAudioConfig(engineConfig.audio(), options.inputAudio, options.outputAudio,
+                                          options.frameSize, &audioError)) {
+            spdlog::error("{}: {}", args.engineConfigPath, audioError);
+            return -1;
+        }
+    }
     AudioIO io = createAudioIO(args, options.inputAudio);
     options.transport = io.transport;
     if (!args.agentPath.empty()) {

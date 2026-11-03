@@ -1,5 +1,6 @@
 #include "ProviderCatalog.h"
 
+#include <algorithm>
 #include <vasdk/providers/options.pb.h>
 
 #include <VASDK/GenericTranscriptionProvider.h>
@@ -103,8 +104,11 @@ void registerVad([[maybe_unused]] engine::ProviderRegistry& registry) {
 #ifdef VASDK_HAS_SILERO_VAD
     registry.add<Vad, providers::SileroOptions>("silero",
         [](const providers::SileroOptions& options, const ProviderContext& context) -> std::shared_ptr<Vad> {
+            SileroVAD::SileroVADConfig sileroConfig;
+            if (options.has_threshold()) sileroConfig.threshold = std::clamp(options.threshold(), 0.0f, 1.0f);
             auto vad = std::make_shared<SileroVAD>(
-                options.model_path().empty() ? context.modelsDir + "/silero_vad.onnx" : options.model_path());
+                options.model_path().empty() ? context.modelsDir + "/silero_vad.onnx" : options.model_path(),
+                sileroConfig);
             if (!vad->initialize(context.audio, context.audio.sampleRate * 4)) return nullptr;
             return vad;
         });

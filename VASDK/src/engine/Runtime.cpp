@@ -24,8 +24,59 @@ std::shared_ptr<Runtime> Runtime::create(const std::string& configPath, const Pr
     return create(config, registry, std::move(options), error);
 }
 
+namespace {
+
+bool applyFormat(const vasdk::engine::AudioFormat& config, const char* name, audio::AudioConfig& format,
+                 std::string* error) {
+    auto fail = [&](const std::string& message) {
+        if (error) *error = std::string("audio.") + name + "." + message;
+        return false;
+    };
+    if (config.has_sample_rate()) {
+        if (config.sample_rate() < 8000 || config.sample_rate() > 192000)
+            return fail("sample_rate: " + std::to_string(config.sample_rate()) + " Hz is outside 8000-192000");
+        format.sampleRate = config.sample_rate();
+    }
+    if (config.has_channels()) {
+        if (config.channels() < 1 || config.channels() > 8)
+            return fail("channels: " + std::to_string(config.channels()) + " is outside 1-8");
+        format.channels = config.channels();
+    }
+    if (config.has_encoding()) {
+        switch (config.encoding()) {
+        case vasdk::engine::AudioFormat::PCM_8: format.format = audio::AudioFormat::BYTE; break;
+        case vasdk::engine::AudioFormat::PCM_32: format.format = audio::AudioFormat::INT; break;
+        case vasdk::engine::AudioFormat::FLOAT_32: format.format = audio::AudioFormat::FLOAT; break;
+        default: format.format = audio::AudioFormat::SHORT; break;
+        }
+    }
+    return true;
+}
+
+} // namespace
+
+bool applyAudioConfig(const vasdk::engine::Audio& config, audio::AudioConfig& inputAudio,
+                      audio::AudioConfig& outputAudio, int& frameSize, std::string* error) {
+    const int inputRate = inputAudio.sampleRate;
+    const int frameMs = inputRate > 0 ? static_cast<int>(static_cast<int64_t>(frameSize) * 1000 / inputRate) : 0;
+    if (!applyFormat(config.input(), "input", inputAudio, error)) return false;
+    if (!applyFormat(config.output(), "output", outputAudio, error)) return false;
+    if (config.has_frame_ms()) {
+        if (config.frame_ms() < 10 || config.frame_ms() > 1000) {
+            if (error) *error = "audio.frame_ms: " + std::to_string(config.frame_ms()) + " is outside 10-1000";
+            return false;
+        }
+        frameSize = static_cast<int>(static_cast<int64_t>(inputAudio.sampleRate) * config.frame_ms() / 1000);
+    } else if (inputAudio.sampleRate != inputRate && frameMs > 0) {
+        frameSize = static_cast<int>(static_cast<int64_t>(inputAudio.sampleRate) * frameMs / 1000);  // same duration
+    }
+    return true;
+}
+
 std::shared_ptr<Runtime> Runtime::create(const vasdk::engine::EngineConfig& config, const ProviderRegistry& registry,
                                          Options options, std::string* error) {
+    if (!applyAudioConfig(config.audio(), options.inputAudio, options.outputAudio, options.frameSize, error))
+        return nullptr;
     std::shared_ptr<Runtime> runtime(new Runtime(config, registry, std::move(options)));
     auto first = runtime->createProviderSet(error);
     if (!first) return nullptr;

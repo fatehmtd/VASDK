@@ -1,9 +1,13 @@
 // VAEngine assembly: providers come from the registry by id, the standard chain is built in
 // order with app processors at their slots, the LLM stages appear only with an `llm` endpoint,
-// a missing provider fails create() with its kind, and say() text reaches the TTS provider.
+// a missing provider fails create() with its kind, say() text reaches the TTS provider, and the
+// config's audio formats, voice activity timings and back-channel values reach the pipeline.
 
 #include "engine_test_fakes.h"
 
+#include <VASDK/AgentStateProcessor.h>
+#include <VASDK/Pipeline.h>
+#include <VASDK/VADFrameProcessor.h>
 #include <VASDK/VAEngine.h>
 
 #include <chrono>
@@ -89,6 +93,53 @@ int main() {
           contains(error, "parakeet"), "missing provider reported with its kind");
     check(!VAEngine::create(offline, registry, VAEngine::Options{}, &error) && contains(error, "transport"),
           "transport is required");
+
+    // Audio formats, voice activity and back-channel values from the config replace the defaults one by one.
+    vasdk::engine::EngineConfig tuned;
+    tuned.mutable_turn_taking()->set_preset(vasdk::engine::TurnTaking::SNAPPY);
+    tuned.mutable_turn_taking()->mutable_voice_activity()->set_end_silence_ms(900);
+    auto* backchannel = tuned.mutable_turn_taking()->mutable_backchannel();
+    backchannel->set_pending_playback(vasdk::engine::Backchannel::PAUSE);
+    backchannel->set_commit_after_ms(800);
+    backchannel->add_interrupt_words("halt");
+    tuned.mutable_turn_taking()->set_interrupt_timeout_ms(700);
+    auto* audioConfig = tuned.mutable_audio();
+    audioConfig->mutable_input()->set_sample_rate(24000);
+    audioConfig->mutable_output()->set_sample_rate(48000);
+    audioConfig->mutable_output()->set_encoding(vasdk::engine::AudioFormat::FLOAT_32);
+    audioConfig->set_frame_ms(50);
+    auto tunedTransport = std::make_shared<FakeTransport>();
+    options.transport = tunedTransport;
+    auto tunedEngine = VAEngine::create(tuned, registry, options, &error);
+    check(tunedEngine && tunedEngine->start(&error), "tuned engine starts");
+    if (tunedEngine) {
+        check(tunedTransport->inputAudio.sampleRate == 24000 && tunedTransport->inputAudio.format == audio::AudioFormat::SHORT &&
+              tunedTransport->inputAudio.channels == 1, "input: the config's rate, the app's encoding and channels");
+        check(tunedTransport->outputAudio.sampleRate == 48000 && tunedTransport->outputAudio.format == audio::AudioFormat::FLOAT,
+              "output: the config's rate and encoding");
+        check(tunedTransport->frameSize == 1200, "frame_ms 50 at 24 kHz");
+        std::shared_ptr<pipeline::VADFrameProcessor> vad;
+        std::shared_ptr<pipeline::AgentStateProcessor> agentState;
+        for (const auto& processor : tunedEngine->pipeline()->getProcessors()) {
+            if (!vad) vad = std::dynamic_pointer_cast<pipeline::VADFrameProcessor>(processor);
+            if (!agentState) agentState = std::dynamic_pointer_cast<pipeline::AgentStateProcessor>(processor);
+        }
+        check(vad && vad->getConfig().maxSpeechEndDurationMs == 900 && vad->getConfig().vadThresholdMs == 150,
+              "end silence from the config, the rest from SNAPPY");
+        if (agentState) {
+            const auto& applied = agentState->getBackchannelConfig();
+            check(applied.pendingPlaybackMode == transport::PendingPlaybackMode::Pause && applied.commitAfterPendingMs == 800 &&
+                  applied.interruptWords == std::vector<std::string>{"halt"} && applied.duckGainDecibels == -12.0f,
+                  "back-channel values from the config, the rest from the app");
+        } else {
+            check(false, "agent state processor present");
+        }
+        tunedEngine->stop();
+    }
+    vasdk::engine::EngineConfig badAudio;
+    badAudio.mutable_audio()->mutable_input()->set_sample_rate(0);
+    check(!VAEngine::create(badAudio, registry, options, &error) && contains(error, "audio.input.sample_rate"),
+          "an impossible sample rate is reported with its field");
 
     if (failures == 0) std::printf("engine_assembly_test: all passed\n");
     return failures == 0 ? 0 : 1;

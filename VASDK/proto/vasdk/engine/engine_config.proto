@@ -41,6 +41,75 @@ message TurnTaking {
   }
   Preset preset = 1;
   bool streaming_transcription = 2;    // STT runs while the user speaks and sends partial results
+  VoiceActivity voice_activity = 3;    // each value set here replaces the preset's
+  Backchannel backchannel = 4;         // each value set here replaces Session::Options::backchannel's
+  optional int32 interrupt_timeout_ms = 5;  // INTERRUPTED falls back to LISTENING after this; unset: 500
+}
+
+// When speech starts and ends (VADFrameProcessor). Unset values come from the preset.
+//            start  min_speech  pause  end_silence   (ms)
+// BALANCED    250      250       500      250
+// SNAPPY      150      150       200      150
+// PATIENT     250      400       500      600
+message VoiceActivity {
+  optional int32 start_ms = 1;              // voice this long before speech may start
+  optional int32 min_speech_ms = 2;         // speech this long before it counts (shorter blips are dropped)
+  optional int32 pause_ms = 3;              // silence this long inside speech is a pause, not the end
+  optional int32 end_silence_ms = 4;        // after a pause, silence this long ends the speech
+  optional int32 resume_silent_frames = 5;  // silent frames while resuming before it counts as paused again; unset: 3
+  optional int32 barge_in_min_speech_ms = 6;  // min_speech_ms while the assistant speaks; unset: 150, 0: same as min_speech_ms
+  optional float lookback_factor = 7;       // audio kept before the detected start, as a multiple of the start window; unset: 3 (BALANCED) or 5
+}
+
+// Speech over the assistant: a back-channel ("yeah", "mm-hmm") or a real interruption.
+message Backchannel {
+  enum PendingPlayback {
+    DUCK = 0;        // keep playing, quieter, while deciding
+    PAUSE = 1;       // pause, and resume from the same place if it was a back-channel
+    CONTINUE = 2;    // no change
+  }
+  enum History {
+    DROP = 0;                // back-channels never reach the LLM
+    APPEND_TO_HISTORY = 1;   // recorded in the LLM history, not answered
+  }
+  enum TailOverlap {
+    TREAT_AS_TURN = 0;   // speech over the last tail_overlap_ms: let the reply finish, then answer it
+    CLASSIFY = 1;        // classify it like any other overlap
+  }
+  optional bool enabled = 1;                    // false: any speech over the assistant interrupts it
+  optional PendingPlayback pending_playback = 2;
+  optional History history = 3;
+  optional TailOverlap tail_overlap = 4;
+  optional float duck_gain_db = 5;              // playback level while ducked; default -12
+  optional int32 duck_ms = 6;                   // the duck lasts at least this long; default 2500
+  optional int32 commit_after_ms = 7;           // speech longer than this interrupts; default 600
+  optional int32 final_transcription_wait_ms = 8;  // wait for the final transcript after the user stops; default 300
+  optional int32 tail_overlap_ms = 9;           // default 700
+  optional int32 max_backchannel_words = 10;    // default 4
+  optional float min_interrupt_confidence = 11; // 1-2 word finals below this STT confidence are back-channels; default 0.6
+  optional int32 low_confidence_max_words = 12; // default 2
+  repeated string phrases = 13;                 // replace the built-in back-channel phrases when set
+  repeated string interrupt_words = 14;         // replace the built-in words that always interrupt ("stop", "wait", ...)
+}
+
+// Raw PCM between the transport and the providers. The providers resample from their own rates.
+message AudioFormat {
+  enum Encoding {
+    PCM_16 = 0;     // signed 16-bit
+    PCM_8 = 1;      // signed 8-bit
+    PCM_32 = 2;     // signed 32-bit
+    FLOAT_32 = 3;   // 32-bit float
+  }
+  optional int32 sample_rate = 1;      // Hz
+  optional Encoding encoding = 2;
+  optional int32 channels = 3;
+}
+
+// Unset values keep the app's Runtime::Options (16 kHz, PCM_16, mono, 100 ms frames by default).
+message Audio {
+  AudioFormat input = 1;               // mic: what the VAD, turn model, wake word and STT receive
+  AudioFormat output = 2;              // speaker: what the TTS produces
+  optional int32 frame_ms = 3;         // input frame length: the grid VAD and turn decisions run on
 }
 
 // When the assistant listens.
@@ -66,4 +135,5 @@ message EngineConfig {
   LlmConfig llm = 3;                   // unset: the app's command-line or built-in defaults
   TurnTaking turn_taking = 4;
   Activation activation = 5;
+  Audio audio = 6;
 }

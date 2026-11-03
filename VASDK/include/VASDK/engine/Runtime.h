@@ -24,6 +24,15 @@ class WakeWordProvider;
 namespace engine {
 
 /**
+ * @brief Applies the config's `audio` block over the app's formats: each value set there replaces
+ *        the one passed in. Runtime::create does this itself; call it too when the app opens
+ *        audio devices before creating the runtime, so they open in the same format.
+ * @return false, with `error` set, for a value no pipeline can use (a zero sample rate, say).
+ */
+VASDK_EXPORT bool applyAudioConfig(const vasdk::engine::Audio& config, audio::AudioConfig& inputAudio,
+                                   audio::AudioConfig& outputAudio, int& frameSize, std::string* error = nullptr);
+
+/**
  * @brief What many conversations share: the engine config and the providers it names.
  *
  * Create one per process, then one Session per conversation. A session takes a set of

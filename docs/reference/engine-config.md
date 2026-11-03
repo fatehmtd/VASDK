@@ -45,7 +45,7 @@ Each `ProviderSpec` has:
   | Message | Providers | Fields |
   | --- | --- | --- |
   | `vasdk.providers.CloudOptions` | cloud STT/TTS | `api_key`, `voice_id` |
-  | `vasdk.providers.SileroOptions` | `silero` | `model_path` |
+  | `vasdk.providers.SileroOptions` | `silero` | `model_path`, `threshold` (speech probability a frame needs, 0–1; default 0.75) |
   | `vasdk.providers.LocalSttOptions` | `whistle`, `moonshine`, `parakeet` | `model_dir`, `idle_timeout_ms`, `partial_interval_ms`, `language` |
   | `vasdk.providers.LocalTtsOptions` | `supertonic`, `moss`, `phonon`, `pocket` | `model_dir`, `voice`, `language`, `steps` |
   | `vasdk.providers.SmartTurnOptions` | `smartturn-v3` | `model_path` |
@@ -89,6 +89,45 @@ turn_taking { preset: SNAPPY streaming_transcription: true }
 In every preset, interrupting the assistant needs only 150 ms of speech: echo cancellation turns the user's voice down while the assistant talks.
 
 `streaming_transcription` runs the STT while the user speaks, so partial results arrive before the turn ends. Speculative firing needs it.
+
+Any timing can be set on its own; the others keep the preset's values:
+
+```textproto
+turn_taking {
+  preset: BALANCED
+  voice_activity { end_silence_ms: 800 pause_ms: 700 }    # let people pause longer
+  backchannel { pending_playback: PAUSE commit_after_ms: 400 interrupt_words: ["stop", "wait", "cancel"] }
+  interrupt_timeout_ms: 800
+}
+```
+
+| `voice_activity` field | Meaning | `VADConfig` field |
+| --- | --- | --- |
+| `start_ms` | voice this long before speech may start | `vadThresholdMs` |
+| `min_speech_ms` | speech this long before it counts; shorter blips are dropped | `minSpeechDurationMs` |
+| `pause_ms` | silence this long inside speech is a pause | `maxSpeechPauseDurationMs` |
+| `end_silence_ms` | after a pause, silence this long ends the speech | `maxSpeechEndDurationMs` |
+| `resume_silent_frames` | silent frames while resuming before it's a pause again (default 3) | `resumingSilenceFramesToPause` |
+| `barge_in_min_speech_ms` | `min_speech_ms` while the assistant speaks (default 150; 0: same as `min_speech_ms`) | `bargeInMinSpeechDurationMs` |
+| `lookback_factor` | audio kept from before the detected start, as a multiple of the start window (default 3 for `BALANCED`, 5 otherwise) | `VADFrameProcessor` constructor |
+
+`backchannel` decides whether speech over the assistant is a back-channel ("yeah", "mm-hmm") or an interruption. Each field replaces the same value in `Session::Options::backchannel` (`pipeline::BackchannelConfig`), so a value set in the file wins over the app's: `enabled`, `pending_playback` (`DUCK`, `PAUSE`, `CONTINUE`), `history` (`DROP`, `APPEND_TO_HISTORY`), `tail_overlap` (`TREAT_AS_TURN`, `CLASSIFY`), `duck_gain_db`, `duck_ms`, `commit_after_ms`, `final_transcription_wait_ms`, `tail_overlap_ms`, `max_backchannel_words`, `min_interrupt_confidence`, `low_confidence_max_words`, `phrases` and `interrupt_words`. The two lists replace the built-in ones when set.
+
+`interrupt_timeout_ms` is how long the assistant waits in `INTERRUPTED` for the TTS to confirm it stopped before listening anyway (default 500).
+
+## Audio
+
+```textproto
+audio {
+  input  { sample_rate: 16000 encoding: PCM_16 channels: 1 }   # what the VAD, turn model, wake word and STT receive
+  output { sample_rate: 24000 encoding: PCM_16 channels: 1 }   # what the TTS produces
+  frame_ms: 100                                                 # the grid VAD and turn decisions run on
+}
+```
+
+These replace `Runtime::Options` / `VAEngine::Options` `inputAudio`, `outputAudio` and `frameSize`, value by value. Encodings: `PCM_16` (default), `PCM_8`, `PCM_32`, `FLOAT_32`. Providers resample from their own model rates to these, and the transport is configured with them. Changing only the input rate keeps the frame's duration. Out-of-range values (a rate outside 8000–192000 Hz, 0 channels, `frame_ms` outside 10–1000) fail `create()` with the field's name.
+
+An app that opens its audio devices before creating the engine calls `va::engine::applyAudioConfig(config.audio(), ...)` first, so the devices use the same formats; VASDK_Pipeline does.
 
 ## LLM
 

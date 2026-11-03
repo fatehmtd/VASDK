@@ -28,8 +28,9 @@ public:
     void stop() override { setState(transport::TransportState::DISCONNECTED); }
     void release() override {}
     bool sendFrame(std::shared_ptr<transport::Frame>) override { return true; }
-    void setInputAudioConfig(const audio::AudioConfig&) override {}
-    void setOutputAudioConfig(const audio::AudioConfig&) override {}
+    void setInputAudioConfig(const audio::AudioConfig& config) override { inputAudio = config; }
+    void setOutputAudioConfig(const audio::AudioConfig& config) override { outputAudio = config; }
+    audio::AudioConfig inputAudio{}, outputAudio{};
     void setFrameSize(size_t samples) override { frameSize = samples; }
     void setRingBuffer(std::shared_ptr<AudioRingBuffer> buffer) override { ringBuffer = buffer; }
     size_t frameSize = 0;

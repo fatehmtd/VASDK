@@ -14,6 +14,7 @@ message CloudOptions {
 // VAD: silero.
 message SileroOptions {
   string model_path = 1;         // unset: <models_dir>/silero_vad.onnx
+  optional float threshold = 2;  // speech probability (0-1) a frame needs to count as voice; unset: 0.75
 }
 
 // Local STT: whistle, moonshine, parakeet.

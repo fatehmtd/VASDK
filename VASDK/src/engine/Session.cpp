@@ -27,6 +27,7 @@
 #include <google/protobuf/util/json_util.h>
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
 #include <map>
 #include <optional>
 #include <vector>
@@ -81,6 +82,66 @@ private:
     std::shared_ptr<audio::GenericTranscriptionProvider> _transcription;
 };
 
+
+// The config's turn_taking.backchannel values replace the app's, one by one.
+void applyBackchannel(const vasdk::engine::Backchannel& config, pipeline::BackchannelConfig& backchannel) {
+    using Config = vasdk::engine::Backchannel;
+    if (config.has_enabled()) backchannel.enabled = config.enabled();
+    if (config.has_pending_playback())
+        backchannel.pendingPlaybackMode = config.pending_playback() == Config::PAUSE ? transport::PendingPlaybackMode::Pause
+            : config.pending_playback() == Config::CONTINUE ? transport::PendingPlaybackMode::Continue
+            : transport::PendingPlaybackMode::Duck;
+    if (config.has_history())
+        backchannel.historyMode = config.history() == Config::APPEND_TO_HISTORY
+            ? pipeline::BackchannelHistoryMode::AppendToHistory : pipeline::BackchannelHistoryMode::Drop;
+    if (config.has_tail_overlap())
+        backchannel.tailOverlapMode = config.tail_overlap() == Config::CLASSIFY
+            ? pipeline::TailOverlapMode::Classify : pipeline::TailOverlapMode::TreatAsTurn;
+    if (config.has_duck_gain_db()) backchannel.duckGainDecibels = config.duck_gain_db();
+    if (config.has_duck_ms()) backchannel.duckDurationMs = static_cast<uint32_t>(std::max(0, config.duck_ms()));
+    if (config.has_commit_after_ms()) backchannel.commitAfterPendingMs = static_cast<uint32_t>(std::max(0, config.commit_after_ms()));
+    if (config.has_final_transcription_wait_ms())
+        backchannel.finalTranscriptionWaitMs = static_cast<uint32_t>(std::max(0, config.final_transcription_wait_ms()));
+    if (config.has_tail_overlap_ms()) backchannel.tailOverlapMs = static_cast<uint32_t>(std::max(0, config.tail_overlap_ms()));
+    if (config.has_max_backchannel_words())
+        backchannel.maxBackchannelWords = static_cast<uint32_t>(std::max(0, config.max_backchannel_words()));
+    if (config.has_min_interrupt_confidence()) backchannel.minInterruptConfidence = config.min_interrupt_confidence();
+    if (config.has_low_confidence_max_words())
+        backchannel.lowConfidenceMaxWords = static_cast<uint32_t>(std::max(0, config.low_confidence_max_words()));
+    if (config.phrases_size() > 0) backchannel.backchannelPhrases.assign(config.phrases().begin(), config.phrases().end());
+    if (config.interrupt_words_size() > 0)
+        backchannel.interruptWords.assign(config.interrupt_words().begin(), config.interrupt_words().end());
+}
+
+// The preset's VAD timings, then any turn_taking.voice_activity value set in the config.
+pipeline::VADConfig voiceActivityConfig(const vasdk::engine::TurnTaking& turnTaking) {
+    pipeline::VADConfig vadConfig;
+    switch (turnTaking.preset()) {
+    case vasdk::engine::TurnTaking::SNAPPY:
+        vadConfig.vadThresholdMs = 150, vadConfig.minSpeechDurationMs = 150;
+        vadConfig.maxSpeechPauseDurationMs = 200, vadConfig.maxSpeechEndDurationMs = 150;
+        break;
+    case vasdk::engine::TurnTaking::PATIENT:
+        vadConfig.vadThresholdMs = 250, vadConfig.minSpeechDurationMs = 400;
+        vadConfig.maxSpeechPauseDurationMs = 500, vadConfig.maxSpeechEndDurationMs = 600;
+        break;
+    default:
+        vadConfig.vadThresholdMs = 250, vadConfig.minSpeechDurationMs = 250;
+        vadConfig.maxSpeechPauseDurationMs = 500, vadConfig.maxSpeechEndDurationMs = 250;
+        break;
+    }
+    // Echo cancellation turns the user's voice down while the assistant talks: confirm sooner then.
+    vadConfig.bargeInMinSpeechDurationMs = 150;
+    const auto& voice = turnTaking.voice_activity();
+    auto milliseconds = [](int32_t value) { return static_cast<uint64_t>(std::max(0, value)); };
+    if (voice.has_start_ms()) vadConfig.vadThresholdMs = milliseconds(voice.start_ms());
+    if (voice.has_min_speech_ms()) vadConfig.minSpeechDurationMs = milliseconds(voice.min_speech_ms());
+    if (voice.has_pause_ms()) vadConfig.maxSpeechPauseDurationMs = milliseconds(voice.pause_ms());
+    if (voice.has_end_silence_ms()) vadConfig.maxSpeechEndDurationMs = milliseconds(voice.end_silence_ms());
+    if (voice.has_resume_silent_frames()) vadConfig.resumingSilenceFramesToPause = std::max(1, voice.resume_silent_frames());
+    if (voice.has_barge_in_min_speech_ms()) vadConfig.bargeInMinSpeechDurationMs = milliseconds(voice.barge_in_min_speech_ms());
+    return vadConfig;
+}
 
 } // namespace
 
@@ -179,27 +240,13 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
     state->trigger = std::make_shared<pipeline::TriggerProcessor>();
 
     const auto& turnTaking = config.turn_taking();
+    applyBackchannel(turnTaking.backchannel(), options.backchannel);
     const bool balanced = turnTaking.preset() == vasdk::engine::TurnTaking::BALANCED;
-    state->vad = std::make_shared<pipeline::VADFrameProcessor>(providers.vad, balanced ? 3.0f : 5.0f);
+    const float lookbackFactor = turnTaking.voice_activity().has_lookback_factor()
+        ? std::max(0.0f, turnTaking.voice_activity().lookback_factor()) : (balanced ? 3.0f : 5.0f);
+    state->vad = std::make_shared<pipeline::VADFrameProcessor>(providers.vad, lookbackFactor);
     state->vad->setMinFrameSize(audioOptions.frameSize);
-    pipeline::VADConfig vadConfig;
-    switch (turnTaking.preset()) {
-    case vasdk::engine::TurnTaking::SNAPPY:
-        vadConfig.vadThresholdMs = 150, vadConfig.minSpeechDurationMs = 150;
-        vadConfig.maxSpeechPauseDurationMs = 200, vadConfig.maxSpeechEndDurationMs = 150;
-        break;
-    case vasdk::engine::TurnTaking::PATIENT:
-        vadConfig.vadThresholdMs = 250, vadConfig.minSpeechDurationMs = 400;
-        vadConfig.maxSpeechPauseDurationMs = 500, vadConfig.maxSpeechEndDurationMs = 600;
-        break;
-    default:
-        vadConfig.vadThresholdMs = 250, vadConfig.minSpeechDurationMs = 250;
-        vadConfig.maxSpeechPauseDurationMs = 500, vadConfig.maxSpeechEndDurationMs = 250;
-        break;
-    }
-    // Echo cancellation turns the user's voice down while the assistant talks: confirm sooner then.
-    vadConfig.bargeInMinSpeechDurationMs = 150;
-    state->vad->setConfig(vadConfig);
+    state->vad->setConfig(voiceActivityConfig(turnTaking));
     state->vad->setRingBuffer(state->ringBuffer);
 
     state->turnDetection = std::make_shared<pipeline::TurnDetectionProcessor>(providers.turn);
@@ -223,6 +270,8 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
         });
     }
     state->agentState->setBackchannelConfig(options.backchannel);
+    if (turnTaking.has_interrupt_timeout_ms())
+        state->agentState->setInterruptTimeoutMs(static_cast<uint32_t>(std::max(0, turnTaking.interrupt_timeout_ms())));
     state->vad->setAgentSpeaking([agentState = std::weak_ptr<pipeline::AgentStateProcessor>(state->agentState)] {
         auto current = agentState.lock();
         return current && current->getState() == transport::AgentState::SPEAKING;
