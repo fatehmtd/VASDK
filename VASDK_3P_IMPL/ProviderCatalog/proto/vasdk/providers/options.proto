@@ -1,0 +1,33 @@
+// Options for the providers in VASDK_3P_IMPL, set in an engine config with the Any syntax:
+//   stt { id: "soniox" options { [type.googleapis.com/vasdk.providers.CloudOptions] { api_key: "${SONIOX_API_KEY}" } } }
+// Every field is optional: unset falls back to the provider's environment variable, then its default.
+syntax = "proto3";
+
+package vasdk.providers;
+
+// Cloud STT/TTS: gradium, soniox, deepgram, cartesia, fishaudio.
+message CloudOptions {
+  string api_key = 1;            // unset: <PROVIDER>_API_KEY, e.g. SONIOX_API_KEY
+  string voice_id = 2;           // TTS only; unset: <PROVIDER>_VOICE_ID, then the service default
+}
+
+// VAD: silero.
+message SileroOptions {
+  string model_path = 1;         // unset: <models_dir>/silero_vad.onnx
+}
+
+// Local STT: whistle, moonshine, parakeet.
+message LocalSttOptions {
+  string model_dir = 1;          // unset: <models_dir>/<id>
+  int32 idle_timeout_ms = 2;     // 0: the provider's tuned default
+  int32 partial_interval_ms = 3; // 0: the provider's tuned default
+  string language = 4;           // whistle only; unset: WHISTLE_LANGUAGE
+}
+
+// Local TTS: supertonic, moss, phonon, pocket.
+message LocalTtsOptions {
+  string model_dir = 1;          // unset: the provider's folder under <models_dir>
+  string voice = 2;              // unset: <PROVIDER>_TTS_VOICE, then the provider default
+  string language = 3;           // supertonic, phonon; unset: <PROVIDER>_TTS_LANG, then "en"
+  int32 steps = 4;               // supertonic diffusion steps, pocket LSD steps; 0: default
+}

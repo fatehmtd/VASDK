@@ -42,6 +42,7 @@ The project is still young and moving fast. There are no tagged releases yet, an
 - CMake 3.16+ and a C++17 compiler.
 - Git on your `PATH` - needed both to clone the repo and by CMake's `FetchContent` to pull every C++ dependency at configure time.
 - libcurl, for every HTTP-based transport (OpenAI/Anthropic/OpenRouter LLM calls, Gladia/Deepgram/Cartesia/Fish Audio cloud STT/TTS). No install is needed: configure uses an installed libcurl when CMake finds one (system package, Homebrew, or a vcpkg toolchain if you pass one), and otherwise builds curl 8.21 from source as a static library. On Windows that build uses Schannel, the OS TLS stack, so neither vcpkg nor OpenSSL is required. Pass `-DVASDK_FETCH_CURL=ON` to always build it from source, or `-DVASDK_ENABLE_HTTP_TRANSPORT=OFF` to drop it (which also disables every cloud provider, leaving only local/offline ones). On Linux/macOS a from-source build picks up OpenSSL (`apt install libssl-dev` / `brew install openssl`). Note that CMake also reads `CMAKE_TOOLCHAIN_FILE` from the environment, so a machine-wide vcpkg setting applies to every new build directory.
+- protobuf, for engine config files. Configure uses an installed one (`brew install protobuf`, `apt install libprotobuf-dev protobuf-compiler`, or vcpkg) and otherwise builds it from source, which makes the first configure slower.
 - A network connection and ~1.5 GB free disk for the first configure - everything else (C++ deps and model files) is fetched for you, and re-configures skip anything already downloaded.
 
 ```bash
@@ -393,7 +394,7 @@ For air-gapped builds, turn the downloads off and place the files in `build/VASD
 
 ### Runtime flags
 
-Each app documents its own flag set (`--help` is always authoritative): the [VASDK_Pipeline flags](VASDK_APP/README.md#cli-flags) cover LLM selection, prompt overrides, session recording, and metrics tuning; the [VASDK_CallCenter flags](VASDK_CALLCENTER_APP/README.md#cli-flags) add `--ani` and `--persist-dir` for the CRM prefill and resume-on-redial features. Both take `--webrtc-port <port>` to talk from a browser instead of the local mic and speaker (with `VASDK_BUILD_LIBDATACHANNEL_WEBRTC`). Both load LLM credentials from `.env` (`--env-file` to point elsewhere), with CLI flags taking precedence over the environment.
+Each app documents its own flag set (`--help` is always authoritative): the [VASDK_Pipeline flags](VASDK_APP/README.md#cli-flags) cover LLM selection, prompt overrides, session recording, and metrics tuning; the [VASDK_CallCenter flags](VASDK_CALLCENTER_APP/README.md#cli-flags) add `--ani` and `--persist-dir` for the CRM prefill and resume-on-redial features. Both take `--webrtc-port <port>` to talk from a browser instead of the local mic and speaker (with `VASDK_BUILD_LIBDATACHANNEL_WEBRTC`). Both load LLM credentials from `.env` (`--env-file` to point elsewhere), with CLI flags taking precedence over the environment. VASDK_Pipeline also takes `--config <engine.txtpb>` to choose its VAD, STT and TTS providers and LLM settings from a file instead of the build: see [Engine config files](docs/reference/engine-config.md).
 
 ### Metrics
 

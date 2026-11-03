@@ -12,7 +12,7 @@ flowchart LR
 
 (Exact `addProcessor` order, including the debug/animation observers elided here, is in `buildAndStartPipeline()` in [`main_pipeline.cpp`](main_pipeline.cpp) - note agent state sits *before* the LLM, where it gates stale transcriptions.)
 
-Every stage is selected at build time. The app is a chain of `#ifdef VASDK_HAS_*` blocks: whichever providers were enabled at configure time get constructed, and the first available one per stage wins (for example, MiniAudio is preferred over SDL for audio I/O, and a local GGUF model via llama.cpp takes over from the OpenAI-compatible HTTP transport when `--llm-model-path` is set).
+VAD, STT and TTS are chosen at run time: `--config` names a provider id per stage (see [Engine config files](../docs/reference/engine-config.md)), and without it the first provider built in wins, in the same order as before. The other stages are still selected at build time through `#ifdef VASDK_HAS_*` blocks: whichever providers were enabled at configure time get constructed, and the first available one per stage wins (for example, MiniAudio is preferred over SDL for audio I/O, and a local GGUF model via llama.cpp takes over from the OpenAI-compatible HTTP transport when `--llm-model-path` is set).
 
 ## What it demonstrates
 
@@ -43,6 +43,7 @@ Model files are found automatically: the app searches for a `VASDK_3P_IMPL/model
 
 | Flag | Purpose |
 | --- | --- |
+| `--config <path>` | Engine config (`.txtpb`, `.json` or `.pb`): VAD/STT/TTS provider ids and options, models dir, LLM endpoint/model/key. `--llm-*` flags override it. See [Engine config files](../docs/reference/engine-config.md) and the example in [`config/engine.txtpb`](config/engine.txtpb) |
 | `--llm-model-path <path>` | GGUF model for llama.cpp local inference (only with `VASDK_HAS_LLAMACPP`); overrides the OpenAI-compatible transport when set |
 | `--llm-endpoint <url>` | OpenAI-compatible endpoint (falls back to `LLM_ENDPOINT`/`OPENAI_BASE_URL`) |
 | `--llm-api-key <key>` | LLM API key (falls back to `LLM_API_KEY`/`OPENROUTER_API_KEY`/`OPENAI_API_KEY`) |

@@ -78,88 +78,11 @@
 #include "FFmpegAudio/FileTransport.h"
 #endif
 
-// VAD providers
-#ifdef VASDK_HAS_SILERO_VAD
-#include "SileroVAD/SileroVAD.h"
-#endif
-
-// STT providers
-#ifdef VASDK_HAS_GLADIAPP
-#include "GladiappTranscription/GladiaPPTranscriptionProvider.h"
-#endif
-
-#ifdef VASDK_HAS_SONIOXPP_STT
-#include "SonioxppTranscription/SonioxppTranscriptionProvider.h"
-#endif
-
-#ifdef VASDK_HAS_DEEPGRAMPP_STT
-#include "DeepgramppTranscription/DeepgramppTranscriptionProvider.h"
-#endif
-
-#ifdef VASDK_HAS_CARTESIAPP_STT
-#include "CartesiappTranscription/CartesiappTranscriptionProvider.h"
-#endif
-
-#ifdef VASDK_HAS_FISHAUDIOPP_STT
-#include "FishaudioppTranscription/FishaudioppTranscriptionProvider.h"
-#endif
-
-#ifdef VASDK_HAS_GRADIUMPP_STT
-#include "GradiumppTranscription/GradiumppTranscriptionProvider.h"
-#endif
-
-#ifdef VASDK_HAS_PARAKEET
-#include "Parakeet/ParakeetTranscriptionProvider.hpp"
-#endif
-
-#ifdef VASDK_HAS_MOONSHINE_STT
-#include "MoonshineSTT/MoonshineSttProvider.hpp"
-#endif
-
-#ifdef VASDK_HAS_WHISPERCPP
-#include "WhisperCpp/WhisperCppTranscriptionProvider.hpp"
-#endif
-
-#ifdef VASDK_HAS_WHISTLE_STT
-#include "WhistleSTT/WhistleTranscriptionProvider.hpp"
-#endif
-
-// TTS providers
-#ifdef VASDK_HAS_DEEPGRAMPP_TTS
-#include "DeepgramppVoiceSynthesis/DeepgramppVoiceSynthesisProvider.h"
-#endif
-
-#ifdef VASDK_HAS_CARTESIAPP_TTS
-#include "CartesiappVoiceSynthesis/CartesiappVoiceSynthesisProvider.h"
-#endif
-
-#ifdef VASDK_HAS_FISHAUDIOPP_TTS
-#include "FishaudioppVoiceSynthesis/FishaudioppVoiceSynthesisProvider.h"
-#endif
-
-#ifdef VASDK_HAS_GRADIUMPP_TTS
-#include "GradiumppVoiceSynthesis/GradiumppVoiceSynthesisProvider.h"
-#endif
-
-#ifdef VASDK_HAS_SONIOXPP_TTS
-#include "SonioxppVoiceSynthesis/SonioxppVoiceSynthesisProvider.h"
-#endif
-
-#ifdef VASDK_HAS_SUPERTONIC_TTS
-#include "SupertonicTTS/SupertonicVoiceSynthesisProvider.hpp"
-#endif
-
-#ifdef VASDK_HAS_POCKET_TTS
-#include "PocketTTS/PocketVoiceSynthesisProvider.hpp"
-#endif
-
-#ifdef VASDK_HAS_PHONON_TTS
-#include "PhononTTS/PhononVoiceSynthesisProvider.hpp"
-#endif
-
-#ifdef VASDK_HAS_MOSS_TTS
-#include "MossTTS/MossVoiceSynthesisProvider.hpp"
-#endif
+// Engine config + provider catalog (VAD, STT and TTS are picked by id from the config)
+#include <VASDK/engine/ProtoFileLoader.h>
+#include <VASDK/engine/ProviderRegistry.h>
+#include <vasdk/engine/engine_config.pb.h>
+#include "ProviderCatalog/ProviderCatalog.h"
 
 // DSP providers
 #ifdef VASDK_HAS_RNNOISE
@@ -393,6 +316,7 @@ std::string findModelsDirectory(char* argv[],
 //  Data structs 
 
 struct CliArgs {
+    std::string engineConfigPath;
     std::string llmModelPath;
     std::string llmEndpoint;
     std::string llmApiKey;
@@ -438,9 +362,7 @@ struct AudioBundle {
     std::shared_ptr<SDLAudioSource> audioSource;
     std::shared_ptr<SDLAudioSink>   audioSink;
 #endif
-#ifdef VASDK_HAS_SILERO_VAD
-    std::shared_ptr<SileroVAD>                                vadProvider;
-#endif
+    std::shared_ptr<va::audio::VADProvider>                   vadProvider;
     std::shared_ptr<va::audio::GenericTranscriptionProvider>  transcriptionProvider;
     std::shared_ptr<va::audio::GenericVoiceSynthesisProvider> ttsProvider;
     // Type-erased setter so setupProcessors never needs to know the concrete sink type.
@@ -506,6 +428,9 @@ CliArgs parseCliArgs(int argc, char* argv[]) {
         "Path to GGUF model file for llama.cpp local LLM inference. "
         "When provided, overrides the default OpenAI-compatible transport.");
 #endif
+    app.add_option("--config", args.engineConfigPath,
+        "Engine config file (.txtpb, .json or .pb): providers, models dir and LLM settings. "
+        "Command-line LLM options override it.");
     app.add_option("--llm-endpoint", args.llmEndpoint,
         "OpenAI-compatible LLM endpoint URL (falls back to LLM_ENDPOINT / OPENAI_BASE_URL env vars)");
     app.add_option("--llm-api-key", args.llmApiKey,
@@ -647,7 +572,8 @@ MetricsBundle setupMetrics(const CliArgs& args) {
     return m;
 }
 
-std::optional<AudioBundle> setupAudioProviders(const std::string& modelsPath, int frameSize) {
+std::optional<AudioBundle> setupAudioProviders(const vasdk::engine::EngineConfig& config,
+                                               const std::string& modelsPath, int frameSize) {
     AudioBundle b;
     b.frameSize = frameSize;
 
@@ -671,123 +597,20 @@ std::optional<AudioBundle> setupAudioProviders(const std::string& modelsPath, in
 #error "No audio I/O backend available. Enable VASDK_BUILD_MINIAUDIO or VASDK_BUILD_SDL."
 #endif
 
-#ifdef VASDK_HAS_SILERO_VAD
-    b.vadProvider = std::make_shared<SileroVAD>(modelsPath + "/silero_vad.onnx");
-    if (!b.vadProvider->initialize(b.inputConfig, b.inputConfig.sampleRate * 4)) {
-        spdlog::error("Failed to initialize VAD provider");
-        return std::nullopt;
-    }
-#endif
+    va::engine::ProviderRegistry registry;
+    va::thirdparty::registerAllProviders(registry);
+    const std::string modelsDir = config.models_dir().empty() ? modelsPath : config.models_dir();
+    const va::engine::ProviderContext input{modelsDir, b.inputConfig, frameSize};
+    const va::engine::ProviderContext output{modelsDir, b.outputConfig, frameSize};
+    std::string error;
 
-#if defined(VASDK_HAS_GRADIUMPP_STT)
-    auto gradiumStt = std::make_shared<va::thirdparty::GradiumppTranscriptionProvider>(
-        std::getenv("GRADIUM_API_KEY") ? std::getenv("GRADIUM_API_KEY") : "");
-    b.transcriptionProvider = gradiumStt;
-#elif defined(VASDK_HAS_SONIOXPP_STT)
-    auto soniox = std::make_shared<va::thirdparty::SonioxppTranscriptionProvider>(
-        std::getenv("SONIOX_API_KEY") ? std::getenv("SONIOX_API_KEY") : "");
-    b.transcriptionProvider = soniox;
-#elif defined(VASDK_HAS_DEEPGRAMPP_STT)
-    auto deepgramStt = std::make_shared<va::thirdparty::DeepgramppTranscriptionProvider>(
-        std::getenv("DEEPGRAM_API_KEY") ? std::getenv("DEEPGRAM_API_KEY") : "");
-    b.transcriptionProvider = deepgramStt;
-#elif defined(VASDK_HAS_CARTESIAPP_STT)
-    auto cartesiaStt = std::make_shared<va::thirdparty::CartesiappTranscriptionProvider>(
-        std::getenv("CARTESIA_API_KEY") ? std::getenv("CARTESIA_API_KEY") : "");
-    b.transcriptionProvider = cartesiaStt;
-#elif defined(VASDK_HAS_FISHAUDIOPP_STT)
-    auto fishaudioStt = std::make_shared<va::thirdparty::FishaudioppTranscriptionProvider>(
-        std::getenv("FISHAUDIO_API_KEY") ? std::getenv("FISHAUDIO_API_KEY") : "");
-    b.transcriptionProvider = fishaudioStt;
-#elif defined(VASDK_HAS_WHISTLE_STT)
-    // Local/offline: opt-in (VASDK_BUILD_WHISTLE_STT), so it wins over Moonshine/Parakeet when built.
-    auto whistle = std::make_shared<WhistleTranscriptionProvider>(modelsPath + "/whistle");
-    WhistleTranscriptionProvider::InferenceConfig inferenceConfig;
-    inferenceConfig.idleTimeoutMs           = 550;
-    inferenceConfig.partialIntervalMs       = 250;
-    inferenceConfig.minNewSamplesForPartial = b.inputConfig.sampleRate / 4;
-    inferenceConfig.minNewSamplesForFinal   = frameSize;
-    if (const char* lang = std::getenv("WHISTLE_LANGUAGE")) inferenceConfig.language = lang;
-    whistle->setInferenceConfig(inferenceConfig);
-    b.transcriptionProvider = whistle;
-#elif defined(VASDK_HAS_MOONSHINE_STT)
-    auto moonshine = std::make_shared<MoonshineSttProvider>(modelsPath + "/moonshine");
-    MoonshineSttProvider::InferenceConfig inferenceConfig;
-    inferenceConfig.idleTimeoutMs     = 350;
-    inferenceConfig.partialIntervalMs = 160;
-    moonshine->setInferenceConfig(inferenceConfig);
-    b.transcriptionProvider = moonshine;
-#elif defined(VASDK_HAS_PARAKEET)
-    auto parakeet = std::make_shared<ParakeetTranscriptionProvider>(modelsPath + "/parakeet");
-    ParakeetTranscriptionProvider::InferenceConfig inferenceConfig;
-    inferenceConfig.idleTimeoutMs           = 550;
-    inferenceConfig.partialIntervalMs       = 250;
-    inferenceConfig.minNewSamplesForPartial = b.inputConfig.sampleRate / 2;
-    inferenceConfig.minNewSamplesForFinal   = inferenceConfig.minNewSamplesForPartial * 2;
-    inferenceConfig.contextSamples          = b.inputConfig.sampleRate / 2;
-    inferenceConfig.silencePaddingSeconds   = 1.0f;
-    parakeet->setInferenceConfig(inferenceConfig);
-    b.transcriptionProvider = parakeet;
-#else
-#error "No transcription provider available - enable VASDK_HAS_SONIOXPP_STT, VASDK_HAS_DEEPGRAMPP_STT, VASDK_HAS_CARTESIAPP_STT, VASDK_HAS_FISHAUDIOPP_STT, VASDK_HAS_GRADIUMPP_STT, VASDK_HAS_WHISTLE_STT, VASDK_HAS_MOONSHINE_STT, VASDK_HAS_PARAKEET, or VASDK_HAS_WHISPERCPP"
-#endif
-    b.transcriptionProvider->setAudioConfiguration(b.inputConfig);
-
-#if defined(VASDK_HAS_GRADIUMPP_TTS)
-    b.ttsProvider = std::make_shared<va::thirdparty::GradiumppVoiceSynthesisProvider>(
-        std::getenv("GRADIUM_API_KEY") ? std::getenv("GRADIUM_API_KEY") : "",
-        std::getenv("GRADIUM_VOICE_ID") ? std::getenv("GRADIUM_VOICE_ID") : "");
-#elif defined(VASDK_HAS_SONIOXPP_TTS)
-    auto sonioxTts = std::make_shared<va::thirdparty::SonioxppVoiceSynthesisProvider>(
-        std::getenv("SONIOX_API_KEY") ? std::getenv("SONIOX_API_KEY") : "");
-    b.ttsProvider = sonioxTts;
-#elif defined(VASDK_HAS_SUPERTONIC_TTS)
-    auto supertonic = std::make_shared<SupertonicVoiceSynthesisProvider>(
-        modelsPath + "/supertonic3/onnx",
-        modelsPath + "/supertonic3/voice_styles/M1.json",
-        std::getenv("SUPERTONIC_TTS_LANG") ? std::getenv("SUPERTONIC_TTS_LANG") : "en");
-    // Diffusion steps trade quality for latency; synthesis time scales roughly linearly with them.
-    supertonic->setTotalSteps(std::getenv("SUPERTONIC_TTS_STEPS") ? std::atoi(std::getenv("SUPERTONIC_TTS_STEPS")) : 10);
-    b.ttsProvider = supertonic;
-#elif defined(VASDK_HAS_DEEPGRAMPP_TTS)
-    b.ttsProvider = std::make_shared<va::thirdparty::DeepgramppVoiceSynthesisProvider>(
-        std::getenv("DEEPGRAM_API_KEY") ? std::getenv("DEEPGRAM_API_KEY") : "");
-#elif defined(VASDK_HAS_CARTESIAPP_TTS)
-    b.ttsProvider = std::make_shared<va::thirdparty::CartesiappVoiceSynthesisProvider>(
-        std::getenv("CARTESIA_API_KEY") ? std::getenv("CARTESIA_API_KEY") : "",
-        std::getenv("CARTESIA_VOICE_ID") ? std::getenv("CARTESIA_VOICE_ID") : "");
-#elif defined(VASDK_HAS_FISHAUDIOPP_TTS)
-    b.ttsProvider = std::make_shared<va::thirdparty::FishaudioppVoiceSynthesisProvider>(
-        std::getenv("FISHAUDIO_API_KEY") ? std::getenv("FISHAUDIO_API_KEY") : "",
-        std::getenv("FISHAUDIO_VOICE_ID") ? std::getenv("FISHAUDIO_VOICE_ID") : "");
-#elif defined(VASDK_HAS_MOSS_TTS)
-    // Local/offline: opt-in (VASDK_BUILD_MOSS_TTS), so it wins over Phonon/PocketTTS when built.
-    auto moss = std::make_shared<MossVoiceSynthesisProvider>(
-        modelsPath + "/moss_tts",
-        std::getenv("MOSS_TTS_VOICE") ? std::getenv("MOSS_TTS_VOICE") : "Ava");
-    moss->setSilenceDuration(0.3f);
-    b.ttsProvider = moss;
-#elif defined(VASDK_HAS_PHONON_TTS)
-    // Local/offline: opt-in (VASDK_BUILD_PHONON_TTS), so it wins over PocketTTS when built.
-    auto phonon = std::make_shared<PhononVoiceSynthesisProvider>(
-        modelsPath + "/phonon_tts",
-        std::getenv("PHONON_TTS_VOICE") ? std::getenv("PHONON_TTS_VOICE") : "Easton",
-        std::getenv("PHONON_TTS_LANG") ? std::getenv("PHONON_TTS_LANG") : "en");
-    if (const char* rules = std::getenv("PHONON_TTS_RULES")) phonon->setNormalizationRules(rules);
-    phonon->setSilenceDuration(0.3f);
-    b.ttsProvider = phonon;
-#elif defined(VASDK_HAS_POCKET_TTS)
-    // Local/offline fallback: only used when no cloud TTS provider is compiled in.
-    auto pocket = std::make_shared<PocketVoiceSynthesisProvider>(modelsPath + "/pocket_tts", "cosette");
-    pocket->setLsdSteps(4);
-    pocket->setVoice("jean");
-    pocket->setPreBufferedSamplesMS(250);
-    pocket->setSilenceDuration(0.3f);
-    b.ttsProvider = pocket;
-#else
-#error "No TTS provider available - enable VASDK_BUILD_SONIOXPP_TTS, VASDK_BUILD_POCKET_TTS, VASDK_BUILD_PHONON_TTS, VASDK_BUILD_MOSS_TTS, VASDK_BUILD_SUPERTONIC_TTS, VASDK_BUILD_DEEPGRAMPP_TTS, VASDK_BUILD_CARTESIAPP_TTS, VASDK_BUILD_FISHAUDIOPP_TTS, or VASDK_BUILD_GRADIUMPP_TTS"
-#endif
-    b.ttsProvider->setAudioConfiguration(b.outputConfig);
+    b.vadProvider = registry.create<va::audio::VADProvider>(config.providers().vad(), input, &error);
+    if (!b.vadProvider) { spdlog::error("No VAD provider: {}", error); return std::nullopt; }
+    b.transcriptionProvider = registry.create<va::audio::GenericTranscriptionProvider>(
+        config.providers().stt(), input, &error);
+    if (!b.transcriptionProvider) { spdlog::error("No transcription provider: {}", error); return std::nullopt; }
+    b.ttsProvider = registry.create<va::audio::GenericVoiceSynthesisProvider>(config.providers().tts(), output, &error);
+    if (!b.ttsProvider) { spdlog::error("No TTS provider: {}", error); return std::nullopt; }
 
     return b;
 }
@@ -1261,10 +1084,22 @@ int main(int argc, char* argv[]) {
     CliArgs       args    = parseCliArgs(argc, argv);
     loadDotenvFile(args.envFile.empty() ? ".env" : args.envFile);
 
-    // Resolve all LLM config once after the env file is loaded.
-    args.llmEndpoint = resolveLlmEndpoint(args.llmEndpoint);
-    args.llmApiKey   = resolveLlmApiKey(args.llmApiKey);
-    args.llmModel    = resolveLlmModel(args.llmModel);
+    // After the env file, so ${VARS} in the config can come from it.
+    vasdk::engine::EngineConfig engineConfig;
+    if (!args.engineConfigPath.empty()) {
+        std::string error;
+        if (!va::engine::loadEngineConfig(args.engineConfigPath, engineConfig, &error)) {
+            spdlog::error("Engine config: {}", error);
+            return -1;
+        }
+        spdlog::info("Engine config: {}", args.engineConfigPath);
+    }
+
+    // Resolve all LLM config once: command line, then engine config, then environment.
+    auto orConfig = [](const std::string& cli, const std::string& configured) { return cli.empty() ? configured : cli; };
+    args.llmEndpoint = resolveLlmEndpoint(orConfig(args.llmEndpoint, engineConfig.llm().endpoint()));
+    args.llmApiKey   = resolveLlmApiKey(orConfig(args.llmApiKey, engineConfig.llm().api_key()));
+    args.llmModel    = resolveLlmModel(orConfig(args.llmModel, engineConfig.llm().model()));
 
     args.metricsEnabled = false;
     MetricsBundle metrics = setupMetrics(args);
@@ -1293,7 +1128,7 @@ int main(int argc, char* argv[]) {
     }
 
     int frameSize = 16000 / 10;  // 100 ms at 16 kHz: VAD/turn decisions land on this grid
-    auto audioOpt = setupAudioProviders(modelsPath, frameSize);
+    auto audioOpt = setupAudioProviders(engineConfig, modelsPath, frameSize);
     if (!audioOpt) return -1;
 
     const std::string systemPrompt = loadOrFallback(args.systemPromptFile,

@@ -1,0 +1,30 @@
+# proto-file: vasdk/engine/engine_config.proto
+# proto-message: vasdk.engine.EngineConfig
+#
+# Engine config for VASDK_Pipeline:  VASDK_Pipeline --config VASDK_APP/config/engine.txtpb
+# Provider ids that are not built into the binary are skipped in favour of `fallback`.
+# ${NAME} reads an environment variable (the .env file is loaded first); ${NAME:-x} defaults to x.
+
+# models_dir: "models"        # default: the models/ folder found next to the executable
+
+providers {
+  vad { id: "silero" }
+
+  # Local: whistle, moonshine, parakeet. Cloud: gradium, soniox, deepgram, cartesia, fishaudio.
+  stt { id: "whistle" fallback: ["parakeet", "moonshine"] }
+
+  # Local: pocket, phonon, moss, supertonic. Cloud: gradium, soniox, deepgram, cartesia, fishaudio.
+  tts {
+    id: "pocket"
+    options { [type.googleapis.com/vasdk.providers.LocalTtsOptions] { voice: "jean" } }
+    fallback: ["phonon"]
+  }
+  # A cloud provider with its key from the environment:
+  # tts { id: "cartesia" options { [type.googleapis.com/vasdk.providers.CloudOptions] { api_key: "${CARTESIA_API_KEY}" } } }
+}
+
+# Command-line --llm-* options override these; unset values fall back to LLM_* environment variables.
+llm {
+  endpoint: "${LLM_ENDPOINT:-}"
+  model: "${LLM_MODEL:-}"
+}

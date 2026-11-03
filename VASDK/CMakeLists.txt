@@ -162,6 +162,31 @@ else()
     message(STATUS "VASDK_ENABLE_HTTP_TRANSPORT=OFF - skipping libcurl, HTTP transports will stub out")
 endif()
 
+#  Engine config files (protobuf schema, loaders, provider registry)
+# Off on Android until gate G1 decides whether full protobuf fits the APK size budget.
+if(ANDROID)
+    set(VASDK_ENGINE_CONFIG_DEFAULT OFF)
+else()
+    set(VASDK_ENGINE_CONFIG_DEFAULT ON)
+endif()
+option(VASDK_ENABLE_ENGINE_CONFIG "Build engine config files (protobuf) and the provider registry" ${VASDK_ENGINE_CONFIG_DEFAULT})
+if(VASDK_ENABLE_ENGINE_CONFIG)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/VASDKProtobuf.cmake)
+    # Generated code is compiled into VASDK only: linking it twice would register the
+    # descriptors twice and abort at startup.
+    target_sources(VASDK PRIVATE
+        ./src/engine/ProtoFileLoader.cpp
+        ./proto/vasdk/engine/engine_config.proto
+    )
+    protobuf_generate(TARGET VASDK
+        IMPORT_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/proto
+        PROTOC_OUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/proto)
+    target_include_directories(VASDK PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/proto>)
+    target_link_libraries(VASDK PUBLIC protobuf::libprotobuf)
+    target_compile_definitions(VASDK PUBLIC VASDK_HAS_ENGINE_CONFIG)
+    message(STATUS "VASDK: engine config files enabled")
+endif()
+
 set_target_properties(VASDK PROPERTIES
     VERSION   ${PROJECT_VERSION}
     SOVERSION ${PROJECT_VERSION_MAJOR}
@@ -240,6 +265,15 @@ if(VASDK_BUILD_TESTS)
     target_link_libraries(vasdk_tool_dispatch_race_test PRIVATE VASDK nlohmann_json::nlohmann_json)
     add_test(NAME vasdk_tool_dispatch_race COMMAND vasdk_tool_dispatch_race_test)
 
+    if(VASDK_ENABLE_ENGINE_CONFIG)
+        add_executable(vasdk_proto_load_test tests/proto_load_test.cpp)
+        target_link_libraries(vasdk_proto_load_test PRIVATE VASDK)
+        add_test(NAME vasdk_proto_load COMMAND vasdk_proto_load_test)
+
+        add_executable(vasdk_provider_registry_test tests/provider_registry_test.cpp)
+        target_link_libraries(vasdk_provider_registry_test PRIVATE VASDK)
+        add_test(NAME vasdk_provider_registry COMMAND vasdk_provider_registry_test)
+    endif()
 endif()
 
 if(VASDK_BUILD_TESTS AND NOT WIN32)

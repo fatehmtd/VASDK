@@ -503,3 +503,8 @@ endif()
 if(VASDK_BUILD_LLAMACPP)
     add_subdirectory(LlamaCpp)
 endif()
+
+# Provider catalog (engine config ids -> providers); needs the protobuf-based engine config
+if(VASDK_ENABLE_ENGINE_CONFIG)
+    add_subdirectory(ProviderCatalog)
+endif()

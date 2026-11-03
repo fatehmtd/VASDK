@@ -1,0 +1,33 @@
+// Engine configuration: which providers to run and how to reach the LLM.
+// Written as text proto (engine.txtpb), JSON or binary; see docs/reference/engine-config.md.
+// Fields are only ever added, so older config files keep loading.
+syntax = "proto3";
+
+package vasdk.engine;
+
+import "google/protobuf/any.proto";
+
+// One provider choice. `id` names an entry in the ProviderRegistry ("parakeet", "soniox", ...).
+message ProviderSpec {
+  string id = 1;                       // empty: the first provider built into this binary
+  google.protobuf.Any options = 2;     // the provider's own options message, e.g. vasdk.providers.CloudOptions
+  repeated string fallback = 3;        // ids tried in order when `id` is not built in or fails to start
+}
+
+message Providers {
+  ProviderSpec vad = 1;
+  ProviderSpec stt = 2;
+  ProviderSpec tts = 3;
+}
+
+message LlmConfig {
+  string endpoint = 1;
+  string model = 2;
+  string api_key = 3;
+}
+
+message EngineConfig {
+  string models_dir = 1;               // base directory for local model files
+  Providers providers = 2;
+  LlmConfig llm = 3;                   // unset: the app's command-line or built-in defaults
+}
