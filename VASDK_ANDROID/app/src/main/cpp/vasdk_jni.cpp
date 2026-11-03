@@ -243,6 +243,7 @@ Java_com_vasdk_android_VasdkEngine_nativeInit(JNIEnv *env, jobject thiz, jstring
     sttParams.caBundlePath = caBundlePathStr;
     sttParams.audioConfig = audioConfig;
     sttParams.frameSize = frameSize;
+    sttParams.javaVm = gJvm;
 
     auto transcriptionProvider = createTranscriptionProvider(sttParams);
     if (!transcriptionProvider) {
