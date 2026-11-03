@@ -18,6 +18,7 @@ message Providers {
   ProviderSpec vad = 1;
   ProviderSpec stt = 2;
   ProviderSpec tts = 3;
+  ProviderSpec turn = 4;               // end-of-turn model; none built in: VAD silence decides
 }
 
 message LlmConfig {

@@ -4,6 +4,7 @@
 
 #include <VASDK/GenericTranscriptionProvider.h>
 #include <VASDK/GenericVoiceSynthesisProvider.h>
+#include <VASDK/TurnDetectionProvider.h>
 #include <VASDK/VADProvider.h>
 
 #include <cstdlib>
@@ -58,6 +59,9 @@
 #endif
 #ifdef VASDK_HAS_PHONON_TTS
 #include "PhononTTS/PhononVoiceSynthesisProvider.hpp"
+#endif
+#ifdef VASDK_HAS_SMART_TURN_V3
+#include "SmartTurnV3/SmartTurnV3Provider.h"
 #endif
 #ifdef VASDK_HAS_POCKET_TTS
 #include "PocketTTS/PocketVoiceSynthesisProvider.hpp"
@@ -259,12 +263,28 @@ void registerTts([[maybe_unused]] engine::ProviderRegistry& registry) {
 #endif
 }
 
+void registerTurn([[maybe_unused]] engine::ProviderRegistry& registry) {
+#ifdef VASDK_HAS_SMART_TURN_V3
+    registry.add<audio::TurnDetectionProvider, providers::SmartTurnOptions>("smartturn-v3",
+        [](const providers::SmartTurnOptions& options, const ProviderContext& context)
+            -> std::shared_ptr<audio::TurnDetectionProvider> {
+            auto smartTurn = std::make_shared<SmartTurnV3Provider>(
+                options.model_path().empty() ? context.modelsDir + "/smart_turn_v3.onnx" : options.model_path(),
+                0.5f, 8.0f, 3);
+            smartTurn->setEvaluateOnPause(true);  // end the turn at the pause when it's clearly over
+            if (!smartTurn->initialize(context.audio, context.ringBuffer)) return nullptr;
+            return smartTurn;
+        });
+#endif
+}
+
 } // namespace
 
 void registerAllProviders(engine::ProviderRegistry& registry) {
     registerVad(registry);
     registerStt(registry);
     registerTts(registry);
+    registerTurn(registry);
 }
 
 } // namespace thirdparty

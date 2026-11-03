@@ -12,6 +12,8 @@
 #include <condition_variable>
 
 namespace va {
+class AudioRingBuffer;
+
 namespace transport {
 
 /**
@@ -288,6 +290,26 @@ protected:
     va::metrics::CounterHandle _errorMetric;
     va::metrics::CounterHandle _droppedMetric;
     va::metrics::GaugeHandle   _connectedGauge;
+};
+
+/**
+ * @brief A transport that carries live audio: mic in, speech out (local devices, WebRTC).
+ *
+ * Lets VAEngine configure and control any such transport without knowing its type.
+ * Call the setters before initialize().
+ */
+class VASDK_EXPORT AudioTransport : public BaseTransport {
+public:
+    virtual void setInputAudioConfig(const audio::AudioConfig& config) = 0;
+    virtual void setOutputAudioConfig(const audio::AudioConfig& config) = 0;
+    /** Samples per audio frame sent into the pipeline. */
+    virtual void setFrameSize(size_t samples) = 0;
+    /** Mic audio is also written here, for processors that read it directly (VAD, STT). */
+    virtual void setRingBuffer(std::shared_ptr<AudioRingBuffer> ringBuffer) = 0;
+    /** Drop speech that is queued but not played yet (barge-in). */
+    virtual void flushOutputAudio() {}
+    /** Duck or pause playback while a barge-in is pending; held = false releases. */
+    virtual void holdOutputAudio(PendingPlaybackMode, bool /*held*/, float /*duckGainDecibels*/) {}
 };
 
 } // namespace transport

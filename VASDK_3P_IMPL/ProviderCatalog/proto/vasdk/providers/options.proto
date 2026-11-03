@@ -31,3 +31,7 @@ message LocalTtsOptions {
   string language = 3;           // supertonic, phonon; unset: <PROVIDER>_TTS_LANG, then "en"
   int32 steps = 4;               // supertonic diffusion steps, pocket LSD steps; 0: default
 }
+
+message SmartTurnOptions {
+  string model_path = 1;   // default: <models_dir>/smart_turn_v3.onnx
+}

@@ -34,6 +34,7 @@ set(_vasdk_catalog_providers
     vasdk_moss_tts        MOSS_TTS
     vasdk_phonon_tts      PHONON_TTS
     vasdk_pocket_tts      POCKET_TTS
+    vasdk_smartturn_v3    SMART_TURN_V3
 )
 list(LENGTH _vasdk_catalog_providers _count)
 math(EXPR _last "${_count} - 1")

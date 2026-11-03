@@ -84,25 +84,11 @@ if(VASDK_BUILD_FFMPEG_AUDIO AND TARGET vasdk_ffmpeg_audio)
     target_compile_definitions(VASDK_Pipeline PRIVATE VASDK_HAS_FFMPEG_AUDIO)
 endif()
 
-# Link the RNNoise DSP provider if it was built
-if(VASDK_BUILD_RNNOISE AND TARGET vasdk_rnnoise)
-    target_link_libraries(VASDK_Pipeline PRIVATE vasdk_rnnoise)
-    target_compile_definitions(VASDK_Pipeline PRIVATE VASDK_HAS_RNNOISE)
-    message(STATUS "[VASDK_Pipeline] RNNoise noise-suppression enabled")
-endif()
-
 # Link the VizAnim provider if it was built
 if(VASDK_BUILD_VIZANIM AND TARGET vasdk_vizanim)
     target_link_libraries(VASDK_Pipeline PRIVATE vasdk_vizanim)
     target_compile_definitions(VASDK_Pipeline PRIVATE VASDK_HAS_VIZANIM)
     message(STATUS "[VASDK_Pipeline] VizAnim audio feature extraction enabled")
-endif()
-
-# Link the SmartTurn v3 provider if it was built
-if(VASDK_BUILD_SMART_TURN_V3 AND TARGET vasdk_smartturn_v3)
-    target_link_libraries(VASDK_Pipeline PRIVATE vasdk_smartturn_v3)
-    target_compile_definitions(VASDK_Pipeline PRIVATE VASDK_HAS_SMART_TURN_V3)
-    message(STATUS "[VASDK_Pipeline] SmartTurn v3 turn detection enabled")
 endif()
 
 # Link the pyannote speaker embedding provider if it was built
@@ -122,11 +108,6 @@ endif()
 if(VASDK_BUILD_LLAMACPP AND TARGET vasdk_llamacpp)
     target_link_libraries(VASDK_Pipeline PRIVATE vasdk_llamacpp)
     target_compile_definitions(VASDK_Pipeline PRIVATE VASDK_HAS_LLAMACPP)
-    if(DEFINED VASDK_LLAMACPP_MODEL_FILENAME AND NOT VASDK_LLAMACPP_MODEL_FILENAME STREQUAL "")
-        target_compile_definitions(VASDK_Pipeline PRIVATE
-            VASDK_LLAMACPP_DEFAULT_MODEL="${VASDK_LLAMACPP_MODEL_FILENAME}")
-        message(STATUS "[VASDK_Pipeline] llama.cpp default model: ${VASDK_LLAMACPP_MODEL_FILENAME}")
-    endif()
     message(STATUS "[VASDK_Pipeline] llama.cpp local LLM provider enabled")
 endif()
 

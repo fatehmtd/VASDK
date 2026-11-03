@@ -2,7 +2,7 @@
 
 Source of truth: [`engine_config.proto`](../../VASDK/proto/vasdk/engine/engine_config.proto), [`ProtoFileLoader.h`](../../VASDK/include/VASDK/engine/ProtoFileLoader.h), [`ProviderRegistry.h`](../../VASDK/include/VASDK/engine/ProviderRegistry.h), [`options.proto`](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto).
 
-An engine config picks the VAD, STT and TTS providers and the LLM settings at run time, so switching from Whistle to Parakeet, or from PocketTTS to Cartesia, is a file edit instead of a rebuild. The schema is a protobuf message (`vasdk.engine.EngineConfig`); you write it as text proto.
+An engine config picks the VAD, STT, TTS and turn-detection providers and the LLM settings at run time, so switching from Whistle to Parakeet, or from PocketTTS to Cartesia, is a file edit instead of a rebuild. The schema is a protobuf message (`vasdk.engine.EngineConfig`); you write it as text proto.
 
 ```textproto
 # proto-file: vasdk/engine/engine_config.proto
@@ -19,7 +19,7 @@ providers {
 llm { endpoint: "${LLM_ENDPOINT:-https://openrouter.ai/api/v1/chat/completions}" model: "${LLM_MODEL}" }
 ```
 
-Run it with `VASDK_Pipeline --config my-engine.txtpb`. A commented example ships in [`VASDK_APP/config/engine.txtpb`](../../VASDK_APP/config/engine.txtpb).
+Run it with `VASDK_Pipeline --config my-engine.txtpb`, or build an assistant from it in your own app with [`VAEngine`](engine.md). A commented example ships in [`VASDK_APP/config/engine.txtpb`](../../VASDK_APP/config/engine.txtpb).
 
 ## Formats
 
@@ -39,7 +39,7 @@ Inside quoted strings, `${NAME}` is replaced with the environment variable `NAME
 
 Each `ProviderSpec` has:
 
-- `id`: which provider to create. When empty, the first one built into the binary is used, in this order. VAD: `silero`. STT: `gradium`, `soniox`, `deepgram`, `cartesia`, `fishaudio`, `whistle`, `moonshine`, `parakeet`. TTS: `gradium`, `soniox`, `supertonic`, `deepgram`, `cartesia`, `fishaudio`, `moss`, `phonon`, `pocket`. This order matches what VASDK_Pipeline picked before config files existed, so running without `--config` behaves as before.
+- `id`: which provider to create. When empty, the first one built into the binary is used, in this order. VAD: `silero`. STT: `gradium`, `soniox`, `deepgram`, `cartesia`, `fishaudio`, `whistle`, `moonshine`, `parakeet`. TTS: `gradium`, `soniox`, `supertonic`, `deepgram`, `cartesia`, `fishaudio`, `moss`, `phonon`, `pocket`. Turn: `smartturn-v3`; with no turn model built in, the VAD's silence ends the turn. This order matches what VASDK_Pipeline picked before config files existed, so running without `--config` behaves as before.
 - `options`: the provider's own options message, written with the `Any` syntax `[type.googleapis.com/<message>] { ... }`. Every field is optional. Unset fields fall back to the provider's environment variable (`SONIOX_API_KEY`, `PHONON_TTS_VOICE`, …), then to its default.
 
   | Message | Providers | Fields |
@@ -48,6 +48,7 @@ Each `ProviderSpec` has:
   | `vasdk.providers.SileroOptions` | `silero` | `model_path` |
   | `vasdk.providers.LocalSttOptions` | `whistle`, `moonshine`, `parakeet` | `model_dir`, `idle_timeout_ms`, `partial_interval_ms`, `language` |
   | `vasdk.providers.LocalTtsOptions` | `supertonic`, `moss`, `phonon`, `pocket` | `model_dir`, `voice`, `language`, `steps` |
+  | `vasdk.providers.SmartTurnOptions` | `smartturn-v3` | `model_path` |
 
 - `fallback`: ids to try, in order, when `id` is not built into the binary or fails to start (a missing model file, for example). Options apply to `id` only; a fallback starts with its defaults. The log shows which provider was used and why the others were skipped.
 

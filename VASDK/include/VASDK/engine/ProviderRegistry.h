@@ -1,5 +1,6 @@
 #pragma once
 
+#include <VASDK/AudioRingBuffer.h>
 #include <VASDK/CommonAudioUtils.h>
 #include <vasdk/engine/engine_config.pb.h>
 
@@ -21,6 +22,7 @@ struct ProviderContext {
     std::string modelsDir;
     audio::AudioConfig audio{};
     int frameSize = 0;   // samples per pipeline frame
+    std::shared_ptr<AudioRingBuffer> ringBuffer;   // mic audio, for providers that read it directly
 };
 
 /**

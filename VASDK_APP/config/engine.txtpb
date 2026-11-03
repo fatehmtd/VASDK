@@ -19,6 +19,9 @@ providers {
     options { [type.googleapis.com/vasdk.providers.LocalTtsOptions] { voice: "jean" } }
     fallback: ["phonon"]
   }
+  # End-of-turn model: smartturn-v3. Without one, the VAD's silence ends the turn.
+  # turn { id: "smartturn-v3" }
+
   # A cloud provider with its key from the environment:
   # tts { id: "cartesia" options { [type.googleapis.com/vasdk.providers.CloudOptions] { api_key: "${CARTESIA_API_KEY}" } } }
 }

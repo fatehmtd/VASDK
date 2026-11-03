@@ -1,18 +1,18 @@
 # VASDK_Pipeline: the general-purpose voice assistant showcase
 
-`VASDK_Pipeline` is the reference application for the SDK: a complete, push-to-talk-free voice assistant that captures microphone audio, detects speech, transcribes it, runs an LLM turn with tool calling, synthesizes the reply, and plays it back. [`main_pipeline.cpp`](main_pipeline.cpp) is the file to read when you want to see every wiring decision in one place.
+`VASDK_Pipeline` is the reference application for the SDK: a complete, push-to-talk-free voice assistant that captures microphone audio, detects speech, transcribes it, runs an LLM turn with tool calling, synthesizes the reply, and plays it back. The pipeline itself is built by [`VAEngine`](../docs/reference/engine.md); [`main_pipeline.cpp`](main_pipeline.cpp) adds the app's own parts: audio I/O, demo tools, recording, visualisers and the terminal UI.
 
 ## Pipeline shape
 
 ```mermaid
 flowchart LR
-    TIn["Transport In<br/>(mic)"] --> DSP["DSP<br/>(RNNoise)"] --> VAD["VAD<br/>(Silero)"] --> Turn["Turn Detection<br/>(SmartTurn v3)"] --> STT --> Agent["Agent State"] --> LLM["LLM + Tool Dispatch"] --> TTS --> TOut["Transport Out<br/>(spkr)"]
+    TIn["Transport In<br/>(mic)"] --> VAD["VAD<br/>(Silero)"] --> Turn["Turn Detection<br/>(SmartTurn v3)"] --> STT --> Agent["Agent State"] --> LLM["LLM + Tool Dispatch"] --> TTS --> TOut["Transport Out<br/>(spkr)"]
     TOut -.->|"upstream: ErrorFrame, INTERRUPT, SynthesisStateFrame"| TIn
 ```
 
-(Exact `addProcessor` order, including the debug/animation observers elided here, is in `buildAndStartPipeline()` in [`main_pipeline.cpp`](main_pipeline.cpp) - note agent state sits *before* the LLM, where it gates stale transcriptions.)
+(The exact order is printed at startup as `[VAEngine] Started: ...`, including the debug and animation processors elided here; [`addAppProcessors()`](main_pipeline.cpp) shows where the app adds them. Agent state sits *before* the LLM, where it gates stale transcriptions.)
 
-VAD, STT and TTS are chosen at run time: `--config` names a provider id per stage (see [Engine config files](../docs/reference/engine-config.md)), and without it the first provider built in wins, in the same order as before. The other stages are still selected at build time through `#ifdef VASDK_HAS_*` blocks: whichever providers were enabled at configure time get constructed, and the first available one per stage wins (for example, MiniAudio is preferred over SDL for audio I/O, and a local GGUF model via llama.cpp takes over from the OpenAI-compatible HTTP transport when `--llm-model-path` is set).
+VAD, STT, TTS and turn detection are chosen at run time: `--config` names a provider id per stage (see [Engine config files](../docs/reference/engine-config.md)), and without it the first provider built in wins. Audio I/O is chosen at build time (MiniAudio is preferred over SDL), and a local GGUF model via llama.cpp replaces the OpenAI-compatible HTTP transport when `--llm-model-path` is set.
 
 ## What it demonstrates
 

@@ -16,7 +16,6 @@ add_library(VASDK SHARED
     # Core sources
     ./src/AudioRingBuffer.cpp
     ./src/AudioSIMD.cpp
-    ./src/VAEngine.cpp
     # Transport infrastructure
     ./src/Transport.cpp
     ./src/HttpTransport.cpp
@@ -176,6 +175,7 @@ if(VASDK_ENABLE_ENGINE_CONFIG)
     # descriptors twice and abort at startup.
     target_sources(VASDK PRIVATE
         ./src/engine/ProtoFileLoader.cpp
+        ./src/VAEngine.cpp
         ./proto/vasdk/engine/engine_config.proto
     )
     protobuf_generate(TARGET VASDK
@@ -273,6 +273,10 @@ if(VASDK_BUILD_TESTS)
         add_executable(vasdk_provider_registry_test tests/provider_registry_test.cpp)
         target_link_libraries(vasdk_provider_registry_test PRIVATE VASDK)
         add_test(NAME vasdk_provider_registry COMMAND vasdk_provider_registry_test)
+
+        add_executable(vasdk_engine_assembly_test tests/engine_assembly_test.cpp)
+        target_link_libraries(vasdk_engine_assembly_test PRIVATE VASDK)
+        add_test(NAME vasdk_engine_assembly COMMAND vasdk_engine_assembly_test)
     endif()
 endif()
 
