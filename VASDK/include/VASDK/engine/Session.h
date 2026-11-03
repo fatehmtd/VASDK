@@ -8,9 +8,12 @@
 #include <memory>
 #include <string>
 
+namespace google::protobuf { class Value; }
+
 namespace va {
 
 class AudioRingBuffer;
+namespace context { class ContextProvider; }
 namespace flow { class CompiledAgent; }
 namespace llm { class LLMTransport; class Tool; class ToolDispatchProcessor; }
 namespace metrics { class MetricsReporter; }
@@ -61,6 +64,8 @@ public:
         /** Answer turns from this agent's pages (CompiledAgent::load), before any LLM. Sessions
          *  may share one agent; each keeps its own place in it. */
         std::shared_ptr<const flow::CompiledAgent> agent;
+        /** What the agent's $context.* references read: device state, location, app data. */
+        std::shared_ptr<context::ContextProvider> context;
         /** Send every frame to the transport, not just speech audio: for a UI that shows state (WebRTC page). */
         bool sendAllFramesToTransport = false;
         pipeline::BackchannelConfig backchannel;
@@ -108,6 +113,12 @@ public:
      * 8000). 0 closes it at once, -1 never. Thread-safe; applies from the next reply.
      */
     void setFollowUpListenMs(int ms);
+    /**
+     * Sets an agent session param ($session.<name>), e.g. the caller's tier from a CRM. It must
+     * be declared in the agent; a mismatched type is logged. Applies from the next turn; kept
+     * until the caller disconnects. Thread-safe; needs Options::agent.
+     */
+    void setSessionParam(const std::string& name, const google::protobuf::Value& value);
 
     const std::string& id() const;
     bool hasLLM() const;

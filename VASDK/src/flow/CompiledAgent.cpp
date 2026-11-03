@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cctype>
 #include <deque>
+#include <functional>
 #include <set>
 
 namespace va {
@@ -70,6 +71,65 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent a
         }
         if (intent.examples().empty()) check.error(where, "has no examples");
     }
+    for (int i = 0; i < definition.session_params_size(); ++i) {
+        const auto& param = definition.session_params(i);
+        const std::string where = "session param " + (param.name().empty() ? std::to_string(i + 1) : quoted(param.name()));
+        if (param.name().empty()) check.error(where, "has no name");
+        else if (!compiled->_sessionParams.emplace(param.name(), i).second) check.error(where, "is declared twice");
+        if (!fitsType(param.type(), param.default_()))
+            check.error(where, "default doesn't fit its type " + vasdk::flow::SessionParam::Type_Name(param.type()));
+    }
+
+    // References must name something that exists: a declared session param, a page field, ...
+    auto checkReferences = [&](const std::vector<Path>& references, const std::string& where) {
+        for (const auto& path : references) {
+            const std::string& root = path[0];
+            const std::string field = path.size() > 1 ? path[1] : "";
+            bool known = true;
+            if (root == "session") {
+                if (!compiled->_sessionParams.count(field)) {
+                    check.error(where, pathText(path) + ": no session param " + quoted(field) + " is declared");
+                    continue;
+                }
+            } else if (root == "page") {
+                known = (field == "name" && path.size() == 2) || (field == "locals" && path.size() >= 3);
+            } else if (root == "input") {
+                known = field == "text" && path.size() == 2;
+            } else if (root == "nlu") {
+                known = field == "intent" && path.size() == 2;
+            } else if (root == "context") {
+                known = path.size() >= 2;
+            } else {
+                known = false;
+            }
+            if (!known)
+                check.error(where, "unknown reference " + pathText(path) +
+                                       " (use $session.<name>, $page.name, $page.locals.<name>, $input.text, "
+                                       "$nlu.intent or $context.<name>)");
+        }
+    };
+    auto compileExpression = [&](const std::string& text, const std::string& where) {
+        if (text.empty()) {
+            check.error(where, "is empty");
+            return std::shared_ptr<const Expression>();
+        }
+        std::string parseError;
+        auto expression = Expression::parse(text, &parseError);
+        if (!expression) {
+            check.error(where, quoted(text) + ": " + parseError);
+            return expression;
+        }
+        checkReferences(expression->references(), where);
+        compiled->_expressions.emplace(text, expression);
+        return expression;
+    };
+    auto checkTemplate = [&](const std::string& text, const std::string& where) {
+        std::vector<Path> references;
+        std::string templateError;
+        if (!templateReferences(text, references, &templateError)) check.error(where, templateError);
+        checkReferences(references, where);
+    };
+
     compiled->_pages.resize(definition.flows_size());
     for (int f = 0; f < definition.flows_size(); ++f) {
         const auto& flow = definition.flows(f);
@@ -109,17 +169,45 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent a
                 if (auto next = compiled->resolve(target, here)) leadsTo[f][p].push_back(*next);
                 else check.error(at, "unknown target " + quoted(target));
             };
-            auto checkSteps = [&](const google::protobuf::RepeatedPtrField<vasdk::flow::Step>& steps,
-                                  const std::string& at) {
+            using Steps = google::protobuf::RepeatedPtrField<vasdk::flow::Step>;
+            std::function<void(const Steps&, const std::string&)> checkSteps = [&](const Steps& steps,
+                                                                                  const std::string& at) {
                 for (int s = 0; s < steps.size(); ++s) {
                     const auto& step = steps.Get(s);
                     const std::string stepWhere = at + " step " + std::to_string(s + 1);
                     switch (step.kind_case()) {
                     case vasdk::flow::Step::kSay:
                         if (step.say().text().empty()) check.error(stepWhere, "say has no text");
+                        for (const auto& text : step.say().text()) checkTemplate(text, stepWhere);
                         break;
                     case vasdk::flow::Step::kAsk:
                         if (step.ask().say().text().empty()) check.error(stepWhere, "ask has no text");
+                        for (const auto& text : step.ask().say().text()) checkTemplate(text, stepWhere);
+                        break;
+                    case vasdk::flow::Step::kSet: {
+                        compileExpression(step.set().value(), stepWhere + " set value");
+                        std::string keyError;
+                        auto key = Expression::parse(step.set().key(), &keyError);
+                        const Path* path = key ? key->reference() : nullptr;
+                        const bool writable = path && ((path->size() == 2 && (*path)[0] == "session") ||
+                                                       (path->size() == 3 && (*path)[0] == "page" && (*path)[1] == "locals"));
+                        if (!writable)
+                            check.error(stepWhere, "set key " + quoted(step.set().key()) +
+                                                       " must be $session.<name> or $page.locals.<name>");
+                        else
+                            checkReferences({*path}, stepWhere + " set key");
+                        break;
+                    }
+                    case vasdk::flow::Step::kBranch:
+                        compileExpression(step.branch().if_(), stepWhere + " branch if");
+                        checkSteps(step.branch().then(), stepWhere + " then");
+                        checkSteps(step.branch().else_(), stepWhere + " else");
+                        break;
+                    case vasdk::flow::Step::kSwitch:
+                        compileExpression(step.switch_().on(), stepWhere + " switch on");
+                        for (int c = 0; c < step.switch_().cases_size(); ++c)
+                            checkSteps(step.switch_().cases(c).steps(), stepWhere + " case " + std::to_string(c + 1));
+                        checkSteps(step.switch_().default_(), stepWhere + " default");
                         break;
                     case vasdk::flow::Step::kGoto:
                         if (step.goto_().target().empty()) check.error(stepWhere, "goto has no target");
@@ -137,9 +225,10 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent a
             for (int r = 0; r < page.routes_size(); ++r) {
                 const auto& route = page.routes(r);
                 const std::string routeWhere = where + " route " + std::to_string(r + 1);
-                if (route.intent().empty()) check.error(routeWhere, "has no intent");
-                else if (!compiled->_intentExamples.count(route.intent()))
+                if (route.intent().empty() && route.condition().empty()) check.error(routeWhere, "has no intent or condition");
+                else if (!route.intent().empty() && !compiled->_intentExamples.count(route.intent()))
                     check.error(routeWhere, "unknown intent " + quoted(route.intent()));
+                if (!route.condition().empty()) compileExpression(route.condition(), routeWhere + " condition");
                 usedIntents.insert(route.intent());
                 checkSteps(route.steps(), routeWhere);
                 checkTarget(route.target(), routeWhere);
@@ -197,6 +286,28 @@ std::optional<CompiledAgent::PageRef> CompiledAgent::resolve(const std::string& 
     const auto page = _pages[from.flow].find(target);
     if (page == _pages[from.flow].end()) return std::nullopt;
     return PageRef{from.flow, page->second};
+}
+
+const vasdk::flow::SessionParam* CompiledAgent::sessionParam(const std::string& name) const {
+    const auto found = _sessionParams.find(name);
+    return found == _sessionParams.end() ? nullptr : &_agent.session_params(found->second);
+}
+
+std::shared_ptr<const Expression> CompiledAgent::expression(const std::string& text) const {
+    const auto found = _expressions.find(text);
+    return found == _expressions.end() ? nullptr : found->second;
+}
+
+bool fitsType(vasdk::flow::SessionParam::Type type, const Value& value) {
+    switch (value.kind_case()) {
+    case Value::KIND_NOT_SET:
+    case Value::kNullValue: return true;
+    case Value::kStringValue: return type == vasdk::flow::SessionParam::STRING;
+    case Value::kNumberValue: return type == vasdk::flow::SessionParam::NUMBER;
+    case Value::kBoolValue: return type == vasdk::flow::SessionParam::BOOL;
+    case Value::kListValue: return type == vasdk::flow::SessionParam::LIST;
+    default: return false;
+    }
 }
 
 int CompiledAgent::matchIntent(const std::string& intent, const std::vector<std::string>& words) const {

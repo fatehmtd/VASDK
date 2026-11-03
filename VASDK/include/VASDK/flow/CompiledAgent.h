@@ -1,6 +1,7 @@
 #pragma once
 
 #include "vasdk_export.h"
+#include "Expression.h"
 #include "vasdk/flow/agent.pb.h"
 
 #include <map>
@@ -52,6 +53,10 @@ public:
     std::optional<PageRef> resolve(const std::string& target, PageRef from) const;
     /** The word count of the intent's longest example found in `words`, in order; 0 for none. */
     int matchIntent(const std::string& intent, const std::vector<std::string>& words) const;
+    /** A declared session param, or nullptr. */
+    const vasdk::flow::SessionParam* sessionParam(const std::string& name) const;
+    /** An expression from the agent, parsed when it loaded; nullptr for text it doesn't hold. */
+    std::shared_ptr<const Expression> expression(const std::string& text) const;
 
 private:
     CompiledAgent() = default;
@@ -61,7 +66,12 @@ private:
     std::map<std::string, int> _flows;
     std::vector<std::map<std::string, int>> _pages;   // per flow: page name → index
     std::map<std::string, std::vector<std::vector<std::string>>> _intentExamples;   // split into words
+    std::map<std::string, int> _sessionParams;                                       // name → index
+    std::map<std::string, std::shared_ptr<const Expression>> _expressions;           // by source text
 };
+
+/** Whether `value` fits a session param of `type`; null always does. */
+VASDK_EXPORT bool fitsType(vasdk::flow::SessionParam::Type type, const Value& value);
 
 /** Route and Goto targets with a meaning of their own. */
 inline constexpr const char* kTargetEndSession = "END_SESSION";

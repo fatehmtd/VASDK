@@ -3,6 +3,7 @@
 #include "vasdk_export.h"
 #include "CompiledAgent.h"
 
+#include <functional>
 #include <map>
 #include <memory>
 #include <string>
@@ -58,6 +59,21 @@ public:
     std::string flowName() const;
     std::string pageName() const;
 
+    /**
+     * Sets a declared session param ($session.<name>). A number or boolean given for a STRING
+     * param, or a numeric string for a NUMBER one, is converted; false, with `error` set, for an
+     * undeclared name or a value that doesn't fit. Values stay for the whole conversation, also
+     * after it ends and starts over.
+     */
+    bool setSessionParam(const std::string& name, const Value& value, std::string* error = nullptr);
+    /** A session param's value; null when unset or undeclared. */
+    Value sessionParam(const std::string& name) const;
+    /** What $context.* reads, asked each time a reference needs it (it may change any time). */
+    using ContextSource = std::function<google::protobuf::Struct()>;
+    void setContextSource(ContextSource source) { _context = std::move(source); }
+    /** The value a reference resolves to now ($session.tier, $page.locals.x, $input.text, ...). */
+    Value lookup(const Path& path) const;
+
     /** Pages entered in one turn before it stops (a goto loop). */
     static constexpr int kMaxTransitions = 8;
 
@@ -71,10 +87,17 @@ private:
     PageChange changeTo(CompiledAgent::PageRef target, std::string reason) const;
     void moveTo(CompiledAgent::PageRef target, std::string reason, Reply& reply);
     void end(Reply& reply);
+    bool holds(const std::string& condition) const;
+    Value evaluate(const std::string& expression) const;
 
     std::shared_ptr<const CompiledAgent> _agent;
     CompiledAgent::PageRef _position;
     bool _ended = false;
+    google::protobuf::Struct _session;      // declared params, with their defaults
+    google::protobuf::Struct _pageLocals;   // cleared on entering a page
+    std::string _inputText;                 // the user's words this turn
+    std::string _intent;                    // the matched route's intent this turn
+    ContextSource _context;
     std::string _lastQuestion;                              // repeated when an answer isn't understood
     std::map<const vasdk::flow::Say*, size_t> _sayCounts;   // which of a Say's texts comes next
 };

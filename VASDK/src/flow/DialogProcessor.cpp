@@ -14,6 +14,16 @@ public:
     std::shared_ptr<transport::Frame> clone() const override { return std::make_shared<ConnectionFrame>(connected); }
     const bool connected;
 };
+
+// setSessionParam() from an app thread, applied on the processor's own thread.
+class SessionParamFrame : public transport::Frame {
+public:
+    SessionParamFrame(std::string name, Value value) : name(std::move(name)), value(std::move(value)) {}
+    transport::FrameType getType() const override { return transport::FrameType::CONTROL; }
+    std::shared_ptr<transport::Frame> clone() const override { return std::make_shared<SessionParamFrame>(name, value); }
+    const std::string name;
+    const Value value;
+};
 } // namespace
 
 DialogProcessor::DialogProcessor(std::shared_ptr<const CompiledAgent> agent)
@@ -22,7 +32,18 @@ DialogProcessor::DialogProcessor(std::shared_ptr<const CompiledAgent> agent)
 bool DialogProcessor::shouldProcess(std::shared_ptr<transport::Frame> frame) const {
     const auto type = frame->getType();
     return type == transport::FrameType::USER_TURN || type == transport::FrameType::AGENT_STATE ||
-           dynamic_cast<const ConnectionFrame*>(frame.get()) != nullptr;
+           dynamic_cast<const ConnectionFrame*>(frame.get()) != nullptr ||
+           dynamic_cast<const SessionParamFrame*>(frame.get()) != nullptr;
+}
+
+void DialogProcessor::setSessionParam(const std::string& name, const Value& value) {
+    enqueueFrame(std::make_shared<SessionParamFrame>(name, value), pipeline::FlowDirection::DOWNSTREAM);
+}
+
+void DialogProcessor::setContextSource(FlowRuntime::ContextSource source) {
+    _contextSource = std::move(source);
+    _conversation.setContextSource(_contextSource);
+    _beforeLastTurn.setContextSource(_contextSource);
 }
 
 void DialogProcessor::setConnected(bool connected) {
@@ -38,6 +59,11 @@ void DialogProcessor::processFrame(std::shared_ptr<transport::Frame> frame, pipe
         handleTurn(frame);
         return;
     }
+    if (auto param = dynamic_cast<const SessionParamFrame*>(frame.get())) {
+        std::string error;
+        if (!_conversation.setSessionParam(param->name, param->value, &error)) spdlog::error("[Dialog] {}", error);
+        return;
+    }
     if (auto connection = dynamic_cast<const ConnectionFrame*>(frame.get())) {
         if (connection->connected == _connected) return;
         _connected = connection->connected;
@@ -45,6 +71,7 @@ void DialogProcessor::processFrame(std::shared_ptr<transport::Frame> frame, pipe
             // The caller left: whoever connects next starts a new conversation.
             spdlog::info("[Dialog] Disconnected - the next conversation starts over");
             _conversation = FlowRuntime(_agent);
+            _conversation.setContextSource(_contextSource);
             _beforeLastTurn = _conversation;
             _greetingPending = true;
         }

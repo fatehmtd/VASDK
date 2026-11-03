@@ -40,6 +40,10 @@ public:
      * Default: connected. Thread-safe: call it from the transport's callbacks.
      */
     void setConnected(bool connected);
+    /** Sets a session param, as FlowRuntime::setSessionParam; errors are logged. Thread-safe. */
+    void setSessionParam(const std::string& name, const Value& value);
+    /** What $context.* reads; called on the pipeline thread, so it must be thread-safe. Before start(). */
+    void setContextSource(FlowRuntime::ContextSource source);
 
 private:
     void handleTurn(std::shared_ptr<transport::Frame> frame);
@@ -54,6 +58,7 @@ private:
     bool _connected = true;
     bool _passUnmatchedTurns = false;
     ReplyObserver _observer;
+    FlowRuntime::ContextSource _contextSource;
 };
 
 } // namespace flow

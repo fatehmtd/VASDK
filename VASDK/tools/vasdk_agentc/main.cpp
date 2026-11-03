@@ -1,7 +1,8 @@
 // vasdk_agentc: checks, tests and chats with agent files, with no audio and no LLM.
 //   vasdk_agentc lint agent.txtpb                  problems, with where they are; exit 1 on errors
 //   vasdk_agentc test agent.txtpb case.txtpb...    plays each FlowTestCase; exit 1 on a failure
-//   vasdk_agentc chat agent.txtpb                  talk to it by typing; Ctrl-D quits
+//   vasdk_agentc chat agent.txtpb [--session name=value]...
+//                                                  talk to it by typing; Ctrl-D quits
 
 #include <VASDK/flow/CompiledAgent.h>
 #include <VASDK/flow/FlowRuntime.h>
@@ -10,6 +11,7 @@
 #include <spdlog/spdlog.h>
 
 #include <cstdio>
+#include <cstdlib>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -20,7 +22,7 @@ int usage() {
     std::fprintf(stderr,
                  "usage: vasdk_agentc lint <agent>\n"
                  "       vasdk_agentc test <agent> <case>...\n"
-                 "       vasdk_agentc chat <agent>\n");
+                 "       vasdk_agentc chat <agent> [--session name=value]...\n");
     return 2;
 }
 
@@ -82,6 +84,25 @@ int main(int argc, char** argv) {
         auto agent = load(agentPath, false);
         if (!agent) return 1;
         va::flow::FlowRuntime conversation(agent);
+        for (int i = 3; i < argc; ++i) {
+            const std::string argument = argv[i];
+            if (argument != "--session" || i + 1 >= argc) return usage();
+            const std::string assignment = argv[++i];
+            const auto split = assignment.find('=');
+            if (split == std::string::npos) return usage();
+            // A number, true/false, or else a string; the param's type converts it.
+            const std::string text = assignment.substr(split + 1);
+            char* end = nullptr;
+            const double number = std::strtod(text.c_str(), &end);
+            const auto value = text == "true" || text == "false" ? va::flow::boolValue(text == "true")
+                             : (!text.empty() && *end == '\0') ? va::flow::numberValue(number)
+                             : va::flow::stringValue(text);
+            std::string error;
+            if (!conversation.setSessionParam(assignment.substr(0, split), value, &error)) {
+                std::fprintf(stderr, "--session %s: %s\n", assignment.c_str(), error.c_str());
+                return 1;
+            }
+        }
         print(conversation.start(), conversation);
         std::string line;
         while (std::printf("you: "), std::fflush(stdout), std::getline(std::cin, line)) {

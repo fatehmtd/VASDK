@@ -6,6 +6,8 @@ syntax = "proto3";
 
 package vasdk.flow;
 
+import "google/protobuf/struct.proto";
+
 message Agent {
   int32 schema_version = 1;
   string name = 2;
@@ -14,6 +16,21 @@ message Agent {
 
   repeated Intent intents = 10;
   repeated Flow flows = 11;
+  repeated SessionParam session_params = 12;   // $session.<name>: kept for the whole conversation
+}
+
+// A value the conversation keeps: set by `set` steps, by the app (Session::setSessionParam),
+// or by a test case; read in conditions and replies as $session.<name>.
+message SessionParam {
+  enum Type {
+    STRING = 0;
+    NUMBER = 1;
+    BOOL = 2;
+    LIST = 3;
+  }
+  string name = 1;
+  Type type = 2;
+  google.protobuf.Value default = 3;   // unset: null
 }
 
 // What the user wants, recognised by keyword phrases: the intent matches when the user's words
@@ -35,8 +52,11 @@ message Page {
   repeated Route routes = 3;    // tried against each user turn while on the page
 }
 
+// Matches when its intent does (the longest example wins between routes) and its condition holds.
+// A route with only a condition is tried when no intent route matched, in order.
 message Route {
   string intent = 1;
+  string condition = 4;      // an expression: "$session.tier = 'gold'"
   repeated Step steps = 2;   // run first, then the conversation moves to target
   // A page of this flow, "flow:<name>" (its start page), "CURRENT_PAGE" (enter this page again)
   // or "END_SESSION". Empty: stay on the page without entering it again.
@@ -47,12 +67,16 @@ message Step {
   oneof kind {
     Say say = 1;
     Ask ask = 2;
+    Set set = 11;
+    Branch branch = 12;
+    Switch switch = 13;
     Goto goto = 14;
     End end = 17;
   }
 }
 
-// Speaks one of the texts, in turn each time the step runs.
+// Speaks one of the texts, in turn each time the step runs. Texts may hold references:
+// "Welcome back, $session.name." ($$ is a dollar sign; a missing value is empty).
 message Say {
   repeated string text = 1;
 }
@@ -60,6 +84,32 @@ message Say {
 // A question: the user is expected to answer, and it is repeated when the answer isn't understood.
 message Ask {
   Say say = 1;
+}
+
+// Stores a value: key is "$session.<name>" (declared in session_params) or "$page.locals.<name>"
+// (kept until the conversation leaves the page); value is an expression ("'gold'", "$input.text").
+message Set {
+  string key = 1;
+  string value = 2;
+}
+
+// Runs `then` when the condition holds, else `else`.
+message Branch {
+  string if = 1;
+  repeated Step then = 2;
+  repeated Step else = 3;
+}
+
+// Runs the steps of the first case whose value equals the expression `on`, else `default`.
+message Switch {
+  string on = 1;
+  repeated SwitchCase cases = 2;
+  repeated Step default = 3;
+}
+
+message SwitchCase {
+  string value = 1;
+  repeated Step steps = 2;
 }
 
 // Moves to `target` (as Route.target) at once; the steps after it don't run.

@@ -181,6 +181,7 @@ if(VASDK_ENABLE_ENGINE_CONFIG)
         ./src/engine/Session.cpp
         ./src/SessionManager.cpp
         ./src/VAEngine.cpp
+        ./src/flow/Expression.cpp
         ./src/flow/CompiledAgent.cpp
         ./src/flow/FlowRuntime.cpp
         ./src/flow/DialogProcessor.cpp
@@ -309,8 +310,12 @@ if(VASDK_BUILD_TESTS)
         target_link_libraries(vasdk_session_test PRIVATE VASDK)
         add_test(NAME vasdk_session COMMAND vasdk_session_test)
 
+        add_executable(vasdk_expression_test tests/expression_test.cpp)
+        target_link_libraries(vasdk_expression_test PRIVATE VASDK)
+        add_test(NAME vasdk_expression COMMAND vasdk_expression_test)
+
         add_executable(vasdk_dialog_test tests/dialog_test.cpp)
-        target_link_libraries(vasdk_dialog_test PRIVATE VASDK)
+        target_link_libraries(vasdk_dialog_test PRIVATE VASDK nlohmann_json::nlohmann_json)
         add_test(NAME vasdk_dialog COMMAND vasdk_dialog_test)
 
         add_executable(vasdk_engine_events_test tests/engine_events_test.cpp)

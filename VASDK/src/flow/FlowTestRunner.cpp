@@ -22,6 +22,14 @@ FlowTestResult runFlowTest(std::shared_ptr<const CompiledAgent> agent, const vas
     FlowTestResult result;
     result.name = testCase.name();
     FlowRuntime conversation(agent);
+    for (const auto& [name, value] : testCase.session().fields()) {
+        std::string error;
+        if (!conversation.setSessionParam(name, value, &error)) result.failures.push_back("session: " + error);
+    }
+    if (testCase.has_context()) {
+        const auto context = testCase.context();
+        conversation.setContextSource([context] { return context; });
+    }
     for (int i = 0; i < testCase.turns_size(); ++i) {
         const auto& turn = testCase.turns(i);
         const Reply reply = turn.user().empty() ? conversation.start() : conversation.handleText(turn.user());
@@ -46,6 +54,10 @@ FlowTestResult runFlowTest(std::shared_ptr<const CompiledAgent> agent, const vas
         if (expect.has_ends_session() && reply.endsSession != expect.ends_session())
             fail(std::string("ends_session is ") + yesNo(reply.endsSession) + ", expected " +
                  yesNo(expect.ends_session()));
+        for (const auto& [name, expected] : expect.session()) {
+            const std::string actual = toText(conversation.sessionParam(name));
+            if (actual != expected) fail("$session." + name + " is " + quoted(actual) + ", expected " + quoted(expected));
+        }
     }
     return result;
 }

@@ -7,6 +7,7 @@
 #include "engine_test_fakes.h"
 
 #include <VASDK/VAEngine.h>
+#include <VASDK/context/ContextProvider.h>
 #include <VASDK/engine/ProtoFileLoader.h>
 #include <VASDK/flow/CompiledAgent.h>
 #include <VASDK/flow/DialogProcessor.h>
@@ -194,6 +195,75 @@ int main() {
         check(looping.start().pageChanges.size() == flow::FlowRuntime::kMaxTransitions, "a goto loop stops");
     }
 
+    // Conditions and stored values: checked at load, then set/branch/switch, route conditions,
+    // page locals, $context and typed session params.
+    {
+        std::string error;
+        check(!compile(R"(
+            start_flow: "main"
+            session_params { name: "tier" }
+            session_params { name: "count" type: NUMBER default { string_value: "x" } }
+            intents { name: "go" examples: ["go"] }
+            flows { name: "main" start_page: "a"
+                    pages { name: "a"
+                            on_enter { say { text: "Hi $session.nmae" } }
+                            on_enter { set { key: "$input.text" value: "1" } }
+                            on_enter { branch { if: "$session.tier = gold" } }
+                            routes { condition: "$user.vip" target: "a" } } }
+        )", &error), "bad expressions don't compile");
+        check(contains(error, "session param \"count\": default doesn't fit its type NUMBER"), "default type checked");
+        check(contains(error, "on_enter step 1: $session.nmae: no session param \"nmae\" is declared"), "template reference checked");
+        check(contains(error, "step 2: set key \"$input.text\" must be $session.<name> or $page.locals.<name>"), "set key checked");
+        check(contains(error, "step 3 branch if: \"$session.tier = gold\": column 17: unknown word 'gold'"), "parse error located");
+        check(contains(error, "route 1 condition: unknown reference $user.vip"), "unknown root");
+
+        auto stateful = compile(R"agent(
+            start_flow: "main"
+            session_params { name: "tier"   type: STRING default { string_value: "standard" } }
+            session_params { name: "visits" type: NUMBER default { number_value: 0 } }
+            intents { name: "go" examples: ["go"] }
+            intents { name: "any" examples: ["any"] }
+            flows { name: "main" start_page: "a"
+                    pages { name: "a"
+                            on_enter { set { key: "$session.visits" value: "$session.visits" } }
+                            on_enter { set { key: "$page.locals.note" value: "'local'" } }
+                            on_enter { switch { on: "$session.tier"
+                                                cases { value: "gold" steps { say { text: "Gold." } } }
+                                                default { say { text: "Hello, $session.tier." } } } }
+                            routes { intent: "go" condition: "$context.open = true" steps { say { text: "Open: $page.locals.note." } } target: "b" }
+                            routes { intent: "go" steps { say { text: "Closed." } } }
+                            routes { condition: "$input.text : 'gold'" steps { set { key: "$session.tier" value: "'gold'" } } target: "CURRENT_PAGE" } }
+                    pages { name: "b"
+                            on_enter { branch { if: "exists($page.locals.note)" then { say { text: "kept" } } else { say { text: "Locals cleared." } } } }
+                            on_enter { branch { if: "$nlu.intent = 'go'" then { goto { target: "a" } } } }
+                            on_enter { say { text: "never said" } } } }
+        )agent", &error);
+        check(stateful != nullptr, "the stateful agent compiles");
+        if (stateful) {
+            flow::FlowRuntime conversation(stateful);
+            bool open = false;
+            conversation.setContextSource([&open] {
+                google::protobuf::Struct context;
+                (*context.mutable_fields())["open"] = flow::boolValue(open);
+                return context;
+            });
+            check(conversation.start().text == "Hello, standard.", "switch default with a template");
+            check(conversation.handleText("go").text == "Closed.", "a route whose condition fails is skipped");
+            open = true;
+            auto reply = conversation.handleText("go");
+            check(reply.text == "Open: local. Locals cleared. Hello, standard." && conversation.pageName() == "a",
+                  "condition from $context; locals cleared on a new page; branch with a goto");
+            reply = conversation.handleText("make me gold please");
+            check(!reply.intent.size() && reply.text == "Gold." && flow::toText(conversation.sessionParam("tier")) == "gold",
+                  "a condition-only route when no intent matched, and set");
+            check(!conversation.setSessionParam("visits", flow::stringValue("many"), &error) &&
+                      contains(error, "doesn't fit session param \"visits\" (NUMBER)"), "a wrong type is refused");
+            check(conversation.setSessionParam("visits", flow::stringValue("3")) &&
+                      conversation.sessionParam("visits").number_value() == 3, "a numeric string fits NUMBER");
+            check(!conversation.setSessionParam("nope", flow::stringValue("x"), &error), "undeclared params are refused");
+        }
+    }
+
     // Test cases report what differs.
     {
         auto result = flow::runFlowTest(agent, parse<vasdk::flow::FlowTestCase>(R"(
@@ -305,6 +375,38 @@ int main() {
             return event.has_page_changed() && event.page_changed().to_page() == "welcome" &&
                    event.page_changed().reason() == "start";
         }), "page_changed reported");
+        engine->stop();
+    }
+
+    // A session's app data: $context from a ContextProvider, $session from setSessionParam.
+    {
+        auto valuesAgent = compile(R"(
+            start_flow: "main"
+            session_params { name: "tier" type: STRING default { string_value: "standard" } }
+            intents { name: "status" examples: ["status"] }
+            flows { name: "main" start_page: "a"
+                    pages { name: "a"
+                            on_enter { say { text: "Hi." } }
+                            routes { intent: "status" steps { say { text: "$session.tier, battery $context.system.battery." } } } } }
+        )");
+        EventRecorder events;
+        auto context = std::make_shared<va::context::ContextProvider>();
+        context->setValue("system", nlohmann::json{{"battery", 15}});
+        VAEngine::Options options;
+        options.transport = std::make_shared<fakes::FakeTransport>();
+        options.agent = valuesAgent;
+        options.context = context;
+        std::string error;
+        auto engine = VAEngine::create(vasdk::engine::EngineConfig{}, fakes::makeRegistry(std::make_shared<fakes::FakeTts>()),
+                                       options, &error);
+        if (!engine) { std::fprintf(stderr, "  %s\n", error.c_str()); return 1; }
+        engine->addListener(events.listener());
+        check(engine->start(&error), "engine with app data starts");
+        engine->setSessionParam("tier", flow::stringValue("gold"));
+        engine->injectUserText("status");
+        check(events.waitFor([](const auto& event) {
+            return event.has_agent_reply() && event.agent_reply().text() == "gold, battery 15.";
+        }), "the reply reads the app's session param and context");
         engine->stop();
     }
 

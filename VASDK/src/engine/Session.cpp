@@ -13,6 +13,7 @@
 #include "WakeWordProcessor.h"
 #include "engine/EventTapProcessor.h"
 #include "engine/Runtime.h"
+#include "context/ContextProvider.h"
 #include "flow/DialogProcessor.h"
 #include "llm/LLMFirePolicy.h"
 #include "llm/LLMProcessor.h"
@@ -23,6 +24,7 @@
 #include "metrics/MetricsBinder.h"
 #include "metrics/MetricsReporter.h"
 
+#include <google/protobuf/util/json_util.h>
 #include <spdlog/spdlog.h>
 
 #include <map>
@@ -78,6 +80,7 @@ public:
 private:
     std::shared_ptr<audio::GenericTranscriptionProvider> _transcription;
 };
+
 
 } // namespace
 
@@ -311,6 +314,17 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
     if (options.agent) {
         state->dialog = std::make_shared<flow::DialogProcessor>(options.agent);
         state->dialog->setPassUnmatchedTurns(state->llm != nullptr);
+        if (options.context) {
+            state->dialog->setContextSource([context = options.context] {
+                google::protobuf::Struct fields;
+                const auto json = context->getContext();
+                if (json.is_object()) {
+                    const auto status = google::protobuf::util::JsonStringToMessage(json.dump(), &fields);
+                    if (!status.ok()) spdlog::warn("[Session] $context unreadable: {}", status.message());
+                }
+                return fields;
+            });
+        }
         state->dialog->setReplyObserver([events = std::weak_ptr<EventDispatcher>(state->events)](
                                             const flow::Reply& reply, const flow::FlowRuntime& conversation) {
             auto dispatcher = events.lock();
@@ -432,6 +446,14 @@ void Session::pushToTalk(bool held) {
 }
 
 void Session::setFollowUpListenMs(int ms) { _state->agentState->setFollowUpListenMs(ms); }
+
+void Session::setSessionParam(const std::string& name, const google::protobuf::Value& value) {
+    if (!_state->dialog) {
+        spdlog::warn("{} setSessionParam ignored: no agent", _state->logTag);
+        return;
+    }
+    _state->dialog->setSessionParam(name, value);
+}
 
 const std::string& Session::id() const { return _state->options.id; }
 bool Session::hasLLM() const { return _state->llm != nullptr; }

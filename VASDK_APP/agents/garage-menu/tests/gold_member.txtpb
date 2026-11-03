@@ -1,0 +1,8 @@
+# proto-file: vasdk/flow/test_case.proto
+# proto-message: vasdk.flow.FlowTestCase
+name: "a gold member is welcomed back and not charged"
+session { fields { key: "tier" value { string_value: "gold" } } }
+turns { expect { page: "welcome" said_contains: "Welcome back, gold member." } }
+turns { user: "book an oil change"
+        expect { page: "booked" said_contains: ["booked for an oil change", "As a gold member, there's no charge."]
+                 session { key: "service" value: "an oil change" } } }

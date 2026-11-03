@@ -5,9 +5,13 @@ syntax = "proto3";
 
 package vasdk.flow;
 
+import "google/protobuf/struct.proto";
+
 message FlowTestCase {
   string name = 1;
   repeated TestTurn turns = 2;
+  google.protobuf.Struct session = 3;   // session params set before the first turn
+  google.protobuf.Struct context = 4;   // what $context.* reads
 }
 
 message TestTurn {
@@ -24,4 +28,5 @@ message TurnExpectation {
   optional bool matched = 5;           // false: no route understood the turn
   optional bool expects_reply = 6;
   optional bool ends_session = 7;
+  map<string, string> session = 8;     // session param name → its value as a reply would say it
 }

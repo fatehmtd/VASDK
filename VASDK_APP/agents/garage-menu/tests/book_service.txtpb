@@ -3,6 +3,6 @@
 name: "book a tire service, then say goodbye"
 turns { expect { page: "welcome" said_contains: "Acme Garage" expects_reply: true } }
 turns { user: "I'd like to bring my car in" expect { page: "service" said_contains: "oil change or tires" } }
-turns { user: "I have a flat" expect { page: "booked" said: "Tires, got it. You're booked for tomorrow at 9 AM. Is there anything else I can help with?" } }
+turns { user: "I have a flat" expect { page: "booked" said: "You're booked for a tire repair tomorrow at 9 AM. Is there anything else I can help with?" session { key: "service" value: "a tire repair" } } }
 turns { user: "no that's all thanks" expect { said_contains: "goodbye" ends_session: true expects_reply: false } }
 turns { user: "hours please" expect { page: "welcome" said_contains: "8 to 6" } }   # the next conversation starts over
