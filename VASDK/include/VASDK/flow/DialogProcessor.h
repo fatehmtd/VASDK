@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstdint>
 #include <chrono>
 #include <condition_variable>
 #include <deque>
@@ -33,7 +34,9 @@ namespace flow {
  * the mic open after it, and its final TextFrame carries what the user is expected to say.
  *
  * Turns are answered on a thread of the processor's own, one at a time, so a call_tool waiting on
- * a service doesn't hold up the pipeline; its filler is spoken meanwhile. After a question whose
+ * a service doesn't hold up the pipeline; its filler is spoken meanwhile. So does an LLM that
+ * takes over a second (FlowRuntime::setLlmFillerAfterMs). A turn the user resumes, a restart, a
+ * disconnect or stop() give up a turn still waiting for the LLM: its reply isn't spoken. After a question whose
  * answer is private (Expectation.secure_entry, a sensitive slot), the transcript is marked
  * sensitive and the turn never goes on to an LLM; replies carry the values to mask in events.
  */
@@ -129,6 +132,11 @@ private:
     bool _connected = true;
     std::atomic<bool> _passUnmatchedTurns{false};   // off while the network is down
     bool _llmTookLastTurn = false;                   // on the conversation's thread
+    // Turns are numbered as they come; those below _givenUpBefore stop waiting for the LLM.
+    std::atomic<uint64_t> _turnsSeen{0};
+    std::atomic<uint64_t> _givenUpBefore{0};
+    uint64_t _answering = 0;                         // the turn being answered, on the conversation's thread
+    void giveUpTurns() { _givenUpBefore = ++_turnsSeen; }
     ReplyObserver _observer;
     FlowRuntime::ContextSource _contextSource;
     bool _awaitingAnswer = false;   // the last reply asked a question

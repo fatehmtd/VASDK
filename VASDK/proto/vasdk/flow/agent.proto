@@ -296,10 +296,12 @@ message CallTool {
 // a service the agent doesn't offer). Sensitive values never reach it. Without an LLM, or when
 // it fails, the `offline` steps run instead; none: "Sorry, I can't help with that here."
 //   llm { instructions: "Answer briefly about car care, then offer to book." allowed_targets: ["booking"] }
+// While it thinks, the conversation can go on: a turn the user resumes gives up waiting for it.
 message Llm {
   string instructions = 1;
   repeated string allowed_targets = 2;   // as Route.target
   repeated Step offline = 3;
+  repeated string filler = 4;          // said, in turn, when the LLM takes more than a second ("Let me think.")
 }
 
 // Empties one of the page's form slots, so the form asks for it again (and confirms again).

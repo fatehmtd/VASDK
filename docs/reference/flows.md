@@ -103,6 +103,11 @@ With an `llm` endpoint in the engine config, a session asks the LLM what the age
 
 The LLM reads the instructions, the form's slots and their values, and the last 12 turns. Sensitive values are masked in what it reads, and the answer to a sensitive slot never reaches it, not even for understanding. It replies with a JSON object (`say`, `goto`, `slots`); a reply that isn't one is said as it is. A request that fails or takes over 8 seconds counts as no LLM for that turn.
 
+**While it thinks.** The intent check waits at most `llm.intent_timeout_ms` (1.5 s by default), after which the rules' guess stands. An `llm` step or a generative page waits longer, but the user isn't left in silence or stuck behind it:
+
+- After a second without an answer, what the turn has said so far is spoken, followed by one of the step's or page's `filler` phrases, in turn: `llm { instructions: "..." filler: ["Let me think.", "One moment."] }`.
+- A turn the user resumes, a restart, a disconnect or `stop()` gives up waiting. The given-up turn's reply (`Reply::givenUp`) is never spoken, and the resumed turn is answered.
+
 **A keyword doesn't take the chat.** A rule that matches only a small part of what was said is not trusted: in "tell me a long story about a book you read in Japan", the word "book" doesn't send the user to the booking page.
 
 - The cascade weighs each rule match by `IntentMatch::explains`, the share of the words the match accounts for. A match that covers a sixth of the words or more keeps its full weight.
@@ -112,6 +117,7 @@ The LLM reads the instructions, the form's slots and their values, and the last 
 Once the LLM has answered a turn, it keeps the conversation until a route the user clearly asked for takes it back:
 
 - Only the rules are asked, and an intent counts only when it explains at least half the words. "I am hard of hearing, help me out." stays with the LLM, but "help" on its own goes to the agent's help route.
+- An entity-only route (`entity: "@service"`) needs its entity to be at least half the words: "a tire repair please" books, a story that mentions a tire repair doesn't.
 - An answer from an envelope route doesn't ask the page's question again ("We're open 8 to 6." with no "How can I help?").
 - A reply with no intent ("You're welcome.") leaves the conversation with the LLM.
 

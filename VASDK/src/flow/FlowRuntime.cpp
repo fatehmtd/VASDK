@@ -12,7 +12,10 @@
 #include <cctype>
 #include <cstdlib>
 #include <ctime>
+#include <condition_variable>
+#include <mutex>
 #include <set>
+#include <thread>
 #include <utility>
 
 namespace va {
@@ -535,7 +538,8 @@ void FlowRuntime::takeTurn(const std::string& text, Reply& reply) {
         if (formActive()) {
             // An answer the slots can't read: the LLM may find their values in it.
             static const std::string kReadForm = "The user is filling in a form and said something its rules can't read.";
-            const auto turn = generative ? askLlm(generative->instructions(), &generative->allowed_targets(), true, reply)
+            const auto turn = generative ? askLlm(generative->instructions(), &generative->allowed_targets(), true, reply,
+                                                  &generative->filler(), generative)
                                          : askLlm(kReadForm, nullptr, false, reply);
             if (turn && (turn->filled > 0 || turn->said || turn->outcome.moves())) {
                 _misses = 0;
@@ -547,7 +551,8 @@ void FlowRuntime::takeTurn(const std::string& text, Reply& reply) {
         }
         if (answerFromKnowledge(0.6f, reply)) return;   // a question the agent knows the answer to
         if (generative) {   // what the page's routes don't answer, the LLM does
-            if (const auto turn = askLlm(generative->instructions(), &generative->allowed_targets(), true, reply);
+            if (const auto turn = askLlm(generative->instructions(), &generative->allowed_targets(), true, reply,
+                                              &generative->filler(), generative);
                 turn && (turn->said || turn->outcome.moves())) {
                 _misses = 0;
                 follow(answered(turn->outcome, reply), reply);
@@ -904,7 +909,7 @@ FlowRuntime::Outcome FlowRuntime::run(const google::protobuf::RepeatedPtrField<v
             break;
         case vasdk::flow::Step::kLlm: {
             const auto& llmStep = step.llm();
-            const auto turn = askLlm(llmStep.instructions(), &llmStep.allowed_targets(), true, reply);
+            const auto turn = askLlm(llmStep.instructions(), &llmStep.allowed_targets(), true, reply, &llmStep.filler(), &llmStep);
             if (turn && (turn->said || turn->outcome.moves())) {
                 if (turn->outcome.moves()) return turn->outcome;
                 break;
@@ -1016,7 +1021,7 @@ const vasdk::flow::GenerativeParams* FlowRuntime::generativePage() const {
 // fill the form's slots, each only with what the slot reads in the words it gives. nullopt
 // without an LLM, on a private turn, or when it fails.
 std::optional<FlowRuntime::LlmTurn> FlowRuntime::askLlm(const std::string& instructions, const Texts* allowedTargets,
-                                                        bool speaks, Reply& reply) {
+                                                        bool speaks, Reply& reply, const Texts* filler, const void* fillerKey) {
     if (!_llm || privateTurn()) return std::nullopt;
     const bool form = formActive();
     std::string system = render(instructions);
@@ -1060,7 +1065,7 @@ std::optional<FlowRuntime::LlmTurn> FlowRuntime::askLlm(const std::string& instr
         message.content = redact(message.content, masked);
         messages.push_back(std::move(message));
     }
-    const auto answer = _llm->complete(messages);
+    const auto answer = waitForLlm(std::move(messages), speaks ? filler : nullptr, fillerKey, reply);
     if (!answer) return std::nullopt;
 
     LlmTurn turn;
@@ -1110,6 +1115,52 @@ std::optional<FlowRuntime::LlmTurn> FlowRuntime::askLlm(const std::string& instr
             spdlog::info("[FlowRuntime] ignored the LLM's move to \"{}\": not in allowed_targets", target);
     }
     return turn;
+}
+
+// The LLM's answer, asked on a thread of its own while the turn waits: past _llmFillerAfterMs,
+// what the turn has said so far and a filler phrase go to the filler sink, to be heard meanwhile.
+// When the turn is given up (_interrupted), it stops waiting: nullopt, and the reply is givenUp.
+// The request runs to its own timeout; its answer is then dropped.
+std::optional<std::string> FlowRuntime::waitForLlm(std::vector<llm::ConversationMessage> messages, const Texts* filler,
+                                                   const void* fillerKey, Reply& reply) {
+    struct Pending {
+        std::mutex mutex;
+        std::condition_variable answered;
+        bool done = false;
+        std::optional<std::string> answer;
+    };
+    auto pending = std::make_shared<Pending>();
+    std::thread([pending, llm = _llm, messages = std::move(messages)] {
+        auto answer = llm->complete(messages);
+        std::lock_guard<std::mutex> lock(pending->mutex);
+        pending->answer = std::move(answer);
+        pending->done = true;
+        pending->answered.notify_all();
+    }).detach();
+
+    const auto pollEvery = std::chrono::milliseconds(50);
+    const auto fillerAt = std::chrono::steady_clock::now() + std::chrono::milliseconds(std::max(0, _llmFillerAfterMs));
+    bool fillerSaid = false;
+    std::unique_lock<std::mutex> lock(pending->mutex);
+    while (!pending->done) {
+        if (_interrupted && _interrupted()) {
+            spdlog::info("[FlowRuntime] the turn was given up while the LLM thought, on page \"{}\"", pageName());
+            reply.givenUp = true;
+            return std::nullopt;
+        }
+        pending->answered.wait_for(lock, pollEvery);
+        if (pending->done || fillerSaid || std::chrono::steady_clock::now() < fillerAt) continue;
+        fillerSaid = true;
+        lock.unlock();
+        if (filler && !filler->empty()) sayOne(*filler, fillerKey, reply);
+        if (_fillerSink && !reply.text.empty()) {   // heard now, while the LLM thinks
+            _fillerSink(reply);
+            reply.text.clear();
+            reply.segments.clear();
+        }
+        lock.lock();
+    }
+    return pending->answer;
 }
 
 bool FlowRuntime::answerFromKnowledge(float atLeast, Reply& reply) {

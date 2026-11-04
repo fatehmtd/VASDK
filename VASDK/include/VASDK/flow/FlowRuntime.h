@@ -66,6 +66,7 @@ struct Reply {
     vasdk::flow::Expectation expectation;   // what the user is expected to say next; mode NONE when nothing was asked
     std::optional<int> followUpListenMs;    // how long the mic stays open after it, by the agent; unset: the engine's setting
     bool endsSession = false;      // the conversation ended with this reply
+    bool givenUp = false;          // the turn was given up while the LLM thought (setInterrupted): say nothing
     std::vector<PageChange> pageChanges;
     std::vector<ReplyToolCall> toolCalls;
     std::vector<ReplyTrigger> triggers;
@@ -153,6 +154,18 @@ public:
      * Unset: the filler is part of the reply.
      */
     void setFillerSink(std::function<void(const Reply& sofar)> sink) { _fillerSink = std::move(sink); }
+    /**
+     * The LLM is asked on a thread of its own, and the turn waits for it. Past fillerAfterMs
+     * without an answer, the filler sink is given what the turn has said so far and, for an `llm`
+     * step or a generative page, one of its `filler` phrases ("Let me think."). Default 1000 ms.
+     */
+    void setLlmFillerAfterMs(int fillerAfterMs) { _llmFillerAfterMs = fillerAfterMs; }
+    /**
+     * Whether the turn being answered was given up (the user went on, the conversation stopped):
+     * checked while the LLM thinks. Then the turn stops waiting for it, and its reply is marked
+     * givenUp. Called on the conversation's thread. Unset: never given up.
+     */
+    void setInterrupted(std::function<bool()> interrupted) { _interrupted = std::move(interrupted); }
     /**
      * The app fires a trigger, by its app_event name or its own (agent.triggers): its condition,
      * the proactive policy and its delivery decide (Reply::triggers says what became of it). Said
@@ -263,7 +276,10 @@ private:
         int filled = 0;
         bool said = false;
     };
-    std::optional<LlmTurn> askLlm(const std::string& instructions, const Texts* allowedTargets, bool speaks, Reply& reply);
+    std::optional<LlmTurn> askLlm(const std::string& instructions, const Texts* allowedTargets, bool speaks, Reply& reply,
+                                  const Texts* filler = nullptr, const void* fillerKey = nullptr);
+    std::optional<std::string> waitForLlm(std::vector<llm::ConversationMessage> messages, const Texts* filler,
+                                          const void* fillerKey, Reply& reply);
     const vasdk::flow::GenerativeParams* generativePage() const;
     bool privateTurn() const;
     void remember(llm::MessageRole role, const std::string& text);
@@ -375,6 +391,8 @@ private:
     std::optional<nlu::NluResult> _understood;   // this turn's, worked out when a route first needs it
     std::vector<std::string> _alternatives;      // intents tied for the best route this turn
     std::function<void(const Reply&)> _fillerSink;
+    std::function<bool()> _interrupted;
+    int _llmFillerAfterMs = 1000;
     std::shared_ptr<const llm::Completion> _llm;
     std::deque<llm::ConversationMessage> _transcript;   // the last turns, for the LLM
     static constexpr size_t kTranscriptSize = 12;

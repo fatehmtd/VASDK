@@ -122,6 +122,7 @@ void DialogProcessor::prepare(FlowRuntime& conversation) {
     if (_nlu) conversation.setNlu(_nlu);
     if (_embeddings) conversation.setEmbeddings(_embeddings);
     if (_llm) conversation.setLlm(_llm);
+    conversation.setInterrupted([this] { return _givenUpBefore.load() > _answering; });
     conversation.setFillerSink([this](const Reply& sofar) {
         auto frame = std::make_shared<ReplyFrame>();
         frame->reply = sofar;
@@ -189,6 +190,8 @@ bool DialogProcessor::start() {
         std::lock_guard<std::mutex> lock(_tasksMutex);
         _tasksStop = false;
     }
+    _givenUpBefore = 0;
+    _answering = _turnsSeen;
     if (!_timerThread.joinable()) _timerThread = std::thread(&DialogProcessor::noInputTimerLoop, this);
     if (!_conversationThread.joinable()) _conversationThread = std::thread(&DialogProcessor::conversationLoop, this);
     if (_timedTriggers) arm(_tick, 1000);
@@ -206,6 +209,7 @@ void DialogProcessor::stop() {
         std::lock_guard<std::mutex> lock(_tasksMutex);
         _tasksStop = true;
     }
+    _givenUpBefore = UINT64_MAX;   // a turn waiting for the LLM stops waiting
     _tasksChanged.notify_all();
     if (_conversationThread.joinable()) _conversationThread.join();
     FrameProcessor::stop();
@@ -233,6 +237,7 @@ void DialogProcessor::conversationLoop() {
 }
 
 void DialogProcessor::deliver(Reply reply, std::shared_ptr<transport::Frame> turn, bool mayPassOn, bool fromTrigger) {
+    if (reply.givenUp) return;   // the user went on while the LLM thought: nothing to say, nor to pass on
     count(reply);
     if (_observer) _observer(reply, _conversation);
     auto frame = std::make_shared<ReplyFrame>();
@@ -370,7 +375,11 @@ void DialogProcessor::processFrame(std::shared_ptr<transport::Frame> frame, pipe
         _nextInactivity = 0;
         _greetingPending = false;   // the user spoke first: their words are routed on the start page
         const bool privateAnswer = _privateAnswer;
-        post([this, frame, privateAnswer] {
+        // A resumed turn: the one it replaces, if it's still waiting for the LLM, stops waiting.
+        const uint64_t number = ++_turnsSeen;
+        if (static_cast<const transport::UserTurnFrame&>(*frame).replacesPrevious) _givenUpBefore = number;
+        post([this, frame, privateAnswer, number] {
+            _answering = number;
             const auto& turn = static_cast<const transport::UserTurnFrame&>(*frame);
             if (turn.replacesPrevious) _conversation = _beforeLastTurn;
             _beforeLastTurn = _conversation;
@@ -462,7 +471,9 @@ void DialogProcessor::processFrame(std::shared_ptr<transport::Frame> frame, pipe
     }
     auto startOver = [this] {
         disarmNoInput();
-        post([this] {
+        giveUpTurns();
+        post([this, number = _turnsSeen.load()] {
+            _answering = number;
             _conversation = FlowRuntime(_agent);
             prepare(_conversation);
             _beforeLastTurn = _conversation;

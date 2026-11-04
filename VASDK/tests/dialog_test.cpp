@@ -13,6 +13,7 @@
 #include <VASDK/flow/DialogProcessor.h>
 #include <VASDK/flow/FlowRuntime.h>
 #include <VASDK/flow/FlowTestRunner.h>
+#include <VASDK/llm/Completion.h>
 #include "vasdk/engine/events.pb.h"
 
 #include <chrono>
@@ -91,6 +92,20 @@ std::shared_ptr<transport::UserTurnFrame> userTurn(const std::string& text, bool
     turn->replacesPrevious = replacesPrevious;
     return turn;
 }
+
+// An LLM that takes `thinkMs` to answer "You said <the user's last words>.", and counts its calls.
+struct SlowLlm : llm::Completion {
+    int thinkMs = 1300;
+    mutable std::atomic<int> calls{0};
+    std::optional<std::string> complete(const std::vector<llm::ConversationMessage>& messages) const override {
+        ++calls;
+        std::this_thread::sleep_for(std::chrono::milliseconds(thinkMs));
+        std::string words;
+        for (const auto& message : messages)
+            if (message.role == llm::MessageRole::USER) words = message.content;
+        return "{\"say\": \"You said " + words + ".\"}";
+    }
+};
 
 struct EventRecorder {
     std::mutex mutex;
@@ -525,6 +540,47 @@ int main() {
         check(texts.size() == 3 && texts[2].text == "Still there? How can I help?", "silence after a reply: the inactivity trigger");
         dialog->stop();
         recorder->stop();
+    }
+    // An LLM that takes a while: its filler is heard after a second; a resumed turn gives up the
+    // one still waiting (its reply is never spoken), and stop() doesn't wait for it either.
+    {
+        auto chat = compile(R"(
+          start_flow: "main"
+          flows { name: "main" start_page: "chat"
+            pages { name: "chat" type: "generative"
+              params { [type.googleapis.com/vasdk.flow.GenerativeParams] { instructions: "Chat." filler: ["Let me think."] } }
+              on_enter { ask { say { text: "Hi." } } } } })");
+        check(chat != nullptr, "the chat agent compiles");
+        auto llm = std::make_shared<SlowLlm>();
+        auto dialog = std::make_shared<flow::DialogProcessor>(chat);
+        dialog->setLlm(llm);
+        auto recorder = std::make_shared<Recorder>();
+        dialog->setDownstream(recorder);
+        recorder->initialize();
+        recorder->start();
+        dialog->initialize();
+        dialog->start();
+        auto listening = std::make_shared<transport::AgentStateFrame>();
+        listening->previousState = transport::AgentState::IDLE;
+        listening->currentState = transport::AgentState::LISTENING;
+        dialog->processFrame(listening, pipeline::FlowDirection::DOWNSTREAM);
+        dialog->processFrame(userTurn("tell me a joke"), pipeline::FlowDirection::DOWNSTREAM);
+        std::this_thread::sleep_for(150ms);
+        dialog->processFrame(userTurn("tell me a joke about cars", true), pipeline::FlowDirection::DOWNSTREAM);
+        std::vector<transport::TextFrame> texts;
+        for (int i = 0; i < 60 && texts.size() < 3; ++i) texts = recorder->settled();
+        std::vector<std::string> said;
+        for (const auto& text : texts) said.push_back(text.text);
+        check(said == std::vector<std::string>({"Hi.", "Let me think.", "You said tell me a joke about cars."}),
+              "the filler while it thinks, then only the resumed turn's answer");
+        check(llm->calls == 2, "both turns asked it");
+        dialog->processFrame(userTurn("and another"), pipeline::FlowDirection::DOWNSTREAM);
+        std::this_thread::sleep_for(100ms);
+        const auto stopping = std::chrono::steady_clock::now();
+        dialog->stop();
+        check(std::chrono::steady_clock::now() - stopping < 500ms, "stop() doesn't wait for the LLM");
+        recorder->stop();
+        std::this_thread::sleep_for(1300ms);   // the abandoned request ends before the LLM goes away
     }
     if (failures == 0) std::printf("dialog_test: all passed\n");
     return failures == 0 ? 0 : 1;
