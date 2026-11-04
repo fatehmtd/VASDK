@@ -368,6 +368,7 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
     if (options.agent) {
         state->dialog = std::make_shared<flow::DialogProcessor>(options.agent);
         state->dialog->setPassUnmatchedTurns(state->llm != nullptr);
+        state->dialog->setToolCaller(flow::ToolRunner::caller(std::make_shared<flow::ToolRunner>(options.agent, config.security())));
         if (options.context) {
             state->dialog->setContextSource([context = options.context] {
                 google::protobuf::Struct fields;
@@ -383,6 +384,14 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
                                             const flow::Reply& reply, const flow::FlowRuntime& conversation) {
             auto dispatcher = events.lock();
             if (!dispatcher) return;
+            for (const auto& call : reply.toolCalls) {
+                vasdk::engine::Event event;
+                auto* tool = event.mutable_tool_call();
+                tool->set_name(call.name);
+                tool->set_arguments_json(flow::redact(call.argumentsJson, reply.sensitiveValues));
+                tool->set_result_json(flow::redact(call.resultJson, reply.sensitiveValues));
+                dispatcher->post(std::move(event));
+            }
             for (const auto& change : reply.pageChanges) {
                 vasdk::engine::Event event;
                 auto* changed = event.mutable_page_changed();

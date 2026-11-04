@@ -6,6 +6,7 @@
 
 #include <chrono>
 #include <condition_variable>
+#include <deque>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -27,6 +28,11 @@ namespace flow {
  * (FlowRuntime::handleNoInput); the user starting to speak cancels it.
  * Each reply also goes upstream as a FollowUpListenFrame, for how long AgentStateProcessor keeps
  * the mic open after it, and its final TextFrame carries what the user is expected to say.
+ *
+ * Turns are answered on a thread of the processor's own, one at a time, so a call_tool waiting on
+ * a service doesn't hold up the pipeline; its filler is spoken meanwhile. After a question whose
+ * answer is private (Expectation.secure_entry, a sensitive slot), the transcript is marked
+ * sensitive and the turn never goes on to an LLM; replies carry the values to mask in events.
  */
 class VASDK_EXPORT DialogProcessor : public pipeline::FrameProcessor {
 public:
@@ -42,8 +48,8 @@ public:
      *  not-understood reply. Before start(). */
     void setPassUnmatchedTurns(bool pass) { _passUnmatchedTurns = pass; }
     using ReplyObserver = std::function<void(const Reply& reply, const FlowRuntime& conversation)>;
-    /** Called with every reply (page changes, the end of the conversation) and where the
-     *  conversation is after it, on the pipeline thread: keep it quick. Before start(). */
+    /** Called with every reply (page changes, tool calls, the end of the conversation) and where
+     *  the conversation is after it, on the conversation's thread: keep it quick. Before start(). */
     void setReplyObserver(ReplyObserver observer) { _observer = std::move(observer); }
     /**
      * Whether someone is connected to hear the assistant (a browser peer, a phone call). Until
@@ -57,20 +63,36 @@ public:
     void setEntityValues(const std::string& name, std::vector<vasdk::nlu::EntityValue> values);
     /** The user tapped the last reply's choice at `index`, from 0 (FlowRuntime::selectChoice). Thread-safe. */
     void selectChoice(int index);
-    /** What $context.* reads; called on the pipeline thread, so it must be thread-safe. Before start(). */
+    /** What $context.* reads; called on the conversation's thread, so it must be thread-safe. Before start(). */
     void setContextSource(FlowRuntime::ContextSource source);
+    /** How call_tool steps reach tools (FlowRuntime::setToolCaller). Before start(). */
+    void setToolCaller(ToolCaller caller);
 
 private:
-    void handleTurn(std::shared_ptr<transport::Frame> frame);
     void greetIfReady();
-    void speak(const Reply& reply);
+    void speak(const Reply& reply, bool filler = false);
+    // The conversation's thread: tasks run in order, and post their replies back as frames.
+    void post(std::function<void()> task);
+    void deliver(Reply reply, std::shared_ptr<transport::Frame> turn = nullptr, bool mayPassOn = false);
+    void conversationLoop();
+    void prepare(FlowRuntime& conversation);
     void armNoInput(int ms);
     void disarmNoInput();
     void noInputTimerLoop();
 
+    // Used only on the conversation's thread.
     FlowRuntime _conversation;
     FlowRuntime _beforeLastTurn;   // restored when the user resumes the last turn
     std::shared_ptr<const CompiledAgent> _agent;
+    ToolCaller _toolCaller;
+    std::thread _conversationThread;
+    std::mutex _tasksMutex;
+    std::condition_variable _tasksChanged;
+    std::deque<std::function<void()>> _tasks;
+    bool _tasksStop = false;
+    // Used only on the pipeline thread.
+    int _noInputMs = 0;             // the page's no-input wait after the last reply
+    bool _privateAnswer = false;    // the last question's answer is private
     bool _greetingPending = true;
     transport::AgentState _agentState = transport::AgentState::IDLE;
     bool _connected = true;

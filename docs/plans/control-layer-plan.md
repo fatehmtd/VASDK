@@ -7,10 +7,10 @@
 > | 0, 1, 2, 3, 4, 6, 7 (Part A) | ✅ committed (`6271f44` … `648a924`) |
 > | 8, 9, 10, 11, 12 (Part B) | ✅ committed (`2adbde3` … `a04d4e3`) |
 > | 13 Rich replies | ✅ committed (`be01736`) |
-> | 14 Expected input | 🟡 built and tested, not committed. Not in it: STT hints and end-of-turn by expectation (20), trigger-delivery window (17), the keypad on Android (needs 5) |
-> | 15 Extensions | 🟡 built and tested, not committed (with 14). `form` stays the page's `form` field, not a page type |
-> | 5 Android on VAEngine | ⏸ blocked on gate G1 |
-> | 16 Tools & security | ⏭ next |
+> | 14 Expected input | ✅ committed (`bdd2448`, with 15). Not in it: STT hints and end-of-turn by expectation (20), trigger-delivery window (17), the keypad on Android (needs 5) |
+> | 15 Extensions | ✅ committed (`bdd2448`). `form` stays the page's `form` field, not a page type |
+> | 16 Tools & security | ✅ committed. Tools run synchronously on the conversation's own thread (not resumable steps); masking covers events and the dialog's logs, not every processor's |
+> | 5 Android on VAEngine | ⏭ G1 decided: full protobuf on Android (NDK 28) |
 > | 17–32 | not started |
 
 
@@ -408,7 +408,7 @@ flowchart LR
 - **App today:** native libs total 99 MB; the release APK is 262 MB. So full protobuf is about +2.7% of native code.
 - **Blocker:** NDK 26.1 (the app's `ndkVersion`) crashes compiling protobuf v36 (clang exit 139); NDK 28.0 builds it.
 - **Lite caveat:** protobuf-lite has no `google.protobuf.Any`, so the lite path would need its own lite `any.proto`.
-- **Recommendation:** full protobuf on Android, after bumping the NDK to 28. Decision pending.
+- **Decision (2026-11-04):** full protobuf on Android and desktop, with the NDK bumped to 28.
 | G2 | 4 | TurnAssembler matches today's behaviour exactly? | Fix before 8; no dialog path on raw transcriptions |
 | G3 | 8 | Kernel API (turn envelope, step results) right? | Iterate before 15 freezes the extension API |
 | G4 | 28 | Wake-word model licence OK? | Train our own model or use a commercial engine |

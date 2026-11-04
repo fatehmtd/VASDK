@@ -2,6 +2,7 @@
 
 #include "vasdk_export.h"
 #include "CompiledAgent.h"
+#include "Tools.h"
 
 #include <functional>
 #include <map>
@@ -32,6 +33,14 @@ struct ReplyChoice {
     std::string value;             // what the button sends back as the user's words
 };
 
+/** A tool a call_tool step called. */
+struct ReplyToolCall {
+    std::string name;
+    std::string argumentsJson;
+    std::string resultJson;        // {"error": "..."} when it failed
+    bool ok = false;
+};
+
 /** What one turn produced. */
 struct Reply {
     std::string text;              // what to say; empty when nothing is said
@@ -46,6 +55,10 @@ struct Reply {
     std::optional<int> followUpListenMs;    // how long the mic stays open after it, by the agent; unset: the engine's setting
     bool endsSession = false;      // the conversation ended with this reply
     std::vector<PageChange> pageChanges;
+    std::vector<ReplyToolCall> toolCalls;
+    // Values to mask wherever this reply or the user's words are shown or logged: those of the
+    // sensitive slots and session params, as stored and as said (maskValue).
+    std::vector<std::string> sensitiveValues;
 };
 
 /**
@@ -116,6 +129,19 @@ public:
     /** What $context.* reads, asked each time a reference needs it (it may change any time). */
     using ContextSource = std::function<google::protobuf::Struct()>;
     void setContextSource(ContextSource source) { _context = std::move(source); }
+    /**
+     * How call_tool steps call tools; default: a ToolRunner with the agent's tools and no HTTP
+     * allowed (an engine's Session sets one from its config's security settings).
+     */
+    void setToolCaller(ToolCaller caller) { _toolCaller = std::move(caller); }
+    /**
+     * Called with what the turn has said so far, the filler included, just before a call_tool
+     * runs, so the user hears it while waiting; the turn's reply then holds only what comes after.
+     * Unset: the filler is part of the reply.
+     */
+    void setFillerSink(std::function<void(const Reply& sofar)> sink) { _fillerSink = std::move(sink); }
+    /** The current values of the sensitive slots and session params, as stored and as said. */
+    std::vector<std::string> sensitiveValues() const;
     /** The value a reference resolves to now ($session.tier, $form.day, $nlu.entities.service, ...). */
     Value lookup(const Path& path) const { return resolve(path, false); }
 
@@ -131,7 +157,8 @@ private:
         std::string reason = "goto";
         bool pushFlow = false;   // entering a flow: remember where to return
         bool endFlow = false;    // END_FLOW: return there
-        bool moves() const { return ended || endFlow || jump.has_value(); }
+        bool halted = false;     // a failed tool: the steps after it and the route's target are skipped
+        bool moves() const { return ended || endFlow || halted || jump.has_value(); }
     };
     // The current page's form: its values and where it is in asking for them.
     struct Form {
@@ -152,9 +179,10 @@ private:
     using Texts = google::protobuf::RepeatedPtrField<std::string>;
 
     Value resolve(const Path& path, bool spoken) const;   // spoken: entity values as replies say them
-    void store(const std::string& key, const Value& value);
+    bool store(const std::string& key, const Value& value, std::string* error = nullptr);   // logged when error is null
     std::optional<std::string> readSlot(const vasdk::goal::Slot& slot, const std::string& text) const;
     Outcome run(const google::protobuf::RepeatedPtrField<vasdk::flow::Step>& steps, Reply& reply);
+    Outcome callTool(const vasdk::flow::CallTool& call, Reply& reply);
     const vasdk::flow::Route* matchRoute();
     const vasdk::flow::Route* matchRoute(const google::protobuf::RepeatedPtrField<vasdk::flow::Route>& routes,
                                          const google::protobuf::RepeatedPtrField<std::string>* intents);
@@ -225,6 +253,8 @@ private:
     std::vector<ReplyChoice> _choices;                      // the last reply's choices, for selectChoice
     bool _replyCut = false;                                 // the last reply was cut off (replyInterrupted)
     std::map<const void*, size_t> _sayCounts;               // which of a Say's (or prompt's) texts comes next
+    ToolCaller _toolCaller;                                 // unset until the first call_tool: a ToolRunner
+    std::function<void(const Reply&)> _fillerSink;
 };
 
 } // namespace flow

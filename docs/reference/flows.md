@@ -63,6 +63,7 @@ Steps:
 | `ask` | `ask { say { text: "Which day?" } }` | Speaks a question: the reply expects an answer (`agent_reply.expects_reply`), and the question is repeated when the answer isn't understood. `choices` offer answers as buttons; `expect` says what the answer is: see [Expected input](#expected-input). |
 | `goto` | `goto { target: "confirm" }` | Moves to the target at once; the steps after it don't run. |
 | `end` | `end {}` | Ends the conversation once the reply has played. |
+| `call_tool` | `call_tool { name: "create_booking" args { key: "day" value: "$form.day" } into: "$session.booking" filler: "One moment." }` | Calls a tool and stores its result: see [Tools and security](#tools-and-security). |
 | `custom` | `custom { [type.googleapis.com/acme.Points] { into: "$session.points" } }` | A step written in C++, chosen by its params' type: see [Extensions](#extensions-page-types-and-c). |
 
 Everything said in one turn is joined into one reply: a route's steps, then the `on_enter` steps of every page entered.
@@ -232,6 +233,61 @@ What they get, `TurnContext`: `lookup("$session.tier")`, `set(key, value)` (the 
 Answered by a C++ envelope or page type, and staying on the page with nothing asked, the page's question is asked again, as after a route.
 
 **Checked at load:** an unknown page type, step or envelope (with what to register), params of the wrong type or missing, params of a type neither linked in nor imported, `$params` fields that don't exist, and the targets a page type's params name.
+
+## Tools and security
+
+**Calling a tool.** `call_tool` calls a tool by name with its `args` (each an expression) as a JSON object, and stores the result in `into`. A STRUCT session param keeps a whole result, read field by field: `$session.booking.id`. While the tool runs, its `filler` is spoken, so the caller isn't left in silence. The conversation waits for the tool on a thread of its own, so the rest of the pipeline keeps running.
+
+```textproto
+session_params { name: "booking" type: STRUCT }
+routes {
+  condition: "$form.confirmed"
+  steps { call_tool { name: "save_booking" args { key: "day" value: "$form.day" } args { key: "phone" value: "$form.phone" }
+                      into: "$session.booking" filler: "One moment while I book that." } }
+  steps { say { text: "Your reference is $session.booking.reference." } }
+  target: "booked"
+}
+handlers { event: "tool-error" steps { say { text: "Our booking system is down. Can I call you back?" } } target: "callback" }
+```
+
+A tool that fails (it's unknown, refused, too slow, its reply is too long, or the service says no) raises `tool-error`. The steps after it and the route's target are skipped. Its handler runs; without one, the reply is "Sorry, I can't do that right now." and the page's question again.
+
+**Where tools come from:**
+- **Written in C++:** `registry->addTool(va::llm::Tool("save_booking", "...").onCall([](const nlohmann::json& args) { ...; return result; }))`. It runs on a thread of its own and may block. An exception, or a result of `{"error": "..."}`, fails the call.
+- **Over HTTP**, declared in the agent:
+
+```textproto
+tools {
+  name: "create_booking"
+  http { url: "https://api.acme.example/bookings"            # POST, args as the JSON body; method: "GET" sends them as the query
+         headers { key: "Authorization" value: "Bearer $secrets.acme_api" } }
+}
+```
+
+**HTTP tools are limited by the engine config.** These settings live in the engine config, never in the agent (see [Security](engine-config.md#security)):
+- The URL must match `security.http_allow`. With none listed, nothing is reached.
+- Redirects aren't followed, and certificates are checked.
+- A reply longer than `max_response_kb` fails the call.
+- `$secrets.<name>` in a header reads `security.secrets`.
+- A tool of either kind still running after `timeout_ms` fails.
+
+**No secrets in agent files.** Agent files are shared, committed and sent to tools, so loading fails on any of these:
+- a `${...}` (agent files can't read the environment)
+- a literal that looks like a key or token (`sk-…`, `AKIA…`, `ghp_…`, `xoxb-…`, `AIza…`, a private key, a long `Bearer` token)
+- a literal value in an `Authorization`, `*key*`, `*token*` or `*secret*` header
+- `$secrets` anywhere but a tool's headers
+
+**Sensitive values.** Mark a slot or a session param `sensitive: true` (a phone or card number). Then:
+- Its value is masked wherever the conversation is reported: `***-***-4567`, keeping the last 4 digits of a long number.
+- That covers listener events (replies, tool calls) and the dialog's logs.
+- A question for a sensitive slot expects a private answer: `secure_entry`, so the app can hide what's typed. Its transcript is masked, and the answer never goes on to an LLM.
+
+**Steps written outside C++** (the C API, later Kotlin) answer with a [`StepOutcome`](../../VASDK/proto/vasdk/flow/step_outcome.proto): values to `set` and `unset`, texts to `say`, a `goto`. `TurnContext::apply` checks it first, and applies all of it or none:
+- Only `$session.<declared param>`, `$page.locals.<name>` and `$form.<slot>` can be written.
+- A value that doesn't fit its type is refused.
+- So is an unknown target.
+
+**In tests**, `tool_results { key: "create_booking" value: "{\"id\": \"B-42\"}" }` on a turn stands in for that tool (`{"error": ...}` fails it). `tools_called: ["create_booking"]` checks which tools were called. Without a stand-in, C++ tools run and HTTP tools are refused, because a test has no engine config to allow them.
 
 ## Stored values and conditions
 
@@ -412,7 +468,10 @@ Each reference reads the value in conditions (`$form.service = 'oil_change'`) an
 
 ## Events
 
-With an agent, listeners also get `page_changed` (`from_flow`/`from_page` → `to_flow`/`to_page`, with the reason `start`, `restart`, `route:<intent>` or `goto`) and `session_ended`. See [VAEngine events](engine.md#events).
+With an agent, listeners also get these events:
+- `page_changed`: `from_flow`/`from_page` → `to_flow`/`to_page`, with the reason `start`, `restart`, `route:<intent>` or `goto`.
+- `tool_call`: a `call_tool`'s name, its arguments and result, with sensitive values masked.
+- `session_ended`. See [VAEngine events](engine.md#events).
 
 ## Checking and testing: `vasdk_agentc`
 
@@ -465,7 +524,8 @@ $ vasdk_agentc try agents/garage-menu/agent.txtpb --entity @sys.phone "five five
 | Type | Use |
 |---|---|
 | `flow::CompiledAgent` | `load(path, error, warnings, registry)` or `compile(proto, ...)`: checked once, immutable, shared by every session that runs it. |
-| `flow::FlowRegistry`, `TurnContext` | Steps, page types and envelopes written in C++: see [Extensions](#extensions-page-types-and-c). |
+| `flow::FlowRegistry`, `TurnContext` | Steps, page types, envelopes and tools written in C++: see [Extensions](#extensions-page-types-and-c). `TurnContext::apply(StepOutcome)` for steps written in other languages. |
+| `flow::ToolRunner` | Runs an agent's tools within an engine config's `security`; `Session` makes one. `maskValue`, `redact` mask sensitive values. |
 | `flow::runAgentTool` | `vasdk_agentc`'s commands, for an app's own copy with its registry. |
 | `flow::FlowRuntime` | One conversation's place in an agent: `start()`, `handleText(text)` and `handleNoInput()` → `Reply` (text, its segments, choices, ui, matched, intent, event, expects reply, ends session, page changes), `replyInterrupted()`, `noInputMs()`, `setSessionParam`, `setEntityValues`, `setContextSource`. Copyable, way back included. |
 | `flow::Expression` | `parse(text)` once, then `evaluate(lookup)` or `test(lookup)`; `renderTemplate` for replies. |
@@ -477,4 +537,4 @@ $ vasdk_agentc try agents/garage-menu/agent.txtpb --entity @sys.phone "five five
 
 ## Not yet
 
-These come in later milestones: expectations that tune the speech recogniser (phrase hints) and end-of-turn detection (waiting through pauses in a phone number), `sys.yes`/`sys.no` as intents, arithmetic and dates in expressions (`days_until`, `now`), filters in replies (`|raw`), spoken dates and times in forms ("next Tuesday"), skipping a slot ("I don't know"), fuzzy and sound-alike matching of entity values, `@entity` inside intent examples, entities built from others ("a white Toyota from 2019"), values filled by tools, guards and before/after steps in envelopes, numbers like "the second one" for choices, a different voice or speed per part, and steps, page types and envelopes written in C, Kotlin or Python.
+These come in later milestones: expectations that tune the speech recogniser (phrase hints) and end-of-turn detection (waiting through pauses in a phone number), `sys.yes`/`sys.no` as intents, arithmetic and dates in expressions (`days_until`, `now`), filters in replies (`|raw`), spoken dates and times in forms ("next Tuesday"), skipping a slot ("I don't know"), fuzzy and sound-alike matching of entity values, `@entity` inside intent examples, entities built from others ("a white Toyota from 2019"), guards and before/after steps in envelopes, numbers like "the second one" for choices, a different voice or speed per part, and steps, page types and envelopes written in C, Kotlin or Python.

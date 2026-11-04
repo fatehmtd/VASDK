@@ -134,6 +134,10 @@ std::shared_ptr<const FlowRegistry> FlowRegistry::defaults() {
 void FlowRegistry::addStep(const std::string& paramsType, Step step) { _steps[paramsType] = std::move(step); }
 void FlowRegistry::addPageType(const std::string& name, PageType type) { _pageTypes[name] = std::move(type); }
 void FlowRegistry::addEnvelope(const std::string& name, Envelope envelope) { _envelopes[name] = std::move(envelope); }
+void FlowRegistry::addTool(llm::Tool tool) {
+    const std::string name = tool.name();
+    _tools[name] = std::move(tool);
+}
 
 const FlowRegistry::Step* FlowRegistry::step(const std::string& paramsType) const {
     const auto found = _steps.find(paramsType);
@@ -148,6 +152,11 @@ const FlowRegistry::PageType* FlowRegistry::pageType(const std::string& name) co
 const FlowRegistry::Envelope* FlowRegistry::envelope(const std::string& name) const {
     const auto found = _envelopes.find(name);
     return found == _envelopes.end() ? nullptr : &found->second;
+}
+
+const llm::Tool* FlowRegistry::tool(const std::string& name) const {
+    const auto found = _tools.find(name);
+    return found == _tools.end() ? nullptr : &found->second;
 }
 
 } // namespace flow

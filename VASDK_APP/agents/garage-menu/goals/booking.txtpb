@@ -28,6 +28,7 @@ slots {
 slots {
   name: "phone"
   type: PHONE
+  sensitive: true   # masked in events and logs; the app may hide what's typed
   prompt: "And what's the best number to reach you?"
   reprompt: "Sorry, I need a ten-digit phone number. What's the best number to reach you?"
 }

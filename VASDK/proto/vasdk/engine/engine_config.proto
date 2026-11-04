@@ -129,6 +129,14 @@ message FollowUp {
   optional int32 listen_ms = 1;        // unset: 8000; 0: close at once; -1: never close
 }
 
+// What agents' tools may reach. Secrets live here, never in agent files.
+message Security {
+  repeated string http_allow = 1;      // URLs HTTP tools may call; * matches anything: "https://api.acme.example/*"
+  optional int32 max_response_kb = 2;  // a longer reply fails the call; unset: 256
+  optional int32 timeout_ms = 3;       // a tool still running after this fails; unset: 8000
+  map<string, string> secrets = 4;     // read by tool headers as $secrets.<name>; "${ENV}" works here
+}
+
 message EngineConfig {
   string models_dir = 1;               // base directory for local model files
   Providers providers = 2;
@@ -136,4 +144,5 @@ message EngineConfig {
   TurnTaking turn_taking = 4;
   Activation activation = 5;
   Audio audio = 6;
+  Security security = 7;
 }

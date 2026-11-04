@@ -3,6 +3,7 @@
 #include "flow/SlotExtraction.h"
 #include "goal/GoalState.h"
 
+#include <google/protobuf/util/json_util.h>
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
@@ -23,6 +24,19 @@ Path splitReference(const std::string& key) {
 }
 
 constexpr const char* kNotUnderstood = "Sorry, I can't help with that here.";
+constexpr const char* kToolFailed = "Sorry, I can't do that right now.";
+
+nlohmann::json toJson(const Value& value) {
+    std::string json;
+    if (!google::protobuf::util::MessageToJsonString(value, &json).ok()) return nullptr;
+    return nlohmann::json::parse(json, nullptr, false);
+}
+
+Value fromJson(const nlohmann::json& json) {
+    Value value;
+    if (!google::protobuf::util::JsonStringToMessage(json.dump(), &value).ok()) return nullValue();
+    return value;
+}
 constexpr const char* kDidNotGetThat = "Sorry, I didn't get that.";
 constexpr const char* kSayYesOrNo = "Please say yes or no.";
 constexpr const char* kWhatToChange = "What would you like to change?";
@@ -57,6 +71,7 @@ Expectation slotExpectation(const vasdk::goal::Slot& slot) {
         if (slot.type() == Slot::EMAIL) expectation.set_keyboard(Expectation::EMAIL);
         if (slot.type() == Slot::BOOLEAN) expectation.set_mode(Expectation::YES_NO);
     }
+    if (slot.sensitive()) expectation.set_secure_entry(true);
     return merged(std::move(expectation), slot.expect());
 }
 
@@ -123,6 +138,30 @@ void TurnContext::say(const std::string& text) { append(_reply, text); }
 std::string TurnContext::render(const std::string& text) const { return _runtime.render(text); }
 void TurnContext::goTo(const std::string& target) { _target = target; }
 const std::string& TurnContext::replyText() const { return _reply.text; }
+
+bool TurnContext::apply(const vasdk::flow::StepOutcome& outcome, std::string* error) {
+    const auto session = _runtime._session;
+    const auto pageLocals = _runtime._pageLocals;
+    const auto form = _runtime._form;
+    auto refuse = [&](const std::string& why) {
+        _runtime._session = session;
+        _runtime._pageLocals = pageLocals;
+        _runtime._form = form;
+        spdlog::error("[FlowRuntime] step outcome refused on page \"{}\": {}", _runtime.pageName(), why);
+        if (error) *error = why;
+        return false;
+    };
+    std::string problem;
+    for (const auto& [key, value] : outcome.set())
+        if (!_runtime.store(key, value, &problem)) return refuse(problem);
+    for (const auto& key : outcome.unset())
+        if (!_runtime.store(key, nullValue(), &problem)) return refuse(problem);
+    if (!outcome.goto_().empty() && !_runtime.toTarget(outcome.goto_(), "goto").moves())
+        return refuse("unknown target \"" + outcome.goto_() + "\"");
+    for (const auto& text : outcome.say()) append(_reply, text);
+    if (!outcome.goto_().empty()) _target = outcome.goto_();
+    return true;
+}
 std::string TurnContext::flowName() const { return _runtime.flowName(); }
 std::string TurnContext::pageName() const { return _runtime.pageName(); }
 
@@ -238,20 +277,31 @@ Value FlowRuntime::resolve(const Path& path, bool spoken) const {
     return nullValue();
 }
 
-// Writes a value to a set or extract key, checked when the agent loaded.
-void FlowRuntime::store(const std::string& key, const Value& value) {
+// Writes a value to a set, extract or call_tool key (checked when the agent loaded), or a key
+// from C++ (checked here). A null value empties it.
+bool FlowRuntime::store(const std::string& key, const Value& value, std::string* error) {
     const Path path = splitReference(key);
-    std::string error;
+    std::string problem;
     if (path.size() == 2 && path[0] == "session") {
-        if (!setSessionParam(path[1], value, &error)) spdlog::error("[FlowRuntime] {}: {}", key, error);
+        setSessionParam(path[1], value, &problem);
     } else if (path.size() == 3 && path[0] == "page" && path[1] == "locals") {
-        (*_pageLocals.mutable_fields())[path[2]] = value;
-    } else if (path.size() == 2 && path[0] == "form" && _form) {
-        const auto result = _form->state->updateSlot(path[1], toText(value));
-        if (!result.valid) spdlog::error("[FlowRuntime] {}: {}", key, result.errorMessage);
-    } else {   // only from C++: an agent's keys were checked when it loaded
-        spdlog::error("[FlowRuntime] can't store {}: use $session.<name>, $page.locals.<name> or, on a form page, $form.<slot>", key);
+        if (value.kind_case() == Value::kNullValue) _pageLocals.mutable_fields()->erase(path[2]);
+        else (*_pageLocals.mutable_fields())[path[2]] = value;
+    } else if (path.size() == 2 && path[0] == "form" && _form &&
+               std::any_of(_form->goal->slots().begin(), _form->goal->slots().end(),
+                           [&](const auto& slot) { return slot.name() == path[1]; })) {
+        if (value.kind_case() == Value::kNullValue) {
+            _form->state->clearSlot(path[1]);
+        } else if (const auto result = _form->state->updateSlot(path[1], toText(value)); !result.valid) {
+            problem = result.errorMessage;
+        }
+    } else {
+        problem = "can't be written: use $session.<declared param>, $page.locals.<name> or, on a form page, $form.<slot>";
     }
+    if (problem.empty()) return true;
+    if (error) *error = key + ": " + problem;
+    else spdlog::error("[FlowRuntime] {}: {}", key, problem);
+    return false;
 }
 
 // A slot's value in an answer: by its entity, else by its type.
@@ -309,6 +359,7 @@ Reply FlowRuntime::selectChoice(int index) {
 // What the reply expects, and how long to listen after it: a say's own value, the question's,
 // else the page's settings, its envelopes', the flow's and the agent's.
 void FlowRuntime::finish(Reply& reply) {
+    reply.sensitiveValues = sensitiveValues();
     if (reply.expectsReply) {
         reply.expectation = _expectation;
         if (reply.expectation.mode() == Expectation::MODE_UNSET) reply.expectation.set_mode(Expectation::OPEN);
@@ -668,6 +719,9 @@ FlowRuntime::Outcome FlowRuntime::run(const google::protobuf::RepeatedPtrField<v
             outcome.ended = true;
             return outcome;
         }
+        case vasdk::flow::Step::kCallTool:
+            if (auto outcome = callTool(step.call_tool(), reply); outcome.moves()) return outcome;
+            break;
         case vasdk::flow::Step::kCustom: {
             const auto* function = _agent->registry().step(typeName(step.custom()));
             const auto* params = _agent->params(step.custom());
@@ -682,6 +736,58 @@ FlowRuntime::Outcome FlowRuntime::run(const google::protobuf::RepeatedPtrField<v
         }
     }
     return {};
+}
+
+FlowRuntime::Outcome FlowRuntime::callTool(const vasdk::flow::CallTool& call, Reply& reply) {
+    if (!call.filler().empty()) {
+        sayOne(call.filler(), &call, reply);
+        if (_fillerSink) {   // heard now, while the tool runs
+            _fillerSink(reply);
+            reply.text.clear();
+            reply.segments.clear();
+        }
+    }
+    nlohmann::json args = nlohmann::json::object();
+    for (const auto& [name, expression] : call.args()) args[name] = toJson(evaluate(expression));
+    if (!_toolCaller) _toolCaller = ToolRunner::caller(std::make_shared<ToolRunner>(_agent));
+    const auto result = _toolCaller(call.name(), args);
+    ReplyToolCall record;
+    record.name = call.name();
+    record.argumentsJson = args.dump();
+    record.ok = result.ok;
+    record.resultJson = result.ok ? result.value.dump() : nlohmann::json{{"error", result.error}}.dump();
+    reply.toolCalls.push_back(std::move(record));
+    if (result.ok) {
+        if (!call.into().empty()) store(call.into(), fromJson(result.value));
+        return {};
+    }
+    spdlog::warn("[FlowRuntime] tool \"{}\" failed on page \"{}\": {}", call.name(), pageName(), result.error);
+    reply.event = kEventToolError;
+    Outcome outcome;
+    if (const auto* handler = findHandler(kEventToolError)) {
+        outcome = runHandler(*handler, reply);
+    } else {
+        append(reply, kToolFailed);
+        askAgain(reply);
+    }
+    outcome.halted = true;
+    return outcome;
+}
+
+std::vector<std::string> FlowRuntime::sensitiveValues() const {
+    std::vector<std::string> values;
+    auto add = [&](const Path& path) {
+        for (const bool spoken : {false, true}) {
+            const Value value = resolve(path, spoken);
+            if (value.kind_case() == Value::kStringValue || value.kind_case() == Value::kNumberValue) values.push_back(toText(value));
+        }
+    };
+    for (const auto& param : _agent->definition().session_params())
+        if (param.sensitive()) add({"session", param.name()});
+    if (_form)
+        for (const auto& slot : _form->goal->slots())
+            if (slot.sensitive()) add({"form", slot.name()});
+    return values;
 }
 
 std::string FlowRuntime::say(const vasdk::flow::Say& say, Reply& reply) {

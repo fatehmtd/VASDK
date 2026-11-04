@@ -31,12 +31,31 @@ FlowTestResult runFlowTest(std::shared_ptr<const CompiledAgent> agent, const vas
         if (!conversation.setEntityValues(entity.name(), {entity.values().begin(), entity.values().end()}, &error))
             result.failures.push_back("entities: " + error);
     }
+    // A turn's tool_results stand in for its tools; others run as usual (HTTP ones are refused:
+    // a test has no engine config to allow them).
+    auto mocks = std::make_shared<google::protobuf::Map<std::string, std::string>>();
+    conversation.setToolCaller([mocks, runner = ToolRunner::caller(std::make_shared<ToolRunner>(agent))](
+                                   const std::string& name, const nlohmann::json& args) {
+        const auto mocked = mocks->find(name);
+        if (mocked == mocks->end()) return runner(name, args);
+        ToolResult result;
+        auto value = nlohmann::json::parse(mocked->second, nullptr, false);
+        if (value.is_discarded()) value = mocked->second;
+        if (value.is_object() && value.contains("error")) {
+            result.error = value["error"].is_string() ? value["error"].get<std::string>() : value["error"].dump();
+        } else {
+            result.ok = true;
+            result.value = std::move(value);
+        }
+        return result;
+    });
     if (testCase.has_context()) {
         const auto context = testCase.context();
         conversation.setContextSource([context] { return context; });
     }
     for (int i = 0; i < testCase.turns_size(); ++i) {
         const auto& turn = testCase.turns(i);
+        *mocks = turn.tool_results();
         const Reply reply = turn.no_input()        ? conversation.handleNoInput()
                           : turn.has_choice()     ? conversation.selectChoice(turn.choice())
                           : turn.user().empty()   ? conversation.start()
@@ -65,7 +84,12 @@ FlowTestResult runFlowTest(std::shared_ptr<const CompiledAgent> agent, const vas
             fail(std::string("ends_session is ") + yesNo(reply.endsSession) + ", expected " +
                  yesNo(expect.ends_session()));
         for (const auto& [name, expected] : expect.session()) {
-            const std::string actual = toText(conversation.sessionParam(name));
+            Path path{"session"};
+            for (size_t start = 0, dot; start <= name.size(); start = dot + 1) {   // "booking.reference": a field of a STRUCT param
+                dot = std::min(name.find('.', start), name.size());
+                path.push_back(name.substr(start, dot - start));
+            }
+            const std::string actual = toText(conversation.lookup(path));
             if (actual != expected) fail("$session." + name + " is " + quoted(actual) + ", expected " + quoted(expected));
         }
         if (!expect.event().empty() && reply.event != expect.event())
@@ -89,6 +113,12 @@ FlowTestResult runFlowTest(std::shared_ptr<const CompiledAgent> agent, const vas
         for (const auto& [name, expected] : expect.entities()) {
             const std::string actual = toText(conversation.lookup({"nlu", "entities", name}));
             if (actual != expected) fail("$nlu.entities." + name + " is " + quoted(actual) + ", expected " + quoted(expected));
+        }
+        if (!expect.tools_called().empty()) {
+            std::string called, expected;
+            for (const auto& call : reply.toolCalls) called += (called.empty() ? "" : ", ") + quoted(call.name);
+            for (const auto& name : expect.tools_called()) expected += (expected.empty() ? "" : ", ") + quoted(name);
+            if (called != expected) fail("tools called are [" + called + "], expected [" + expected + "]");
         }
         for (const auto& [name, expected] : expect.form()) {
             const std::string actual = toText(conversation.lookup({"form", name}));

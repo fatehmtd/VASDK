@@ -120,7 +120,7 @@ endif()
 
 # Optional: Link nlohmann_json if available (for WebSocketTransport and LLMTransport serialization)
 if(TARGET nlohmann_json::nlohmann_json)
-    target_link_libraries(VASDK PRIVATE nlohmann_json::nlohmann_json)
+    target_link_libraries(VASDK PUBLIC nlohmann_json::nlohmann_json)   # public headers (llm/Tool.h, flow/Tools.h) use it
     target_compile_definitions(VASDK PRIVATE VASDK_HAS_JSON)
     message(STATUS "nlohmann_json found - WebSocketTransport and LLMTransport will use JSON serialization")
 else()
@@ -190,6 +190,7 @@ if(VASDK_ENABLE_ENGINE_CONFIG)
         ./src/flow/FlowRuntime.cpp
         ./src/flow/DialogProcessor.cpp
         ./src/flow/FlowTestRunner.cpp
+        ./src/flow/Tools.cpp
         ./proto/vasdk/engine/engine_config.proto
         ./proto/vasdk/engine/events.proto
         ./proto/vasdk/nlu/entity.proto
@@ -198,6 +199,7 @@ if(VASDK_ENABLE_ENGINE_CONFIG)
         ./proto/vasdk/flow/agent.proto
         ./proto/vasdk/flow/page_types.proto
         ./proto/vasdk/flow/test_case.proto
+        ./proto/vasdk/flow/step_outcome.proto
     )
     protobuf_generate(TARGET VASDK
         IMPORT_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/proto
@@ -357,6 +359,9 @@ if(VASDK_BUILD_TESTS)
         add_executable(vasdk_primitive_test tests/primitive_test.cpp)
         target_link_libraries(vasdk_primitive_test PRIVATE VASDK)
         add_test(NAME vasdk_primitive COMMAND vasdk_primitive_test)
+        add_executable(vasdk_security_test tests/security_test.cpp)
+        target_link_libraries(vasdk_security_test PRIVATE VASDK)
+        add_test(NAME vasdk_security COMMAND vasdk_security_test)
 
         add_executable(vasdk_engine_events_test tests/engine_events_test.cpp)
         target_link_libraries(vasdk_engine_events_test PRIVATE VASDK)

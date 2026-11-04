@@ -47,7 +47,7 @@ message AgentStateChange {
   string transition = 3;      // why, e.g. USER_STOPPED_SPEAKING, BARGE_IN_INTERRUPT
 }
 
-// A tool the LLM called, reported when the tool returns.
+// A tool the LLM or a call_tool step called, reported when the tool returns. Sensitive values are masked.
 message ToolCall {
   string name = 1;
   string arguments_json = 2;

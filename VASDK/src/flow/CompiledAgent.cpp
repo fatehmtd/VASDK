@@ -18,6 +18,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <regex>
 #include <set>
 #include <sstream>
 
@@ -75,6 +76,37 @@ bool isFormStatus(const std::string& field) { return field == "complete" || fiel
 
 bool hasSlot(const vasdk::goal::GoalDefinition& goal, const std::string& name) {
     return std::any_of(goal.slots().begin(), goal.slots().end(), [&](const auto& slot) { return slot.name() == name; });
+}
+
+// Key-like literals: API keys and tokens of common services, private keys, bearer tokens.
+const std::regex& secretPattern() {
+    static const std::regex pattern(
+        R"(sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{30,}|xox[abprs]-[A-Za-z0-9-]{10,})"
+        R"(|AIza[0-9A-Za-z_-]{35}|-----BEGIN [A-Z ]*PRIVATE KEY-----|[Bb]earer +[A-Za-z0-9._~+/=-]{16,})");
+    return pattern;
+}
+
+// Calls `visit` with each string field in `message`, and where it is ("tools[1].http.headers[2].value").
+void forEachString(const google::protobuf::Message& message, const std::string& at,
+                   const std::function<void(const std::string& text, const std::string& where)>& visit) {
+    const auto* reflection = message.GetReflection();
+    std::vector<const google::protobuf::FieldDescriptor*> fields;
+    reflection->ListFields(message, &fields);
+    for (const auto* field : fields) {
+        const std::string name = (at.empty() ? "" : at + ".") + std::string(field->name());
+        const bool repeated = field->is_repeated();
+        const int count = repeated ? reflection->FieldSize(message, field) : 1;
+        for (int i = 0; i < count; ++i) {
+            const std::string where = repeated ? name + "[" + std::to_string(i + 1) + "]" : name;
+            if (field->cpp_type() == google::protobuf::FieldDescriptor::CPPTYPE_STRING &&
+                field->type() != google::protobuf::FieldDescriptor::TYPE_BYTES) {
+                visit(repeated ? reflection->GetRepeatedString(message, field, i) : reflection->GetString(message, field), where);
+            } else if (field->cpp_type() == google::protobuf::FieldDescriptor::CPPTYPE_MESSAGE) {
+                forEachString(repeated ? reflection->GetRepeatedMessage(message, field, i) : reflection->GetMessage(message, field),
+                              where, visit);
+            }
+        }
+    }
 }
 
 class Checker {
@@ -254,6 +286,37 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::build(vasdk::flow::Agent age
         else if (!compiled->_sessionParams.emplace(param.name(), i).second) check.error(where, "is declared twice");
         if (!fitsType(param.type(), param.default_()))
             check.error(where, "default doesn't fit its type " + vasdk::flow::SessionParam::Type_Name(param.type()));
+    }
+    // Secrets stay in the engine config: agent files are shared, committed and sent to tools.
+    forEachString(definition, "", [&](const std::string& text, const std::string& where) {
+        if (text.find("${") != std::string::npos)
+            check.error(where, "${...} reads the environment, which agent files can't: put secrets in the engine "
+                               "config's security.secrets and read them in a tool header with $secrets.<name>");
+        if (std::regex_search(text, secretPattern()))
+            check.error(where, "looks like a secret (an API key or token): put it in the engine config's "
+                               "security.secrets and read it in a tool header with $secrets.<name>");
+        if (text.find("$secrets.") != std::string::npos && where.rfind("tools[", 0) != 0)
+            check.error(where, "$secrets.<name> is only read in a tool's headers");
+    });
+    std::set<std::string> declaredTools;
+    for (int i = 0; i < definition.tools_size(); ++i) {
+        const auto& tool = definition.tools(i);
+        const std::string where = "tool " + (tool.name().empty() ? std::to_string(i + 1) : quoted(tool.name()));
+        if (tool.name().empty()) check.error(where, "has no name");
+        else if (!declaredTools.insert(tool.name()).second) check.error(where, "is declared twice");
+        const auto& url = tool.http().url();
+        if (url.rfind("https://", 0) != 0 && url.rfind("http://", 0) != 0)
+            check.error(where, "http url must start with https:// (or http://)");
+        if (!tool.http().method().empty() && tool.http().method() != "GET" && tool.http().method() != "POST")
+            check.error(where, "http method must be GET or POST");
+        for (const auto& [header, value] : tool.http().headers()) {
+            std::string lower = header;
+            std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return std::tolower(c); });
+            const bool secretHeader = lower == "authorization" || lower.find("key") != std::string::npos ||
+                                      lower.find("token") != std::string::npos || lower.find("secret") != std::string::npos;
+            if (secretHeader && value.find("$secrets.") == std::string::npos)
+                check.error(where, "header " + quoted(header) + " holds a literal: read it from the engine config with $secrets.<name>");
+        }
     }
     for (int i = 0; i < definition.goals_size(); ++i) {
         const auto& goal = definition.goals(i);
@@ -573,6 +636,17 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::build(vasdk::flow::Agent age
                 break;
             case vasdk::flow::Step::kEnd:
                 break;
+            case vasdk::flow::Step::kCallTool: {
+                const auto& call = step.call_tool();
+                if (call.name().empty()) check.error(stepWhere, "call_tool has no name");
+                else if (!extensions.tool(call.name()) && !declaredTools.count(call.name()))
+                    check.error(stepWhere, "unknown tool " + quoted(call.name()) + " (declare it in tools, or FlowRegistry::addTool)");
+                for (const auto& [arg, expression] : call.args())
+                    compileExpression(expression, stepWhere + " call_tool arg " + quoted(arg));
+                if (!call.into().empty()) checkWritable(call.into(), stepWhere, "call_tool into");
+                for (const auto& text : call.filler()) checkTemplate(text, stepWhere + " filler");
+                break;
+            }
             case vasdk::flow::Step::kCustom:
                 if (readParams(step.custom(), stepWhere) && !extensions.step(typeName(step.custom())))
                     check.error(stepWhere, "no step is registered for " + quoted(typeName(step.custom())) +
@@ -605,8 +679,9 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::build(vasdk::flow::Agent age
         for (int h = 0; h < handlers.size(); ++h) {
             const auto& handler = handlers.Get(h);
             const std::string handlerWhere = where + " handler " + std::to_string(h + 1);
-            if (handler.event() != kEventNoMatch && handler.event() != kEventNoInput && handler.event() != kEventMaxReprompts)
-                check.error(handlerWhere, "unknown event " + quoted(handler.event()) + " (no-match, no-input or max-reprompts)");
+            if (handler.event() != kEventNoMatch && handler.event() != kEventNoInput && handler.event() != kEventMaxReprompts &&
+                handler.event() != kEventToolError)
+                check.error(handlerWhere, "unknown event " + quoted(handler.event()) + " (no-match, no-input, max-reprompts or tool-error)");
             checkSteps(handler.steps(), handlerWhere);
             checkTarget(handler.target(), handlerWhere);
         }
@@ -842,6 +917,7 @@ bool fitsType(vasdk::flow::SessionParam::Type type, const Value& value) {
     case Value::kNumberValue: return type == vasdk::flow::SessionParam::NUMBER;
     case Value::kBoolValue: return type == vasdk::flow::SessionParam::BOOL;
     case Value::kListValue: return type == vasdk::flow::SessionParam::LIST;
+    case Value::kStructValue: return type == vasdk::flow::SessionParam::STRUCT;
     default: return false;
     }
 }

@@ -27,6 +27,7 @@ message TestTurn {
   TurnExpectation expect = 2;
   bool no_input = 3;  // the user says nothing (no-input), instead of `user`
   optional int32 choice = 4;   // the user taps the last reply's choice at this index, from 0, instead of `user`
+  map<string, string> tool_results = 5;   // tool name → the JSON it returns this turn, instead of calling it; {"error": "..."} fails
 }
 
 // Every field set must hold after the turn; unset fields aren't checked.
@@ -45,5 +46,6 @@ message TurnExpectation {
   repeated string choices = 12;        // the labels of the choices offered, in order
   Expectation.Mode expect_mode = 13;   // what the reply expects the user to say
   Expectation.Keyboard keyboard = 14;
-  optional int32 follow_up_listen_ms = 15;   // how long the mic stays open after the reply, by the agent's settings
+  optional int32 follow_up_listen_ms = 15;
+  repeated string tools_called = 16;   // the tools call_tool called this turn, in order   // how long the mic stays open after the reply, by the agent's settings
 }

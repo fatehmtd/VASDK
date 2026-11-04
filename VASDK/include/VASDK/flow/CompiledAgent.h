@@ -132,6 +132,7 @@ inline constexpr const char* kTargetEndFlow = "END_FLOW";
 inline constexpr const char* kEventNoMatch = "no-match";
 inline constexpr const char* kEventNoInput = "no-input";
 inline constexpr const char* kEventMaxReprompts = "max-reprompts";
+inline constexpr const char* kEventToolError = "tool-error";
 
 /** "@service" → "service"; "" when it doesn't start with @. */
 VASDK_EXPORT std::string entityName(const std::string& reference);

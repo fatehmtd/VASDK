@@ -2,7 +2,9 @@
 
 #include "vasdk_export.h"
 #include "Expression.h"
+#include "../llm/Tool.h"
 #include "vasdk/flow/agent.pb.h"
+#include "vasdk/flow/step_outcome.pb.h"
 
 #include <functional>
 #include <map>
@@ -42,6 +44,13 @@ public:
              const vasdk::flow::Expectation& expect = {});
     /** Moves to `target` once this returns, as a `goto`: a page of this flow, "flow:<name>", END_FLOW, END_SESSION or CURRENT_PAGE. */
     void goTo(const std::string& target);
+    /**
+     * Does what a step written outside C++ asks (the C API, Kotlin): sets and unsets values, says
+     * texts, moves. Keys other than $session.<declared param>, $page.locals.<name> and, on a form
+     * page, $form.<slot>, values that don't fit, or an unknown target: false, `error` set, and
+     * nothing is applied.
+     */
+    bool apply(const vasdk::flow::StepOutcome& outcome, std::string* error = nullptr);
     /** What the reply says so far. */
     const std::string& replyText() const;
     std::string flowName() const;
@@ -128,10 +137,17 @@ public:
     }
     /** An envelope for `envelopes: ["<name>"]` on the agent, a flow or a page. */
     void addEnvelope(const std::string& name, Envelope envelope);
+    /**
+     * A tool for call_tool steps, by its name: its handler gets the step's args as a JSON object
+     * and returns the result; {"error": "..."} or an exception fails the call (tool-error). It
+     * runs on a thread of its own and may block, up to the engine config's security.timeout_ms.
+     */
+    void addTool(llm::Tool tool);
 
     const Step* step(const std::string& paramsType) const;
     const PageType* pageType(const std::string& name) const;
     const Envelope* envelope(const std::string& name) const;
+    const llm::Tool* tool(const std::string& name) const;
 
     /** Calls `use` with `params` as a Params: as it is when it's one, else converted (a type loaded with proto_imports). */
     template <class Params, class Use>
@@ -149,6 +165,7 @@ private:
     std::map<std::string, Step> _steps;
     std::map<std::string, PageType> _pageTypes;
     std::map<std::string, Envelope> _envelopes;
+    std::map<std::string, llm::Tool> _tools;
 };
 
 } // namespace flow

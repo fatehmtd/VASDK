@@ -151,6 +151,28 @@ These apply also when the app passes its own LLM transport in code, as VASDK_Cal
 
 `models_dir` sets the base directory for local model files. When it is unset, VASDK_Pipeline uses the `models/` folder it finds next to the executable. A relative path is resolved from the current directory.
 
+## Security
+
+What agents' tools may reach. Secrets live here, never in agent files, which fail to load with one.
+
+```textproto
+security {
+  http_allow: ["https://api.acme.example/*"]
+  max_response_kb: 256
+  timeout_ms: 8000
+  secrets { key: "acme_api" value: "${ACME_API_KEY}" }
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `http_allow` | URLs an agent's HTTP tools may call; `*` matches anything. End a host with `/*`: `https://api.acme.example*` would also match `https://api.acme.example.evil.example`. None listed: no HTTP tool works. |
+| `max_response_kb` | A longer reply fails the call; default 256. |
+| `timeout_ms` | A tool, C++ or HTTP, still running after this fails; default 8000. |
+| `secrets` | Read by tool headers as `$secrets.<name>`. Use `${ENV}` here so the values stay out of the file too. |
+
+See [Tools and security](flows.md#tools-and-security).
+
 ## Using it from C++
 
 ```cpp

@@ -214,6 +214,7 @@ namespace va {
                 cloned->interruptible = interruptible;
                 cloned->uiJson = uiJson;
                 cloned->expectBytes = expectBytes;
+                cloned->sensitiveValues = sensitiveValues;
                 return cloned;
             }
 
@@ -226,6 +227,7 @@ namespace va {
             bool interruptible = true;         // false: the user can't talk over this frame's audio
             std::string uiJson;                // app UI for the reply, a JSON object (set on the final chunk only)
             std::string expectBytes;           // what the user is expected to say, a serialized vasdk.flow.Expectation (an agent's final chunk only)
+            std::vector<std::string> sensitiveValues;   // values to mask wherever the text is shown or logged (an agent's replies)
 
             TextFrame() : language("en-US") {}
         };
@@ -418,12 +420,14 @@ namespace va {
                 cloned->transcriptionResult = transcriptionResult;
                 cloned->isFinal = isFinal;
                 cloned->isBackchannel = isBackchannel;
+                cloned->sensitive = sensitive;
                 cloned->isFollowUp = isFollowUp;
                 return cloned;
             }
 
             bool isFinal;              // Whether this is a final transcription result
             bool isBackchannel = false; // Final of a dismissed back-channel ("mm-hmm"); recorded in history, never answered
+            bool sensitive = false;     // answers a private question (a card number): masked wherever shown or logged
             bool isFollowUp = false;    // Interrupted turn + its continuation, as one message: the text the LLM received
             va::audio::TranscriptionResult transcriptionResult; // Full result with word-level data, alternatives, and timing
 

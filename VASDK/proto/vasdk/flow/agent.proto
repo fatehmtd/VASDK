@@ -30,6 +30,26 @@ message Agent {
   // .proto files whose messages type the params of pages and custom steps, relative to this
   // file: no code generation needed. Types compiled into the app are found without them.
   repeated string proto_imports = 19;
+  repeated Tool tools = 20;                    // HTTP services call_tool may reach; tools in C++ come from FlowRegistry::addTool
+}
+
+// A tool reached over HTTP. The engine config's security.http_allow must list its URL, or the
+// call fails. Secrets never go in agent files: a header reads one with $secrets.<name>, from the
+// engine config's security.secrets.
+//   tools { name: "create_booking" http { url: "https://api.acme.example/bookings"
+//           headers { key: "Authorization" value: "Bearer $secrets.acme_api" } } }
+message Tool {
+  string name = 1;
+  string description = 2;
+  HttpCall http = 3;
+}
+
+// The call's args go as a JSON object: the body of a POST, the query of a GET. The reply's body,
+// JSON or text, is the tool's result.
+message HttpCall {
+  string url = 1;
+  string method = 2;                   // "POST" (default) or "GET"
+  map<string, string> headers = 3;
 }
 
 // A kind of page, written once and used by many: a page with `type: "<name>"` runs its steps
@@ -61,6 +81,7 @@ message Envelope {
 // What happens on an event instead of the built-in behaviour:
 //   no-match       no route understood the user ("Sorry, I can't help with that here.")
 //   no-input       the user said nothing for no_input_ms after a question (built in: the question again)
+//   tool-error     a call_tool failed: unknown, refused, timed out, or the service said no
 //   max-reprompts  more than max_reprompts no-match or no-input in a row on a page (built in:
 //                  the no-match or no-input behaviour again)
 // The steps run, then the conversation moves to target; staying on the page with nothing asked,
@@ -87,10 +108,12 @@ message SessionParam {
     NUMBER = 1;
     BOOL = 2;
     LIST = 3;
+    STRUCT = 4;    // fields, read as $session.<name>.<field>: a tool's result
   }
   string name = 1;
   Type type = 2;
   google.protobuf.Value default = 3;   // unset: null
+  bool sensitive = 4;                  // masked in events and logs, never given to an LLM
 }
 
 // What the user wants, recognised by keyword phrases: the intent matches when the user's words
@@ -157,6 +180,7 @@ message Step {
     Switch switch = 13;
     Goto goto = 14;
     End end = 17;
+    CallTool call_tool = 20;
     // A step written in C++ (FlowRegistry::addStep), chosen by its params' type:
     //   custom { [type.googleapis.com/acme.LoyaltyPoints] { into: "$page.locals.points" } }
     google.protobuf.Any custom = 100;
@@ -230,6 +254,18 @@ message End {}
 message Extract {
   string entity = 1;
   string into = 2;
+}
+
+// Calls a tool, written in C++ (FlowRegistry::addTool) or declared in `tools`, and stores its
+// result. While it runs the filler is said, so the user isn't left in silence. A tool that fails
+// raises tool-error: its handler runs, else "Sorry, I can't do that right now." and the page's
+// question again; the steps after it don't run.
+//   call_tool { name: "create_booking" args { key: "day" value: "$form.day" } into: "$session.booking" filler: "One moment." }
+message CallTool {
+  string name = 1;
+  map<string, string> args = 2;        // arg name → an expression for its value
+  string into = 3;                     // a `set` key for the result; empty: not kept
+  repeated string filler = 4;          // said, in turn, before the call
 }
 
 // Empties one of the page's form slots, so the form asks for it again (and confirms again).

@@ -1,4 +1,5 @@
 #include "engine/EventTapProcessor.h"
+#include "flow/Tools.h"
 
 #include "vasdk/engine/events.pb.h"
 
@@ -112,7 +113,8 @@ void EventTapProcessor::processFrame(std::shared_ptr<transport::Frame> frame, pi
         if (direction != pipeline::FlowDirection::DOWNSTREAM) break;
         auto transcription = std::static_pointer_cast<transport::TranscriptionFrame>(frame);
         auto* transcript = event.mutable_transcript();
-        transcript->set_text(transcription->transcriptionResult.text);
+        const auto& said = transcription->transcriptionResult.text;
+        transcript->set_text(transcription->sensitive ? flow::maskValue(said) : said);
         transcript->set_is_final(transcription->isFinal);
         transcript->set_confidence(transcription->transcriptionResult.confidence);
         transcript->set_is_backchannel(transcription->isBackchannel);
@@ -124,7 +126,7 @@ void EventTapProcessor::processFrame(std::shared_ptr<transport::Frame> frame, pi
         _reply += text->text;
         if (_reply.empty()) break;   // an empty final closing an empty reply
         auto* reply = event.mutable_agent_reply();
-        reply->set_text(_reply);
+        reply->set_text(flow::redact(_reply, text->sensitiveValues));
         reply->set_is_final(text->isFinal);
         if (text->isFinal) {
             reply->set_expects_reply(text->isExpecting);

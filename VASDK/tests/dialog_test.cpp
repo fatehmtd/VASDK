@@ -333,6 +333,7 @@ int main() {
         using transport::AgentState;
         using transport::AgentStateTransition;
         state(AgentState::IDLE, AgentState::LISTENING, AgentStateTransition::PIPELINE_START);   // greets
+        recorder->settled();   // the greeting is spoken before it can finish playing
         state(AgentState::SPEAKING, AgentState::LISTENING, AgentStateTransition::SYNTHESIS_COMPLETED);
         std::this_thread::sleep_for(300ms);
         auto texts = recorder->settled();

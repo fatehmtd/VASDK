@@ -54,4 +54,5 @@ message Slot {
   // What the answer is, for the app and the reprompts. Derived from the type: DIGITS for PHONE,
   // a keypad for numbers, YES_NO for BOOLEAN, choices for up to 5 values; set fields replace those.
   vasdk.flow.Expectation expect = 13;
+  bool sensitive = 14;                 // a card or phone number: masked in events and logs, never given to an LLM, typed privately
 }
