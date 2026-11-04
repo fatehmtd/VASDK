@@ -17,6 +17,7 @@ option(VASDK_BUILD_ENERGY_ZCR_VAD "Build Energy/ZCR VAD provider" OFF)
 
 # Turn detection
 option(VASDK_BUILD_SMART_TURN_V3 "Build SmartTurn v3 provider" ON)
+option(VASDK_BUILD_MINILM_NLU "Build the MiniLM sentence encoder (agents understand paraphrases)" ON)
 
 # Speaker identification
 option(VASDK_BUILD_PYANNOTE_SPEAKER "Build pyannote speaker embedding provider (speaker enrollment / identification)" ON)
@@ -67,7 +68,7 @@ endif()
 
 # Check if ONNX Runtime is needed by any enabled module
 set(VASDK_NEEDS_ONNXRUNTIME OFF)
-if(VASDK_BUILD_SILERO_VAD OR VASDK_BUILD_PARAKEET OR VASDK_BUILD_MOONSHINE_STT OR VASDK_BUILD_SUPERTONIC_TTS OR VASDK_BUILD_SMART_TURN_V3 OR VASDK_BUILD_POCKET_TTS OR VASDK_BUILD_MOSS_TTS OR VASDK_BUILD_PYANNOTE_SPEAKER)
+if(VASDK_BUILD_SILERO_VAD OR VASDK_BUILD_PARAKEET OR VASDK_BUILD_MOONSHINE_STT OR VASDK_BUILD_SUPERTONIC_TTS OR VASDK_BUILD_SMART_TURN_V3 OR VASDK_BUILD_POCKET_TTS OR VASDK_BUILD_MOSS_TTS OR VASDK_BUILD_PYANNOTE_SPEAKER OR VASDK_BUILD_MINILM_NLU)
     set(VASDK_NEEDS_ONNXRUNTIME ON)
 endif()
 
@@ -134,6 +135,10 @@ endif()
 
 if(VASDK_BUILD_WHISTLE_STT)
     include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/DownloadWhistleSTT.cmake)
+endif()
+
+if(VASDK_BUILD_MINILM_NLU AND NOT ANDROID)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/DownloadMiniLmModel.cmake)
 endif()
 
 if(VASDK_BUILD_SMART_TURN_V3 AND NOT ANDROID)
@@ -490,6 +495,10 @@ endif()
 
 if(VASDK_BUILD_RNNOISE)
     add_subdirectory(RNNoise)
+endif()
+
+if(VASDK_BUILD_MINILM_NLU AND VASDK_ENABLE_ENGINE_CONFIG)
+    add_subdirectory(MiniLmNlu)
 endif()
 
 if(VASDK_BUILD_SMART_TURN_V3)

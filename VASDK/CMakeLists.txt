@@ -203,6 +203,7 @@ if(VASDK_ENABLE_ENGINE_CONFIG)
         ./src/nlu/NluProvider.cpp
         ./src/nlu/RuleNluProvider.cpp
         ./src/nlu/English.cpp
+        ./src/nlu/EmbeddingNluProvider.cpp
         ./proto/vasdk/engine/engine_config.proto
         ./proto/vasdk/engine/events.proto
         ./proto/vasdk/nlu/entity.proto

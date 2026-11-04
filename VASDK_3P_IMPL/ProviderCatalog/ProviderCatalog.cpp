@@ -7,6 +7,7 @@
 #include <VASDK/GenericVoiceSynthesisProvider.h>
 #include <VASDK/TurnDetectionProvider.h>
 #include <VASDK/VADProvider.h>
+#include <VASDK/nlu/EmbeddingNluProvider.h>
 
 #include <cstdlib>
 
@@ -69,6 +70,9 @@
 #endif
 #ifdef VASDK_HAS_POCKET_TTS
 #include "PocketTTS/PocketVoiceSynthesisProvider.hpp"
+#endif
+#ifdef VASDK_HAS_MINILM_NLU
+#include "MiniLmNlu/MiniLmSentenceEncoder.h"
 #endif
 
 namespace va {
@@ -301,9 +305,21 @@ void registerTurn([[maybe_unused]] engine::ProviderRegistry& registry) {
 #endif
 }
 
+void registerEncoders([[maybe_unused]] engine::ProviderRegistry& registry) {
+#ifdef VASDK_HAS_MINILM_NLU
+    registry.add<nlu::SentenceEncoder, providers::MiniLmOptions>("minilm",
+        [](const providers::MiniLmOptions& options, const ProviderContext& context) -> std::shared_ptr<nlu::SentenceEncoder> {
+            auto encoder = std::make_shared<MiniLmSentenceEncoder>(modelDir(options.model_dir(), context, "minilm"));
+            if (!encoder->initialize()) return nullptr;
+            return encoder;
+        });
+#endif
+}
+
 } // namespace
 
 void registerAllProviders(engine::ProviderRegistry& registry) {
+    registerEncoders(registry);
     registerVad(registry);
     registerStt(registry);
     registerTts(registry);

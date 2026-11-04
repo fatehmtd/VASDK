@@ -82,6 +82,12 @@ Intents are understood from their examples, with no model and no LLM. When sever
 
 `$nlu.intent` is the matched route's intent. `$nlu.confidence` (0 to 1) is how fully its example matched, and `$nlu.stage` is what understood it (`rules`). `vasdk_agentc try` shows the best three.
 
+**A sentence encoder.** With `providers { sentence_encoder { id: "minilm" } }` in the engine config, a session understands paraphrases its examples miss: "is the shop open on saturday" for `hours`. That is all-MiniLM-L6-v2, 23 MB int8, on device; its model is downloaded at build time into `models/minilm`. It runs after the rules, which keep every turn they understand. On a paraphrase set, the rules alone get 20% and rules plus MiniLM 90% (`vasdk_minilm_nlu` in ctest).
+
+**Knowledge.** `knowledge { questions: ["do you do bodywork"] answer: "We don't do bodywork." }` answers questions on any page when no route understands the words, then asks the page's question again.
+- Without an encoder, a question matches when nearly all its words that matter are said, misspellings allowed.
+- With one, the closest question by meaning matches. It also wins over an intent the model alone matched, when it's closer.
+
 **More stages.** `FlowRuntime::setNlu(std::make_shared<nlu::CascadeNluProvider>(stages, 0.55))` tries stages in order: the rules, then, for instance, an on-device model or an LLM. A later stage is asked only when the earlier ones aren't sure enough. `nlu::NluProvider` is the interface a stage implements.
 
 ## Rich replies

@@ -40,3 +40,8 @@ message LocalTtsOptions {
 message SmartTurnOptions {
   string model_path = 1;   // default: <models_dir>/smart_turn_v3.onnx
 }
+
+// Sentence encoder: minilm.
+message MiniLmOptions {
+  string model_dir = 1;   // model.onnx and vocab.txt; unset: <models_dir>/minilm
+}

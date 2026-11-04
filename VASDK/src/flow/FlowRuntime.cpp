@@ -12,6 +12,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <ctime>
+#include <set>
 #include <utility>
 
 namespace va {
@@ -497,6 +498,13 @@ void FlowRuntime::takeTurn(const std::string& text, Reply& reply) {
         return;
     }
     const auto* best = matchRoute();
+    // Understood only by meaning: a knowledge question closer to the words wins over the intent.
+    if (best && _embeddings && understanding().stage == _embeddings->name()) {
+        float intentScore = 0;
+        for (const auto& match : understanding().intents)
+            if (match.intent == best->intent()) intentScore = match.score;
+        if (answerFromKnowledge(std::max(intentScore + 0.01f, 0.45f), reply)) return;
+    }
     if (best && _alternatives.size() > 1) {   // as likely one as another: ask which, when the agent says how
         if (const auto* clarify = findHandler(kEventClarify)) {
             reply.event = kEventClarify;
@@ -509,6 +517,7 @@ void FlowRuntime::takeTurn(const std::string& text, Reply& reply) {
             follow(repromptForm(reply), reply);
             return;
         }
+        if (answerFromKnowledge(0.6f, reply)) return;   // a question the agent knows the answer to
         reply.matched = false;
         follow(miss(kEventNoMatch, reply), reply);
         return;
@@ -883,6 +892,56 @@ const nlu::NluResult& FlowRuntime::understanding() {
         _understood = provider->understand(request);
     }
     return *_understood;
+}
+
+bool FlowRuntime::answerFromKnowledge(float atLeast, Reply& reply) {
+    const auto* knowledge = knowledgeAnswering(_inputText, atLeast);
+    if (!knowledge) return false;
+    reply.intent = "knowledge";
+    _misses = 0;
+    sayOne(knowledge->answer(), knowledge, reply);
+    askAgain(reply);
+    return true;
+}
+
+// The knowledge entry the words ask about: the closest question by meaning, with a sentence
+// encoder; else one whose words (those that matter) are almost all there, misspellings allowed.
+const vasdk::flow::Knowledge* FlowRuntime::knowledgeAnswering(const std::string& text, float atLeast) const {
+    const auto& entries = _agent->definition().knowledge();
+    if (entries.empty() || text.empty()) return nullptr;
+    if (_embeddings) {
+        std::vector<std::string> questions;
+        std::vector<int> owner;
+        for (int i = 0; i < entries.size(); ++i)
+            for (const auto& question : entries.Get(i).questions()) {
+                questions.push_back(question);
+                owner.push_back(i);
+            }
+        const auto [index, similarity] = _embeddings->closest(text, questions, atLeast);
+        return index < 0 ? nullptr : &entries.Get(owner[static_cast<size_t>(index)]);
+    }
+    static const std::set<std::string> filler{"a", "an", "the", "do", "does", "you", "your", "i", "is", "are", "can", "to",
+                                              "of", "on", "in", "my", "me", "it", "we", "what", "how", "please"};
+    const auto words = splitWords(text);
+    const vasdk::flow::Knowledge* best = nullptr;
+    float bestShare = 0.75f;
+    for (const auto& entry : entries) {
+        for (const auto& question : entry.questions()) {
+            int needed = 0, found = 0;
+            for (const auto& word : splitWords(question)) {
+                if (filler.count(word)) continue;
+                ++needed;
+                if (std::any_of(words.begin(), words.end(), [&](const std::string& said) { return nlu::wordMatch(said, word, 0.8f) > 0; }))
+                    ++found;
+            }
+            const float share = needed ? static_cast<float>(found) / static_cast<float>(needed) : 0.0f;
+            if (share >= bestShare && found >= std::min(needed, 2)) {
+                bestShare = share;
+                best = &entry;
+            }
+        }
+    }
+    return best;
 }
 
 //  Triggers

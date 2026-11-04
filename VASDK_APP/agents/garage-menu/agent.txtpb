@@ -25,6 +25,11 @@ proto_imports: ["garage.proto"]   # the C++ step's params, so any tool can read 
 
 goal_files: ["goals/booking.txtpb"]   # what the booking form asks for
 
+# Questions answered on any page when no route understands them (by meaning with a sentence
+# encoder in the engine config, else by their words).
+knowledge { questions: ["do you do bodywork", "can you fix dents", "paint repair"]
+            answer: "We don't do bodywork, but we can recommend a partner shop." }
+
 # The app says when a car is ready: session->fireTrigger("car-ready", {"car": "Golf"}). It waits
 # until the caller isn't in the middle of a booking, and is said once per car.
 triggers {

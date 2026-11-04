@@ -34,6 +34,16 @@ message Agent {
   repeated Tool tools = 20;                    // HTTP services call_tool may reach; tools in C++ come from FlowRegistry::addTool
   repeated Trigger triggers = 21;              // what may start or interrupt a conversation (trigger.proto)
   ProactivePolicy proactive_policy = 22;       // quiet hours and a limit for what's said unprompted
+  repeated Knowledge knowledge = 23;           // questions answered on any page when no route understands the words
+}
+
+// An answer to questions people ask: when no route understands the words and they ask one of
+// these (by meaning, with a sentence encoder; else by their words), the answer is said and the
+// page's question asked again.
+//   knowledge { questions: ["do you do bodywork", "can you fix dents"] answer: "We don't do bodywork." }
+message Knowledge {
+  repeated string questions = 1;
+  repeated string answer = 2;          // one of them, in turn; references work
 }
 
 // A tool reached over HTTP. The engine config's security.http_allow must list its URL, or the

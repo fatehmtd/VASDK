@@ -20,6 +20,7 @@ message Providers {
   ProviderSpec tts = 3;
   ProviderSpec turn = 4;               // end-of-turn model; none built in: VAD silence decides
   ProviderSpec wake_word = 5;          // used by the WAKE_WORD and HYBRID activation modes
+  ProviderSpec sentence_encoder = 6;   // an agent understands paraphrases its examples miss (MiniLM), after its rules
 }
 
 message LlmConfig {

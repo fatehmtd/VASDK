@@ -119,6 +119,8 @@ DialogProcessor::DialogProcessor(std::shared_ptr<const CompiledAgent> agent)
 void DialogProcessor::prepare(FlowRuntime& conversation) {
     conversation.setContextSource(_contextSource);
     if (_toolCaller) conversation.setToolCaller(_toolCaller);
+    if (_nlu) conversation.setNlu(_nlu);
+    if (_embeddings) conversation.setEmbeddings(_embeddings);
     conversation.setFillerSink([this](const Reply& sofar) {
         auto frame = std::make_shared<ReplyFrame>();
         frame->reply = sofar;
@@ -304,6 +306,14 @@ void DialogProcessor::setContextSource(FlowRuntime::ContextSource source) {
     _contextSource = std::move(source);
     _conversation.setContextSource(_contextSource);
     _beforeLastTurn.setContextSource(_contextSource);
+}
+
+void DialogProcessor::setNlu(std::shared_ptr<const nlu::NluProvider> provider,
+                             std::shared_ptr<const nlu::EmbeddingNluProvider> embeddings) {
+    _nlu = std::move(provider);
+    _embeddings = std::move(embeddings);
+    prepare(_conversation);
+    prepare(_beforeLastTurn);
 }
 
 void DialogProcessor::setToolCaller(ToolCaller caller) {

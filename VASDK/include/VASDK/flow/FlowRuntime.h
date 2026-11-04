@@ -3,6 +3,7 @@
 #include "vasdk_export.h"
 #include "CompiledAgent.h"
 #include "Tools.h"
+#include "../nlu/EmbeddingNluProvider.h"
 
 #include <chrono>
 #include <deque>
@@ -182,6 +183,8 @@ public:
      * entities and negation). A CascadeNluProvider adds stages: an on-device model, an LLM.
      */
     void setNlu(std::shared_ptr<const nlu::NluProvider> provider) { _nlu = std::move(provider); }
+    /** Answers knowledge questions by meaning with it, instead of by their words. */
+    void setEmbeddings(std::shared_ptr<const nlu::EmbeddingNluProvider> embeddings) { _embeddings = std::move(embeddings); }
     /** The current values of the sensitive slots and session params, as stored and as said. */
     std::vector<std::string> sensitiveValues() const;
     /** The value a reference resolves to now ($session.tier, $form.day, $nlu.entities.service, ...). */
@@ -241,6 +244,8 @@ private:
     Outcome callTool(const vasdk::flow::CallTool& call, Reply& reply);
     const nlu::NluResult& understanding();
     void listenFor(Reply& reply) const;
+    const vasdk::flow::Knowledge* knowledgeAnswering(const std::string& text, float atLeast = 0.6f) const;
+    bool answerFromKnowledge(float atLeast, Reply& reply);
     TimePoint now() const;
     bool conversationActive() const { return started() && !_ended; }
     void enterStartQuietly(Reply& reply, const std::string& reason);
@@ -337,6 +342,7 @@ private:
     std::map<std::string, TimePoint> _scheduleChecked;   // per schedule trigger: when it last fired, or was first seen
     std::map<std::string, bool> _contextHeld;            // per context_change trigger: whether its condition held
     std::shared_ptr<const nlu::NluProvider> _nlu;
+    std::shared_ptr<const nlu::EmbeddingNluProvider> _embeddings;
     std::optional<nlu::NluResult> _understood;   // this turn's, worked out when a route first needs it
     std::vector<std::string> _alternatives;      // intents tied for the best route this turn
     std::function<void(const Reply&)> _fillerSink;

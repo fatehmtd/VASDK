@@ -1,0 +1,5 @@
+# proto-file: vasdk/flow/test_case.proto
+# proto-message: vasdk.flow.FlowTestCase
+name: "a question the agent knows, then back to what it asked"
+turns { expect { page: "welcome" } }
+turns { user: "do you do bodywork on cars" expect { said_contains: "recommend a partner shop" page: "welcome" expects_reply: true } }

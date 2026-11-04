@@ -20,6 +20,7 @@ class GenericVoiceSynthesisProvider;
 class TurnDetectionProvider;
 class WakeWordProvider;
 }
+namespace nlu { class SentenceEncoder; }
 
 namespace engine {
 
@@ -84,6 +85,8 @@ public:
     std::unique_ptr<Session> createSession(Session::Options options, std::string* error = nullptr);
 
     const vasdk::engine::EngineConfig& config() const { return _config; }
+    /** The config's sentence_encoder, shared by every session; null without one. */
+    std::shared_ptr<const nlu::SentenceEncoder> sentenceEncoder() const { return _sentenceEncoder; }
     const Options& options() const { return _options; }
     size_t activeSessions() const;
     /** Provider sets loaded and waiting for a session. */
@@ -103,6 +106,7 @@ private:
     mutable std::mutex _mutex;
     std::vector<std::shared_ptr<ProviderSet>> _idle;
     size_t _active = 0;
+    std::shared_ptr<const nlu::SentenceEncoder> _sentenceEncoder;
 };
 
 } // namespace engine

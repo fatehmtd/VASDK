@@ -74,6 +74,8 @@ public:
     void selectChoice(int index);
     /** What $context.* reads; called on the conversation's thread, so it must be thread-safe. Before start(). */
     void setContextSource(FlowRuntime::ContextSource source);
+    /** What understands intents, and what answers knowledge questions by meaning (FlowRuntime::setNlu, setEmbeddings). Before start(). */
+    void setNlu(std::shared_ptr<const nlu::NluProvider> provider, std::shared_ptr<const nlu::EmbeddingNluProvider> embeddings = nullptr);
     /** How call_tool steps reach tools (FlowRuntime::setToolCaller). Before start(). */
     void setToolCaller(ToolCaller caller);
     /**
@@ -108,6 +110,8 @@ private:
     FlowRuntime _beforeLastTurn;   // restored when the user resumes the last turn
     std::shared_ptr<const CompiledAgent> _agent;
     ToolCaller _toolCaller;
+    std::shared_ptr<const nlu::NluProvider> _nlu;
+    std::shared_ptr<const nlu::EmbeddingNluProvider> _embeddings;
     std::thread _conversationThread;
     std::mutex _tasksMutex;
     std::condition_variable _tasksChanged;

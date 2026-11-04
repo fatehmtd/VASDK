@@ -1,4 +1,5 @@
 #include "engine/Runtime.h"
+#include "nlu/EmbeddingNluProvider.h"
 
 #include "AudioRingBuffer.h"
 #include "GenericTranscriptionProvider.h"
@@ -81,6 +82,15 @@ std::shared_ptr<Runtime> Runtime::create(const vasdk::engine::EngineConfig& conf
     auto first = runtime->createProviderSet(error);
     if (!first) return nullptr;
     runtime->_idle.push_back(std::move(first));
+    if (const auto& encoder = config.providers().sentence_encoder(); !encoder.id().empty()) {   // one for every session
+        std::string reason;
+        const ProviderContext context{runtime->_options.modelsDir, runtime->_options.inputAudio, runtime->_options.frameSize, nullptr};
+        runtime->_sentenceEncoder = runtime->_registry.create<nlu::SentenceEncoder>(encoder, context, &reason);
+        if (!runtime->_sentenceEncoder) {
+            if (error) *error = "Sentence encoder: " + reason;
+            return nullptr;
+        }
+    }
     return runtime;
 }
 
