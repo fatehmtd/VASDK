@@ -47,7 +47,9 @@ NluResult LlmNluProvider::understand(const NluRequest& request) const {
         const float confidence = std::clamp(answer.value("confidence", 0.0f), 0.0f, 1.0f);
         if (std::find(names.begin(), names.end(), intent) != names.end() && confidence > 0)
             result.intents.push_back({intent, confidence, confidence});
-        else if (!intent.empty() && intent != "none")
+        else if (intent == "none")
+            result.noneMeant = true;
+        else if (!intent.empty())
             spdlog::info("[LlmNlu] ignored \"{}\": not an intent of the agent", intent);
     } catch (const std::exception&) {
         spdlog::warn("[LlmNlu] unreadable reply: {}", reply->substr(0, 200));

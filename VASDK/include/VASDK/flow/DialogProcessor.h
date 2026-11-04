@@ -128,6 +128,7 @@ private:
     transport::AgentState _agentState = transport::AgentState::IDLE;
     bool _connected = true;
     std::atomic<bool> _passUnmatchedTurns{false};   // off while the network is down
+    bool _llmTookLastTurn = false;                   // on the conversation's thread
     ReplyObserver _observer;
     FlowRuntime::ContextSource _contextSource;
     bool _awaitingAnswer = false;   // the last reply asked a question

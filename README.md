@@ -25,6 +25,15 @@ A C++17 framework for building voice assistants that listen, think, and talk bac
 
 Build with `-DVASDK_BUILD_LIBDATACHANNEL_WEBRTC=ON`, run `./build/VASDK_APP/VASDK_Pipeline --webrtc-port 8765` and open `http://127.0.0.1:8765`: the browser becomes the mic and speaker (Opus, browser echo cancellation), and the [demo page](assets/webrtc/index.html) shows the pipeline live over a data channel - agent state, a VizAnim-driven voice visual and 20 s voice ribbon, the conversation with per-utterance speaker tags, a turn timeline, and latency split into end-of-turn + ASR, LLM first token and TTS first audio heard. Details: [WebRtcTransport](docs/reference/transports.md#webrtctransport).
 
+To talk to an agent with an LLM behind it:
+
+```bash
+./build/VASDK_APP/VASDK_Pipeline --config VASDK_APP/config/engine.txtpb \
+  --agent VASDK_APP/agents/garage-menu/agent.txtpb --env-file .env --webrtc-port 8080
+```
+
+The agent's pages answer what they understand: booking, prices, opening hours, a person. The LLM chats about everything else, and a keyword in the middle of a story doesn't take the chat away from it ([With an LLM](docs/reference/flows.md#with-an-llm)). The example config uses Whistle for speech recognition and Phonon for the voice. When you talk over the assistant, it pauses at once. It stops if you keep talking for 300 ms or say "stop", "wait" or similar, and carries on after a "mm-hmm".
+
 ## Why this exists
 
 The idea for VASDK took shape while I was designing a production in-vehicle voice assistant. That work made the gap obvious: there are strong voice-agent SDKs like Pipecat and LiveKit Agents, but they are primarily built around Python-first, cloud-friendly assumptions that do not map cleanly to embedded and automotive systems.

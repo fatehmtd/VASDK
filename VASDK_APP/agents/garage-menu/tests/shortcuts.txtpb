@@ -1,6 +1,6 @@
 # proto-file: vasdk/flow/test_case.proto
 # proto-message: vasdk.flow.FlowTestCase
 name: "greetings, help and naming the service on the welcome page"
-turns { user: "hey what's up" expect { page: "welcome" said_contains: "Acme Garage" } }
+turns { user: "hey what's up" expect { page: "welcome" said_contains: "What can I do for you" } }   # a greeting gets a greeting, not the menu again
 turns { user: "explain what you can do for me" expect { page: "welcome" said_contains: "oil change or a tire repair" expects_reply: true } }
 turns { user: "Flattire." expect { page: "booking" said: "Which day works for you?" form { key: "service" value: "tire_repair" } } }

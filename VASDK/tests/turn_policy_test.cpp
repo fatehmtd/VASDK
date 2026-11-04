@@ -61,6 +61,20 @@ public:
     }
 };
 
+// Starts the user's turn when the VAD starts, an interruption if the agent is speaking then (as SmartTurn does).
+class StartingTurnModel : public audio::TurnDetectionProvider {
+public:
+    TurnEvaluation evaluate(const std::shared_ptr<transport::Frame> frame, bool agentIsSpeaking) override {
+        TurnEvaluation evaluation;
+        if (frame->getType() == transport::FrameType::VAD_STATE &&
+            std::static_pointer_cast<transport::VADStateFrame>(frame)->state == transport::VADState::STARTING) {
+            evaluation.decision = Decision::TURN_START;
+            evaluation.type = agentIsSpeaking ? transport::TurnStateFrame::TurnType::INTERRUPT : transport::TurnStateFrame::TurnType::NORMAL;
+        }
+        return evaluation;
+    }
+};
+
 class HintedStt : public fakes::FakeStt {
 public:
     void setContextHints(const std::vector<std::string>& phrases) override { hints = phrases; }
@@ -195,6 +209,27 @@ int main() {
     check(normal.first == 1, "normal: the model ends the turn at the pause");
     const auto patient = turnEndsWith(TurnEnd::Patient);
     check(patient.first == 0 && patient.second == 1, "patient: not at the pause; at the VAD's end");
+
+    // Speech that starts just before the reply does: once confirmed, it interrupts the reply.
+    {
+        auto turn = std::make_shared<pipeline::TurnDetectionProcessor>(std::make_shared<StartingTurnModel>());
+        auto below = std::make_shared<Recorder>();
+        turn->setDownstream(below);
+        below->initialize();
+        below->start();
+        turn->processFrame(vad(transport::VADState::STARTING), pipeline::FlowDirection::DOWNSTREAM);
+        turn->setAgentSpeaking(true);   // the reply starts while the speech is being confirmed
+        turn->processFrame(vad(transport::VADState::ONGOING), pipeline::FlowDirection::DOWNSTREAM);
+        bool interrupts = false;
+        for (const auto& frame : below->settled())
+            if (frame->getType() == transport::FrameType::TURN_STATE) {
+                const auto& start = static_cast<const transport::TurnStateFrame&>(*frame);
+                if (start.actor == transport::TurnStateFrame::TurnActor::USER && start.state == transport::TurnStateFrame::TurnState::START)
+                    interrupts = start.type == transport::TurnStateFrame::TurnType::INTERRUPT;
+            }
+        check(interrupts, "speech confirmed after the reply started: an interruption");
+        below->stop();
+    }
 
     // The recognizer gets the words.
     {

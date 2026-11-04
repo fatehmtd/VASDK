@@ -27,6 +27,15 @@
 > | 30 Kotlin extensions | ✅ committed. `registerAgentTool`, `registerAgentStep` (StepOutcome JSON), `setEntityValues` + `ContactsEntity`, `events` as a SharedFlow; the phone agent ("call mom" → confirm → call) as an asset, tested on desktop in ctest. Declared tools may omit `http` (the app provides them). Built for arm64; not run on a device |
 > | 31 Python | ✅ committed. `bindings/python/vasdk` (ctypes over the C API: registry, agents, conversations, test files); the garage suite runs from Python in ctest with its step, envelope and tool in Python. Needs a shared VASDK; not packaged for pip |
 > | 32 Remote control | ✅ committed. Over HTTP rather than WebSocket (core's cpp-httplib has no WebSocket server; libdatachannel's is built off): `GET /events` as Server-Sent Events, `POST /command` (`vasdk.engine.Command`), `GET /` a live trace page; token (header or query), OBSERVE by default, localhost bind; started by Session from `remote_control`. Round trip and auth tested in ctest; the page not checked in a browser here |
+> | Live test: WebRTC + agent + cloud LLM | ✅ committed. Run with `VASDK_Pipeline --config VASDK_APP/config/engine.txtpb --agent VASDK_APP/agents/garage-menu/agent.txtpb --env-file .env.cloud --webrtc-port 8080`. Setup: Whistle STT, Phonon TTS (Pocket as fallback), a DeepSeek model through OpenRouter. Chat, context, tool calls and the voice all worked. Fixes from the session: <ul><li>a keyword in a long sentence no longer takes the turn (`IntentMatch::explains`; an LLM "none" beats a weak rule)</li><li>an LLM chat stays with the LLM until a clear route ("help me out" mid-story no longer opens help)</li><li>envelope answers mid-chat don't ask the page's question again</li><li>a user start held during VAD confirmation becomes an INTERRUPT if the agent started speaking</li><li>barge-in pauses playback and commits after 300 ms</li><li>"what" and "pardon" are interrupt words</li><li>the garage greeting varies</li></ul> |
+>
+> **Next (where to pick up):**
+>
+> 1. **Intent check time limit.** The LLM intent check blocks the conversation for up to 8 s; one live turn took 4.6 s. Cap it at about 1.5 s and fall back to the rules' guess.
+> 2. **Entity routes in a chat.** Entity routes (`@service`) can still take over an LLM chat. Apply the same `explains` check to them.
+> 3. **Speaker echo.** Echo through speakers can pause the agent. Try it with headphones off, and tune `commit_after_ms` / `min_interrupt_confidence`.
+> 4. **Thresholds are untested.** The "a sixth of the words" weight and the 0.5 threshold mid-chat are judgement calls, not measured on real speech. Measure them with `vasdk_agentc eval` on recorded turns.
+> 5. **Still open from above.** Milestone 22's audio loopback test and on-device run, every "not run on a device" item, and gate G4 (28).
 
 
 *Uses Google Dialogflow CX as the reference model. Definitions are proto-schema'd and written in text proto.*

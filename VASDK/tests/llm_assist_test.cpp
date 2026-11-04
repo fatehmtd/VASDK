@@ -196,6 +196,45 @@ int main() {
         check(toText(again.lookup({"nlu", "stage"})) == "llm", "$nlu.stage is llm");
     }
 
+    // Mid-chat with the LLM: an answer doesn't bring the page's question back.
+    {
+        FlowRuntime menu(agent);
+        menu.start();
+        const auto asked = menu.handleText("opening hours");
+        check(asked.text == "We're open 8 to 6. Hi, how can I help?", "on its own: the answer, then the question again: " + asked.text);
+        FlowRuntime chatting(agent);
+        chatting.start();
+        chatting.setLlmHasConversation(true);
+        const auto answered = chatting.handleText("opening hours");
+        check(answered.text == "We're open 8 to 6." && answered.expectsReply, "mid-chat: the answer alone: " + answered.text);
+    }
+
+    // A keyword in a long question isn't sure: the LLM is asked, and its "none" wins over the keyword.
+    {
+        const std::string question = "tell me a long story about a book you read in japan and france last year";
+        FlowRuntime offline(agent);
+        offline.start();
+        offline.handleText(question);
+        check(offline.pageName() == "booking", "offline: the keyword still decides");
+
+        auto llm = std::make_shared<ScriptedLlm>();
+        llm->answer = [](const auto& messages) {
+            return std::string(asksForIntent(messages) ? R"({"intent": "none"})" : "{}");
+        };
+        FlowRuntime online(agent);
+        assist(online, agent, llm);
+        online.start();
+        const auto reply = online.handleText(question);
+        check(llm->calls >= 1 && !reply.matched && online.pageName() == "welcome",
+              "with an LLM: asked, and none of the intents: " + online.pageName());
+        llm->answer = nullptr;   // unreachable
+        FlowRuntime unreachable(agent);
+        assist(unreachable, agent, llm);
+        unreachable.start();
+        unreachable.handleText(question);
+        check(unreachable.pageName() == "booking", "the LLM unreachable: the keyword decides");
+    }
+
     // Forms: the LLM reads an answer the slot can't, but only values the slot's entity takes are kept.
     {
         auto llm = std::make_shared<ScriptedLlm>();

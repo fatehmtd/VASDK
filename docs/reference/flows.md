@@ -103,6 +103,18 @@ With an `llm` endpoint in the engine config, a session asks the LLM what the age
 
 The LLM reads the instructions, the form's slots and their values, and the last 12 turns. Sensitive values are masked in what it reads, and the answer to a sensitive slot never reaches it, not even for understanding. It replies with a JSON object (`say`, `goto`, `slots`); a reply that isn't one is said as it is. A request that fails or takes over 8 seconds counts as no LLM for that turn.
 
+**A keyword doesn't take the chat.** A rule that matches only a small part of what was said is not trusted: in "tell me a long story about a book you read in Japan", the word "book" doesn't send the user to the booking page.
+
+- The cascade weighs each rule match by `IntentMatch::explains`, the share of the words the match accounts for. A match that covers a sixth of the words or more keeps its full weight.
+- If the LLM answers "none", that beats a weak guess from the rules, and the turn goes to the LLM conversation.
+- Offline, the rules' guess still stands.
+
+Once the LLM has answered a turn, it keeps the conversation until a route the user clearly asked for takes it back:
+
+- Only the rules are asked, and an intent counts only when it explains at least half the words. "I am hard of hearing, help me out." stays with the LLM, but "help" on its own goes to the agent's help route.
+- An answer from an envelope route doesn't ask the page's question again ("We're open 8 to 6." with no "How can I help?").
+- A reply with no intent ("You're welcome.") leaves the conversation with the LLM.
+
 `Session::Options::llmCompletion` replaces the config's endpoint (`llm::Completion`: one request, its reply). Turns the agent doesn't understand on a plain page still go to the session's LLM conversation (`LLMProcessor`), as before.
 
 ## Rich replies

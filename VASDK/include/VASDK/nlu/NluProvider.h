@@ -15,6 +15,7 @@ struct IntentMatch {
     std::string intent;
     float score = 0;        // how much of the words it explains; rules: the example's words matched (fuzzy ones count less)
     float confidence = 0;   // 0 to 1: how sure the stage is
+    float explains = 1;     // 0 to 1: the share of what was said it accounts for; rules: 1/21 for "hey" opening a 21-word question
 };
 
 /** What to understand. */
@@ -32,6 +33,7 @@ struct NluRequest {
 struct NluResult {
     std::vector<IntentMatch> intents;
     std::string stage;      // the provider that decided: "rules", "minilm", "llm"
+    bool noneMeant = false; // the stage is sure the words mean none of the intents (an LLM's "none")
 };
 
 /**

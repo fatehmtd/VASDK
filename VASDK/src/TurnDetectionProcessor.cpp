@@ -113,6 +113,9 @@ namespace va {
 
             if (vadFrame && _heldUserStart) {
                 if (vadFrame->state == transport::VADState::ONGOING) {
+                    // The agent may have started its reply while the speech was being confirmed: then it interrupts it.
+                    _heldUserStart->type = _agentIsSpeaking ? transport::TurnStateFrame::TurnType::INTERRUPT
+                                                            : transport::TurnStateFrame::TurnType::NORMAL;
                     pushDownstream(_heldUserStart);
                     spdlog::info("[{}] Speech confirmed - emitted held user TURN_STATE START (type={})",
                         getName(), static_cast<int>(_heldUserStart->type));

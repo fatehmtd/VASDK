@@ -165,7 +165,7 @@ Key behaviors: `TranscriptionFrame`s arriving outside `LISTENING` are **dropped*
 People say "mm-hmm", "yeah" and "right" while someone talks, and expect them to keep going. With `setBackchannelConfig()` (on by default), a user turn start while `SPEAKING` doesn't interrupt at once. It opens a **pending barge-in**: the agent stays `SPEAKING` and an `AgentStateFrame` with transition `BARGE_IN_PENDING` goes out. TTS then ducks or pauses playback through `setPlaybackHold()`. The speech is then classified by `classifyBackchannel()`:
 
 - **Commit** (a real interruption, the usual `BARGE_IN_INTERRUPT`), as soon as one of these holds:
-  - a word from `interruptWords` is heard ("stop", "wait", "no", "actually", "but"…);
+  - a word from `interruptWords` is heard ("stop", "wait", "no", "actually", "but", "what", "pardon"…);
   - two words that aren't back-channel phrases are heard, or a final has one;
   - more than `maxBackchannelWords` (4) are heard;
   - the speech runs past `commitAfterPendingMs` (600 ms after the pending start, about 850 ms of speech).

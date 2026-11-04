@@ -11,9 +11,15 @@ NluResult CascadeNluProvider::understand(const NluRequest& request) const {
     for (const auto& stage : _stages) {
         auto result = stage->understand(request);
         if (result.stage.empty()) result.stage = stage->name();
-        if (!result.intents.empty() && result.intents.front().confidence >= _minConfidence) return result;
-        const float confidence = result.intents.empty() ? 0.0f : result.intents.front().confidence;
-        const float bestConfidence = best.intents.empty() ? 0.0f : best.intents.front().confidence;
+        // Sure, and of enough of the words: a keyword may stand for a short sentence ("let me talk to a person",
+        // up to 6 words a matched word), but a keyword in a long question goes on to the next stage.
+        auto sureness = [](const NluResult& of) {
+            return of.intents.empty() ? 0.0f : of.intents.front().confidence * std::min(1.0f, 6.0f * of.intents.front().explains);
+        };
+        if (sureness(result) >= _minConfidence) return result;
+        if (result.noneMeant) return result;   // "none of them" beats an earlier stage's weak guess
+        const float confidence = sureness(result);
+        const float bestConfidence = sureness(best);
         if (best.stage.empty() || confidence > bestConfidence) best = std::move(result);
     }
     return best;

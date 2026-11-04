@@ -649,6 +649,10 @@ void FlowRuntime::askAgain(Reply& reply) {
         advanceForm(reply);
         return;
     }
+    if (_llmHasConversation) {   // mid-chat with the LLM: "You're welcome.", not the page's menu again
+        reply.expectsReply = true;
+        return;
+    }
     append(reply, _lastQuestion);
     reply.expectsReply = !_lastQuestion.empty();
     offerChoices(reply);
@@ -964,8 +968,13 @@ const nlu::NluResult& FlowRuntime::understanding() {
             return _agent->entities().find(entity, _inputText, _dynamicEntities, now()).has_value();
         };
         request.sensitive = privateTurn();
-        const std::shared_ptr<const nlu::NluProvider> provider = _nlu ? _nlu : _agent->rules();
+        const std::shared_ptr<const nlu::NluProvider> provider = _nlu && !_llmHasConversation ? _nlu : _agent->rules();
         _understood = provider->understand(request);
+        if (_llmHasConversation) {
+            auto& intents = _understood->intents;
+            intents.erase(std::remove_if(intents.begin(), intents.end(), [](const nlu::IntentMatch& match) { return match.explains < 0.5f; }),
+                          intents.end());
+        }
     }
     return *_understood;
 }

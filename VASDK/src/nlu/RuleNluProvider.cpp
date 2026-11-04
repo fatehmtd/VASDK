@@ -121,6 +121,8 @@ NluResult RuleNluProvider::understand(const NluRequest& request) const {
             if (matched > best.score) {
                 best.score = matched;
                 best.confidence = matched / static_cast<float>(example.size);
+                // shortcut: an entity counts as one word however many it spans; measure its span if that misleads.
+                best.explains = std::min(1.0f, static_cast<float>(example.size) / static_cast<float>(words.size()));
             }
         }
         if (best.score <= 0) continue;

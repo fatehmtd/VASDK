@@ -393,6 +393,33 @@ int main() {
         dialog->stop();
         recorder->stop();
     }
+    // Turns the LLM takes aren't the agent's misses: no max-reprompts handoff behind the LLM's back.
+    {
+        auto patient = compile(R"(
+          start_flow: "main"
+          intents { name: "book" examples: ["book"] }
+          flows { name: "main" start_page: "welcome"
+            pages { name: "welcome" routes { intent: "book" steps { say { text: "Booking." } } }
+                    handlers { event: "max-reprompts" steps { say { text: "Transferring." } } target: "transfer" } }
+            pages { name: "transfer" on_enter { ask { say { text: "Hold on." } } } } }
+        )");
+        auto dialog = std::make_shared<flow::DialogProcessor>(patient);
+        auto recorder = std::make_shared<Recorder>();
+        dialog->setPassUnmatchedTurns(true);
+        dialog->setDownstream(recorder);
+        recorder->initialize();
+        recorder->start();
+        dialog->initialize();
+        dialog->start();
+        for (const char* words : {"what's the weather", "in tokyo", "and in kyoto", "and osaka", "can you book that trip for me please"})
+            dialog->processFrame(userTurn(words), pipeline::FlowDirection::DOWNSTREAM);
+        dialog->processFrame(userTurn("book"), pipeline::FlowDirection::DOWNSTREAM);
+        const auto texts = recorder->settled();
+        check(recorder->turns == 5 && texts.size() == 1 && texts[0].text == "Booking.",
+              "five turns to the LLM (\"book\" in a sentence to it stays with it), then \"book\" brings the agent back");
+        dialog->stop();
+        recorder->stop();
+    }
 
     // A session with an agent and no LLM: greets at start (always on), answers typed text, reports pages.
     {

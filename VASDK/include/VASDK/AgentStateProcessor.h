@@ -63,9 +63,9 @@ namespace va {
             uint32_t lowConfidenceMaxWords = 2;
             std::vector<std::string> backchannelPhrases{ "yeah", "yep", "yes", "yup", "mm-hmm", "mhm", "mm", "hmm",
                 "uh-huh", "okay", "ok", "right", "all right", "alright", "sure", "i see", "got it", "cool", "nice", "wow", "ah", "oh" };
-            /// Any of these words makes the speech a real interruption at once ("okay stop").
+            /// Any of these words makes the speech a real interruption at once ("okay stop", "what?": not heard).
             std::vector<std::string> interruptWords{ "stop", "wait", "no", "hold", "hang", "actually", "but",
-                "sorry", "excuse" };
+                "sorry", "excuse", "what", "pardon" };
         };
 
         /**

@@ -116,7 +116,7 @@ flows {
       steps { ask { say { text: "What would you like?" } } }
     }
     routes { intent: "yes" target: "booking" }        # "would you like to book it?"
-    routes { intent: "hello" target: "CURRENT_PAGE" }  # last: "hi, I'd like to book" still books
+    routes { intent: "hello" steps { ask { say { text: ["Hi there! What can I do for you today?", "Hey! How can I help?"] } } } }  # last: "hi, I'd like to book" still books
     routes { entity: "@service" target: "booking" }   # just naming one: "my tyres are flat"
   }
 

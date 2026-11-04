@@ -375,12 +375,18 @@ void DialogProcessor::processFrame(std::shared_ptr<transport::Frame> frame, pipe
             if (turn.replacesPrevious) _conversation = _beforeLastTurn;
             _beforeLastTurn = _conversation;
             const auto started = std::chrono::steady_clock::now();
+            _conversation.setLlmHasConversation(_llmTookLastTurn && _passUnmatchedTurns);
             auto reply = _conversation.handleText(turn.text);
             _flowMetrics.turns.increment();
             _flowMetrics.turnMs.observe(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
             spdlog::info("[Dialog] \"{}\" → {} on {}/{}", privateAnswer ? maskValue(turn.text) : redact(turn.text, reply.sensitiveValues),
                          reply.matched ? "route " + reply.intent : "not understood", _conversation.flowName(), _conversation.pageName());
             const bool mayPassOn = !reply.matched && !privateAnswer;   // a private answer never goes to an LLM
+            // The LLM takes the turn: the agent's miss (its count, a no-match or max-reprompts handler) never happened.
+            const bool passOn = mayPassOn && _passUnmatchedTurns;
+            if (passOn) _conversation = _beforeLastTurn;
+            // The LLM keeps the conversation until the agent takes a route ("You're welcome." doesn't).
+            if (passOn || !reply.intent.empty()) _llmTookLastTurn = passOn;
             deliver(std::move(reply), frame, mayPassOn);
         });
         return;
@@ -392,6 +398,7 @@ void DialogProcessor::processFrame(std::shared_ptr<transport::Frame> frame, pipe
         }
         post([this] {
             _beforeLastTurn = _conversation;
+            _conversation.setLlmHasConversation(_llmTookLastTurn && _passUnmatchedTurns);
             auto reply = _conversation.handleNoInput();
             spdlog::info("[Dialog] no input → {} on {}/{}", reply.event, _conversation.flowName(), _conversation.pageName());
             deliver(std::move(reply));
