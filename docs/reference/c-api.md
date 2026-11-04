@@ -33,4 +33,32 @@ vasdk_registry_free(registry);
 
 Text VASDK returns as `char*` is the caller's: free it with `vasdk_free`. On failure a function sets its `char** error` (also freed with `vasdk_free`) and returns `NULL` or 0. Callbacks and their `user` pointer must outlive the agents loaded with the registry. A conversation is used from one thread at a time; registries and agents can be shared. [`vasdk_c_test.c`](../../VASDK/tests/vasdk_c_test.c) uses all of it from C, in `ctest`.
 
+## From Python
+
+[`bindings/python/vasdk`](../../bindings/python/vasdk/__init__.py) wraps the C API with `ctypes`, so it needs no compiler: point `VASDK_LIBRARY` at a shared build of VASDK (`build/VASDK/libVASDK.dylib`), and add `bindings/python` to `PYTHONPATH`.
+
+```python
+import vasdk
+
+registry = vasdk.Registry()
+
+@registry.tool("save_booking")
+def save_booking(booking):
+    return {"reference": booking["reference"], "status": "confirmed"}   # raising fails it: tool-error
+
+@registry.step("garage.BookingReference")
+def booking_reference(params, turn):
+    turn.apply({"set": {params["into"]: "AG-" + turn.lookup("$form.phone")[-4:]}})
+
+registry.envelope("thanks", before=lambda turn: turn.text == "thanks" and (turn.say("You're welcome.") or True))
+
+agent = vasdk.Agent.load("VASDK_APP/agents/garage-menu/agent.txtpb", registry)
+conversation = agent.conversation()
+conversation.start()["text"]                       # "Hi, this is Acme Garage. ..."
+conversation.say("book a tire repair")["page"]     # "booking"
+passed, report = vasdk.run_test_file(agent, "VASDK_APP/agents/garage-menu/tests/book_service.txtpb")
+```
+
+Errors raise `vasdk.VasdkError` with VASDK's message. The garage agent's whole suite runs from Python in `ctest` (`vasdk_python_garage`, [`test_garage.py`](../../bindings/python/tests/test_garage.py)), with its C++ step, envelope and tool written again in Python.
+
 Not in the C API yet: audio sessions (`Session`, `VAEngine`) and their events. Those need providers, which come from the provider catalog, outside core.
