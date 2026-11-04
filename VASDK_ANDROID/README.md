@@ -26,13 +26,18 @@ flowchart TB
     JNI <--> Native
 ```
 
-The native side is the same CMake tree as the desktop build (`externalNativeBuild` points at [`CMakeLists.txt`](CMakeLists.txt), with `-DVASDK_BUILD_APP=OFF` so only the library and providers are compiled). ABIs are `arm64-v8a` and `x86_64`; `armeabi-v7a` was dropped because llama.cpp's NEON fallback collides with the NDK's `arm_neon.h` on the 32-bit target, and no realistic test device is armv7-only.
+The native side is the same CMake tree as the desktop build (`externalNativeBuild` points at [`CMakeLists.txt`](CMakeLists.txt), with `-DVASDK_BUILD_APP=OFF` so only the library and providers are compiled). It runs on [VAEngine](../docs/reference/engine.md), as the desktop app does:
+- `VasdkEngine` builds an [engine config](../docs/reference/engine-config.md) from the settings: which providers, their keys and model folders, audio formats, always-on listening, turn-taking and the cloud LLM.
+- `nativeInit` parses it (text proto, full protobuf).
+- It creates the providers by id from the shared provider catalog, plus the app's own `voz` ([`VozProvider.cpp`](app/src/main/cpp/VozProvider.cpp)).
+- It runs one `Session`. Events from the session feed the `Listener`.
+- It adds the local LLM (llama.cpp), the Android tools, speaker tracking and the visualiser to the session. ABIs are `arm64-v8a` and `x86_64`; `armeabi-v7a` was dropped because llama.cpp's NEON fallback collides with the NDK's `arm_neon.h` on the 32-bit target, and no realistic test device is armv7-only.
 
 ## The Kotlin API surface
 
 `VasdkEngine` is the single entry point: a thin singleton wrapper over the native pipeline with an `init / start / stop / release` lifecycle and a `Listener` interface for everything coming back up: transcripts (partial and final), streamed LLM response chunks (with an `isExpecting` flag when the LLM's reply is itself a question awaiting a spoken answer), agent status changes, pipeline errors, VizAnim audio feature vectors for UI animation, and model download progress.
 
-`setBackchannelConfig(enabled, pendingPlaybackMode, historyMode, tailOverlapMode, duckGainDecibels, duckDurationMs)`, called after `init` and before `start`, chooses how speech over the assistant is handled ([back-channels](../docs/reference/processors.md#back-channels-speech-over-the-agent-that-isnt-an-interruption)). The defaults are on, `DUCK`, `DROP`, `TREAT_AS_TURN` and a −12 dB duck lasting at least 2500 ms, so a "mm-hmm" ducks the assistant instead of cutting it off. `AAudioSink` applies the duck and pause on the audio callback thread.
+`setBackchannelConfig(enabled, pendingPlaybackMode, historyMode, tailOverlapMode, duckGainDecibels, duckDurationMs)`, called after `init` (also while running), chooses how speech over the assistant is handled ([back-channels](../docs/reference/processors.md#back-channels-speech-over-the-agent-that-isnt-an-interruption)). The defaults are on, `DUCK`, `DROP`, `TREAT_AS_TURN` and a −12 dB duck lasting at least 2500 ms, so a "mm-hmm" ducks the assistant instead of cutting it off. `AAudioSink` applies the duck and pause on the audio callback thread.
 
 `getModelInfo()` returns a `ModelInfo` snapshot (which model is loaded, its chat format, the current system prompt, every tool currently registered with its parameters, and a raw preview of the actual prompt/request payload) for the in-app "model info" screen:
 
@@ -150,7 +155,7 @@ cd VASDK_ANDROID
 ./gradlew assembleRelease
 ```
 
-Requirements: compileSdk 35, minSdk 33, NDK 26.1, CMake 3.22+. The first build downloads the native dependency graph (ONNX Runtime, llama.cpp, sentencepiece, curl, and the rest) per ABI, so expect it to take a while.
+Requirements: compileSdk 35, minSdk 33, NDK 28 (NDK 26 crashes compiling protobuf 36), CMake 3.22+. Code is generated from the `.proto` files with the build machine's `protoc` 36.2 (Homebrew's, say); without one, the build downloads it. The first build downloads the native dependency graph (ONNX Runtime, llama.cpp, sentencepiece, curl, and the rest) per ABI, so expect it to take a while.
 
 For a cloud LLM instead of (or alongside) the local one, provide credentials at build time; they're injected into `BuildConfig`:
 

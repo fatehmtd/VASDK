@@ -39,7 +39,7 @@ def gradiumVoiceId = envLocalProps.getProperty('GRADIUM_VOICE_ID', localProps.ge
 android {
     namespace 'com.vasdk.android'
     compileSdk 35
-    ndkVersion "26.1.10909125"
+    ndkVersion "28.0.12433566"   // NDK 26 crashes compiling protobuf 36
 
     defaultConfig {
         applicationId "com.vasdk.android"

@@ -10,7 +10,7 @@
 > | 14 Expected input | ✅ committed (`bdd2448`, with 15). Not in it: STT hints and end-of-turn by expectation (20), trigger-delivery window (17), the keypad on Android (needs 5) |
 > | 15 Extensions | ✅ committed (`bdd2448`). `form` stays the page's `form` field, not a page type |
 > | 16 Tools & security | ✅ committed. Tools run synchronously on the conversation's own thread (not resumable steps); masking covers events and the dialog's logs, not every processor's |
-> | 5 Android on VAEngine | ⏭ G1 decided: full protobuf on Android (NDK 28) |
+> | 5 Android on VAEngine | ✅ committed. Full protobuf (G1), NDK 28; Kotlin builds the engine config as text proto (no generated Kotlin classes). Built for arm64; not run on a device here |
 > | 17–32 | not started |
 
 

@@ -22,6 +22,7 @@ set(_vasdk_catalog_providers
     vasdk_deepgrampp_stt  DEEPGRAMPP_STT
     vasdk_cartesiapp_stt  CARTESIAPP_STT
     vasdk_fishaudiopp_stt FISHAUDIOPP_STT
+    vasdk_gladiapp_transcription GLADIAPP
     vasdk_whistle_stt     WHISTLE_STT
     vasdk_moonshine_stt   MOONSHINE_STT
     vasdk_parakeet        PARAKEET
@@ -42,6 +43,10 @@ foreach(_index RANGE 0 ${_last} 2)
     math(EXPR _define_index "${_index} + 1")
     list(GET _vasdk_catalog_providers ${_index} _target)
     list(GET _vasdk_catalog_providers ${_define_index} _define)
+    # Android's Whistle needs its NDK-built engine (none for the x86_64 emulator).
+    if(_target STREQUAL "vasdk_whistle_stt" AND ANDROID AND NOT WHISTLE_ENGINE_STATIC)
+        continue()
+    endif()
     if(TARGET ${_target})
         target_link_libraries(vasdk_provider_catalog PUBLIC ${_target})
         target_compile_definitions(vasdk_provider_catalog PRIVATE VASDK_HAS_${_define})

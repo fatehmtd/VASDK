@@ -67,6 +67,8 @@ Processors that read the mic audio directly use `inputRingBuffer()`.
 | `injectUserText(text)` | Sends `text` as a finished user turn, as if it had been spoken. Needs an LLM or an agent. |
 | `selectChoice(index)` | With an agent: taps the last reply's choice at `index` (from 0), the same as saying its value. |
 | `interrupt()` | Stops the current reply, the same way a barge-in does. |
+| `resetConversation()` | Starts over: cuts the reply, drops the LLM's history, and sends an agent back to its start page with its session params at their defaults. |
+| `setBackchannel(config)`, `backchannel()` | Changes, or reads, how speech over the assistant is handled (back-channels, ducking) while it runs, e.g. from a settings screen. |
 | `pushToTalk(held)` | The push-to-talk button: listens while held, and cuts a reply in progress. Released mid-sentence, the user's turn still gets its answer. |
 | `setFollowUpListenMs(ms)` | How long the mic stays open after each reply; overrides the config's [`activation.follow_up`](engine-config.md#activation). An agent's own settings come first: see [Expected input](flows.md#expected-input). |
 | `setSessionParam(name, value)` | With an agent: sets a declared `$session.<name>`, e.g. the caller's tier. `Options::context` gives the agent's `$context.*` a `ContextProvider`. See [Agents](flows.md#stored-values-and-conditions). |
@@ -84,7 +86,8 @@ Processors that read the mic audio directly use `inputRingBuffer()`.
 | `transcript` | The user said something (partial and final results), or `injectUserText` sent it. Back-channels ("mm-hmm") are marked. |
 | `agent_reply` | Once per streamed piece of the reply; `text` is the whole reply so far, `is_final` marks the end, with `expects_reply`, `choices` (with `choice_values`, what each sends back), `ui_json` (an agent's `ui`) and `expect` (an agent's [expected input](flows.md#expected-input): a keypad, a yes/no). `say()` text arrives as one final piece. |
 | `agent_state` | Every state change: `IDLE`, `LISTENING`, `THINKING`, `SPEAKING`, `INTERRUPTED`, with the transition that caused it. |
-| `tool_call` | A tool the LLM called, with its arguments and result, when it returns. |
+| `tool_call` | A tool the LLM or an agent's `call_tool` called, with its arguments and result, when it returns. Sensitive values are masked. |
+| `user_speech` | The user's voice as voice activity detection hears it: `STARTED`, `ONGOING` (after a pause), `ENDED`. For a "you're speaking" indicator. |
 | `error` | A processor or transport reported a failure, e.g. the LLM endpoint is unreachable. |
 | `listening_window` | The mic stays open after a reply: `OPENED` (with `closes_in_ms`), `EXTENDED` when the user starts answering, `CLOSED` when it times out. For a live mic indicator. |
 | `page_changed` | With an agent: the conversation moved to another page (`from_flow`/`from_page` → `to_flow`/`to_page`), with the reason: `start`, `restart`, `route:<intent>` or `goto`. |
@@ -129,4 +132,4 @@ calls.destroySession(callId);
 
 ## Availability
 
-`VAEngine` needs engine config support (`VASDK_ENABLE_ENGINE_CONFIG`, on by default on desktop). The Android app still wires its own pipeline.
+`VAEngine` needs engine config support (`VASDK_ENABLE_ENGINE_CONFIG`, on by default everywhere, Android included). The Android app runs on it: [`VasdkEngine.kt`](../../VASDK_ANDROID/app/src/main/kotlin/com/vasdk/android/VasdkEngine.kt) builds the engine config from its settings as text proto, and [`vasdk_jni.cpp`](../../VASDK_ANDROID/app/src/main/cpp/vasdk_jni.cpp) creates a `Runtime` and a `Session` from it. Cross-compiling, code is generated with the build machine's `protoc` of protobuf's version (36.2), downloaded when there's none.

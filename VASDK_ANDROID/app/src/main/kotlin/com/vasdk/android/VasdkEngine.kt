@@ -362,39 +362,83 @@ class VasdkEngine private constructor(
                 Log.e(TAG, "Failed to extract system CA bundle; cloud TLS connections will fail")
             }
 
-            isNativeInitialized = nativeInit(
+            val engineConfig = engineConfigText(
+                modelsDir = contextWrapper.cacheDir.absolutePath,
                 vadModelPath = modelMap[R.raw.silero_vad]!!,
-                turnDetectionModelPath = modelMap[R.raw.smart_turn_v3]!!,
-                speakerModelPath = if (speakerModelFile.exists()) speakerModelFile.absolutePath else "",
-                nativeLibDir = contextWrapper.applicationInfo.nativeLibraryDir,
-                sttProvider = sttProvider.id,
-                sttStreaming = sttStreaming,
+                turnModelPath = modelMap[R.raw.smart_turn_v3]!!,
                 sttModelDir = sttModelDir.absolutePath,
-                llmModelPath = if(useLocalLLM) {llmModelFile.absolutePath} else { "" },
-                llmChatFormat = llmModelMeta.format,
-                ttsProvider = ttsProvider.id,
                 ttsModelDir = ttsModelDir.absolutePath,
-                ttsStylePath = "",
+                caBundlePath = caBundlePath
+            )
+            isNativeInitialized = nativeInit(
+                engineConfig = engineConfig,
+                agentPath = "",
+                nativeLibDir = contextWrapper.applicationInfo.nativeLibraryDir,
+                speakerModelPath = if (speakerModelFile.exists()) speakerModelFile.absolutePath else "",
                 useLocalLLM = useLocalLLM,
-                llmApiKey = BuildConfig.LLM_API_KEY,
-                llmEndpoint = BuildConfig.LLM_ENDPOINT,
-                llmModel = BuildConfig.LLM_MODEL,
+                llmModelPath = if (useLocalLLM) llmModelFile.absolutePath else "",
+                llmChatFormat = llmModelMeta.format,
                 systemPrompt = contextWrapper.getString(R.string.default_system_prompt),
                 formatInstruction = contextWrapper.getString(R.string.response_format_instruction),
-                toolCallExceptionClause = contextWrapper.getString(R.string.tool_call_exception_clause),
-                sonioxApiKey = BuildConfig.SONIOX_API_KEY,
-                deepgramApiKey = BuildConfig.DEEPGRAM_API_KEY,
-                gladiaApiKey = BuildConfig.GLADIA_API_KEY,
-                cartesiaApiKey = BuildConfig.CARTESIA_API_KEY,
-                cartesiaVoiceId = BuildConfig.CARTESIA_VOICE_ID,
-                fishaudioApiKey = BuildConfig.FISHAUDIO_API_KEY,
-                fishaudioVoiceId = BuildConfig.FISHAUDIO_VOICE_ID,
-                gradiumApiKey = BuildConfig.GRADIUM_API_KEY,
-                gradiumVoiceId = BuildConfig.GRADIUM_VOICE_ID,
-                caBundlePath = caBundlePath
+                toolCallExceptionClause = contextWrapper.getString(R.string.tool_call_exception_clause)
             )
             return isNativeInitialized
         }
+    }
+
+    /**
+     * The engine config (vasdk/engine/engine_config.proto, text proto) for the current settings:
+     * which providers, their keys and model folders, audio formats, always-on listening and
+     * turn-taking, and the cloud LLM. Keys come from BuildConfig, never from a file.
+     */
+    private fun engineConfigText(modelsDir: String, vadModelPath: String, turnModelPath: String,
+                                 sttModelDir: String, ttsModelDir: String, caBundlePath: String): String {
+        fun quoted(value: String) = "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+        fun options(type: String, fields: String) = "options { [type.googleapis.com/vasdk.providers.$type] { $fields } }"
+        fun cloud(apiKey: String, voiceId: String = "") = options("CloudOptions",
+            "api_key: ${quoted(apiKey)} voice_id: ${quoted(voiceId)} ca_bundle_path: ${quoted(caBundlePath)}")
+        val stt = when (sttProvider) {
+            SttProvider.PARAKEET -> options("LocalSttOptions", "model_dir: ${quoted(sttModelDir)} idle_timeout_ms: 550 partial_interval_ms: 150")
+            SttProvider.WHISTLE -> options("LocalSttOptions", "model_dir: ${quoted(sttModelDir)} idle_timeout_ms: 550 partial_interval_ms: 250")
+            SttProvider.VOZ -> ""
+            SttProvider.SONIOX -> cloud(BuildConfig.SONIOX_API_KEY)
+            SttProvider.DEEPGRAM -> cloud(BuildConfig.DEEPGRAM_API_KEY)
+            SttProvider.GLADIA -> cloud(BuildConfig.GLADIA_API_KEY)
+            SttProvider.CARTESIA -> cloud(BuildConfig.CARTESIA_API_KEY)
+            SttProvider.FISHAUDIO -> cloud(BuildConfig.FISHAUDIO_API_KEY)
+            SttProvider.GRADIUM -> cloud(BuildConfig.GRADIUM_API_KEY)
+        }
+        val tts = when (ttsProvider) {
+            TtsProvider.POCKET -> options("LocalTtsOptions", "model_dir: ${quoted(ttsModelDir)} voice: \"jean\" steps: 4 prebuffer_ms: 500")
+            TtsProvider.PHONON -> options("LocalTtsOptions", "model_dir: ${quoted(ttsModelDir)} voice: \"default\"")
+            TtsProvider.MOSS -> options("LocalTtsOptions", "model_dir: ${quoted(ttsModelDir)} prebuffer_ms: 400")
+            TtsProvider.SONIOX -> cloud(BuildConfig.SONIOX_API_KEY)
+            TtsProvider.DEEPGRAM -> cloud(BuildConfig.DEEPGRAM_API_KEY)
+            TtsProvider.CARTESIA -> cloud(BuildConfig.CARTESIA_API_KEY, BuildConfig.CARTESIA_VOICE_ID)
+            TtsProvider.FISHAUDIO -> cloud(BuildConfig.FISHAUDIO_API_KEY, BuildConfig.FISHAUDIO_VOICE_ID)
+            TtsProvider.GRADIUM -> cloud(BuildConfig.GRADIUM_API_KEY, BuildConfig.GRADIUM_VOICE_ID)
+        }
+        // Gladia only streams: its live API has no whole-segment call.
+        val streaming = sttStreaming || sttProvider == SttProvider.GLADIA
+        val llm = if (useLocalLLM) "llm { history: 40 }" else
+            "llm { endpoint: ${quoted(BuildConfig.LLM_ENDPOINT)} model: ${quoted(BuildConfig.LLM_MODEL)} " +
+                "api_key: ${quoted(BuildConfig.LLM_API_KEY)} history: 100 }"
+        return """
+            models_dir: ${quoted(modelsDir)}
+            audio { input { sample_rate: 16000 } output { sample_rate: 24000 } frame_ms: 125 }
+            activation { mode: ALWAYS_ON }
+            providers {
+              vad { id: "silero" ${options("SileroOptions", "model_path: ${quoted(vadModelPath)}")} }
+              turn { id: "smartturn-v3" ${options("SmartTurnOptions", "model_path: ${quoted(turnModelPath)}")} }
+              stt { id: ${quoted(sttProvider.id)} $stt fallback: ["parakeet"] }
+              tts { id: ${quoted(ttsProvider.id)} $tts fallback: ["pocket"] }
+            }
+            turn_taking {
+              streaming_transcription: $streaming
+              voice_activity { start_ms: 250 min_speech_ms: 250 pause_ms: 500 end_silence_ms: 250 lookback_factor: 5 }
+            }
+            $llm
+        """.trimIndent()
     }
 
     fun start(): Boolean {
@@ -762,35 +806,16 @@ class VasdkEngine private constructor(
 
     //  Native declarations 
 
-    private external fun nativeInit(vadModelPath: String,
-                                    turnDetectionModelPath: String,
-                                    speakerModelPath: String,
+    private external fun nativeInit(engineConfig: String,
+                                    agentPath: String,
                                     nativeLibDir: String,
-                                    sttProvider: String,
-                                    sttStreaming: Boolean,
-                                    sttModelDir: String,
+                                    speakerModelPath: String,
+                                    useLocalLLM: Boolean,
                                     llmModelPath: String,
                                     llmChatFormat: String,
-                                    ttsProvider: String,
-                                    ttsModelDir: String,
-                                    ttsStylePath: String,
-                                    useLocalLLM: Boolean,
-                                    llmApiKey: String,
-                                    llmEndpoint: String,
-                                    llmModel: String,
                                     systemPrompt: String,
                                     formatInstruction: String,
-                                    toolCallExceptionClause: String,
-                                    sonioxApiKey: String,
-                                    deepgramApiKey: String,
-                                    gladiaApiKey: String,
-                                    cartesiaApiKey: String,
-                                    cartesiaVoiceId: String,
-                                    fishaudioApiKey: String,
-                                    fishaudioVoiceId: String,
-                                    gradiumApiKey: String,
-                                    gradiumVoiceId: String,
-                                    caBundlePath: String): Boolean
+                                    toolCallExceptionClause: String): Boolean
     private external fun nativeStart(): Boolean
     private external fun nativeStop()
     private external fun nativeRelease()

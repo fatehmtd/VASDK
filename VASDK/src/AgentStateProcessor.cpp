@@ -183,6 +183,13 @@ namespace va {
             std::shared_ptr<transport::Frame> frame, FlowDirection direction)
         {
             VASDK_CTRACK_NAME("Agent::processFrame");
+            {
+                std::lock_guard<std::mutex> lock(_pendingBackchannelMutex);
+                if (_pendingBackchannel) {
+                    _backchannelConfig = std::move(*_pendingBackchannel);
+                    _pendingBackchannel.reset();
+                }
+            }
             if (direction == FlowDirection::UPSTREAM) {
                 if (frame->getType() == transport::FrameType::SYNTHESIS_STATE) {
                     handleSynthesisStateFrame(

@@ -162,14 +162,9 @@ else()
     message(STATUS "VASDK_ENABLE_HTTP_TRANSPORT=OFF - skipping libcurl, HTTP transports will stub out")
 endif()
 
-#  Engine config files (protobuf schema, loaders, provider registry)
-# Off on Android until gate G1 decides whether full protobuf fits the APK size budget.
-if(ANDROID)
-    set(VASDK_ENGINE_CONFIG_DEFAULT OFF)
-else()
-    set(VASDK_ENGINE_CONFIG_DEFAULT ON)
-endif()
-option(VASDK_ENABLE_ENGINE_CONFIG "Build engine config files (protobuf) and the provider registry" ${VASDK_ENGINE_CONFIG_DEFAULT})
+#  Engine config files (protobuf schema, loaders, provider registry), agents and VAEngine.
+# Full protobuf on every platform, Android included (gate G1: about +2.6 MB of native code).
+option(VASDK_ENABLE_ENGINE_CONFIG "Build engine config files (protobuf) and the provider registry" ON)
 if(VASDK_ENABLE_ENGINE_CONFIG)
     include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/VASDKProtobuf.cmake)
     # Generated code is compiled into VASDK only: linking it twice would register the
@@ -208,8 +203,10 @@ if(VASDK_ENABLE_ENGINE_CONFIG)
     target_link_libraries(VASDK PUBLIC protobuf::libprotobuf)
     target_compile_definitions(VASDK PUBLIC VASDK_HAS_ENGINE_CONFIG)
     # Checks, tests and chats with agent files: vasdk_agentc lint|test|chat agent.txtpb
+    if(NOT ANDROID)   # a desktop tool
     add_executable(vasdk_agentc ./tools/vasdk_agentc/main.cpp)
     target_link_libraries(vasdk_agentc PRIVATE VASDK)
+    endif()
     message(STATUS "VASDK: engine config files enabled")
 endif()
 

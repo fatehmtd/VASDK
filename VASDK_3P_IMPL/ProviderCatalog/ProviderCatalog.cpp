@@ -28,6 +28,9 @@
 #ifdef VASDK_HAS_FISHAUDIOPP_STT
 #include "FishaudioppTranscription/FishaudioppTranscriptionProvider.h"
 #endif
+#ifdef VASDK_HAS_GLADIAPP
+#include "GladiappTranscription/GladiaPPTranscriptionProvider.h"
+#endif
 #ifdef VASDK_HAS_WHISTLE_STT
 #include "WhistleSTT/WhistleTranscriptionProvider.hpp"
 #endif
@@ -89,6 +92,10 @@ using providers::LocalTtsOptions;
     return environment ? environment : fallback;
 }
 
+[[maybe_unused]] std::string caBundle(const CloudOptions& options) {
+    return orEnvironment(options.ca_bundle_path(), "VASDK_CA_BUNDLE");
+}
+
 [[maybe_unused]] std::string modelDir(const std::string& value, const ProviderContext& context, const char* folder) {
     return value.empty() ? context.modelsDir + "/" + folder : value;
 }
@@ -126,25 +133,33 @@ void registerStt([[maybe_unused]] engine::ProviderRegistry& registry) {
 #ifdef VASDK_HAS_SONIOXPP_STT
     registry.add<Stt, CloudOptions>("soniox", [](const CloudOptions& options, const ProviderContext& context) {
         return configured(std::make_shared<SonioxppTranscriptionProvider>(
-            orEnvironment(options.api_key(), "SONIOX_API_KEY")), context);
+            orEnvironment(options.api_key(), "SONIOX_API_KEY"), caBundle(options)), context);
     });
 #endif
 #ifdef VASDK_HAS_DEEPGRAMPP_STT
     registry.add<Stt, CloudOptions>("deepgram", [](const CloudOptions& options, const ProviderContext& context) {
         return configured(std::make_shared<DeepgramppTranscriptionProvider>(
-            orEnvironment(options.api_key(), "DEEPGRAM_API_KEY")), context);
+            orEnvironment(options.api_key(), "DEEPGRAM_API_KEY"), deepgram::listen::models::nova_3::GENERAL,
+            deepgram::listen::languages::nova_3::MULTILINGUAL, caBundle(options)), context);
     });
 #endif
 #ifdef VASDK_HAS_CARTESIAPP_STT
     registry.add<Stt, CloudOptions>("cartesia", [](const CloudOptions& options, const ProviderContext& context) {
         return configured(std::make_shared<CartesiappTranscriptionProvider>(
-            orEnvironment(options.api_key(), "CARTESIA_API_KEY")), context);
+            orEnvironment(options.api_key(), "CARTESIA_API_KEY"), cartesiapp::stt::models::INK_WHISPER, std::string(),
+            caBundle(options)), context);
     });
 #endif
 #ifdef VASDK_HAS_FISHAUDIOPP_STT
     registry.add<Stt, CloudOptions>("fishaudio", [](const CloudOptions& options, const ProviderContext& context) {
         return configured(std::make_shared<FishaudioppTranscriptionProvider>(
-            orEnvironment(options.api_key(), "FISHAUDIO_API_KEY")), context);
+            orEnvironment(options.api_key(), "FISHAUDIO_API_KEY"), std::string(), caBundle(options)), context);
+    });
+#endif
+#ifdef VASDK_HAS_GLADIAPP
+    registry.add<Stt, CloudOptions>("gladia", [](const CloudOptions& options, const ProviderContext& context) {
+        return configured(std::make_shared<GladiaPPTranscriptionProvider>(
+            orEnvironment(options.api_key(), "GLADIA_API_KEY"), caBundle(options)), context);
     });
 #endif
 #ifdef VASDK_HAS_WHISTLE_STT
@@ -198,7 +213,7 @@ void registerTts([[maybe_unused]] engine::ProviderRegistry& registry) {
 #ifdef VASDK_HAS_SONIOXPP_TTS
     registry.add<Tts, CloudOptions>("soniox", [](const CloudOptions& options, const ProviderContext& context) {
         return configured(std::make_shared<SonioxppVoiceSynthesisProvider>(
-            orEnvironment(options.api_key(), "SONIOX_API_KEY")), context);
+            orEnvironment(options.api_key(), "SONIOX_API_KEY"), "en", "Adrian", caBundle(options)), context);
     });
 #endif
 #ifdef VASDK_HAS_SUPERTONIC_TTS
@@ -218,21 +233,24 @@ void registerTts([[maybe_unused]] engine::ProviderRegistry& registry) {
 #ifdef VASDK_HAS_DEEPGRAMPP_TTS
     registry.add<Tts, CloudOptions>("deepgram", [](const CloudOptions& options, const ProviderContext& context) {
         return configured(std::make_shared<DeepgramppVoiceSynthesisProvider>(
-            orEnvironment(options.api_key(), "DEEPGRAM_API_KEY")), context);
+            orEnvironment(options.api_key(), "DEEPGRAM_API_KEY"), deepgram::speak::models::aura_2::en::THALIA,
+            caBundle(options)), context);
     });
 #endif
 #ifdef VASDK_HAS_CARTESIAPP_TTS
     registry.add<Tts, CloudOptions>("cartesia", [](const CloudOptions& options, const ProviderContext& context) {
         return configured(std::make_shared<CartesiappVoiceSynthesisProvider>(
             orEnvironment(options.api_key(), "CARTESIA_API_KEY"),
-            orEnvironment(options.voice_id(), "CARTESIA_VOICE_ID")), context);
+            orEnvironment(options.voice_id(), "CARTESIA_VOICE_ID"), cartesiapp::tts::models::SONIC_3_5, std::string(),
+            caBundle(options)), context);
     });
 #endif
 #ifdef VASDK_HAS_FISHAUDIOPP_TTS
     registry.add<Tts, CloudOptions>("fishaudio", [](const CloudOptions& options, const ProviderContext& context) {
         return configured(std::make_shared<FishaudioppVoiceSynthesisProvider>(
             orEnvironment(options.api_key(), "FISHAUDIO_API_KEY"),
-            orEnvironment(options.voice_id(), "FISHAUDIO_VOICE_ID")), context);
+            orEnvironment(options.voice_id(), "FISHAUDIO_VOICE_ID", fishaudio::voices::ETHAN_VOICE_ID),
+            fishaudiopp::tts::models::S1, caBundle(options)), context);
     });
 #endif
 #ifdef VASDK_HAS_MOSS_TTS
@@ -240,6 +258,7 @@ void registerTts([[maybe_unused]] engine::ProviderRegistry& registry) {
         auto moss = std::make_shared<::MossVoiceSynthesisProvider>(
             modelDir(options.model_dir(), context, "moss_tts"), orEnvironment(options.voice(), "MOSS_TTS_VOICE", "Ava"));
         moss->setSilenceDuration(0.3f);
+        if (options.prebuffer_ms() > 0) moss->setPreBufferedSamplesMS(options.prebuffer_ms());
         return configured(moss, context);
     });
 #endif
@@ -260,7 +279,7 @@ void registerTts([[maybe_unused]] engine::ProviderRegistry& registry) {
             modelDir(options.model_dir(), context, "pocket_tts"), "cosette");
         pocket->setLsdSteps(options.steps() ? options.steps() : 4);
         pocket->setVoice(orEnvironment(options.voice(), "POCKET_TTS_VOICE", "jean"));
-        pocket->setPreBufferedSamplesMS(250);
+        pocket->setPreBufferedSamplesMS(options.prebuffer_ms() > 0 ? options.prebuffer_ms() : 250);
         pocket->setSilenceDuration(0.3f);
         return configured(pocket, context);
     });

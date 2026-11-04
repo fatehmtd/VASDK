@@ -100,6 +100,7 @@ bool EventTapProcessor::shouldProcess(std::shared_ptr<transport::Frame> frame) c
     case transport::FrameType::TEXT:
     case transport::FrameType::AGENT_STATE:
     case transport::FrameType::ERROR:
+    case transport::FrameType::VAD_STATE:
         return true;
     default:
         return false;
@@ -156,6 +157,18 @@ void EventTapProcessor::processFrame(std::shared_ptr<transport::Frame> frame, pi
         _dispatcher->post(std::move(event));
         event.Clear();
         postListeningWindow(*agentState);
+        break;
+    }
+    case transport::FrameType::VAD_STATE: {
+        if (direction != pipeline::FlowDirection::DOWNSTREAM) break;
+        using State = vasdk::engine::UserSpeech;
+        switch (std::static_pointer_cast<transport::VADStateFrame>(frame)->state) {
+        case transport::VADState::STARTING: event.mutable_user_speech()->set_state(State::STARTED); break;
+        case transport::VADState::ONGOING:
+        case transport::VADState::RESUMING: event.mutable_user_speech()->set_state(State::ONGOING); break;
+        case transport::VADState::ENDED: event.mutable_user_speech()->set_state(State::ENDED); break;
+        default: break;
+        }
         break;
     }
     case transport::FrameType::ERROR: {

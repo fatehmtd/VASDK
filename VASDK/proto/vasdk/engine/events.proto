@@ -16,6 +16,7 @@ message Event {
     ToolCall tool_call = 13;
     Error error = 15;
     ListeningWindow listening_window = 16;
+    UserSpeech user_speech = 17;
     PageChanged page_changed = 20;
     SessionEnded session_ended = 23;
   }
@@ -52,6 +53,16 @@ message ToolCall {
   string name = 1;
   string arguments_json = 2;
   string result_json = 3;     // {"error": ...} when the tool failed or is unknown
+}
+
+// The user's voice, as voice activity detection hears it: for a "you're speaking" indicator.
+message UserSpeech {
+  enum State {
+    STARTED = 0;
+    ONGOING = 1;    // still speaking, after a pause
+    ENDED = 2;
+  }
+  State state = 1;
 }
 
 // The follow-up window after a reply: the mic is open without the wake phrase or button.

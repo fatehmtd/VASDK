@@ -512,6 +512,20 @@ void Session::selectChoice(int index) {
 
 void Session::interrupt() { _state->trigger->trigger(transport::TriggerType::BUTTON_PRESS); }
 
+void Session::resetConversation() {
+    interrupt();
+    if (_state->llm) _state->llm->clearHistory();
+    if (_state->dialog) _state->dialog->restart();
+    spdlog::info("{} Conversation started over", _state->logTag);
+}
+
+void Session::setBackchannel(const pipeline::BackchannelConfig& backchannel) {
+    _state->agentState->setBackchannelConfig(backchannel);
+    _state->tts->setPendingPlayback(backchannel.pendingPlaybackMode, backchannel.duckGainDecibels, backchannel.duckDurationMs);
+}
+
+pipeline::BackchannelConfig Session::backchannel() const { return _state->agentState->getBackchannelConfig(); }
+
 void Session::pushToTalk(bool held) {
     _state->trigger->trigger(transport::TriggerType::PUSH_TO_TALK, held ? "down" : "up");
 }

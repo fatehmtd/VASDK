@@ -12,6 +12,7 @@
 #include <string>
 #include <thread>
 #include <mutex>
+#include <optional>
 #include <condition_variable>
 #include <vector>
 
@@ -135,9 +136,17 @@ namespace va {
              */
             void setInterruptTimeoutMs(uint32_t ms) { _interruptTimeoutMs = ms; }
 
-            /// Back-channel policy. Set before start(); enabled = false restores the plain hard barge-in.
-            void setBackchannelConfig(const BackchannelConfig& backchannelConfig) { _backchannelConfig = backchannelConfig; }
-            const BackchannelConfig& getBackchannelConfig() const { return _backchannelConfig; }
+            /// Back-channel policy; enabled = false restores the plain hard barge-in. Before start(), or
+            /// any time from another thread: it then applies from the next frame.
+            void setBackchannelConfig(const BackchannelConfig& backchannelConfig) {
+                std::lock_guard<std::mutex> lock(_pendingBackchannelMutex);
+                _pendingBackchannel = backchannelConfig;
+            }
+            /// The policy in use, with any setBackchannelConfig() not yet applied.
+            BackchannelConfig getBackchannelConfig() const {
+                std::lock_guard<std::mutex> lock(_pendingBackchannelMutex);
+                return _pendingBackchannel ? *_pendingBackchannel : _backchannelConfig;
+            }
 
             /**
              * @brief Milliseconds of the agent's reply still to play, or a negative value when unknown
@@ -172,6 +181,8 @@ namespace va {
             bool shouldProcess(std::shared_ptr<transport::Frame> frame) const override;
 
         private:
+            mutable std::mutex _pendingBackchannelMutex;
+            std::optional<BackchannelConfig> _pendingBackchannel;   // applied on the processing thread
             void transitionTo(transport::AgentState next, transport::AgentStateTransition reason,
                               float confidence = 0.0f, bool emitWhenUnchanged = false, int listenWindowMs = 0);
             void emitAgentStateFrame(transport::AgentState current,

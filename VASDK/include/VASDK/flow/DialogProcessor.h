@@ -61,6 +61,9 @@ public:
     void setSessionParam(const std::string& name, const Value& value);
     /** Replaces a dynamic entity's values, as FlowRuntime::setEntityValues; errors are logged. Thread-safe. */
     void setEntityValues(const std::string& name, std::vector<vasdk::nlu::EntityValue> values);
+    /** Starts the conversation over at the start page, params at their defaults; the greeting
+     *  comes on the next activation. Thread-safe. */
+    void restart();
     /** The user tapped the last reply's choice at `index`, from 0 (FlowRuntime::selectChoice). Thread-safe. */
     void selectChoice(int index);
     /** What $context.* reads; called on the conversation's thread, so it must be thread-safe. Before start(). */

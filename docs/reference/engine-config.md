@@ -44,10 +44,10 @@ Each `ProviderSpec` has:
 
   | Message | Providers | Fields |
   | --- | --- | --- |
-  | `vasdk.providers.CloudOptions` | cloud STT/TTS | `api_key`, `voice_id` |
+  | `vasdk.providers.CloudOptions` | cloud STT/TTS (`gladia`: STT only) | `api_key`, `voice_id`, `ca_bundle_path` (certificates to trust; Android's TLS can't read the system store) |
   | `vasdk.providers.SileroOptions` | `silero` | `model_path`, `threshold` (speech probability a frame needs, 0–1; default 0.75) |
   | `vasdk.providers.LocalSttOptions` | `whistle`, `moonshine`, `parakeet` | `model_dir`, `idle_timeout_ms`, `partial_interval_ms`, `language` |
-  | `vasdk.providers.LocalTtsOptions` | `supertonic`, `moss`, `phonon`, `pocket` | `model_dir`, `voice`, `language`, `steps` |
+  | `vasdk.providers.LocalTtsOptions` | `supertonic`, `moss`, `phonon`, `pocket` | `model_dir`, `voice`, `language`, `steps`, `prebuffer_ms` (pocket, moss: audio made before playback starts, against stalls on slow phones) |
   | `vasdk.providers.SmartTurnOptions` | `smartturn-v3` | `model_path` |
 
 - `fallback`: ids to try, in order, when `id` is not built into the binary or fails to start (a missing model file, for example). Options apply to `id` only; a fallback starts with its defaults. The log shows which provider was used and why the others were skipped.

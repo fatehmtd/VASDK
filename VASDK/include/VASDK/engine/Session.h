@@ -110,6 +110,16 @@ public:
     /** Stops the assistant's current reply, like a barge-in. Thread-safe. */
     void interrupt();
     /**
+     * Starts the conversation over: the reply is cut, the LLM's history dropped, and an agent goes
+     * back to its start page with its session params at their defaults (greeting on the next
+     * activation). Thread-safe.
+     */
+    void resetConversation();
+    /** Changes how speech over the assistant is handled (back-channels, ducking). Thread-safe; applies from the next frame. */
+    void setBackchannel(const pipeline::BackchannelConfig& backchannel);
+    /** How speech over the assistant is handled now: the config's, Options::backchannel, or setBackchannel()'s. */
+    pipeline::BackchannelConfig backchannel() const;
+    /**
      * The push-to-talk button: true while held, false on release. Listens while held (a reply
      * in progress is cut); releasing stops listening unless the user is mid-sentence, whose turn
      * then gets its answer. Thread-safe.

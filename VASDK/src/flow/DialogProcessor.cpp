@@ -37,6 +37,13 @@ public:
     const std::vector<vasdk::nlu::EntityValue> values;
 };
 
+// restart() from an app thread, handled on the processor's own thread.
+class RestartFrame : public transport::Frame {
+public:
+    transport::FrameType getType() const override { return transport::FrameType::CONTROL; }
+    std::shared_ptr<transport::Frame> clone() const override { return std::make_shared<RestartFrame>(); }
+};
+
 // selectChoice() from an app thread, handled on the processor's own thread.
 class ChoiceFrame : public transport::Frame {
 public:
@@ -97,7 +104,8 @@ bool DialogProcessor::shouldProcess(std::shared_ptr<transport::Frame> frame) con
            dynamic_cast<const EntityValuesFrame*>(frame.get()) != nullptr ||
            dynamic_cast<const ChoiceFrame*>(frame.get()) != nullptr ||
            dynamic_cast<const NoInputFrame*>(frame.get()) != nullptr ||
-           dynamic_cast<const ReplyFrame*>(frame.get()) != nullptr;
+           dynamic_cast<const ReplyFrame*>(frame.get()) != nullptr ||
+           dynamic_cast<const RestartFrame*>(frame.get()) != nullptr;
 }
 
 bool DialogProcessor::start() {
@@ -218,6 +226,10 @@ void DialogProcessor::setToolCaller(ToolCaller caller) {
     _beforeLastTurn.setToolCaller(_toolCaller);
 }
 
+void DialogProcessor::restart() {
+    enqueueFrame(std::make_shared<RestartFrame>(), pipeline::FlowDirection::DOWNSTREAM);
+}
+
 void DialogProcessor::setConnected(bool connected) {
     enqueueFrame(std::make_shared<ConnectionFrame>(connected), pipeline::FlowDirection::DOWNSTREAM);
 }
@@ -301,19 +313,28 @@ void DialogProcessor::processFrame(std::shared_ptr<transport::Frame> frame, pipe
         });
         return;
     }
+    auto startOver = [this] {
+        disarmNoInput();
+        post([this] {
+            _conversation = FlowRuntime(_agent);
+            prepare(_conversation);
+            _beforeLastTurn = _conversation;
+        });
+        _greetingPending = true;
+        _privateAnswer = false;
+        _awaitingAnswer = false;
+    };
+    if (dynamic_cast<const RestartFrame*>(frame.get())) {
+        startOver();
+        return;
+    }
     if (auto connection = dynamic_cast<const ConnectionFrame*>(frame.get())) {
         if (connection->connected == _connected) return;
         _connected = connection->connected;
         if (!_connected) {
             // The caller left: whoever connects next starts a new conversation.
             spdlog::info("[Dialog] Disconnected - the next conversation starts over");
-            post([this] {
-                _conversation = FlowRuntime(_agent);
-                prepare(_conversation);
-                _beforeLastTurn = _conversation;
-            });
-            _greetingPending = true;
-            _privateAnswer = false;
+            startOver();
         }
         greetIfReady();
         return;
