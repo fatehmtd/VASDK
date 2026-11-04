@@ -167,7 +167,8 @@ calls.destroySession(callId);
 - **Models load once per concurrent call.** The runtime keeps sets of providers (VAD, STT, TTS, turn model). A session takes one while it runs and hands it back when it ends, so the next call reuses it instead of loading the models again. The first set loads in `Runtime::create`, so a misconfigured provider fails there. Each further set loads the first time that many calls run at once.
 - **Sessions are isolated.** Each has its own pipeline, mic ring buffer, LLM conversation and event thread. An LLM transport passed in `Options::llmTransport` holds the conversation, so give each session its own.
 - **Limits.** `Runtime::Options::maxSessions` caps concurrent sessions; `createSession` returns `nullptr` with an error beyond it.
-- `Session::toolDispatcher()` and `llmTransport()` give goal code what it needs to swap prompts and tools during a call. [`VASDK_CallCenter`](../../VASDK_CALLCENTER_APP/callcenter_pipeline.cpp) is a full example.
+- `Session::toolDispatcher()` and `llmTransport()` give goal code what it needs to swap prompts and tools during a call.
+- [`VASDK_CallCenter`](../../VASDK_CALLCENTER_APP/callcenter_pipeline.cpp) is a full example of a call: an agent per DNIS, the caller's number as a session param, and the call ending with the agent.
 
 ## Availability
 

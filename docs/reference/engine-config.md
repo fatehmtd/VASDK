@@ -151,7 +151,7 @@ llm {
 | `speculative_firing`, `speculative_min_words` | Start the request on the partial at a pause of at least `speculative_min_words` words (default 3); the reply is held until the final transcript matches. Needs `streaming_transcription`. |
 | `tool_filler_phrases` | Said in turn while a tool runs, so the caller doesn't hear silence. |
 
-These apply also when the app passes its own LLM transport in code, as VASDK_CallCenter does.
+These apply also when the app passes its own LLM transport in code, as VASDK_CallCenter does with `--llm-endpoint`.
 
 `models_dir` sets the base directory for local model files. When it is unset, VASDK_Pipeline uses the `models/` folder it finds next to the executable. A relative path is resolved from the current directory.
 

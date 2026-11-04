@@ -1,0 +1,9 @@
+# proto-file: vasdk/flow/test_case.proto
+# proto-message: vasdk.flow.FlowTestCase
+name: "a person on request, from any page, and after too many misunderstandings"
+turns { expect { page: "welcome" } }
+turns { user: "schedule a callback" expect { page: "schedule" } }
+turns { user: "actually let me talk to a person" expect { flow: "handoff" said: "Connecting you to an agent now." ends_session: true } }
+turns { user: "the weather on mars" expect { page: "welcome" matched: false } }
+turns { user: "purple elephants" expect { matched: false } }
+turns { user: "seventeen bananas" expect { said_contains: "Let me get someone to help you." ends_session: true } }

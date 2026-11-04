@@ -277,6 +277,8 @@ private:
     bool answerOffer(const std::string& text, Reply& reply);
     std::optional<TimePoint> dueAt(const vasdk::flow::Trigger& trigger, TimePoint since) const;
     const vasdk::flow::Route* matchRoute();
+    bool asksFreeText() const;
+    const vasdk::flow::Route* sureGlobalRoute() const;
     const vasdk::flow::Route* matchRoute(const google::protobuf::RepeatedPtrField<vasdk::flow::Route>& routes,
                                          const google::protobuf::RepeatedPtrField<std::string>* intents);
     Outcome toTarget(const std::string& target, std::string reason) const;

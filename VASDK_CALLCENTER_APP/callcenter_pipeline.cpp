@@ -1,20 +1,20 @@
-//  Call Center Voice AI Showcase 
+//  Call Center Voice AI Showcase
 //
-// Demonstrates the goal-oriented call center pipeline built on VASDK:
-//   - IntentRouter  : classifies caller intent from the first utterance
-//   - GoalManager   : drives multi-turn slot filling toward a completion action
-//   - Slot types    : STRING, PHONE, DATE, ENUM, OBJECT, COMPOSITE, conditional
-//   - Confirmation  : request_confirmation recap before firing the action
-//   - Escalation    : escalate_to_human on explicit request or max reprompts
-//   - Recovery      : RecoveryProcessor retries on STT/LLM/TTS errors
-//   - Persistence   : FileGoalStatePersistence resumes partial sessions on redial
-//   - Pre-fill      : caller ANI → simulated CRM lookup → pre-filled slots
-//   - CRM tool      : LLM can call lookup_account() mid-conversation
+// A phone call center defined in agent files (agents/callcenter/agent.txtpb):
+//   - Routing page : the caller is looked up by their number (ANI) and asked what they need
+//   - Forms        : schedule a callback (name, number, service, vehicle for a repair, a future
+//                    date, read back and confirmed) or look up an account
+//   - CRM tools    : lookup_account and schedule_callback, written in C++ (crm/)
+//   - Handoff      : a person on request, or after too many misunderstandings
+//   - Recovery     : RecoveryProcessor retries on STT/LLM/TTS errors
+//   - Agent per DNIS : --dnis <number> answers with agents/<number>/agent.txtpb when there is one
+// It runs with no LLM. With one (--llm-endpoint, or LLM_ENDPOINT in .env), the agent also
+// understands what its examples miss, and anything it doesn't cover goes to the LLM.
 //
 // The call runs as an engine::Session over an engine::Runtime: VAD, STT, TTS and turn detection
 // come from the provider catalog, and a server would create one session per call from the same
-// runtime, with models loaded once.
-// 
+// runtime, with models loaded once and an agent compiled once per DNIS.
+//
 
 #include <VASDK/Pipeline.h>
 #include <VASDK/LocalTransport.h>
@@ -23,22 +23,16 @@
 #include <VASDK/FrameProcessor.h>
 #include <VASDK/Frame.h>
 #include <VASDK/engine/Runtime.h>
+#include <VASDK/flow/CompiledAgent.h>
+#include <VASDK/flow/Expression.h>
 
+#include <VASDK/llm/Completion.h>
 #include <VASDK/llm/LLMTransport.h>
 #include <VASDK/llm/OpenAITransport.h>
-#include <VASDK/llm/LLMFirePolicy.h>
-#include <VASDK/llm/Tool.h>
-#include <VASDK/llm/ToolDispatchProcessor.h>
 #include <VASDK/llm/PromptTemplate.h>
 
-#include <VASDK/goal/GoalSlot.h>
-#include <VASDK/goal/GoalDefinition.h>
-#include <VASDK/goal/GoalState.h>
-#include <VASDK/goal/GoalManager.h>
-#include <VASDK/goal/GoalStatePersistence.h>
-#include <VASDK/goal/IntentRouter.h>
-
-#include <VASDK/metrics/CallMetrics.h>
+#include "CallCenterTools.h"
+#include "vasdk/engine/events.pb.h"
 
 // Audio I/O
 #ifdef VASDK_HAS_MINIAUDIO
@@ -92,47 +86,17 @@ static constexpr const char* kCallCenterFormatInstruction =
     "Always put \"text\" first, and open it with a short sentence: it is spoken while the rest is still being written.\n"
     "Never add keys outside this schema or wrap the JSON in markdown.";
 
-static constexpr const char* kCallCenterSystemPromptTemplate = R"(
-You are a helpful call center assistant.
-
-Instructions:
-- Collect missing information through natural conversation; do not recite the lists below.
-- The moment the caller provides any required scalar value (name, phone, date, enum choice),
-  call update_slot() immediately - do not wait for the turn to end.
-- For OBJECT-type slots (labelled "use update_object_slot"), call update_object_slot() and
-  pass all known fields as a JSON object.
-- Use dot notation for COMPOSITE sub-fields (e.g. "address.city").
-- If the caller provides several pieces of information in one sentence, call update_slot()
-  once per field before generating your spoken response.
-- If a slot value is rejected (tool returns success=false), re-prompt naturally using the
-  error message - do not repeat the raw error to the caller verbatim.
-- If the caller goes off-topic, answer briefly then redirect back to the goal.
-- If the caller tries to end the call before all required information is collected, acknowledge
-  their intent and ask one focused question to continue making progress.
-- When ALL required slots are filled, call request_confirmation() with a natural recap
-  before calling complete_goal().
-- If the caller confirms the recap, call complete_goal().
-- If the caller corrects any detail, call update_slot/update_object_slot to fix it,
-  then call request_confirmation() again.
-- If the caller explicitly requests a human agent, or if the situation is outside your
-  scope, call escalate() immediately.
-
-Available tools:
-{tool_descriptions}
-
-Your goal: {goal_objective}
-
-Information already collected:
-{collected_slots}
-
-Current status: {goal_status}
-{escalation_hint}
-)";
+// For what the call flow doesn't cover: the agent answers everything it understands itself.
+static constexpr const char* kCallCenterSystemPrompt =
+    "You are the voice assistant of the Acme call center. The caller said something the call flow "
+    "doesn't cover. Answer briefly and politely, in one or two sentences. You can't schedule "
+    "callbacks or look up accounts yourself: tell the caller they can say \"schedule a callback\", "
+    "\"my account\" or \"talk to a person\".";
 
 //  Globals
 
 std::atomic<bool> running{ true };
-std::atomic<bool> sessionDone{ false };    // set by goal complete / escalate / fatal
+std::atomic<bool> sessionDone{ false };    // set when the agent ends the call, or on a fatal error
 std::atomic<bool> audioFullyDrained{ false }; // set by TTS drain callback
 
 void signalHandler(int) {
@@ -173,7 +137,8 @@ static std::string loadOrFallback(const std::string& path, const char* fallback)
 
 struct CliArgs {
     std::string ani;            ///< Caller phone number (simulates caller ID)
-    std::string persistenceDir; ///< Directory for goal state persistence files
+    std::string dnis;           ///< The number called: picks agents/<dnis>/agent.txtpb when there is one
+    std::string agent;          ///< An agent file to answer with, instead of the DNIS's
     std::string llmEndpoint;
     std::string llmApiKey;
     std::string llmModel;
@@ -201,7 +166,7 @@ static std::string resolveEndpoint(const std::string& fromCli) {
     if (!fromCli.empty()) return fromCli;
     if (const char* v = std::getenv("LLM_ENDPOINT"))   return v;
     if (const char* v = std::getenv("OPENAI_BASE_URL")) return v;
-    return "https://openrouter.ai/api/v1/chat/completions";
+    return "";   // no LLM: the agent answers on its own
 }
 
 static std::string resolveModel(const std::string& fromCli) {
@@ -218,17 +183,18 @@ static std::string resolveReasoningEffort(const std::string& fromCli) {
 
 CliArgs parseCliArgs(int argc, char* argv[]) {
     CliArgs args;
-    CLI::App app("VASDK Call Center Pipeline - goal-oriented voice AI showcase");
+    CLI::App app("VASDK Call Center - a call flow in agent files");
     app.allow_extras();
-    app.add_option("--ani", args.ani, "Caller ANI (phone number) for CRM lookup + persistence key");
-    app.add_option("--persist-dir", args.persistenceDir, "Directory to store partial goal state (enables resume on redial)");
+    app.add_option("--ani", args.ani, "Caller ANI (phone number): the agent looks the caller up in the CRM");
+    app.add_option("--dnis", args.dnis, "The number called: answered with agents/<dnis>/agent.txtpb when there is one");
+    app.add_option("--agent", args.agent, "An agent file to answer with (default: agents/callcenter/agent.txtpb)");
     app.add_option("--llm-endpoint", args.llmEndpoint, "OpenAI-compatible LLM endpoint URL");
     app.add_option("--llm-api-key", args.llmApiKey, "LLM API key (falls back to LLM_API_KEY / OPENROUTER_API_KEY / OPENAI_API_KEY env vars)");
     app.add_option("--llm-model", args.llmModel, "LLM model name (falls back to LLM_MODEL env var)");
     app.add_option("--llm-reasoning-effort", args.llmReasoningEffort,
         "reasoning_effort sent to the LLM, e.g. none for a thinking model (falls back to LLM_REASONING_EFFORT env var)");
     app.add_option("--system-prompt", args.systemPromptFile,
-        "Path to a text file containing the call center system prompt (overrides built-in default)");
+        "Path to a text file with the LLM's instructions for what the agent doesn't cover (overrides built-in default)");
     app.add_option("--format-instruction", args.formatInstructionFile,
         "Path to a text file containing the response format instruction (overrides built-in default)");
     app.add_option("--env-file", args.envFile, "Path to .env file (default: .env)");
@@ -272,146 +238,15 @@ CliArgs parseCliArgs(int argc, char* argv[]) {
     return args;
 }
 
-//  Simulated CRM 
-// In production replace with a real HTTP call to your CRM / database.
+//  The agent
 
-struct CRMRecord {
-    std::string accountId;
-    std::string name;
-    std::string phone;
-    std::string accountTier; // "standard" | "premium"
-};
-
-std::optional<CRMRecord> crmLookupByPhone(const std::string& phone) {
-    // Simulated database - replace with real CRM call
-    static const std::vector<CRMRecord> db = {
-        {"ACC-001", "Alice Johnson", "555-1234", "premium"},
-        {"ACC-002", "Bob Smith",     "555-5678", "standard"},
-    };
-    for (const auto& r : db) {
-        if (r.phone == phone) return r;
-    }
-    return std::nullopt;
-}
-
-std::optional<CRMRecord> crmLookupByAccount(const std::string& accountId) {
-    static const std::vector<CRMRecord> db = {
-        {"ACC-001", "Alice Johnson", "555-1234", "premium"},
-        {"ACC-002", "Bob Smith",     "555-5678", "standard"},
-    };
-    for (const auto& r : db) {
-        if (r.accountId == accountId) return r;
-    }
-    return std::nullopt;
-}
-
-//  Goal definitions 
-
-va::goal::GoalDefinition makeScheduleCallbackGoal() {
-    using va::goal::GoalSlot;
-    using va::goal::SlotType;
-
-    va::goal::GoalDefinition goal;
-    goal.name = "schedule_callback";
-    goal.objective = "Schedule a service callback for the customer.";
-
-    GoalSlot customerNameGoalSlot;
-    customerNameGoalSlot.name = "customer_name";
-    customerNameGoalSlot.description = "the caller's full name";
-    customerNameGoalSlot.type = SlotType::STRING;
-    customerNameGoalSlot.required = true;
-
-    GoalSlot phoneNumberGoalSlot;
-    phoneNumberGoalSlot.name = "phone_number";
-    phoneNumberGoalSlot.description = "callback phone number";
-    phoneNumberGoalSlot.type = SlotType::PHONE;
-    phoneNumberGoalSlot.required = true;
-
-    GoalSlot serviceTypeGoalSlot;
-    serviceTypeGoalSlot.name = "service_type";
-    serviceTypeGoalSlot.description = "type of service";
-    serviceTypeGoalSlot.type = SlotType::ENUM;
-    serviceTypeGoalSlot.required = true;
-    serviceTypeGoalSlot.constraints.allowedValues = {"repair", "maintenance", "installation"};
-
-    GoalSlot vehicleInfoGoalSlot;
-    vehicleInfoGoalSlot.name = "vehicle_info";
-    vehicleInfoGoalSlot.description = "vehicle details (object: make, model, year - use update_object_slot)";
-    vehicleInfoGoalSlot.type = SlotType::OBJECT;
-    vehicleInfoGoalSlot.required = true;
-    vehicleInfoGoalSlot.condition = [](const va::goal::GoalState& s) {
-        return s.slotValueStr("service_type") == "repair";
-    };
-    vehicleInfoGoalSlot.constraints.objectSchema = {
-        {"make",  "vehicle manufacturer (e.g. Toyota)", "string",  true},
-        {"model", "vehicle model (e.g. Camry)",         "string",  true},
-        {"year",  "model year (e.g. 2020)",             "integer", true},
-    };
-
-    GoalSlot appointmentDateGoalSlot;
-    appointmentDateGoalSlot.name = "appointment_date";
-    appointmentDateGoalSlot.description = "preferred service date";
-    appointmentDateGoalSlot.type = SlotType::DATE;
-    appointmentDateGoalSlot.required = true;
-    appointmentDateGoalSlot.constraints.mustBeFuture = true;
-
-    goal.slots = {
-        customerNameGoalSlot,
-        phoneNumberGoalSlot,
-        serviceTypeGoalSlot,
-        vehicleInfoGoalSlot,
-        appointmentDateGoalSlot,
-    };
-
-    goal.onComplete = [](const nlohmann::json& slots) -> bool {
-        spdlog::info("[CallCenter] Scheduling callback - slots: {}", slots.dump(2));
-        // POST to your scheduling API here
-        return true;
-        };
-
-    return goal;
-}
-
-va::goal::GoalDefinition makeAccountInquiryGoal() {
-    using va::goal::GoalSlot;
-    using va::goal::SlotType;
-
-    va::goal::GoalDefinition goal;
-    goal.name = "account_inquiry";
-    goal.objective = "Help the caller with an account balance or status inquiry.";
-
-    GoalSlot accountIdSlot;
-    accountIdSlot.name = "account_id";
-    accountIdSlot.description = "account number or phone number to look up";
-    accountIdSlot.type = SlotType::STRING;
-    accountIdSlot.required = true;
-
-    // Optional fallback slots - collected when the primary account_id lookup fails.
-    // Not required for goal completion; used to attempt a name+DOB lookup instead.
-    GoalSlot nameSlot;
-    nameSlot.name = "name";
-    nameSlot.description = "caller's full name (fallback identifier when account_id lookup fails)";
-    nameSlot.type = SlotType::STRING;
-    nameSlot.required = false;
-
-    GoalSlot dateOfBirthSlot;
-    dateOfBirthSlot.name = "date_of_birth";
-    dateOfBirthSlot.description = "caller's date of birth in ISO format YYYY-MM-DD (fallback identifier)";
-    dateOfBirthSlot.type = SlotType::DATE;
-    dateOfBirthSlot.required = false;
-
-    goal.slots = {
-        accountIdSlot,
-        nameSlot,
-        dateOfBirthSlot,
-    };
-
-    goal.onComplete = [](const nlohmann::json& slots) -> bool {
-        spdlog::info("[CallCenter] Account inquiry completed - slots: {}", slots.dump(2));
-        return true;
-        };
-
-    return goal;
+// The agent for the number called: agents/<dnis>/agent.txtpb when there is one, else the default.
+std::string agentFor(const CliArgs& args) {
+    if (!args.agent.empty()) return args.agent;
+    const std::filesystem::path agents = CALLCENTER_AGENTS_DIR;
+    if (!args.dnis.empty() && std::filesystem::exists(agents / args.dnis / "agent.txtpb"))
+        return (agents / args.dnis / "agent.txtpb").string();
+    return (agents / "callcenter" / "agent.txtpb").string();
 }
 
 //  Audio I/O and the call's transport
@@ -428,15 +263,6 @@ struct AudioIO {
 #ifdef VASDK_HAS_LIBDATACHANNEL_WEBRTC
     std::shared_ptr<va::webrtc::LibDataChannelWebRtcProvider> webrtcPeer;
 #endif
-};
-
-struct GoalLLMBundle {
-    std::shared_ptr<va::llm::LLMTransport>          transport;
-    std::shared_ptr<va::llm::ToolDispatchProcessor> toolDispatcher;
-    std::shared_ptr<va::goal::IntentRouter>         intentRouter;
-    std::shared_ptr<va::goal::GoalManager>          goalManager; // set after intent classified
-    std::shared_ptr<va::goal::GoalStatePersistence> persistence;
-    std::shared_ptr<va::metrics::CallMetrics>       callMetrics;
 };
 
 // Observes SynthesisStateFrame downstream to drive the audioFullyDrained flag.
@@ -460,96 +286,6 @@ class SynthesisObserver : public va::pipeline::PassThroughProcessor {
         va::pipeline::PassThroughProcessor::processFrame(frame, dir);
     }
 };
-
-//  Goal activation
-
-struct GoalActivationDeps {
-    std::string                                             ani;
-    std::shared_ptr<va::metrics::CallMetrics>               metrics;
-    std::shared_ptr<va::llm::LLMTransport>                  transport;
-    std::shared_ptr<va::llm::ToolDispatchProcessor>         dispatcher;
-    std::shared_ptr<va::goal::GoalStatePersistence>         persistence;
-    std::shared_ptr<va::goal::IntentRouter>                 router;
-    std::shared_ptr<std::shared_ptr<va::goal::GoalManager>> holder;
-    std::string                                             systemPromptTemplate;
-};
-
-static void activateGoalForIntent(const std::string& intentName,
-    const va::goal::GoalDefinition& goalDef,
-    const GoalActivationDeps& d)
-{
-    spdlog::info("[CallCenter] Intent classified: '{}'", intentName);
-    d.metrics->intentClassified = intentName;
-    d.metrics->goalName = goalDef.name;
-
-    auto gm = std::make_shared<va::goal::GoalManager>(goalDef, /*maxReprompts=*/2);
-    *d.holder = gm;
-    gm->setMetrics(d.metrics);
-
-    //  Pre-fill from ANI → CRM lookup
-    if (!d.ani.empty()) {
-        auto record = crmLookupByPhone(d.ani);
-        if (record) {
-            spdlog::info("[CallCenter] CRM hit for ANI {} → {} ({})",
-                d.ani, record->name, record->accountId);
-            gm->prefillSlot("customer_name", record->name);
-            gm->prefillSlot("phone_number", record->phone);
-        }
-    }
-
-    //  Restore partial state from previous call
-    if (d.persistence && !d.ani.empty()) {
-        auto saved = d.persistence->load(d.ani);
-        if (saved) {
-            spdlog::info("[CallCenter] Resuming partial session for ANI {}", d.ani);
-            auto restored = va::goal::deserializeGoalState(goalDef, *saved);
-            for (const auto& [name, value] : restored.toJson().items())
-                gm->prefillSlot(name, value);
-            d.metrics->resumed = true;
-        }
-    }
-
-    //  Wire into LLM stack (replaces intent-detection prompt)
-    {
-        auto llmPromptTemplate = va::llm::PromptTemplate::create(d.transport->getPromptChatFormat());
-        llmPromptTemplate->setMissingVarPolicy(va::llm::MissingVarPolicy::LEAVE_PLACEHOLDER);
-        llmPromptTemplate->addSystem(d.systemPromptTemplate);
-        d.transport->setPromptTemplate(std::move(llmPromptTemplate));
-    }
-    gm->attach(d.transport.get(), d.dispatcher.get());
-
-    d.router->registerSwitchGoalTool(d.dispatcher.get());
-
-    //  Completion callback
-    gm->setOnComplete([metrics = d.metrics, persist = d.persistence, ani = d.ani] {
-        metrics->goalCompleted = true;
-        metrics->callEnd = std::chrono::steady_clock::now();
-        metrics->timeToCompletion = metrics->handleTime();
-
-        spdlog::info("[CallCenter] Goal '{}' completed - handle time: {:.1f}s  reprompts: {}",
-            metrics->goalName, metrics->handleTime().count(), metrics->repromptCount);
-
-        if (persist && !ani.empty()) persist->clear(ani);
-        sessionDone = true;
-        });
-
-    //  Escalation callback
-    gm->setOnEscalate([metrics = d.metrics, persist = d.persistence, ani = d.ani,
-        holder = d.holder]
-        (const va::goal::GoalManager::EscalationContext& ctx) {
-            spdlog::info("[CallCenter] Escalating - reason: '{}'", ctx.reason);
-            spdlog::info("[CallCenter] Collected data for agent: {}",
-                ctx.collectedSlots.dump(2));
-            metrics->escalated = true;
-            metrics->callEnd = std::chrono::steady_clock::now();
-
-            if (persist && !ani.empty()) {
-                if (auto gm2 = *holder)
-                    persist->save(ani, va::goal::serializeGoalState(gm2->state()));
-            }
-            sessionDone = true;
-        });
-}
 
 //  Setup functions
 
@@ -577,10 +313,9 @@ AudioIO createAudioIO(const va::audio::AudioConfig& input, [[maybe_unused]] cons
     return io;
 }
 
-//  Goal-oriented LLM stack 
+//  LLM (optional)
 
-// The call's own LLM transport: it holds the conversation, and goals swap its prompt.
-std::shared_ptr<va::llm::LLMTransport> createLlmTransport(const CliArgs& args) {
+va::llm::LLMConfig llmConfig(const CliArgs& args) {
     va::llm::LLMConfig config;
     config.endpoint = args.llmEndpoint;
     config.apiKey = args.llmApiKey;
@@ -588,108 +323,24 @@ std::shared_ptr<va::llm::LLMTransport> createLlmTransport(const CliArgs& args) {
     config.reasoningEffort = args.llmReasoningEffort;
     if (const char* extra = std::getenv("LLM_EXTRA_PAYLOAD")) config.extraPayload = extra;
     config.temperature = 0.15f;
-    config.maxTokens = 512*8;
+    config.maxTokens = 512 * 8;
     config.timeoutMs = 15000;
-    config.streaming = true;
+    return config;
+}
 
+// The call's LLM conversation, for turns the agent doesn't understand.
+std::shared_ptr<va::llm::LLMTransport> createLlmTransport(const CliArgs& args) {
+    auto config = llmConfig(args);
+    config.streaming = true;
+    config.systemPrompt = loadOrFallback(args.systemPromptFile, kCallCenterSystemPrompt);
     auto transport = std::make_shared<va::llm::OpenAITransport>(config);
     transport->setPromptChatFormat(va::llm::ChatFormat::OPENAI);
+    auto prompt = va::llm::PromptTemplate::create(va::llm::ChatFormat::OPENAI);
+    prompt->addSystem(config.systemPrompt);
+    transport->setPromptTemplate(std::move(prompt));
     transport->setResponseFormatInstruction(loadOrFallback(args.formatInstructionFile, kCallCenterFormatInstruction));
     transport->onConnected = [] { spdlog::info("[LLM] Connected"); };
     return transport;
-}
-
-GoalLLMBundle setupGoals(const CliArgs& args, std::shared_ptr<va::llm::LLMTransport> transport,
-                         std::shared_ptr<va::llm::ToolDispatchProcessor> toolDispatcher,
-                         const std::string& callId) {
-    GoalLLMBundle goalLLMBundle;
-    goalLLMBundle.transport = std::move(transport);
-    goalLLMBundle.toolDispatcher = std::move(toolDispatcher);
-    const std::string systemPromptTmpl = loadOrFallback(args.systemPromptFile, kCallCenterSystemPromptTemplate);
-
-    // CRM lookup tool - available throughout the call (intent + all goals)
-    goalLLMBundle.toolDispatcher->registerTool(
-        va::llm::Tool("lookup_account",
-            "Look up a customer's account details by phone number or account ID. "
-            "Use this when the caller provides or confirms their account information.")
-        .addParameter({ "identifier", "phone number or account ID", "string", true })
-        .onCall([](const nlohmann::json& args) -> nlohmann::json {
-            auto id = args["identifier"].get<std::string>();
-            auto byPhone = crmLookupByPhone(id);
-            auto byAccount = crmLookupByAccount(id);
-            auto record = byPhone ? byPhone : byAccount;
-            if (!record) return { {"found", false} };
-            return {
-                {"found",       true},
-                {"account_id",  record->accountId},
-                {"name",        record->name},
-                {"phone",       record->phone},
-                {"tier",        record->accountTier},
-            };
-            })
-    );
-
-    // Register {tool_descriptions} resolver once - persists across template swaps
-    goalLLMBundle.transport->registerTemplateVar("tool_descriptions",
-        [td = goalLLMBundle.toolDispatcher](va::llm::ChatFormat fmt) {
-            return td->renderToolDescriptions(fmt);
-        });
-
-    //  Call metrics 
-    goalLLMBundle.callMetrics = std::make_shared<va::metrics::CallMetrics>();
-    goalLLMBundle.callMetrics->callId = callId;
-    goalLLMBundle.callMetrics->callerANI = args.ani;
-    goalLLMBundle.callMetrics->callStart = std::chrono::steady_clock::now();
-
-    //  Persistence (file-based; Redis in production) 
-    if (!args.persistenceDir.empty()) {
-        goalLLMBundle.persistence = std::make_shared<va::goal::FileGoalStatePersistence>(
-            args.persistenceDir);
-        std::filesystem::create_directories(args.persistenceDir);
-    }
-
-    //  Intent router with two available goals 
-    goalLLMBundle.intentRouter = std::make_shared<va::goal::IntentRouter>(
-        std::vector<va::goal::IntentOption>{
-            {
-                "schedule_callback",
-                    "caller wants to schedule a service appointment or callback",
-                    makeScheduleCallbackGoal()
-            },
-            {
-                "account_inquiry",
-                "caller wants account balance, status, or general account help",
-                makeAccountInquiryGoal()
-            },
-    },
-        /* confidenceThreshold = */ 0.65
-    );
-    goalLLMBundle.intentRouter->setRoleDescription("You are a call center assistant.");
-    goalLLMBundle.intentRouter->attachToLLMTransport(goalLLMBundle.transport.get());
-    goalLLMBundle.intentRouter->attachToToolDispatcher(goalLLMBundle.toolDispatcher.get());
-
-    //  On intent classified: activate GoalManager
-    auto goalManagerHolder = std::make_shared<std::shared_ptr<va::goal::GoalManager>>();
-
-    goalLLMBundle.intentRouter->setOnIntent(
-        [deps = GoalActivationDeps{
-            args.ani,
-            goalLLMBundle.callMetrics,
-            goalLLMBundle.transport,
-            goalLLMBundle.toolDispatcher,
-            goalLLMBundle.persistence,
-            goalLLMBundle.intentRouter,
-            goalManagerHolder,
-            systemPromptTmpl,
-        }]
-        (const std::string& intentName, const va::goal::GoalDefinition& goalDef) {
-            activateGoalForIntent(intentName, goalDef, deps);
-        }
-    );
-
-    // Expose goalManagerHolder so main can read final state if needed
-    goalLLMBundle.goalManager = nullptr; // filled when intent fires; access via goalManagerHolder if needed
-    return goalLLMBundle;
 }
 
 bool loadDotenvFile(const std::string& path) {
@@ -720,22 +371,18 @@ int main(int argc, char* argv[]) {
     args.llmApiKey = resolveApiKey(args.llmApiKey);
     args.llmModel = resolveModel(args.llmModel);
     args.llmReasoningEffort = resolveReasoningEffort(args.llmReasoningEffort);
+    const bool online = !args.llmEndpoint.empty();
 
     spdlog::set_level(args.debug ? spdlog::level::debug : spdlog::level::info);
-    spdlog::info("VASDK Call Center Pipeline - goal-oriented voice AI showcase");
+    spdlog::info("VASDK Call Center - a call flow in agent files");
     spdlog::info("  ANI:         {}", args.ani.empty() ? "(not set)" : args.ani);
-    spdlog::info("  Persist dir: {}", args.persistenceDir.empty() ? "(disabled)" : args.persistenceDir);
-    spdlog::info("  LLM model:   {}", args.llmModel.empty() ? "(not set)" : args.llmModel);
-    spdlog::info("  LLM endpoint:{}", args.llmEndpoint);
-    if (!args.llmReasoningEffort.empty()) spdlog::info("  Reasoning:   {}", args.llmReasoningEffort);
-
-    if (args.llmApiKey.empty()) {
-        spdlog::error("No LLM API key found. Set LLM_API_KEY, OPENROUTER_API_KEY, or OPENAI_API_KEY "
-            "(in the .env file or shell environment), or pass --llm-api-key <key>");
-        return -1;
+    spdlog::info("  DNIS:        {}", args.dnis.empty() ? "(not set)" : args.dnis);
+    if (online) {
+        spdlog::info("  LLM:         {} ({})", args.llmEndpoint, args.llmModel.empty() ? "default model" : args.llmModel);
+        if (!args.llmReasoningEffort.empty()) spdlog::info("  Reasoning:   {}", args.llmReasoningEffort);
+    } else {
+        spdlog::info("  LLM:         none: the agent answers on its own");
     }
-    spdlog::info("  API key:     {}...{}", args.llmApiKey.substr(0, std::min<size_t>(8, args.llmApiKey.size())),
-        args.llmApiKey.size() > 8 ? args.llmApiKey.substr(args.llmApiKey.size() - 4) : "");
 
     std::signal(SIGINT, signalHandler);
 
@@ -745,8 +392,23 @@ int main(int argc, char* argv[]) {
         return -1;
     }
 
-    // Phone-call turn-taking, streaming STT for speculative firing, and the LLM settings the
-    // goal prompts were tuned with. Providers: the first one built in for each kind.
+    // The agent for the number called, with its CRM tools. A server compiles one per DNIS and
+    // shares it between the calls to that number.
+    const std::string agentPath = agentFor(args);
+    auto tools = std::make_shared<va::flow::FlowRegistry>();
+    callcenter::registerTools(*tools);
+    std::string error;
+    std::vector<std::string> warnings;
+    auto agent = va::flow::CompiledAgent::load(agentPath, &error, &warnings, tools);
+    for (const auto& warning : warnings) spdlog::warn("[CallCenter] {}: {}", agentPath, warning);
+    if (!agent) {
+        spdlog::error("[CallCenter] {}: {}", agentPath, error);
+        return -1;
+    }
+    spdlog::info("  Agent:       {}", agentPath);
+
+    // Phone-call turn-taking, and streaming STT for speculative firing.
+    // Providers: the first one built in for each kind.
     vasdk::engine::EngineConfig engineConfig;
     engineConfig.mutable_turn_taking()->set_preset(vasdk::engine::TurnTaking::SNAPPY);
     engineConfig.mutable_turn_taking()->set_streaming_transcription(true);
@@ -754,16 +416,12 @@ int main(int argc, char* argv[]) {
     llmSettings->set_history(12);
     llmSettings->set_speculative_firing(true);   // held until the final transcript matches
     llmSettings->set_speculative_min_words(3);
-    // Covers the tool round trip (slot updates, lookups) instead of leaving the caller in silence.
-    for (const char* phrase : {"One moment.", "Let me check that.", "Just a second."})
-        llmSettings->add_tool_filler_phrases(phrase);
 
     va::engine::Runtime::Options runtimeOptions;
     runtimeOptions.modelsDir = modelsPath;
     runtimeOptions.frameSize = 16000 / 8;   // 125 ms at 16 kHz
     va::engine::ProviderRegistry registry;
     va::thirdparty::registerAllProviders(registry);
-    std::string error;
     auto runtime = va::engine::Runtime::create(engineConfig, registry, runtimeOptions, &error);
     if (!runtime) {
         spdlog::error("[CallCenter] {}", error);
@@ -776,7 +434,15 @@ int main(int argc, char* argv[]) {
     va::engine::Session::Options callOptions;
     callOptions.id = callId;
     callOptions.transport = io.transport;
-    callOptions.llmTransport = createLlmTransport(args);
+    callOptions.agent = agent;
+    if (online) {
+        callOptions.llmTransport = createLlmTransport(args);
+        auto assist = llmConfig(args);
+        assist.temperature = 0.0f;
+        assist.maxTokens = 400;
+        assist.timeoutMs = 8000;
+        callOptions.llmCompletion = std::make_shared<va::llm::OpenAICompletion>(assist);
+    }
     callOptions.backchannel = args.backchannelConfig;
 #ifdef VASDK_HAS_LIBDATACHANNEL_WEBRTC
     callOptions.sendAllFramesToTransport = io.webrtcPeer != nullptr;   // the page shows the agent's state
@@ -786,7 +452,13 @@ int main(int argc, char* argv[]) {
         spdlog::error("[CallCenter] {}", error);
         return -1;
     }
-    GoalLLMBundle llm = setupGoals(args, call->llmTransport(), call->toolDispatcher(), callId);
+    if (!args.ani.empty()) call->setSessionParam("caller", va::flow::stringValue(args.ani));
+    // The agent ends the call: done, goodbye, or handed to a person.
+    call->addListener([](const vasdk::engine::Event& event) {
+        if (event.has_page_changed() && event.page_changed().to_flow() == "handoff")
+            spdlog::info("[CallCenter] Transferring the call to a person");
+        if (event.has_session_ended()) sessionDone = true;
+    });
 
     using Slot = va::engine::Session::Slot;
 #ifdef VASDK_HAS_PYANNOTE_SPEAKER
@@ -838,10 +510,8 @@ int main(int argc, char* argv[]) {
     }
 
     if (sessionDone) {
-        // Wait for the closing TTS phrase to drain. The completion/escalation callback
-        // fires mid-LLM-stream, so generation + synthesis + drain can take 10-15s; poll
-        // the drain flag (set by TTSFrameProcessor::setOnAudioDrained) with a safety cap
-        // instead of a fixed sleep.
+        // Let the closing phrase play out: poll the drain flag (set when the last synthesis
+        // completes) with a safety cap instead of a fixed sleep.
         auto drainDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
         while (!audioFullyDrained &&
             std::chrono::steady_clock::now() < drainDeadline) {

@@ -501,6 +501,13 @@ void FlowRuntime::takeTurn(const std::string& text, Reply& reply) {
             return;
         }
     }
+    // A free-text slot takes any words: a command for every page ("talk to a person") comes first.
+    if (const auto* global = asksFreeText() ? sureGlobalRoute() : nullptr) {
+        _replyCut = false;
+        _misses = 0;
+        follow(answered(takeRoute(*global, reply), reply), reply);
+        return;
+    }
     const bool answeredForm = formActive() && fillForm(_inputText);
     _replyCut = false;
     if (answeredForm) {   // an answer for the form
@@ -681,6 +688,31 @@ const vasdk::flow::Route* FlowRuntime::matchRoute() {
         const bool own = layer.settings == nullptr;
         if (!own && !global) continue;
         if (const auto* route = matchRoute(*layer.routes, own ? &_expectation.intents() : nullptr)) return route;
+    }
+    return nullptr;
+}
+
+bool FlowRuntime::asksFreeText() const {
+    const auto* slot = formActive() ? askedSlot() : nullptr;
+    return slot && slot->type() == vasdk::goal::Slot::STRING && slot->entity().empty() && slot->values().empty();
+}
+
+// An intent route of an envelope (not the page's own) whose example the words fully match, by
+// the rules alone: no model or LLM is asked about a name or an address.
+const vasdk::flow::Route* FlowRuntime::sureGlobalRoute() const {
+    nlu::NluRequest request;
+    request.text = _inputText;
+    request.mentions = [this](const std::string& entity) {
+        return _agent->entities().find(entity, _inputText, _dynamicEntities, now()).has_value();
+    };
+    const auto understood = _agent->rules()->understand(request);
+    for (const auto& layer : _agent->layers(_position)) {
+        if (layer.settings == nullptr) continue;   // the page's own
+        for (const auto& route : *layer.routes) {
+            if (route.intent().empty() || !route.entity().empty() || !holds(route.condition())) continue;
+            for (const auto& match : understood.intents)
+                if (match.intent == route.intent() && match.confidence >= 0.99f) return &route;
+        }
     }
     return nullptr;
 }

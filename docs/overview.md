@@ -11,7 +11,7 @@ Think of it as the plumbing between a microphone and a speaker, with interchange
 ## What you can build with it
 
 - **In-vehicle voice assistants** - the original motivation. VASDK provides the cross-platform plumbing so you can focus on the user-experience instead.
-- **Call center or Goal oriented agents** - the `goal/` layer turns the assistant from a chatbot into a task-completer: it classifies why someone is calling, collects the required information field by field (with validation), confirms before acting, escalates to a human when stuck, and resumes an interrupted call where it left off. The [VASDK_CallCenter app](../VASDK_CALLCENTER_APP/README.md) is a working demonstration.
+- **Call center or goal-oriented agents** - an [agent file](reference/flows.md) turns the assistant from a chatbot into a task-completer: it finds out why someone is calling, collects the required information field by field (with validation), confirms before acting, and hands off to a person when stuck, with or without an LLM. The [VASDK_CallCenter app](../VASDK_CALLCENTER_APP/README.md) is a working demonstration. The LLM-driven `goal/` layer is the other way to build one.
 - **On-device mobile assistants** - the [Android app](../VASDK_ANDROID/README.md) runs the full stack on a phone, including a local language model, and gives the assistant real device capabilities: placing calls, sending texts, reading the calendar, taking photos, with spoken confirmation before anything sensitive.
 - **Desktop / kiosk assistants** - the [VASDK_Pipeline app](../VASDK_APP/README.md) is the general-purpose reference: full voice loop with barge-in (you can talk over it), tool calling, and live metrics.
 
@@ -52,6 +52,6 @@ VASDK's own code is **Apache 2.0** - permissive, commercial-friendly. The AI mod
 ## Where to go next
 
 - **SWE starting point** → the [documentation index](README.md), then the root [README quick start](../README.md#quick-start).
-- **Call center example with Goal and task completion tracking** → [VASDK_CallCenter guide](../VASDK_CALLCENTER_APP/README.md).
+- **Call center example: a call flow in agent files** → [VASDK_CallCenter guide](../VASDK_CALLCENTER_APP/README.md).
 - **Full Android Example** → [Android guide](../VASDK_ANDROID/README.md).
 - **Third party notices** → [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).

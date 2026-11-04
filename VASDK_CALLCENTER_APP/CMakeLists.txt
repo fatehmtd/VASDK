@@ -7,6 +7,28 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include(GNUInstallDirs)
 
+# The call center agent's CRM tools, and callcenter_agentc: vasdk_agentc with them registered,
+# which runs the agent's scripted calls. Needs no audio, so before the checks below.
+if(VASDK_ENABLE_ENGINE_CONFIG AND TARGET VASDK)
+    set(CALLCENTER_AGENT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/agents/callcenter)
+    add_library(callcenter_tools STATIC crm/CallCenterTools.cpp)
+    target_include_directories(callcenter_tools PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/crm>)
+    target_link_libraries(callcenter_tools PUBLIC VASDK)
+
+    add_executable(callcenter_agentc crm/callcenter_agentc.cpp)
+    target_link_libraries(callcenter_agentc PRIVATE callcenter_tools)
+
+    if(VASDK_BUILD_TESTS)
+        file(GLOB CALLCENTER_TESTS ${CALLCENTER_AGENT_DIR}/tests/*.txtpb)
+        add_test(NAME vasdk_agent_callcenter
+                 COMMAND callcenter_agentc test ${CALLCENTER_AGENT_DIR}/agent.txtpb ${CALLCENTER_TESTS})
+        # The same calls with an LLM after the rules: nothing the agent understands changes
+        add_executable(callcenter_suite_test crm/callcenter_suite_test.cpp)
+        target_link_libraries(callcenter_suite_test PRIVATE callcenter_tools)
+        add_test(NAME vasdk_agent_callcenter_with_llm COMMAND callcenter_suite_test ${CALLCENTER_AGENT_DIR})
+    endif()
+endif()
+
 #  Requirement checks (mirror VASDK_APP logic) 
 
 set(CC_REQUIRED_ENABLED TRUE)
@@ -51,11 +73,15 @@ add_executable(VASDK_CallCenter callcenter_pipeline.cpp)
 
 target_link_libraries(VASDK_CallCenter
     PRIVATE VASDK
+    PRIVATE callcenter_tools
     PRIVATE nlohmann_json::nlohmann_json
     PRIVATE CLI11::CLI11
     PRIVATE spdlog::spdlog
     PRIVATE dotenv
 )
+
+# Where --dnis looks for an agent per number: agents/<dnis>/agent.txtpb, else agents/callcenter.
+target_compile_definitions(VASDK_CallCenter PRIVATE CALLCENTER_AGENTS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/agents")
 
 #  Audio I/O 
 

@@ -67,13 +67,13 @@ Two values in `.env` matter, not just the key: `LLM_MODEL` is required too - the
 
 That's a full voice loop: mic in, VAD, speaker tracking, transcription, LLM turn with tool calling, synthesis, speaker out. Talk to it. If you'd rather stay fully offline, configure with `-DVASDK_BUILD_LLAMACPP=ON -DVASDK_DOWNLOAD_LLAMACPP_MODEL=ON` (this downloads the default GGUF into `build/VASDK_3P_IMPL/models/`), skip the `.env`, and pass `--llm-model-path` pointing at a GGUF file. The [VASDK_Pipeline guide](VASDK_APP/README.md) covers every flag and feature.
 
-The second showcase app is the goal-oriented call center pipeline:
+The second showcase app is the call center:
 
 ```bash
 ./build/VASDK_CALLCENTER_APP/VASDK_CallCenter
 ```
 
-It classifies caller intent on the first utterance, fills required slots over multiple turns, confirms before acting, escalates on request or after too many failed reprompts, and resumes a dropped session via `FileGoalStatePersistence`. It's the closest thing in this repo to an IVR replacement, and it's what most of the `goal/` namespace exists to support. The [VASDK_CallCenter guide](VASDK_CALLCENTER_APP/README.md) walks through the call flow, the demo goals, and the CRM integration seams. It reads the same `.env` (`LLM_API_KEY`/`LLM_MODEL`) as `VASDK_Pipeline`.
+Its call flow is an [agent file](VASDK_CALLCENTER_APP/agents/callcenter/agent.txtpb): it looks the caller up by their number, asks what they need, fills a form over several turns, reads it back before acting, and hands off to a person on request or after too many misunderstandings. It runs with no LLM; with one (the same `.env` as `VASDK_Pipeline`), it also understands what its examples miss. It's the closest thing in this repo to an IVR replacement. The [VASDK_CallCenter guide](VASDK_CALLCENTER_APP/README.md) walks through the call flow, its tests, and the CRM integration seams.
 
 With multi-config generators (Visual Studio, Xcode) the binaries land one level deeper, under a `Release/` subdirectory (e.g. `./build/VASDK_APP/Release/VASDK_Pipeline`). Both apps print an error and exit if they can't find the models directory or a required provider wasn't built; check the CMake configure output, which lists exactly which providers were enabled.
 
