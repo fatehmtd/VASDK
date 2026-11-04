@@ -60,6 +60,13 @@ void print(const va::flow::Reply& reply, const va::flow::FlowRuntime& conversati
                 conversation.flowName().c_str(), conversation.pageName().c_str(),
                 reply.event.empty() ? "" : ("  (" + reply.event + ")").c_str(),
                 reply.endsSession ? "  (conversation ended)" : "");
+    for (const auto& segment : reply.segments)
+        if (!segment.interruptible) std::printf("     can't be interrupted: \"%s\"\n", segment.text.c_str());
+    if (!reply.choices.empty()) {
+        std::string labels;
+        for (const auto& choice : reply.choices) labels += (labels.empty() ? "" : " | ") + choice.label;
+        std::printf("     choices: %s\n", labels.c_str());
+    }
 }
 
 } // namespace

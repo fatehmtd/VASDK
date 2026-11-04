@@ -192,9 +192,10 @@ namespace va {
             public:
             FrameType getType() const override { return FrameType::TEXT; }
 
-            /// A selectable choice presented to the user in a UI (populated by the LLM payload).
+            /// A selectable choice presented to the user in a UI (from the LLM payload or an agent's ask).
             struct Choice {
                 std::string text;
+                std::string value;   // what selecting it sends back as the user's words; empty: text
             };
 
             std::shared_ptr<Frame> clone() const override {
@@ -208,6 +209,9 @@ namespace va {
                 cloned->isFinal = isFinal;
                 cloned->isExpecting = isExpecting;
                 cloned->choices = choices;
+                cloned->ssml = ssml;
+                cloned->interruptible = interruptible;
+                cloned->uiJson = uiJson;
                 return cloned;
             }
 
@@ -216,6 +220,9 @@ namespace va {
             bool isFinal = true;               // false = mid-stream chunk; true = last chunk of a response
             bool isExpecting = false;          // true = LLM expects a user response (set on final chunk only)
             std::vector<Choice> choices;       // UI choices presented to the user (non-empty when LLM restricts valid responses)
+            std::string ssml;                  // spoken instead of text by a provider that supportsSsml()
+            bool interruptible = true;         // false: the user can't talk over this frame's audio
+            std::string uiJson;                // app UI for the reply, a JSON object (set on the final chunk only)
 
             TextFrame() : language("en-US") {}
         };

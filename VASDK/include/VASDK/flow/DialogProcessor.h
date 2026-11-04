@@ -74,6 +74,7 @@ private:
     ReplyObserver _observer;
     FlowRuntime::ContextSource _contextSource;
     bool _awaitingAnswer = false;   // the last reply asked a question
+    bool _replyPlaying = false;     // a reply of the flow is being spoken
     // The no-input timer: a deadline, and a generation that makes a fired timer stale once moved on.
     std::thread _timerThread;
     std::mutex _timerMutex;

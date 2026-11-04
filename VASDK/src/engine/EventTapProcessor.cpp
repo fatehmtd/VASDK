@@ -128,7 +128,11 @@ void EventTapProcessor::processFrame(std::shared_ptr<transport::Frame> frame, pi
         reply->set_is_final(text->isFinal);
         if (text->isFinal) {
             reply->set_expects_reply(text->isExpecting);
-            for (const auto& choice : text->choices) reply->add_choices(choice.text);
+            for (const auto& choice : text->choices) {
+                reply->add_choices(choice.text);
+                reply->add_choice_values(choice.value);
+            }
+            reply->set_ui_json(text->uiJson);
             _reply.clear();
         }
         break;

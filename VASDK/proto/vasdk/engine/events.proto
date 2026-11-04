@@ -33,6 +33,8 @@ message AgentReply {
   bool is_final = 2;          // the reply is complete
   bool expects_reply = 3;     // set on the final piece: the assistant asked the user something
   repeated string choices = 4;  // set on the final piece: answers a UI can offer as buttons
+  repeated string choice_values = 5;  // what each choice sends back with injectUserText ("" for an LLM's)
+  string ui_json = 6;         // set on the final piece: an agent's `ui` for the app, as a JSON object
 }
 
 // The assistant's conversation state: IDLE, LISTENING, THINKING, SPEAKING or INTERRUPTED.

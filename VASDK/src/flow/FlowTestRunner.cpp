@@ -67,6 +67,12 @@ FlowTestResult runFlowTest(std::shared_ptr<const CompiledAgent> agent, const vas
         }
         if (!expect.event().empty() && reply.event != expect.event())
             fail("event is " + quoted(reply.event) + ", expected " + quoted(expect.event()));
+        if (!expect.choices().empty()) {
+            std::string offered, expected;
+            for (const auto& choice : reply.choices) offered += (offered.empty() ? "" : ", ") + quoted(choice.label);
+            for (const auto& label : expect.choices()) expected += (expected.empty() ? "" : ", ") + quoted(label);
+            if (offered != expected) fail("choices are [" + offered + "], expected [" + expected + "]");
+        }
         for (const auto& [name, expected] : expect.entities()) {
             const std::string actual = toText(conversation.lookup({"nlu", "entities", name}));
             if (actual != expected) fail("$nlu.entities." + name + " is " + quoted(actual) + ", expected " + quoted(expected));

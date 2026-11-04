@@ -146,6 +146,16 @@ namespace va {
                 _playbackRemainingMsProvider = std::move(playbackRemainingMsProvider);
             }
 
+            /**
+             * @brief Milliseconds left of a part of the reply the user can't interrupt, or 0
+             *        (TTSFrameProcessor::getProtectedPlaybackMs). Speech that starts, or would cut
+             *        the reply, while it plays doesn't: it's answered after the reply, like speech
+             *        over the reply's end.
+             */
+            void setProtectedPlaybackMsProvider(std::function<int()> protectedPlaybackMsProvider) {
+                _protectedPlaybackMsProvider = std::move(protectedPlaybackMsProvider);
+            }
+
             transport::AgentState getState() const { return _currentState.load(); }
 
             void processFrame(std::shared_ptr<transport::Frame> frame, FlowDirection direction) override;
@@ -235,6 +245,8 @@ namespace va {
 
             BackchannelConfig    _backchannelConfig;
             std::function<int()> _playbackRemainingMsProvider;
+            std::function<int()> _protectedPlaybackMsProvider;
+            bool playbackProtected() const { return _protectedPlaybackMsProvider && _protectedPlaybackMsProvider() > 0; }
             // Guards the overlap fields below: the interrupt-timeout thread also resolves interrupts.
             std::mutex  _backchannelMutex;
             OverlapKind _overlapKind{ OverlapKind::None };

@@ -139,11 +139,25 @@ message Step {
 // "Welcome back, $session.name." ($$ is a dollar sign; a missing value is empty).
 message Say {
   repeated string text = 1;
+  // SSML, for a voice provider that reads it; others speak `text`, or this with its tags removed.
+  // References work here too.
+  string ssml = 2;
+  optional bool interruptible = 3;   // false: the user can't talk over this part; it plays to its end
+  google.protobuf.Struct ui = 6;     // given to the app with the reply: a card, a map, a picture
 }
 
 // A question: the user is expected to answer, and it is repeated when the answer isn't understood.
 message Ask {
   Say say = 1;
+  repeated Choice choices = 2;       // answers the app can show as buttons
+}
+
+// An answer offered with a question. Saying the label, the value or a synonym, as the whole
+// answer, is the same as saying the value; a button sends the value.
+message Choice {
+  string label = 1;
+  string value = 2;                  // empty: the label
+  repeated string synonyms = 3;
 }
 
 // Stores a value: key is "$session.<name>" (declared in session_params), "$page.locals.<name>"

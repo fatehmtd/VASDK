@@ -78,6 +78,12 @@ namespace va {
             virtual bool acceptsQueuedSynthesis() const { return false; }
 
             /**
+             * @brief Whether synthesizeSpeech() accepts SSML (a <speak> document). With false (the
+             * default) TTSFrameProcessor sends plain text: the frame's text, or its SSML untagged.
+             */
+            virtual bool supportsSsml() const { return false; }
+
+            /**
              * @brief startVoiceSynthesisProvider
              * @return true if the provider started successfully, false otherwise
              */

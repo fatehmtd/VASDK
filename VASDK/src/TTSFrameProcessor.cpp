@@ -108,7 +108,8 @@ namespace va {
                 {
                     std::lock_guard<std::mutex> lock(_turnMutex);
                     _pendingSentences.clear();
-                    _providerBusy = _textClosed = _turnActive = _sentInTurn = false;
+                    _providerBusy = _textClosed = _turnActive = _sentInTurn = _protectedSending = false;
+                    _protectedStart = _protectedEnd = {};
                     _playbackPaused = false;  // the queued audio is gone
                 }
                 if (_playbackFlush) _playbackFlush(); // flush SDL buffer immediately
@@ -199,6 +200,17 @@ namespace va {
             return static_cast<int>(std::max<int64_t>(0, remaining.count() / 1000));
         }
 
+        int TTSFrameProcessor::getProtectedPlaybackMs() {
+            std::lock_guard<std::mutex> lock(_turnMutex);
+            const auto now = std::chrono::steady_clock::now();
+            // The sink plays a little behind the model: the hardware buffer.
+            const auto margin = std::chrono::milliseconds(_hardwareBufferMarginMs);
+            if (_protectedStart == std::chrono::steady_clock::time_point{} || now < _protectedStart + margin) return 0;
+            const auto end = _protectedEnd + margin;
+            if (now >= end) return _protectedSending ? 1 : 0;   // still synthesizing: more is coming
+            return std::max(1, static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(end - now).count()));
+        }
+
         void TTSFrameProcessor::synthesizeTextFrame(std::shared_ptr<transport::TextFrame> frame) {
             if (!frame || !_synthesisProvider) return;
 
@@ -217,7 +229,9 @@ namespace va {
                     _textClosed = false;
                     mergeIntoDrainingTurn = _draining;
                 }
-                if (!frame->text.empty()) _pendingSentences.push_back(frame->text);
+                const bool ssml = !frame->ssml.empty() && _synthesisProvider->supportsSsml();
+                if (ssml || !frame->text.empty())
+                    _pendingSentences.push_back({ssml ? frame->ssml : frame->text, frame->interruptible});
                 if (frame->isFinal) _textClosed = true;
             }
             if (mergeIntoDrainingTurn) cancelDrainWait();
@@ -231,11 +245,19 @@ namespace va {
                 std::lock_guard<std::mutex> lock(_turnMutex);
                 const bool queued = _synthesisProvider->acceptsQueuedSynthesis();
                 while (!_pendingSentences.empty() && (queued || !_providerBusy)) {
+                    const bool isProtected = !_pendingSentences.front().interruptible;
+                    // A part that can't be interrupted is synthesized alone, so its audio is all its own.
+                    if ((isProtected || _protectedSending) && _providerBusy) break;
+                    const auto now = std::chrono::steady_clock::now();
                     if (!_sentInTurn) {
                         _sentInTurn = true;
-                        _synthesisStartTime = std::chrono::steady_clock::now();
+                        _synthesisStartTime = now;
                     }
-                    toSend.push_back(std::move(_pendingSentences.front()));
+                    if (isProtected) {
+                        _protectedSending = true;
+                        _protectedStart = _protectedEnd = _turnActive ? std::max(now, _playbackEndTime) : now;
+                    }
+                    toSend.push_back(std::move(_pendingSentences.front().text));
                     _pendingSentences.pop_front();
                     _providerBusy = true;
                 }
@@ -304,7 +326,7 @@ namespace va {
                     spdlog::info("[TTSFrameProcessor] Synthesis finished after interrupt (no-op)");
                     return;
                 }
-                _providerBusy = false;
+                _providerBusy = _protectedSending = false;
             }
             pumpSentences();
             maybeStartDrain();
@@ -316,7 +338,8 @@ namespace va {
             {
                 std::lock_guard<std::mutex> lock(_turnMutex);
                 _pendingSentences.clear();
-                _providerBusy = _textClosed = _turnActive = _sentInTurn = false;
+                _providerBusy = _textClosed = _turnActive = _sentInTurn = _protectedSending = false;
+                _protectedStart = _protectedEnd = {};
             }
             if (_playbackFlush) _playbackFlush();
             emitSynthesisState(transport::SynthesisState::ERROR, error);
@@ -403,6 +426,7 @@ namespace va {
                     _playbackRemainingWhilePaused += std::chrono::microseconds(chunkUs);
                 else
                     _playbackEndTime = std::max(_playbackEndTime, now) + std::chrono::microseconds(chunkUs);
+                if (_protectedSending) _protectedEnd = _playbackEndTime;
             }
 
             auto audioFrame = std::make_shared<transport::SynthesisFrame>();

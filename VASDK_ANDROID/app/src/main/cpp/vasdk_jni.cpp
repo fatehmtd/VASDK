@@ -518,6 +518,11 @@ Java_com_vasdk_android_VasdkEngine_nativeInit(JNIEnv *env, jobject thiz, jstring
                 auto ttsProcessor = tts.lock();
                 return ttsProcessor ? ttsProcessor->getRemainingReplyPlaybackMs() : -1;
             });
+        session->agentStateProcessor->setProtectedPlaybackMsProvider(
+            [tts = std::weak_ptr<va::pipeline::TTSFrameProcessor>(session->ttsProcessor)] {
+                auto ttsProcessor = tts.lock();
+                return ttsProcessor ? ttsProcessor->getProtectedPlaybackMs() : 0;
+            });
     }
 
     session->triggerProcessor = std::make_shared<va::pipeline::TriggerProcessor>();

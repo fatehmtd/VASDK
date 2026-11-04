@@ -79,7 +79,10 @@ flows {
   pages {
     name: "welcome"
     on_enter { branch { if: "$session.tier = 'gold'" then { say { text: "Welcome back, gold member." } } } }
-    on_enter { ask { say { text: "Hi, this is Acme Garage. Would you like to book a service, hear our hours, or talk to a person?" } } }
+    on_enter { ask { say { text: "Hi, this is Acme Garage. Would you like to book a service, hear our hours, or talk to a person?" }
+                     choices { label: "Book a service" value: "book" }      # buttons in an app; saying a label works too
+                     choices { label: "Opening hours" value: "hours" }
+                     choices { label: "Talk to a person" value: "person" } } }
     routes { intent: "book" target: "booking" }   # "book an oil change": the form gets the service on the way in
     routes {   # here, a price leads on to booking (the envelope's price route is for the other pages)
       intent: "price"
@@ -116,7 +119,9 @@ flows {
   pages {
     name: "booked"
     on_enter { say { text: "You're booked for $session.service, $session.day at $session.time." } }
-    on_enter { branch { if: "$session.tier : ('gold', 'platinum')" then { say { text: "As a $session.tier member, there's no charge." } } } }
+    on_enter { branch { if: "$session.tier : ('gold', 'platinum')" then { say { text: "As a $session.tier member, there's no charge." } }
+                        # plays to its end even if the caller talks over it
+                        else { say { text: "Cancelling less than a day ahead costs 20 dollars." interruptible: false } } } }
     on_enter { ask { say { text: "Is there anything else I can help with?" } } }
     routes { intent: "no" steps { say { text: "Great, see you then. Goodbye!" } } target: "END_SESSION" }
     routes { intent: "yes" target: "welcome" }

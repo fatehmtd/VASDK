@@ -1,5 +1,6 @@
 #include "flow/DialogProcessor.h"
 
+#include <google/protobuf/util/json_util.h>
 #include <spdlog/spdlog.h>
 
 namespace va {
@@ -178,6 +179,13 @@ void DialogProcessor::processFrame(std::shared_ptr<transport::Frame> frame, pipe
     pushDownstream(frame);
     const auto& state = static_cast<const transport::AgentStateFrame&>(*frame);
     _agentState = state.currentState;
+    // The flow's reply played to its end, or the user cut it off.
+    if (state.transition == transport::AgentStateTransition::SYNTHESIS_COMPLETED) {
+        _replyPlaying = false;
+    } else if (state.transition == transport::AgentStateTransition::BARGE_IN_INTERRUPT && _replyPlaying) {
+        _replyPlaying = false;
+        _conversation.replyInterrupted();
+    }
     // A question has finished playing: wait for an answer. Anything else stops waiting.
     if (state.transition == transport::AgentStateTransition::SYNTHESIS_COMPLETED &&
         state.currentState == transport::AgentState::LISTENING && _awaitingAnswer) {
@@ -220,12 +228,23 @@ void DialogProcessor::handleTurn(std::shared_ptr<transport::Frame> frame) {
 void DialogProcessor::speak(const Reply& reply) {
     _awaitingAnswer = reply.expectsReply;
     if (reply.text.empty()) return;
-    auto text = std::make_shared<transport::TextFrame>();
-    text->text = reply.text;
-    text->isFinal = true;
-    text->isExpecting = reply.expectsReply;
-    text->sourceId = getName();
-    pushDownstream(text);
+    _replyPlaying = true;
+    // A frame per part: a part that can't be interrupted, or has SSML, is spoken on its own.
+    const auto& segments = reply.segments;
+    for (size_t i = 0; i < segments.size(); ++i) {
+        auto text = std::make_shared<transport::TextFrame>();
+        text->text = i == 0 ? segments[i].text : " " + segments[i].text;   // listeners join the parts as they come
+        text->ssml = segments[i].ssml;
+        text->interruptible = segments[i].interruptible;
+        text->isFinal = i + 1 == segments.size();
+        text->sourceId = getName();
+        if (text->isFinal) {
+            text->isExpecting = reply.expectsReply;
+            for (const auto& choice : reply.choices) text->choices.push_back({choice.label, choice.value});
+            if (reply.ui.fields_size() > 0) (void)google::protobuf::util::MessageToJsonString(reply.ui, &text->uiJson);
+        }
+        pushDownstream(text);
+    }
 }
 
 } // namespace flow

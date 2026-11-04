@@ -132,6 +132,7 @@ Plus lifecycle (`initializeTranscriptionProvider`, `start/stopTranscriptionProvi
 ```cpp
 virtual bool synthesizeSpeech(const std::string& text) = 0;
 virtual void cancelSynthesis() {}   // optional but important - see below
+virtual bool supportsSsml() const { return false; }   // true: synthesizeSpeech() may get a <speak> document
 ```
 
 The **`cancelSynthesis()` contract** is what makes barge-in work: it must be non-blocking, stop audio emission promptly, and still fire `onSynthesisCompleted()` (or `onSynthesisError()`) once cancellation is confirmed - that completion is what lets `TTSFrameProcessor` emit `SynthesisStateFrame{INTERRUPTED}` upstream and unblock the agent state machine. A provider that can't cancel leaves the assistant talking over the user.

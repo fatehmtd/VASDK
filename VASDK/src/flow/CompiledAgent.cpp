@@ -356,6 +356,11 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent a
         else
             checkReferences({*path}, at + " " + label);
     };
+    auto checkSay = [&](const vasdk::flow::Say& say, const std::string& at, const std::string& kind) {
+        if (say.text().empty() && say.ssml().empty()) check.error(at, kind + " has no text");
+        for (const auto& text : say.text()) checkTemplate(text, at);
+        if (!say.ssml().empty()) checkTemplate(say.ssml(), at + " ssml");
+    };
     using Steps = google::protobuf::RepeatedPtrField<vasdk::flow::Step>;
     std::function<void(const Steps&, const std::string&)> checkSteps = [&](const Steps& steps, const std::string& at) {
         for (int s = 0; s < steps.size(); ++s) {
@@ -363,12 +368,13 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent a
             const std::string stepWhere = at + " step " + std::to_string(s + 1);
             switch (step.kind_case()) {
             case vasdk::flow::Step::kSay:
-                if (step.say().text().empty()) check.error(stepWhere, "say has no text");
-                for (const auto& text : step.say().text()) checkTemplate(text, stepWhere);
+                checkSay(step.say(), stepWhere, "say");
                 break;
             case vasdk::flow::Step::kAsk:
-                if (step.ask().say().text().empty()) check.error(stepWhere, "ask has no text");
-                for (const auto& text : step.ask().say().text()) checkTemplate(text, stepWhere);
+                checkSay(step.ask().say(), stepWhere, "ask");
+                for (int c = 0; c < step.ask().choices_size(); ++c)
+                    if (step.ask().choices(c).label().empty())
+                        check.error(stepWhere, "choice " + std::to_string(c + 1) + " has no label");
                 break;
             case vasdk::flow::Step::kSet:
                 compileExpression(step.set().value(), stepWhere + " set value");

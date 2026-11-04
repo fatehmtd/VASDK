@@ -81,7 +81,7 @@ Processors that read the mic audio directly use `inputRingBuffer()`.
 | Event | When |
 |---|---|
 | `transcript` | The user said something (partial and final results), or `injectUserText` sent it. Back-channels ("mm-hmm") are marked. |
-| `agent_reply` | Once per streamed piece of the reply; `text` is the whole reply so far, `is_final` marks the end, with `expects_reply` and `choices`. `say()` text arrives as one final piece. |
+| `agent_reply` | Once per streamed piece of the reply; `text` is the whole reply so far, `is_final` marks the end, with `expects_reply`, `choices` (with `choice_values`, what each sends back) and `ui_json` (an agent's `ui`). `say()` text arrives as one final piece. |
 | `agent_state` | Every state change: `IDLE`, `LISTENING`, `THINKING`, `SPEAKING`, `INTERRUPTED`, with the transition that caused it. |
 | `tool_call` | A tool the LLM called, with its arguments and result, when it returns. |
 | `error` | A processor or transport reported a failure, e.g. the LLM endpoint is unreachable. |

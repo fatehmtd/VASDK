@@ -261,7 +261,12 @@ namespace va {
             switch (_currentState.load()) {
             case transport::AgentState::SPEAKING: {
                 if (frame->type != transport::TurnStateFrame::TurnType::INTERRUPT) break;
-                if (!_backchannelConfig.enabled) {
+                const bool replyProtected = playbackProtected();
+                if (!_backchannelConfig.enabled && !replyProtected) {
+                    {
+                        std::lock_guard<std::mutex> lock(_backchannelMutex);
+                        clearOverlapLocked();   // speech held over a part that couldn't be interrupted
+                    }
                     transitionTo(transport::AgentState::INTERRUPTED,
                         transport::AgentStateTransition::BARGE_IN_INTERRUPT);
                     startInterruptTimeout();
@@ -279,7 +284,8 @@ namespace va {
                 const int playbackRemainingMs = _playbackRemainingMsProvider ? _playbackRemainingMsProvider() : -1;
                 const bool nearReplyEnd = _backchannelConfig.tailOverlapMode == TailOverlapMode::TreatAsTurn &&
                     playbackRemainingMs >= 0 && static_cast<uint32_t>(playbackRemainingMs) < _backchannelConfig.tailOverlapMs;
-                beginOverlap(nearReplyEnd ? OverlapKind::TailTurn : OverlapKind::PendingBargeIn);
+                if (replyProtected) spdlog::info("[AgentStateProcessor] User spoke over a part that can't be interrupted");
+                beginOverlap(nearReplyEnd || replyProtected ? OverlapKind::TailTurn : OverlapKind::PendingBargeIn);
                 break;
             }
             case transport::AgentState::THINKING:
@@ -746,6 +752,17 @@ namespace va {
         void AgentStateProcessor::commitBargeIn(bool userSpeechEnded, const char* reason)
         {
             std::shared_ptr<transport::TranscriptionFrame> forwardNow;
+            if (playbackProtected()) {
+                {
+                    // Pending since before the part began: it's now answered after the reply instead.
+                    std::lock_guard<std::mutex> lock(_backchannelMutex);
+                    if (_overlapKind != OverlapKind::PendingBargeIn) return;
+                    _overlapKind = OverlapKind::TailTurn;
+                }
+                spdlog::info("[AgentStateProcessor] Barge-in held ({}): this part can't be interrupted", reason);
+                transitionTo(transport::AgentState::SPEAKING, transport::AgentStateTransition::BACKCHANNEL, 0.0f, true);
+                return;
+            }
             {
                 std::lock_guard<std::mutex> lock(_backchannelMutex);
                 if (_overlapKind != OverlapKind::PendingBargeIn) return;

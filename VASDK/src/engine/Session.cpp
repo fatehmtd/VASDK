@@ -294,6 +294,11 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
             auto ttsProcessor = tts.lock();
             return ttsProcessor ? ttsProcessor->getRemainingReplyPlaybackMs() : -1;
         });
+    state->agentState->setProtectedPlaybackMsProvider(
+        [tts = std::weak_ptr<pipeline::TTSFrameProcessor>(state->tts)] {
+            auto ttsProcessor = tts.lock();
+            return ttsProcessor ? ttsProcessor->getProtectedPlaybackMs() : 0;
+        });
     state->speech = std::make_shared<FrameInjector>("SpeechInput");
     state->eventTap = std::make_shared<EventTapProcessor>(state->events);
     // Tool calls don't reach the tap: results go back upstream to the LLM.

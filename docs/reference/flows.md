@@ -59,12 +59,35 @@ Steps:
 
 | Step | Example | What it does |
 |---|---|---|
-| `say` | `say { text: ["Got it.", "Okay."] }` | Speaks one text; with several, a different one each time the step runs. |
-| `ask` | `ask { say { text: "Which day?" } }` | Speaks a question: the reply expects an answer (`agent_reply.expects_reply`), and the question is repeated when the answer isn't understood. |
+| `say` | `say { text: ["Got it.", "Okay."] }` | Speaks one text; with several, a different one each time the step runs. Also `ssml`, `interruptible` and `ui`: see [Rich replies](#rich-replies). |
+| `ask` | `ask { say { text: "Which day?" } }` | Speaks a question: the reply expects an answer (`agent_reply.expects_reply`), and the question is repeated when the answer isn't understood. `choices` offer answers as buttons. |
 | `goto` | `goto { target: "confirm" }` | Moves to the target at once; the steps after it don't run. |
 | `end` | `end {}` | Ends the conversation once the reply has played. |
 
 Everything said in one turn is joined into one reply: a route's steps, then the `on_enter` steps of every page entered.
+
+## Rich replies
+
+A reply can carry more than its words:
+
+```textproto
+on_enter { say { text: "Welcome to Acme Garage." ui { fields { key: "card" value { string_value: "logo" } } } } }
+on_enter { say { text: "Calls are recorded." interruptible: false } }
+on_enter { ask { say { ssml: "<speak>Book a service <break time='300ms'/> or hear our hours?</speak>" }
+                 choices { label: "Book a service" value: "book" synonyms: ["make a booking"] }
+                 choices { label: "Opening hours" value: "hours" } } }
+```
+
+| Field | What it does |
+|---|---|
+| `interruptible: false` | The user can't talk over this part: it plays to its end. What they say meanwhile is kept and answered once the whole reply has played, like speech over a reply's last words. The parts before and after can still be interrupted. |
+| `ssml` | Spoken by a voice provider that reads SSML (`supportsSsml()`). Other voices speak `text`, or the SSML with its tags removed when there's no `text`. References (`$form.day`) work in it. No bundled provider reads SSML yet. |
+| `ui` | Any structure, given to the app with the reply (`agent_reply.ui_json`): a card, a map, a picture. |
+| `choices` (on `ask`) | Answers the app can show as buttons (`agent_reply.choices`, with `choice_values`). A button sends its value as the user's words (`injectUserText`). Saying a label, value or synonym as the whole answer counts as saying the value: "Opening hours" routes like "hours". A choice without a value sends its label. Asked again, the question offers them again. |
+
+**Was the reply heard?** When the user cuts a reply off, the flow is told. A read-back cut off before its end isn't confirmed by a plain "yes" in the next turn: it's read back again, so nobody confirms what they didn't hear. Any other answer (a new day, a "no") counts as usual.
+
+**Checked at load:** a `say` or `ask` with neither text nor SSML, a choice without a label, and the references in SSML.
 
 ## How a turn is answered
 
@@ -328,8 +351,8 @@ turns { user: "I have a flat" expect { page: "service" } }
 turns { user: "my windshield is cracked" expect { matched: false said_contains: "can't help with that" } }
 ```
 
-  Expectations: `page`, `flow`, `said` (the whole reply), `said_contains` (case-insensitive), `matched`, `expects_reply`, `ends_session`, `session { key: "service" value: "an oil change" }` (a param as a reply would say it), `form { key: "day" value: "tuesday" }` (a slot, or `complete`/`confirmed`/`failed`; `""` when empty), `entities { key: "service" value: "oil_change" }` (`$nlu.entities`), and `event` (`no-match`, `no-input`, `max-reprompts`). A turn with `no_input: true` is silence instead of words. A case can set session params and context before the first turn: `session { fields { key: "tier" value { string_value: "gold" } } }`, `context { … }`. The same runs from C++ with `va::flow::runFlowTest`, and the example's cases run in `ctest` (`vasdk_agent_garage_menu`).
-- **`chat`** talks to the agent by typing, showing the page (and any event) after each reply. An empty line is silence (no-input). `--session tier=gold` sets a session param first.
+  Expectations: `page`, `flow`, `said` (the whole reply), `choices` (the labels offered, in order), `said_contains` (case-insensitive), `matched`, `expects_reply`, `ends_session`, `session { key: "service" value: "an oil change" }` (a param as a reply would say it), `form { key: "day" value: "tuesday" }` (a slot, or `complete`/`confirmed`/`failed`; `""` when empty), `entities { key: "service" value: "oil_change" }` (`$nlu.entities`), and `event` (`no-match`, `no-input`, `max-reprompts`). A turn with `no_input: true` is silence instead of words. A case can set session params and context before the first turn: `session { fields { key: "tier" value { string_value: "gold" } } }`, `context { … }`. The same runs from C++ with `va::flow::runFlowTest`, and the example's cases run in `ctest` (`vasdk_agent_garage_menu`).
+- **`chat`** talks to the agent by typing, showing the page (and any event) after each reply, the choices offered, and the parts that can't be interrupted. An empty line is silence (no-input). `--session tier=gold` sets a session param first.
 - **`try`** shows what a sentence matches, without running the conversation:
 
 ```
@@ -346,7 +369,7 @@ $ vasdk_agentc try agents/garage-menu/agent.txtpb --entity @sys.phone "five five
 | Type | Use |
 |---|---|
 | `flow::CompiledAgent` | `load(path)` or `compile(proto)`: checked once, immutable, shared by every session that runs it. |
-| `flow::FlowRuntime` | One conversation's place in an agent: `start()`, `handleText(text)` and `handleNoInput()` → `Reply` (text, matched, intent, event, expects reply, ends session, page changes), `noInputMs()`, `setSessionParam`, `setEntityValues`, `setContextSource`. Copyable, way back included. |
+| `flow::FlowRuntime` | One conversation's place in an agent: `start()`, `handleText(text)` and `handleNoInput()` → `Reply` (text, its segments, choices, ui, matched, intent, event, expects reply, ends session, page changes), `replyInterrupted()`, `noInputMs()`, `setSessionParam`, `setEntityValues`, `setContextSource`. Copyable, way back included. |
 | `flow::Expression` | `parse(text)` once, then `evaluate(lookup)` or `test(lookup)`; `renderTemplate` for replies. |
 | `flow::DialogProcessor` | The pipeline stage `Session` adds for `Options::agent`, after the turn assembler. |
 | `flow::runFlowTest` | Plays a `FlowTestCase` and returns what differed. |
@@ -356,4 +379,4 @@ $ vasdk_agentc try agents/garage-menu/agent.txtpb --entity @sys.phone "five five
 
 ## Not yet
 
-These come in later milestones: arithmetic and dates in expressions (`days_until`, `now`), filters in replies (`|raw`), spoken dates and times in forms ("next Tuesday"), skipping a slot ("I don't know"), fuzzy and sound-alike matching of entity values, `@entity` inside intent examples, entities built from others ("a white Toyota from 2019"), values filled by tools, guards and before/after steps in envelopes, rich replies, and custom steps written in C++.
+These come in later milestones: arithmetic and dates in expressions (`days_until`, `now`), filters in replies (`|raw`), spoken dates and times in forms ("next Tuesday"), skipping a slot ("I don't know"), fuzzy and sound-alike matching of entity values, `@entity` inside intent examples, entities built from others ("a white Toyota from 2019"), values filled by tools, guards and before/after steps in envelopes, numbers like "the second one" for choices, a different voice or speed per part, and custom steps written in C++.

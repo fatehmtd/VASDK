@@ -1,7 +1,8 @@
 # proto-file: vasdk/flow/test_case.proto
 # proto-message: vasdk.flow.FlowTestCase
 name: "book a tire repair, then say goodbye"
-turns { expect { page: "welcome" said_contains: "Acme Garage" expects_reply: true } }
+turns { expect { page: "welcome" said_contains: "Acme Garage" expects_reply: true
+                 choices: ["Book a service", "Opening hours", "Talk to a person"] } }
 turns { user: "I'd like to bring my car in" expect { page: "booking" said: "Sure. Is it for an oil change or a tire repair?" } }
 turns { user: "I have a flat" expect { said: "Which day works for you?" form { key: "service" value: "tire_repair" } } }
 turns { user: "Tuesday" expect { said: "We have 9 AM, 11 AM and 2 PM free. Which time suits you?" form { key: "day" value: "tuesday" } } }
@@ -9,6 +10,6 @@ turns { user: "the afternoon" expect { said: "And what's the best number to reac
 turns { user: "five five five, one two three, four five six seven"
         expect { said: "So that's a tire repair on tuesday at 2 PM, for 89 dollars, and we'll call you at 555-123-4567. Shall I book it?" } }
 turns { user: "yes please"
-        expect { page: "booked" said: "You're booked for a tire repair, tuesday at 2 PM. Is there anything else I can help with?" } }
+        expect { page: "booked" said: "You're booked for a tire repair, tuesday at 2 PM. Cancelling less than a day ahead costs 20 dollars. Is there anything else I can help with?" } }
 turns { user: "no that's all thanks" expect { said_contains: "goodbye" ends_session: true expects_reply: false } }
 turns { user: "hours please" expect { page: "welcome" said_contains: "8 to 6" } }   # the next conversation starts over

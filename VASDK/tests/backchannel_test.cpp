@@ -2,7 +2,7 @@
 // a pending barge-in, then dismissed as a back-channel ("mm-hmm": the agent keeps talking, the LLM
 // never answers it) or committed as a real interruption (BARGE_IN_INTERRUPT, and a turn that ended
 // unseen is replayed to the LLM once the interrupt resolves). Speech over the end of a reply is the
-// user's turn. Also covers the classifier and PlaybackHoldEnvelope (duck / pause ramps).
+// user's turn, and so is speech over a part of the reply that can't be interrupted. Also covers the classifier and PlaybackHoldEnvelope (duck / pause ramps).
 
 #include <VASDK/AgentStateProcessor.h>
 #include <VASDK/PlaybackHoldEnvelope.h>
@@ -71,12 +71,14 @@ struct Rig {
     std::shared_ptr<pipeline::AgentStateProcessor> agentState = std::make_shared<pipeline::AgentStateProcessor>();
     std::shared_ptr<Recorder> recorder = std::make_shared<Recorder>();
     int playbackRemainingMs = -1;
+    int protectedMs = 0;   // a part that can't be interrupted is playing
     size_t mark = 0;
 
     explicit Rig(pipeline::BackchannelConfig backchannelConfig = {}) {
         agentState->setBackchannelConfig(backchannelConfig);
         agentState->setInterruptTimeoutMs(150);
         agentState->setPlaybackRemainingMsProvider([this] { return playbackRemainingMs; });
+        agentState->setProtectedPlaybackMsProvider([this] { return protectedMs; });
         agentState->setDownstream(recorder);
         recorder->initialize();
         recorder->start();
@@ -381,6 +383,54 @@ void disabledIsAHardBargeIn() {
     check(sameTransitions(rig.transitions(), {Transition::BARGE_IN_INTERRUPT}), scenario, "today's barge-in");
 }
 
+void protectedPartHoldsSpeech() {
+    const char* scenario = "R1 can't be interrupted";
+    Rig rig;
+    rig.protectedMs = 2000;
+    rig.userStarts();
+    rig.audio(1200);
+    rig.transcript("wait", false);
+    rig.userStops();
+    rig.transcript("Wait, actually Wednesday.", true);
+    check(sameTransitions(rig.transitions(), {}), scenario, "no barge-in: the part plays to its end");
+    rig.protectedMs = 0;
+    rig.replyEnds();
+    check(sameTransitions(rig.transitions(), {Transition::SYNTHESIS_COMPLETED, Transition::USER_STOPPED_SPEAKING}),
+          scenario, "answered after the reply");
+    const auto finals = rig.recorder->finals();
+    check(finals.size() == 1 && finals.back().text == "Wait, actually Wednesday.", scenario, "the final is the user's turn");
+}
+
+void protectedPartAfterPending() {
+    const char* scenario = "R2 pending when the part begins";
+    Rig rig;
+    rig.userStarts();
+    rig.audio(100);
+    rig.protectedMs = 2000;
+    rig.transcript("wait", false);
+    check(sameTransitions(rig.transitions(), {Transition::BARGE_IN_PENDING, Transition::BACKCHANNEL}), scenario,
+          "the commit is held and the duck released");
+    rig.protectedMs = 0;
+    rig.userStops();
+    rig.transcript("Wait.", true);
+    rig.replyEnds();
+    check(rig.recorder->finals().size() == 1, scenario, "answered after the reply");
+}
+
+void protectedPartWithHardBargeIn() {
+    const char* scenario = "R3 can't be interrupted, back-channel off";
+    pipeline::BackchannelConfig config;
+    config.enabled = false;
+    Rig rig(config);
+    rig.protectedMs = 2000;
+    rig.userStarts();
+    check(sameTransitions(rig.transitions(), {}), scenario, "no barge-in while the part plays");
+    rig.protectedMs = 0;
+    rig.userStops();
+    rig.userStarts();
+    check(sameTransitions(rig.transitions(), {Transition::BARGE_IN_INTERRUPT}), scenario, "after it, speech interrupts");
+}
+
 void envelopeRamps() {
     const char* scenario = "envelope";
     audio::PlaybackHoldEnvelope envelope;
@@ -442,6 +492,9 @@ int main() {
     twoBackchannels();
     silentOverlapDismissed();
     disabledIsAHardBargeIn();
+    protectedPartHoldsSpeech();
+    protectedPartAfterPending();
+    protectedPartWithHardBargeIn();
     envelopeRamps();
     std::printf("backchannel checks done, %d failure(s)\n", failures);
     return failures == 0 ? 0 : 1;

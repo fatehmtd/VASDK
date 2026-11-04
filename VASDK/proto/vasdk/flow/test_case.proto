@@ -40,4 +40,5 @@ message TurnExpectation {
   map<string, string> form = 9;        // form slot, or complete / confirmed / failed → its value ("" when empty)
   map<string, string> entities = 10;   // entity → the value found in this turn's words ($nlu.entities.<name>)
   string event = 11;                   // the event this turn raised: no-match, no-input or max-reprompts
+  repeated string choices = 12;        // the labels of the choices offered, in order
 }

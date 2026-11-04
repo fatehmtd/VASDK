@@ -72,6 +72,13 @@ public:
     int getRemainingReplyPlaybackMs();
 
     /**
+     * @brief Milliseconds left of a part the user can't interrupt (TextFrame::interruptible false)
+     *        that is playing now, or 0. Such a part is synthesized on its own, so its audio is known
+     *        to start and end. Feeds AgentStateProcessor::setProtectedPlaybackMsProvider.
+     */
+    int getProtectedPlaybackMs();
+
+    /**
      * @brief Optional callback fired when the audio drain completes (playback fully finished).
      *        Not called if synthesis was interrupted/cancelled.
      */
@@ -118,12 +125,21 @@ private:
 
     // Current reply turn. Guarded by _turnMutex.
     std::mutex              _turnMutex;
-    std::deque<std::string> _pendingSentences;  // not yet handed to the provider
+    struct Sentence {
+        std::string text;          // what the provider is given: plain text, or SSML when it supportsSsml()
+        bool interruptible = true;
+    };
+    std::deque<Sentence>    _pendingSentences;  // not yet handed to the provider
     bool                    _providerBusy{ false };
     bool                    _textClosed{ false };  // final TextFrame of the reply received
     bool                    _turnActive{ false };  // STARTED emitted, COMPLETED not yet
     bool                    _draining{ false };
     bool                    _sentInTurn{ false };  // a sentence of this turn went to the provider
+    // A part that can't be interrupted: sent, its synthesis not yet completed. Its audio plays
+    // from _protectedStart to _protectedEnd, which grows with each chunk received meanwhile.
+    bool                                  _protectedSending{ false };
+    std::chrono::steady_clock::time_point _protectedStart;
+    std::chrono::steady_clock::time_point _protectedEnd;
 
     std::function<void()>  _playbackFlush;
     std::function<void()>  _onAudioDrained;

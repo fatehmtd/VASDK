@@ -19,9 +19,25 @@ struct PageChange {
     std::string reason;               // "start", "restart", "route:<intent>", "goto", "return" (END_FLOW)
 };
 
+/** A part of a reply that is spoken differently from the parts around it. */
+struct ReplySegment {
+    std::string text;
+    std::string ssml;              // for a voice that reads SSML; empty: speak text
+    bool interruptible = true;     // false: the user can't talk over it
+};
+
+/** An answer offered with a question, for the app to show as a button. */
+struct ReplyChoice {
+    std::string label;
+    std::string value;             // what the button sends back as the user's words
+};
+
 /** What one turn produced. */
 struct Reply {
     std::string text;              // what to say; empty when nothing is said
+    std::vector<ReplySegment> segments;   // text in parts, joined with spaces; one part when all are alike
+    std::vector<ReplyChoice> choices;     // the question's choices
+    google::protobuf::Struct ui;          // what the reply's `ui` gave the app
     bool matched = true;           // false: no route understood the turn; text is the not-understood reply
     std::string intent;            // the matched route's intent
     std::string event;             // no-match, no-input or max-reprompts, when the turn raised one
@@ -63,6 +79,11 @@ public:
     Reply handleNoInput();
     /** How long to wait for an answer before handleNoInput(), from the page's settings; 0: never. */
     int noInputMs() const;
+    /**
+     * The user cut the last reply off before its end. A read-back cut off isn't confirmed by a
+     * plain "yes" in the next turn: it's read back again. Any other answer counts as usual.
+     */
+    void replyInterrupted() { _replyCut = true; }
 
     bool started() const { return _position.valid(); }
     bool ended() const { return _ended; }
@@ -139,6 +160,10 @@ private:
     void returnFromFlow(Reply& reply);
     void follow(Outcome outcome, Reply& reply);
     std::string say(const vasdk::flow::Say& say, Reply& reply);
+    void offerChoices(Reply& reply) const;
+    std::string chosenValue(const std::string& text) const;
+    std::string render(const std::string& text) const;
+    std::string pick(const Texts& texts, const void* key);   // the next of the texts, rendered
     std::string sayOne(const Texts& texts, const void* key, Reply& reply);
     std::string ask(const Texts& texts, const void* key, const std::string& fallback, Reply& reply);
     bool formActive() const;
@@ -168,12 +193,15 @@ private:
     struct Frame {
         CompiledAgent::PageRef page;
         std::string lastQuestion;
+        const vasdk::flow::Ask* lastAsk;
         std::optional<Form> form;
         google::protobuf::Struct pageLocals;
     };
     std::vector<Frame> _stack;
     int _misses = 0;                        // no-match and no-input in a row on this page
     std::string _lastQuestion;                              // repeated when an answer isn't understood
+    const vasdk::flow::Ask* _lastAsk = nullptr;             // the ask step behind it: its choices
+    bool _replyCut = false;                                 // the last reply was cut off (replyInterrupted)
     std::map<const void*, size_t> _sayCounts;               // which of a Say's (or prompt's) texts comes next
 };
 

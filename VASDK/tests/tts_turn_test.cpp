@@ -2,7 +2,8 @@
 // SynthesisState STARTED and one COMPLETED (after its audio played), for a provider that queues
 // calls and for one that must get them one at a time; a barge-in drops the stale reply, even
 // when the provider confirms the cancel synchronously. A Pause hold during a pending barge-in
-// delays COMPLETED by the paused time, and every hold is released.
+// delays COMPLETED by the paused time, and every hold is released. A part that can't be
+// interrupted is synthesized on its own and reported only while its audio plays.
 
 #include <VASDK/TTSFrameProcessor.h>
 
@@ -206,6 +207,28 @@ void bargeIn(bool syncCancel) {
     check(rig.provider->received == std::vector<std::string>{"Alpha. ", "Gamma."}, "stale sentence dropped", mode);
 }
 
+void protectedPart(bool queued) {
+    const char* mode = queued ? "can't be interrupted, queued" : "can't be interrupted, sequential";
+    Rig rig(queued, false);
+    const auto t0 = std::chrono::steady_clock::now();
+    rig.send(text("Intro.", false));
+    auto disclaimer = text("Disclaimer.", false);
+    disclaimer->interruptible = false;
+    rig.send(disclaimer);
+    rig.send(text("Question?", true));
+    // Each sentence is 100 ms of audio, played back to back: the disclaimer at 100-200 ms, heard 20 ms later.
+    std::this_thread::sleep_until(t0 + 60ms);
+    check(rig.tts->getProtectedPlaybackMs() == 0, "not during the part before", mode);
+    std::this_thread::sleep_until(t0 + 170ms);
+    check(rig.tts->getProtectedPlaybackMs() > 0, "while it plays", mode);
+    std::this_thread::sleep_until(t0 + 300ms);
+    check(rig.tts->getProtectedPlaybackMs() == 0, "not during the part after", mode);
+    std::this_thread::sleep_for(300ms);
+    check(rig.provider->received == std::vector<std::string>{"Intro.", "Disclaimer.", "Question?"}, "all parts in order", mode);
+    check(rig.recorder->snapshot() == std::vector<SynthesisState>{SynthesisState::STARTED, SynthesisState::COMPLETED},
+          "still one turn", mode);
+}
+
 void pausedReply() {
     const char* mode = "pause hold";
     Rig rig(true, false);
@@ -294,6 +317,8 @@ int main() {
     bargeIn(true);
     pausedReply();
     duckLastsMinimumDuration();
+    protectedPart(true);
+    protectedPart(false);
     std::printf("tts turn scenarios done, %d failure(s)\n", failures);
     return failures == 0 ? 0 : 1;
 }

@@ -7,7 +7,9 @@
 
 #include <algorithm>
 
+#include <cctype>
 #include <cstdlib>
+#include <utility>
 
 namespace va {
 namespace flow {
@@ -32,10 +34,35 @@ std::string spokenName(const std::string& name) {
     return spoken;
 }
 
-void append(std::string& text, const std::string& more) {
+// Adds to the reply: to its last part when spoken alike, else as a part of its own.
+void append(Reply& reply, const std::string& more, bool interruptible = true, const std::string& ssml = {}) {
     if (more.empty()) return;
-    if (!text.empty()) text += " ";
-    text += more;
+    if (!reply.text.empty()) reply.text += " ";
+    reply.text += more;
+    auto& segments = reply.segments;
+    if (!segments.empty() && ssml.empty() && segments.back().ssml.empty() && segments.back().interruptible == interruptible) {
+        segments.back().text += " " + more;
+        return;
+    }
+    segments.push_back({more, ssml, interruptible});
+}
+
+// "<speak>Hi <break time='1s'/>there</speak>" → "Hi there": what a voice without SSML says.
+std::string withoutTags(const std::string& ssml) {
+    std::string text;
+    bool inTag = false, space = false;
+    for (const char c : ssml) {
+        if (c == '<') inTag = true;
+        else if (c == '>') inTag = false, space = true;
+        else if (inTag) continue;
+        else if (std::isspace(static_cast<unsigned char>(c))) space = true;
+        else {
+            if (space && !text.empty()) text += ' ';
+            space = false;
+            text += c;
+        }
+    }
+    return text;
 }
 } // namespace
 
@@ -177,6 +204,7 @@ Reply FlowRuntime::start() {
     Reply reply;
     _ended = false;
     _inputText.clear();
+    _replyCut = false;
     _stack.clear();
     moveTo(_agent->startPage(), "start", reply);
     return reply;
@@ -189,6 +217,7 @@ Reply FlowRuntime::handleText(const std::string& text) {
         _position = _agent->startPage();
         _ended = false;
         _lastQuestion.clear();
+        _lastAsk = nullptr;
         _stack.clear();
         _misses = 0;
         _form.reset();
@@ -199,10 +228,12 @@ Reply FlowRuntime::handleText(const std::string& text) {
         }
     }
 
-    _inputText = text;
+    _inputText = chosenValue(text);
     _intent.clear();
     _entity.reset();
-    if (formActive() && fillForm(text)) {   // an answer for the form
+    const bool answeredForm = formActive() && fillForm(_inputText);
+    _replyCut = false;
+    if (answeredForm) {   // an answer for the form
         _misses = 0;
         follow(advanceForm(reply), reply);
         return reply;
@@ -229,6 +260,7 @@ Reply FlowRuntime::handleText(const std::string& text) {
 
 Reply FlowRuntime::handleNoInput() {
     Reply reply;
+    _replyCut = false;
     if (!started() || _ended) return reply;
     _inputText.clear();
     _intent.clear();
@@ -265,7 +297,7 @@ FlowRuntime::Outcome FlowRuntime::miss(const std::string& event, Reply& reply) {
     reply.event = handler ? kEventMaxReprompts : event;
     if (!handler) handler = findHandler(event);
     if (handler) return runHandler(*handler, reply);
-    if (event == kEventNoMatch) append(reply.text, kNotUnderstood);
+    if (event == kEventNoMatch) append(reply, kNotUnderstood);
     askAgain(reply);
     return {};
 }
@@ -283,8 +315,29 @@ void FlowRuntime::askAgain(Reply& reply) {
         advanceForm(reply);
         return;
     }
-    append(reply.text, _lastQuestion);
+    append(reply, _lastQuestion);
     reply.expectsReply = !_lastQuestion.empty();
+    offerChoices(reply);
+}
+
+void FlowRuntime::offerChoices(Reply& reply) const {
+    if (!_lastAsk) return;
+    reply.choices.clear();
+    for (const auto& choice : _lastAsk->choices())
+        reply.choices.push_back({choice.label(), choice.value().empty() ? choice.label() : choice.value()});
+}
+
+// The value of the choice whose label, value or synonym is the whole answer; else the answer.
+std::string FlowRuntime::chosenValue(const std::string& text) const {
+    if (!_lastAsk || _lastAsk->choices().empty()) return text;
+    const auto words = splitWords(text);
+    auto said = [&words](const std::string& name) { return !name.empty() && splitWords(name) == words; };
+    for (const auto& choice : _lastAsk->choices()) {
+        const std::string value = choice.value().empty() ? choice.label() : choice.value();
+        if (said(choice.label()) || said(value) || std::any_of(choice.synonyms().begin(), choice.synonyms().end(), said))
+            return value;
+    }
+    return text;
 }
 
 const vasdk::flow::Route* FlowRuntime::matchRoute() {
@@ -364,7 +417,7 @@ void FlowRuntime::pushFrame() {
         spdlog::error("[FlowRuntime] {} flows deep: \"{}\" won't be returned to", kMaxFlowDepth, pageName());
         return;
     }
-    _stack.push_back({_position, _lastQuestion, _form, _pageLocals});
+    _stack.push_back({_position, _lastQuestion, _lastAsk, _form, _pageLocals});
 }
 
 // END_FLOW: back to the page that entered this flow, as it was, and its question again. In the
@@ -379,6 +432,7 @@ void FlowRuntime::returnFromFlow(Reply& reply) {
     reply.pageChanges.push_back(changeTo(frame.page, "return"));
     _position = frame.page;
     _lastQuestion = std::move(frame.lastQuestion);
+    _lastAsk = frame.lastAsk;
     _form = std::move(frame.form);
     _pageLocals = std::move(frame.pageLocals);
     _misses = 0;
@@ -394,7 +448,9 @@ FlowRuntime::Outcome FlowRuntime::run(const google::protobuf::RepeatedPtrField<v
             break;
         case vasdk::flow::Step::kAsk:
             _lastQuestion = say(step.ask().say(), reply);
+            _lastAsk = &step.ask();
             reply.expectsReply = true;
+            offerChoices(reply);
             break;
         case vasdk::flow::Step::kSet:
             store(step.set().key(), evaluate(step.set().value()));
@@ -444,22 +500,35 @@ FlowRuntime::Outcome FlowRuntime::run(const google::protobuf::RepeatedPtrField<v
 }
 
 std::string FlowRuntime::say(const vasdk::flow::Say& say, Reply& reply) {
-    return sayOne(say.text(), &say, reply);
+    std::string text = pick(say.text(), &say);
+    const std::string ssml = say.ssml().empty() ? std::string() : render(say.ssml());
+    if (text.empty()) text = withoutTags(ssml);
+    append(reply, text, !say.has_interruptible() || say.interruptible(), ssml);
+    if (say.has_ui()) reply.ui.MergeFrom(say.ui());
+    return text;
+}
+
+std::string FlowRuntime::render(const std::string& text) const {
+    return renderTemplate(text, [this](const Path& path) { return resolve(path, true); });
+}
+
+std::string FlowRuntime::pick(const Texts& texts, const void* key) {
+    if (texts.empty()) return {};
+    auto& count = _sayCounts[key];
+    return render(texts.Get(static_cast<int>(count++ % texts.size())));
 }
 
 std::string FlowRuntime::sayOne(const Texts& texts, const void* key, Reply& reply) {
-    if (texts.empty()) return {};
-    auto& count = _sayCounts[key];
-    const std::string text = renderTemplate(texts.Get(static_cast<int>(count++ % texts.size())),
-                                            [this](const Path& path) { return resolve(path, true); });
-    append(reply.text, text);
+    const std::string text = pick(texts, key);
+    append(reply, text);
     return text;
 }
 
 std::string FlowRuntime::ask(const Texts& texts, const void* key, const std::string& fallback, Reply& reply) {
     std::string question = texts.empty() ? fallback : sayOne(texts, key, reply);
-    if (texts.empty()) append(reply.text, fallback);
+    if (texts.empty()) append(reply, fallback);
     _lastQuestion = question;
+    _lastAsk = nullptr;
     reply.expectsReply = true;
     return question;
 }
@@ -498,8 +567,12 @@ bool FlowRuntime::fillForm(const std::string& text) {
         if (!answer) return false;
         form.awaitingConfirmation = false;
         // "No, make it Tuesday": a value in the same answer changes it straight away.
-        if (*answer) form.state->setConfirmed(true);
-        else if (!fillNamedValues(text, true)) form.awaitingChange = true;
+        if (*answer) {
+            // Cut off before its end, the read-back wasn't all heard: it's read again.
+            if (!_replyCut) form.state->setConfirmed(true);
+        } else if (!fillNamedValues(text, true)) {
+            form.awaitingChange = true;
+        }
         used = true;
     } else if (form.awaitingChange) {
         used = fillNamedValues(text, true);
@@ -572,7 +645,7 @@ FlowRuntime::Outcome FlowRuntime::repromptForm(Reply& reply) {
     }
     const auto& goal = *form.goal;
     if (form.awaitingConfirmation) {
-        append(reply.text, kSayYesOrNo);
+        append(reply, kSayYesOrNo);
         ask(goal.confirm(), &goal.confirm(), "", reply);
     } else if (form.awaitingChange) {
         ask(goal.change(), &goal.change(), kWhatToChange, reply);
@@ -583,7 +656,7 @@ FlowRuntime::Outcome FlowRuntime::repromptForm(Reply& reply) {
         if (!slot->reprompt().empty()) {
             ask(slot->reprompt(), &slot->reprompt(), "", reply);
         } else {
-            append(reply.text, kDidNotGetThat);
+            append(reply, kDidNotGetThat);
             ask(slot->prompt(), &slot->prompt(), "What's the " + spokenName(slot->name()) + "?", reply);
         }
     }
@@ -618,6 +691,7 @@ void FlowRuntime::moveTo(CompiledAgent::PageRef target, std::string reason, Repl
         const bool samePage = _position == *next;
         _position = *next;
         _lastQuestion.clear();
+        _lastAsk = nullptr;
         _pageLocals.Clear();
         _misses = 0;
         const auto* goal = _agent->goal(_agent->page(_position).form().goal());
