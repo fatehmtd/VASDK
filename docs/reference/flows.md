@@ -662,4 +662,4 @@ $ vasdk_agentc try agents/garage-menu/agent.txtpb --entity @sys.phone "five five
 
 ## Not yet
 
-These come in later milestones: arithmetic and dates in expressions (`days_until`, `now`), filters in replies (`|raw`), guards and before/after steps in envelopes, a different voice or speed per part, and steps, page types and envelopes written in C, Kotlin or Python.
+These come in later milestones: arithmetic and dates in expressions (`days_until`, `now`), filters in replies (`|raw`), guards and before/after steps in envelopes, a different voice or speed per part, and page types written outside C++. Steps, tools and envelopes can be written in C (and so in any language that calls C) with [the C API](c-api.md).

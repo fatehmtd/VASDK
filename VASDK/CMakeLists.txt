@@ -206,6 +206,7 @@ if(VASDK_ENABLE_ENGINE_CONFIG)
         ./src/nlu/English.cpp
         ./src/nlu/EmbeddingNluProvider.cpp
         ./src/nlu/LlmNluProvider.cpp
+        ./src/c/vasdk_c.cpp
         ./proto/vasdk/engine/engine_config.proto
         ./proto/vasdk/engine/events.proto
         ./proto/vasdk/nlu/entity.proto
@@ -223,6 +224,7 @@ if(VASDK_ENABLE_ENGINE_CONFIG)
     target_include_directories(VASDK PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/proto>)
     target_link_libraries(VASDK PUBLIC protobuf::libprotobuf)
     target_compile_definitions(VASDK PUBLIC VASDK_HAS_ENGINE_CONFIG)
+    target_compile_definitions(VASDK PRIVATE VASDK_C_VERSION="${CMAKE_PROJECT_VERSION}")
     # Checks, tests and chats with agent files: vasdk_agentc lint|test|chat agent.txtpb
     if(NOT ANDROID)   # a desktop tool
     add_executable(vasdk_agentc ./tools/vasdk_agentc/main.cpp)
@@ -383,6 +385,10 @@ if(VASDK_BUILD_TESTS)
         add_executable(vasdk_trigger_arbiter_test tests/trigger_arbiter_test.cpp)
         target_link_libraries(vasdk_trigger_arbiter_test PRIVATE VASDK)
         add_test(NAME vasdk_trigger_arbiter COMMAND vasdk_trigger_arbiter_test)
+        enable_language(C)
+        add_executable(vasdk_c_test tests/vasdk_c_test.c)   # the C API, from C
+        target_link_libraries(vasdk_c_test PRIVATE VASDK)
+        add_test(NAME vasdk_c COMMAND vasdk_c_test WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
         add_executable(vasdk_network_fallback_test tests/network_fallback_test.cpp)
         target_link_libraries(vasdk_network_fallback_test PRIVATE VASDK)
         add_test(NAME vasdk_network_fallback COMMAND vasdk_network_fallback_test)

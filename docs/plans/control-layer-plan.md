@@ -22,7 +22,9 @@
 > | 25 LLM assist | ✅ committed. LLM as the last NLU stage, LLM reading of form answers (kept only through the slot's entity), `llm` step, `generative` page type, restricted moves, sensitive answers kept from it; `vasdk_agentc --llm`. The completion client is OpenAI-compatible only (no Anthropic, no local llama.cpp in-process); requests block the conversation's thread (8 s cap) |
 > | 26 Network fallback | ✅ committed. `Session::setNetworkAvailable`, STT/TTS swapped to `fallback` providers between turns (loaded on first need, kept with the set), the agent's LLM gated (plus a 30 s rest after a failed request), `provider_switched` events, `fallback_options`; Android watches ConnectivityManager. Not done: a reply cut off by the failure isn't re-spoken; an LLM-only session (no agent) has nothing local to answer with; not run on a device |
 > | 27 Call center on agent files | ✅ committed. `agents/callcenter/` (routing page, schedule and account forms, handoff), CRM tools in C++, agent per DNIS (`--dnis`), suite offline and with a scripted LLM in ctest; a command for a real LLM. Not carried over: resume on redial (goal-state persistence), the OBJECT vehicle slot (now free text), call metrics. A free-text slot now lets a global command ("talk to a person") through |
-> | 28–32 | not started |
+> | 28 Wake word | ⏸ waiting on gate G4 (model licence): openWakeWord's code is Apache-2.0, its pretrained models are non-commercial, and a "hey garage" model needs training or a commercial engine |
+> | 29 C API | ✅ committed. `VASDK/c/vasdk.h`: registry (steps, tools, envelopes in C), agents (load/parse), text conversations with JSON replies, `StepOutcome`, test files; `vasdk_c_test.c` in ctest. Not in it: audio sessions and their events (they need the provider catalog, outside core); page types in C |
+> | 30–32 | not started |
 
 
 *Uses Google Dialogflow CX as the reference model. Definitions are proto-schema'd and written in text proto.*
