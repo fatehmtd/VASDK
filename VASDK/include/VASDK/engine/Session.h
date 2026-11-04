@@ -17,7 +17,7 @@ namespace va {
 class AudioRingBuffer;
 namespace context { class ContextProvider; }
 namespace flow { class CompiledAgent; }
-namespace llm { class LLMTransport; class Tool; class ToolDispatchProcessor; }
+namespace llm { class Completion; class LLMTransport; class Tool; class ToolDispatchProcessor; }
 namespace metrics { class MetricsReporter; }
 namespace pipeline { class FrameProcessor; class Pipeline; }
 namespace transport { class AudioTransport; }
@@ -63,6 +63,9 @@ public:
         /** Use this LLM transport (a local model, say) instead of the config's `llm` endpoint.
          *  It holds the conversation history, so give each session its own. */
         std::shared_ptr<llm::LLMTransport> llmTransport;
+        /** What the agent asks an LLM: intents its rules aren't sure of, `llm` steps, generative
+         *  pages. Unset: built from the config's `llm` endpoint, when there is one. */
+        std::shared_ptr<const llm::Completion> llmCompletion;
         /** Answer turns from this agent's pages (CompiledAgent::load), before any LLM. Sessions
          *  may share one agent; each keeps its own place in it. */
         std::shared_ptr<const flow::CompiledAgent> agent;

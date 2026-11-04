@@ -22,10 +22,12 @@ std::string quoted(const std::string& text) { return "\"" + text + "\""; }
 const char* yesNo(bool value) { return value ? "true" : "false"; }
 } // namespace
 
-FlowTestResult runFlowTest(std::shared_ptr<const CompiledAgent> agent, const vasdk::flow::FlowTestCase& testCase) {
+FlowTestResult runFlowTest(std::shared_ptr<const CompiledAgent> agent, const vasdk::flow::FlowTestCase& testCase,
+                           const FlowTestSetup& setup) {
     FlowTestResult result;
     result.name = testCase.name();
     FlowRuntime conversation(agent);
+    if (setup) setup(conversation);
     for (const auto& [name, value] : testCase.session().fields()) {
         std::string error;
         if (!conversation.setSessionParam(name, value, &error)) result.failures.push_back("session: " + error);
@@ -152,7 +154,7 @@ FlowTestResult runFlowTest(std::shared_ptr<const CompiledAgent> agent, const vas
     return result;
 }
 
-FlowTestResult runFlowTestFile(std::shared_ptr<const CompiledAgent> agent, const std::string& path) {
+FlowTestResult runFlowTestFile(std::shared_ptr<const CompiledAgent> agent, const std::string& path, const FlowTestSetup& setup) {
     vasdk::flow::FlowTestCase testCase;
     std::string error;
     if (!engine::loadProtoFile(path, testCase, &error)) {
@@ -161,7 +163,7 @@ FlowTestResult runFlowTestFile(std::shared_ptr<const CompiledAgent> agent, const
         result.failures.push_back(error);
         return result;
     }
-    auto result = runFlowTest(std::move(agent), testCase);
+    auto result = runFlowTest(std::move(agent), testCase, setup);
     if (result.name.empty()) result.name = path;
     return result;
 }

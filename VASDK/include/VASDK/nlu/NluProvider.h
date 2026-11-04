@@ -23,6 +23,9 @@ struct NluRequest {
     std::vector<std::string> candidates;   // the intents that may be meant; empty: any
     // Whether the words name a value of an entity ("service", "sys.date"), for @entity in examples.
     std::function<bool(const std::string& entity)> mentions;
+    // The words may hold a sensitive value (the answer to a sensitive slot): stages that send
+    // them off the device (an LLM) don't look at them.
+    bool sensitive = false;
 };
 
 /** What the words mean: candidate intents, best first. */

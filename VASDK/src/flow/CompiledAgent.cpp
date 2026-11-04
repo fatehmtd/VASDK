@@ -653,6 +653,11 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::build(vasdk::flow::Agent age
                 for (const auto& text : call.filler()) checkTemplate(text, stepWhere + " filler");
                 break;
             }
+            case vasdk::flow::Step::kLlm:
+                if (step.llm().instructions().empty()) check.error(stepWhere, "llm has no instructions");
+                for (const auto& target : step.llm().allowed_targets()) checkTarget(target, stepWhere + " llm allowed_targets");
+                checkSteps(step.llm().offline(), stepWhere + " offline");
+                break;
             case vasdk::flow::Step::kCustom:
                 if (readParams(step.custom(), stepWhere) && !extensions.step(typeName(step.custom())))
                     check.error(stepWhere, "no step is registered for " + quoted(typeName(step.custom())) +

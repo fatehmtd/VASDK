@@ -44,6 +44,7 @@ add_library(VASDK ${VASDK_LIBRARY_TYPE}
     # LLM infrastructure (va::llm namespace)
     ./src/llm/LLMTransport.cpp
     ./src/llm/OpenAITransport.cpp
+    ./src/llm/Completion.cpp
     ./src/llm/AnthropicTransport.cpp
     ./src/llm/StreamingReplyExtractor.cpp
     ./src/llm/PromptTemplate.cpp
@@ -204,6 +205,7 @@ if(VASDK_ENABLE_ENGINE_CONFIG)
         ./src/nlu/RuleNluProvider.cpp
         ./src/nlu/English.cpp
         ./src/nlu/EmbeddingNluProvider.cpp
+        ./src/nlu/LlmNluProvider.cpp
         ./proto/vasdk/engine/engine_config.proto
         ./proto/vasdk/engine/events.proto
         ./proto/vasdk/nlu/entity.proto
@@ -381,6 +383,9 @@ if(VASDK_BUILD_TESTS)
         add_executable(vasdk_trigger_arbiter_test tests/trigger_arbiter_test.cpp)
         target_link_libraries(vasdk_trigger_arbiter_test PRIVATE VASDK)
         add_test(NAME vasdk_trigger_arbiter COMMAND vasdk_trigger_arbiter_test)
+        add_executable(vasdk_llm_assist_test tests/llm_assist_test.cpp)
+        target_link_libraries(vasdk_llm_assist_test PRIVATE VASDK)
+        add_test(NAME vasdk_llm_assist COMMAND vasdk_llm_assist_test WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/..)
         add_executable(vasdk_rule_nlu_test tests/rule_nlu_test.cpp)
         target_link_libraries(vasdk_rule_nlu_test PRIVATE VASDK)
         add_test(NAME vasdk_rule_nlu COMMAND vasdk_rule_nlu_test)

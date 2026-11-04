@@ -1,4 +1,4 @@
-// The params of the built-in page types: menu, yes_no and end.
+// The params of the built-in page types: menu, yes_no, end and generative.
 //   pages { name: "main" type: "menu" params { [type.googleapis.com/vasdk.flow.MenuParams] {
 //     prompt: "Book, or hear our hours?"
 //     options { label: "Book" target: "booking" }
@@ -32,4 +32,12 @@ message YesNoParams {
 // Says the text and ends the conversation.
 message EndParams {
   string text = 1;
+}
+
+// What the page's routes, form and knowledge don't answer, an LLM does, as an `llm` step with
+// these instructions. Without an LLM such turns are no-match, as on any page: its handler is
+// the page's offline answer.
+message GenerativeParams {
+  string instructions = 1;
+  repeated string allowed_targets = 2;   // as Route.target
 }

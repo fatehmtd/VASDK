@@ -124,6 +124,17 @@ FlowRegistry::FlowRegistry() {
             turn.goTo(kTargetEndSession);
         },
         nullptr);
+    // generative: FlowRuntime asks the LLM on turns nothing else answers; here only its params and targets.
+    PageType generative;
+    generative.paramsType = vasdk::flow::GenerativeParams::descriptor()->full_name();
+    generative.targets = [](const Message& params) {
+        std::vector<std::string> targets;
+        withParams<vasdk::flow::GenerativeParams>(params, [&](const vasdk::flow::GenerativeParams& page) {
+            targets.assign(page.allowed_targets().begin(), page.allowed_targets().end());
+        });
+        return targets;
+    };
+    addPageType("generative", std::move(generative));
 }
 
 std::shared_ptr<const FlowRegistry> FlowRegistry::defaults() {

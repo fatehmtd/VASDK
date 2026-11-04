@@ -1,5 +1,7 @@
 #include "flow/AgentTool.h"
 #include "engine/ProtoFileLoader.h"
+#include "llm/Completion.h"
+#include "nlu/LlmNluProvider.h"
 #include "nlu/RuleNluProvider.h"
 
 #include <google/protobuf/util/json_util.h>
@@ -33,7 +35,11 @@ int usage(const std::string& program) {
                  "       %s chat <agent> [--session name=value]...\n"
                  "         (an empty line is silence, #2 taps the second choice, !<trigger> {json} fires a trigger)\n"
                  "       %s try <agent> [--entity @name] <words>\n"
-                 "       %s eval <agent> <set.txtpb> [--min-accuracy 0.8]   (intent accuracy, entity F1)\n",
+                 "       %s eval <agent> <set.txtpb> [--min-accuracy 0.8]   (intent accuracy, entity F1)\n"
+                 "  with an LLM after the rules (test, chat, try, eval):\n"
+                 "    --llm                   the endpoint, model and key from LLM_ENDPOINT, LLM_MODEL, LLM_API_KEY\n"
+                 "                            (or OPENROUTER_API_KEY, OPENAI_API_KEY)\n"
+                 "    --llm-endpoint <url>    an OpenAI-compatible chat completions URL; --llm-model, --llm-api-key\n",
                  name, name, name, name, name);
     return 2;
 }
@@ -56,6 +62,48 @@ std::shared_ptr<const va::flow::CompiledAgent> load(const std::string& path, boo
     return agent;
 }
 
+std::string environment(const char* name) {
+    const char* value = std::getenv(name);
+    return value ? value : "";
+}
+
+// Takes the --llm flags out of the arguments: an LLM to ask when given, else null.
+std::shared_ptr<const llm::Completion> takeLlmFlags(std::vector<std::string>& arguments, std::string* error) {
+    bool wanted = false;
+    llm::LLMConfig config;
+    for (size_t i = 0; i < arguments.size();) {
+        const auto& flag = arguments[i];
+        const bool valued = flag == "--llm-endpoint" || flag == "--llm-model" || flag == "--llm-api-key";
+        if (flag != "--llm" && !valued) {
+            ++i;
+            continue;
+        }
+        if (valued && i + 1 >= arguments.size()) {
+            *error = flag + " needs a value";
+            return nullptr;
+        }
+        wanted = true;
+        if (flag == "--llm-endpoint") config.endpoint = arguments[i + 1];
+        if (flag == "--llm-model") config.model = arguments[i + 1];
+        if (flag == "--llm-api-key") config.apiKey = arguments[i + 1];
+        arguments.erase(arguments.begin() + static_cast<long>(i), arguments.begin() + static_cast<long>(i + (valued ? 2 : 1)));
+    }
+    if (!wanted) return nullptr;
+    if (config.endpoint.empty()) config.endpoint = environment("LLM_ENDPOINT");
+    if (config.model.empty()) config.model = environment("LLM_MODEL");
+    for (const char* key : {"LLM_API_KEY", "OPENROUTER_API_KEY", "OPENAI_API_KEY"})
+        if (config.apiKey.empty()) config.apiKey = environment(key);
+    if (config.endpoint.empty()) {
+        *error = "--llm: no endpoint (set LLM_ENDPOINT or pass --llm-endpoint)";
+        return nullptr;
+    }
+    config.temperature = 0.0f;
+    config.maxTokens = 400;
+    config.timeoutMs = 20000;
+    std::fprintf(stderr, "LLM: %s (%s)\n", config.endpoint.c_str(), config.model.empty() ? "default model" : config.model.c_str());
+    return std::make_shared<llm::OpenAICompletion>(config);
+}
+
 std::string describe(const va::flow::EntityMatch& match) {
     std::string text = "@" + match.entity + " = " + va::flow::toText(match.value);
     if (match.spoken != va::flow::toText(match.value)) text += "  spoken \"" + match.spoken + "\"";
@@ -69,6 +117,9 @@ void print(const va::flow::Reply& reply, const va::flow::FlowRuntime& conversati
                 conversation.flowName().c_str(), conversation.pageName().c_str(),
                 reply.event.empty() ? "" : ("  (" + reply.event + ")").c_str(),
                 reply.endsSession ? "  (conversation ended)" : "");
+    const auto stage = conversation.lookup({"nlu", "stage"});
+    if (stage.has_string_value() && stage.string_value() != "rules" && !reply.intent.empty())
+        std::printf("     understood by: %s (%s)\n", stage.string_value().c_str(), reply.intent.c_str());
     for (const auto& segment : reply.segments)
         if (!segment.interruptible) std::printf("     can't be interrupted: \"%s\"\n", segment.text.c_str());
     if (!reply.choices.empty()) {
@@ -92,10 +143,35 @@ int runAgentTool(int argc, char** argv, std::shared_ptr<const FlowRegistry> regi
     const std::string program = argc > 0 ? std::filesystem::path(argv[0]).filename().string() : "vasdk_agentc";
     auto usage = [&program] { return flow::usage(program); };
     auto load = [&registry](const std::string& path, bool showWarnings) { return flow::load(path, showWarnings, registry); };
-    if (argc < 3) return usage();
     spdlog::set_level(spdlog::level::warn);
+    std::vector<std::string> arguments(argv, argv + argc);
+    std::string flagError;
+    const auto completion = takeLlmFlags(arguments, &flagError);
+    if (!flagError.empty()) {
+        std::fprintf(stderr, "%s\n", flagError.c_str());
+        return 2;
+    }
+    std::vector<char*> remaining;
+    for (auto& argument : arguments) remaining.push_back(argument.data());
+    argc = static_cast<int>(remaining.size());
+    argv = remaining.data();
+    if (argc < 3) return usage();
     const std::string command = argv[1];
     const std::string agentPath = argv[2];
+    // Understanding: the agent's rules, then the LLM when one is given.
+    auto understander = [&completion](const std::shared_ptr<const CompiledAgent>& agent) -> std::shared_ptr<const nlu::NluProvider> {
+        if (!completion) return agent->rules();
+        return std::make_shared<nlu::CascadeNluProvider>(std::vector<std::shared_ptr<const nlu::NluProvider>>{
+            agent->rules(), std::make_shared<nlu::LlmNluProvider>(completion, agent->definition().intents())});
+    };
+    auto assist = [&](const std::shared_ptr<const CompiledAgent>& agent) -> FlowTestSetup {
+        if (!completion) return nullptr;
+        auto nlu = understander(agent);
+        return [nlu, completion](FlowRuntime& conversation) {
+            conversation.setNlu(nlu);
+            conversation.setLlm(completion);
+        };
+    };
 
     if (command == "lint") {
         auto agent = load(agentPath, true);
@@ -112,8 +188,9 @@ int runAgentTool(int argc, char** argv, std::shared_ptr<const FlowRegistry> regi
         auto agent = load(agentPath, false);
         if (!agent) return 1;
         int failed = 0;
+        const auto setup = assist(agent);
         for (int i = 3; i < argc; ++i) {
-            const auto result = va::flow::runFlowTestFile(agent, argv[i]);
+            const auto result = va::flow::runFlowTestFile(agent, argv[i], setup);
             std::printf("%s %s\n", result.passed() ? "PASS" : "FAIL", result.name.c_str());
             for (const auto& failure : result.failures) std::printf("    %s\n", failure.c_str());
             if (!result.passed()) ++failed;
@@ -136,11 +213,12 @@ int runAgentTool(int argc, char** argv, std::shared_ptr<const FlowRegistry> regi
         int right = 0;
         std::map<std::string, std::array<int, 3>> counts;   // entity → right, found, expected
         std::vector<std::string> misses;
+        const auto nlu = understander(agent);
         for (const auto& item : set.cases()) {
             va::nlu::NluRequest request;
             request.text = item.text();
             request.mentions = [&](const std::string& name) { return agent->entities().find(name, item.text()).has_value(); };
-            const auto understood = agent->rules()->understand(request);
+            const auto understood = nlu->understand(request);
             const std::string intent = understood.intents.empty() ? std::string() : understood.intents.front().intent;
             if (intent == item.intent()) ++right;
             else misses.push_back("\"" + item.text() + "\": " + (intent.empty() ? "(none)" : intent) + ", expected " +
@@ -156,8 +234,8 @@ int runAgentTool(int argc, char** argv, std::shared_ptr<const FlowRegistry> regi
         }
         const int total = set.cases_size();
         const double accuracy = total ? static_cast<double>(right) / total : 1.0;
-        std::printf("%s: %d utterances, stage rules\nintent accuracy: %.1f%% (%d of %d)\n", agentPath.c_str(), total,
-                    accuracy * 100, right, total);
+        std::printf("%s: %d utterances, stages %s\nintent accuracy: %.1f%% (%d of %d)\n", agentPath.c_str(), total,
+                    completion ? "rules, llm" : "rules", accuracy * 100, right, total);
         for (const auto& [name, count] : counts) {
             const double precision = count[1] ? static_cast<double>(count[0]) / count[1] : 1.0;
             const double recall = count[2] ? static_cast<double>(count[0]) / count[2] : 1.0;
@@ -190,8 +268,9 @@ int runAgentTool(int argc, char** argv, std::shared_ptr<const FlowRegistry> regi
         va::nlu::NluRequest request;
         request.text = words;
         request.mentions = [&](const std::string& name) { return agent->entities().find(name, words).has_value(); };
-        const auto understood = agent->rules()->understand(request);
+        const auto understood = understander(agent)->understand(request);
         if (understood.intents.empty()) std::printf("intent: (none)\n");
+        else std::printf("stage: %s\n", understood.stage.c_str());
         for (size_t i = 0; i < understood.intents.size() && i < 3; ++i) {
             const auto& match = understood.intents[i];
             std::printf("%s %s (score %.2f, confidence %.2f)\n", i == 0 ? "intent:" : "   or:", match.intent.c_str(), match.score,
@@ -204,6 +283,7 @@ int runAgentTool(int argc, char** argv, std::shared_ptr<const FlowRegistry> regi
         auto agent = load(agentPath, false);
         if (!agent) return 1;
         va::flow::FlowRuntime conversation(agent);
+        if (const auto setup = assist(agent)) setup(conversation);
         for (int i = 3; i < argc; ++i) {
             const std::string argument = argv[i];
             if (argument != "--session" || i + 1 >= argc) return usage();

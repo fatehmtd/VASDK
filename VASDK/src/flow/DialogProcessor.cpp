@@ -121,6 +121,7 @@ void DialogProcessor::prepare(FlowRuntime& conversation) {
     if (_toolCaller) conversation.setToolCaller(_toolCaller);
     if (_nlu) conversation.setNlu(_nlu);
     if (_embeddings) conversation.setEmbeddings(_embeddings);
+    if (_llm) conversation.setLlm(_llm);
     conversation.setFillerSink([this](const Reply& sofar) {
         auto frame = std::make_shared<ReplyFrame>();
         frame->reply = sofar;
@@ -312,6 +313,12 @@ void DialogProcessor::setNlu(std::shared_ptr<const nlu::NluProvider> provider,
                              std::shared_ptr<const nlu::EmbeddingNluProvider> embeddings) {
     _nlu = std::move(provider);
     _embeddings = std::move(embeddings);
+    prepare(_conversation);
+    prepare(_beforeLastTurn);
+}
+
+void DialogProcessor::setLlm(std::shared_ptr<const llm::Completion> completion) {
+    _llm = std::move(completion);
     prepare(_conversation);
     prepare(_beforeLastTurn);
 }

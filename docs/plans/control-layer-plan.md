@@ -19,7 +19,8 @@
 > | 22 Offline release | 🟡 committed in part: flow metrics, `vasdk_agentc eval` (+ the garage set in ctest), fuzz targets (libFuzzer with VASDK_BUILD_FUZZERS; a mutation smoke run in ctest). Not done: the audio loopback test and the spoken offline conversation on desktop and Android (no on-device STT/TTS models on this machine, no device) |
 > | 23 Scheduled & context triggers | ✅ committed. Android: `fireTrigger` through JNI and Kotlin; the AlarmManager/WorkManager wake-up and forwarding notifications as triggers are not wired, and nothing ran on a device |
 > | 24 On-device intent model + FAQ | ✅ committed. MiniLM on ONNX (cascade after rules: 20% → 90% on paraphrases); knowledge entries instead of a `faq` page type; no `--embed-cache` precompute; not run on Android |
-> | 25–32 | not started |
+> | 25 LLM assist | ✅ committed. LLM as the last NLU stage, LLM reading of form answers (kept only through the slot's entity), `llm` step, `generative` page type, restricted moves, sensitive answers kept from it; `vasdk_agentc --llm`. The completion client is OpenAI-compatible only (no Anthropic, no local llama.cpp in-process); requests block the conversation's thread (8 s cap) |
+> | 26–32 | not started |
 
 
 *Uses Google Dialogflow CX as the reference model. Definitions are proto-schema'd and written in text proto.*

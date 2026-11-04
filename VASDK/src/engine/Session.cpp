@@ -16,7 +16,9 @@
 #include "context/ContextProvider.h"
 #include "flow/DialogProcessor.h"
 #include "nlu/EmbeddingNluProvider.h"
+#include "nlu/LlmNluProvider.h"
 #include "llm/LLMFirePolicy.h"
+#include "llm/Completion.h"
 #include "llm/LLMProcessor.h"
 #include "llm/OpenAITransport.h"
 #include "llm/PromptTemplate.h"
@@ -370,12 +372,29 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
         state->dialog = std::make_shared<flow::DialogProcessor>(options.agent);
         state->dialog->setPassUnmatchedTurns(state->llm != nullptr);
         state->dialog->setToolCaller(flow::ToolRunner::caller(std::make_shared<flow::ToolRunner>(options.agent, config.security())));
-        if (auto encoder = runtime->sentenceEncoder()) {   // paraphrases, after the agent's own examples
-            auto embeddings = std::make_shared<nlu::EmbeddingNluProvider>(encoder, options.agent->definition().intents());
-            state->dialog->setNlu(std::make_shared<nlu::CascadeNluProvider>(
-                                      std::vector<std::shared_ptr<const nlu::NluProvider>>{options.agent->rules(), embeddings}),
-                                  embeddings);
+        // Understanding: the agent's examples, then paraphrases by meaning, then an LLM.
+        auto completion = options.llmCompletion;
+        if (!completion && config.has_llm() && !config.llm().endpoint().empty()) {
+            llm::LLMConfig completionConfig;
+            completionConfig.endpoint = config.llm().endpoint();
+            completionConfig.apiKey = config.llm().api_key();
+            completionConfig.model = config.llm().model();
+            completionConfig.temperature = 0.0f;
+            completionConfig.maxTokens = 400;
+            completionConfig.timeoutMs = 8000;   // a voice turn can't wait longer
+            completion = std::make_shared<llm::OpenAICompletion>(completionConfig);
         }
+        std::vector<std::shared_ptr<const nlu::NluProvider>> stages{options.agent->rules()};
+        std::shared_ptr<const nlu::EmbeddingNluProvider> embeddings;
+        if (auto encoder = runtime->sentenceEncoder()) {
+            embeddings = std::make_shared<nlu::EmbeddingNluProvider>(encoder, options.agent->definition().intents());
+            stages.push_back(embeddings);
+        }
+        if (completion) {
+            stages.push_back(std::make_shared<nlu::LlmNluProvider>(completion, options.agent->definition().intents()));
+            state->dialog->setLlm(completion);
+        }
+        if (stages.size() > 1) state->dialog->setNlu(std::make_shared<nlu::CascadeNluProvider>(std::move(stages)), embeddings);
         if (options.context) {
             state->dialog->setContextSource([context = options.context] {
                 google::protobuf::Struct fields;

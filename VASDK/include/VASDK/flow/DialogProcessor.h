@@ -76,6 +76,8 @@ public:
     void setContextSource(FlowRuntime::ContextSource source);
     /** What understands intents, and what answers knowledge questions by meaning (FlowRuntime::setNlu, setEmbeddings). Before start(). */
     void setNlu(std::shared_ptr<const nlu::NluProvider> provider, std::shared_ptr<const nlu::EmbeddingNluProvider> embeddings = nullptr);
+    /** What `llm` steps, generative pages and unread form answers ask (FlowRuntime::setLlm). Before start(). */
+    void setLlm(std::shared_ptr<const llm::Completion> completion);
     /** How call_tool steps reach tools (FlowRuntime::setToolCaller). Before start(). */
     void setToolCaller(ToolCaller caller);
     /**
@@ -112,6 +114,7 @@ private:
     ToolCaller _toolCaller;
     std::shared_ptr<const nlu::NluProvider> _nlu;
     std::shared_ptr<const nlu::EmbeddingNluProvider> _embeddings;
+    std::shared_ptr<const llm::Completion> _llm;
     std::thread _conversationThread;
     std::mutex _tasksMutex;
     std::condition_variable _tasksChanged;

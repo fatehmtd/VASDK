@@ -90,6 +90,21 @@ Intents are understood from their examples, with no model and no LLM. When sever
 
 **More stages.** `FlowRuntime::setNlu(std::make_shared<nlu::CascadeNluProvider>(stages, 0.55))` tries stages in order: the rules, then, for instance, an on-device model or an LLM. A later stage is asked only when the earlier ones aren't sure enough. `nlu::NluProvider` is the interface a stage implements.
 
+## With an LLM
+
+With an `llm` endpoint in the engine config, a session asks the LLM what the agent can't answer by itself. Turns the rules are sure of never reach it, and the same agent runs offline without it.
+
+| Where | What the LLM does | Without an LLM |
+|---|---|---|
+| Understanding | The last stage, after the rules and MiniLM: it's shown the agent's intents with their examples and picks one (`$nlu.stage` is `llm`). An intent the agent doesn't declare counts as none. | Not understood: `no-match` |
+| Forms | An answer the slot can't read ("the black slippery stuff needs replacing"): it gives the user's words for each slot, and only what the slot's entity or type reads in them is kept. "teleportation" is no `@service`, so it's asked again. | The slot's reprompt |
+| `llm` step | `llm { instructions: "Greet the caller by the time of day." allowed_targets: ["booking"] offline { say { text: "Hello." } } }` says the LLM's reply, and moves only to an allowed target. | Its `offline` steps; none: "Sorry, I can't help with that here." |
+| Generative page | `type: "generative"` with `GenerativeParams { instructions allowed_targets }`. The page's routes, form and knowledge come first; the LLM answers the rest. | The page's `no-match` handler: its offline answer |
+
+The LLM reads the instructions, the form's slots and their values, and the last 12 turns. Sensitive values are masked in what it reads, and the answer to a sensitive slot never reaches it, not even for understanding. It replies with a JSON object (`say`, `goto`, `slots`); a reply that isn't one is said as it is. A request that fails or takes over 8 seconds counts as no LLM for that turn.
+
+`Session::Options::llmCompletion` replaces the config's endpoint (`llm::Completion`: one request, its reply). Turns the agent doesn't understand on a plain page still go to the session's LLM conversation (`LLMProcessor`), as before.
+
 ## Rich replies
 
 A reply can carry more than its words:
@@ -617,6 +632,7 @@ turns { user: "my windshield is cracked" expect { matched: false said_contains: 
   Expectations: `page`, `flow`, `said` (the whole reply), `choices` (the labels offered, in order), `said_contains` (case-insensitive), `matched`, `expects_reply`, `ends_session`, `session { key: "service" value: "an oil change" }` (a param as a reply would say it), `form { key: "day" value: "tuesday" }` (a slot, or `complete`/`confirmed`/`failed`; `""` when empty), `entities { key: "service" value: "oil_change" }` (`$nlu.entities`), and `event` (`no-match`, `no-input`, `max-reprompts`, `tool-error`, `clarify`). A turn with `no_input: true` is silence instead of words. `fire_trigger: "car-ready"` (with `trigger_payload`) fires a trigger instead, and `trigger_decision: QUEUED` checks what became of it. `after_ms` moves the clock on before a turn, from the case's `start_time` (local, `"2026-11-09T08:00:00"`). A turn's `tool_results` stand in for tools, and `tools_called` checks which ran. A case can set session params and context before the first turn: `session { fields { key: "tier" value { string_value: "gold" } } }`, `context { … }`. The same runs from C++ with `va::flow::runFlowTest`, and the example's cases run in `ctest` (`vasdk_agent_garage_menu`).
 - **`chat`** talks to the agent by typing, showing the page (and any event) after each reply, the choices offered, and the parts that can't be interrupted. An empty line is silence (no-input). `--session tier=gold` sets a session param first.
 - **`eval`** measures understanding on a set of [`NluEvalSet`](../../VASDK/proto/vasdk/flow/test_case.proto) utterances: `cases { text: "how much is an oil change" intent: "price" entities { key: "service" value: "oil_change" } }`. It reports intent accuracy, precision, recall and F1 per entity, and each miss. `--min-accuracy 0.9` fails below it, for CI; the example's set runs in `ctest` (`vasdk_agent_garage_menu_nlu`).
+- **With an LLM.** `--llm` adds one after the rules to `test`, `chat`, `try` and `eval`: its endpoint, model and key come from `LLM_ENDPOINT`, `LLM_MODEL` and `LLM_API_KEY` (or `OPENROUTER_API_KEY`, `OPENAI_API_KEY`). `--llm-endpoint <url>`, `--llm-model` and `--llm-api-key` give them instead. Any OpenAI-compatible chat completions URL works: OpenAI, OpenRouter, a local LM Studio, llama.cpp server or Ollama. In `chat`, a turn the LLM understood shows `understood by: llm (book)`. Without the flag the LLM isn't used, even when the variables are set, so `ctest` stays the same everywhere.
 - **`try`** shows what a sentence matches, without running the conversation:
 
 ```

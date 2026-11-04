@@ -202,6 +202,7 @@ message Step {
     Goto goto = 14;
     End end = 17;
     CallTool call_tool = 20;
+    Llm llm = 22;
     // A step written in C++ (FlowRegistry::addStep), chosen by its params' type:
     //   custom { [type.googleapis.com/acme.LoyaltyPoints] { into: "$page.locals.points" } }
     google.protobuf.Any custom = 100;
@@ -287,6 +288,18 @@ message CallTool {
   map<string, string> args = 2;        // arg name → an expression for its value
   string into = 3;                     // a `set` key for the result; empty: not kept
   repeated string filler = 4;          // said, in turn, before the call
+}
+
+// Lets an LLM answer the turn: it reads the instructions, the conversation so far and the
+// user's words, and says the reply. It may move only to one of allowed_targets, and fill the
+// page's form slots only with values their entity reads in the words it gives (it can't make up
+// a service the agent doesn't offer). Sensitive values never reach it. Without an LLM, or when
+// it fails, the `offline` steps run instead; none: "Sorry, I can't help with that here."
+//   llm { instructions: "Answer briefly about car care, then offer to book." allowed_targets: ["booking"] }
+message Llm {
+  string instructions = 1;
+  repeated string allowed_targets = 2;   // as Route.target
+  repeated Step offline = 3;
 }
 
 // Empties one of the page's form slots, so the form asks for it again (and confirms again).

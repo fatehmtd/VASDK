@@ -3,7 +3,9 @@
 #include "vasdk_export.h"
 #include "CompiledAgent.h"
 #include "Tools.h"
+#include "../llm/Completion.h"
 #include "../nlu/EmbeddingNluProvider.h"
+#include "vasdk/flow/page_types.pb.h"
 
 #include <chrono>
 #include <deque>
@@ -185,6 +187,14 @@ public:
     void setNlu(std::shared_ptr<const nlu::NluProvider> provider) { _nlu = std::move(provider); }
     /** Answers knowledge questions by meaning with it, instead of by their words. */
     void setEmbeddings(std::shared_ptr<const nlu::EmbeddingNluProvider> embeddings) { _embeddings = std::move(embeddings); }
+    /**
+     * The LLM that `llm` steps and generative pages ask, and that reads form answers the slots
+     * can't (only values their entity or type reads are kept). It reads the last turns, with
+     * sensitive values masked; an answer to a sensitive slot never reaches it. Unset: those
+     * steps run their `offline` steps, and generative pages answer as any page does.
+     */
+    void setLlm(std::shared_ptr<const llm::Completion> completion) { _llm = std::move(completion); }
+    bool hasLlm() const { return _llm != nullptr; }
     /** The current values of the sensitive slots and session params, as stored and as said. */
     std::vector<std::string> sensitiveValues() const;
     /** The value a reference resolves to now ($session.tier, $form.day, $nlu.entities.service, ...). */
@@ -242,6 +252,16 @@ private:
     std::optional<std::string> readSlot(const vasdk::goal::Slot& slot, const std::string& text) const;
     Outcome run(const google::protobuf::RepeatedPtrField<vasdk::flow::Step>& steps, Reply& reply);
     Outcome callTool(const vasdk::flow::CallTool& call, Reply& reply);
+    // What the LLM made of the turn: where it moves, how many form slots it filled, whether it spoke.
+    struct LlmTurn {
+        Outcome outcome;
+        int filled = 0;
+        bool said = false;
+    };
+    std::optional<LlmTurn> askLlm(const std::string& instructions, const Texts* allowedTargets, bool speaks, Reply& reply);
+    const vasdk::flow::GenerativeParams* generativePage() const;
+    bool privateTurn() const;
+    void remember(llm::MessageRole role, const std::string& text);
     const nlu::NluResult& understanding();
     void listenFor(Reply& reply) const;
     const vasdk::flow::Knowledge* knowledgeAnswering(const std::string& text, float atLeast = 0.6f) const;
@@ -346,6 +366,9 @@ private:
     std::optional<nlu::NluResult> _understood;   // this turn's, worked out when a route first needs it
     std::vector<std::string> _alternatives;      // intents tied for the best route this turn
     std::function<void(const Reply&)> _fillerSink;
+    std::shared_ptr<const llm::Completion> _llm;
+    std::deque<llm::ConversationMessage> _transcript;   // the last turns, for the LLM
+    static constexpr size_t kTranscriptSize = 12;
 };
 
 } // namespace flow

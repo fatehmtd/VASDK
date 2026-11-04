@@ -27,6 +27,12 @@ Path splitReference(const std::string& key) {
 }
 
 constexpr const char* kNotUnderstood = "Sorry, I can't help with that here.";
+
+std::string trim(const std::string& text) {
+    const auto start = text.find_first_not_of(" \t\r\n");
+    if (start == std::string::npos) return {};
+    return text.substr(start, text.find_last_not_of(" \t\r\n") - start + 1);
+}
 constexpr const char* kToolFailed = "Sorry, I can't do that right now.";
 
 nlohmann::json toJson(const Value& value) {
@@ -413,15 +419,20 @@ Reply FlowRuntime::start() {
     }
     runAfterEnvelopes(reply);
     finish(reply);
+    _transcript.clear();
+    remember(llm::MessageRole::ASSISTANT, reply.text);
     return reply;
 }
 
 Reply FlowRuntime::handleText(const std::string& text) {
     Reply reply;
+    // An answer to a sensitive slot isn't kept as said: its words may not match the value masked later.
+    remember(llm::MessageRole::USER, privateTurn() ? "(a private answer)" : text);
     if (!_offer || !answerOffer(text, reply)) takeTurn(text, reply);
     runAfterEnvelopes(reply);
     deliverDue(reply);   // a queued trigger whose moment has come, after the reply
     finish(reply);
+    remember(llm::MessageRole::ASSISTANT, reply.text);
     return reply;
 }
 
@@ -512,12 +523,30 @@ void FlowRuntime::takeTurn(const std::string& text, Reply& reply) {
             return;
         }
     }
+    const auto* generative = best ? nullptr : generativePage();
     if (!best) {
         if (formActive()) {
+            // An answer the slots can't read: the LLM may find their values in it.
+            static const std::string kReadForm = "The user is filling in a form and said something its rules can't read.";
+            const auto turn = generative ? askLlm(generative->instructions(), &generative->allowed_targets(), true, reply)
+                                         : askLlm(kReadForm, nullptr, false, reply);
+            if (turn && (turn->filled > 0 || turn->said || turn->outcome.moves())) {
+                _misses = 0;
+                follow(answered(turn->outcome, reply), reply);
+                return;
+            }
             follow(repromptForm(reply), reply);
             return;
         }
         if (answerFromKnowledge(0.6f, reply)) return;   // a question the agent knows the answer to
+        if (generative) {   // what the page's routes don't answer, the LLM does
+            if (const auto turn = askLlm(generative->instructions(), &generative->allowed_targets(), true, reply);
+                turn && (turn->said || turn->outcome.moves())) {
+                _misses = 0;
+                follow(answered(turn->outcome, reply), reply);
+                return;
+            }
+        }
         reply.matched = false;
         follow(miss(kEventNoMatch, reply), reply);
         return;
@@ -828,6 +857,20 @@ FlowRuntime::Outcome FlowRuntime::run(const google::protobuf::RepeatedPtrField<v
         case vasdk::flow::Step::kCallTool:
             if (auto outcome = callTool(step.call_tool(), reply); outcome.moves()) return outcome;
             break;
+        case vasdk::flow::Step::kLlm: {
+            const auto& llmStep = step.llm();
+            const auto turn = askLlm(llmStep.instructions(), &llmStep.allowed_targets(), true, reply);
+            if (turn && (turn->said || turn->outcome.moves())) {
+                if (turn->outcome.moves()) return turn->outcome;
+                break;
+            }
+            if (llmStep.offline().empty()) {
+                append(reply, kNotUnderstood);
+                break;
+            }
+            if (auto outcome = run(llmStep.offline(), reply); outcome.moves()) return outcome;
+            break;
+        }
         case vasdk::flow::Step::kCustom: {
             const auto* function = _agent->registry().step(typeName(step.custom()));
             const auto* params = _agent->params(step.custom());
@@ -888,10 +931,134 @@ const nlu::NluResult& FlowRuntime::understanding() {
         request.mentions = [this](const std::string& entity) {
             return _agent->entities().find(entity, _inputText, _dynamicEntities, now()).has_value();
         };
+        request.sensitive = privateTurn();
         const std::shared_ptr<const nlu::NluProvider> provider = _nlu ? _nlu : _agent->rules();
         _understood = provider->understand(request);
     }
     return *_understood;
+}
+
+//  LLM
+
+void FlowRuntime::remember(llm::MessageRole role, const std::string& text) {
+    if (text.empty()) return;
+    _transcript.push_back({role, text, 0});
+    while (_transcript.size() > kTranscriptSize) _transcript.pop_front();
+}
+
+// The answer to a sensitive slot: kept from the LLM.
+bool FlowRuntime::privateTurn() const {
+    const auto* slot = askedSlot();
+    return slot && slot->sensitive();
+}
+
+const vasdk::flow::GenerativeParams* FlowRuntime::generativePage() const {
+    if (!started() || _agent->page(_position).type() != "generative") return nullptr;
+    const auto& extensions = _agent->extensions(_position);
+    if (extensions.declaredType || !extensions.registeredType) return nullptr;   // a page type of the agent's own by that name
+    const auto& params = paramsOf(extensions);
+    return params.GetDescriptor() == vasdk::flow::GenerativeParams::descriptor()
+               ? static_cast<const vasdk::flow::GenerativeParams*>(&params) : nullptr;
+}
+
+// Asks the LLM about the turn: it may say a reply (`speaks`), move to one of allowedTargets and
+// fill the form's slots, each only with what the slot reads in the words it gives. nullopt
+// without an LLM, on a private turn, or when it fails.
+std::optional<FlowRuntime::LlmTurn> FlowRuntime::askLlm(const std::string& instructions, const Texts* allowedTargets,
+                                                        bool speaks, Reply& reply) {
+    if (!_llm || privateTurn()) return std::nullopt;
+    const bool form = formActive();
+    std::string system = render(instructions);
+    if (!_agent->definition().name().empty()) system += "\nYou speak for the voice assistant \"" + _agent->definition().name() + "\".";
+    std::string slots;
+    if (form) {
+        for (const auto& slot : _form->goal->slots()) {
+            if (slot.sensitive()) continue;
+            slots += "- " + slot.name();
+            if (!slot.description().empty()) slots += ": " + slot.description();
+            std::vector<std::string> values;
+            if (!slot.entity().empty()) {
+                for (const auto& value : _agent->entities().values(entityName(slot.entity()), _dynamicEntities))
+                    values.push_back(value.spoken().empty() ? value.value() : value.spoken());
+            } else {
+                values.assign(slot.values().begin(), slot.values().end());
+            }
+            for (size_t i = 0; i < values.size() && i < 20; ++i) slots += (i ? ", " : " (one of: ") + values[i];
+            if (!values.empty()) slots += ")";
+            const auto current = _form->state->slotValueJson(slot.name());
+            if (!current.is_null()) slots += "; now " + current.dump();
+            slots += "\n";
+        }
+        if (!slots.empty()) system += "\nThe form on this page collects:\n" + slots;
+    }
+    std::string targets;
+    if (allowedTargets)
+        for (const auto& target : *allowedTargets) targets += (targets.empty() ? "" : ", ") + target;
+    system += "\nReply with only a JSON object:\n{";
+    if (speaks) system += "\"say\": \"<your reply: short, spoken, no lists or markup>\"";
+    if (!targets.empty()) system += std::string(speaks ? ", " : "") + "\"goto\": \"<" + targets + ", or empty to stay>\"";
+    if (!slots.empty())
+        system += std::string(speaks || !targets.empty() ? ", " : "") +
+                  "\"slots\": {\"<slot>\": \"<the user's own words for its value>\"}";
+    system += "}";
+    if (!slots.empty()) system += "\nPut only values the user gave in slots; never guess one.";
+
+    std::vector<llm::ConversationMessage> messages{{llm::MessageRole::SYSTEM, system, 0}};
+    const auto masked = sensitiveValues();
+    for (auto message : _transcript) {
+        message.content = redact(message.content, masked);
+        messages.push_back(std::move(message));
+    }
+    const auto answer = _llm->complete(messages);
+    if (!answer) return std::nullopt;
+
+    LlmTurn turn;
+    nlohmann::json parsed;
+    try {
+        parsed = nlohmann::json::parse(llm::jsonObjectIn(*answer));
+    } catch (const std::exception&) {
+        parsed = nullptr;
+    }
+    if (!parsed.is_object()) {   // plain words: its reply, when it may speak
+        const auto text = trim(*answer);
+        if (!speaks || text.empty()) return std::nullopt;
+        parsed = {{"say", text}};
+    }
+    if (form && parsed.contains("slots") && parsed["slots"].is_object()) {
+        for (const auto& [name, words] : parsed["slots"].items()) {
+            const vasdk::goal::Slot* slot = nullptr;
+            for (const auto& candidate : _form->goal->slots())
+                if (candidate.name() == name) slot = &candidate;
+            if (!slot || slot->sensitive() || !words.is_string()) continue;
+            const auto said = words.get<std::string>();
+            bool kept = false;
+            if (slot->list()) {
+                const auto values = readList(*slot, said);
+                kept = !values.empty() && _form->state->prefillSlot(name, values);
+            } else if (const auto value = readSlot(*slot, said)) {
+                kept = setSlot(name, *value);
+            }
+            if (kept) ++turn.filled;
+            else spdlog::info("[FlowRuntime] the LLM's \"{}\" isn't a value slot \"{}\" takes", said, name);
+        }
+        if (turn.filled > 0) _form->awaitingConfirmation = _form->awaitingChange = false;
+    }
+    if (speaks && parsed.contains("say") && parsed["say"].is_string()) {
+        const auto text = trim(parsed["say"].get<std::string>());
+        if (!text.empty()) {
+            append(reply, text);
+            turn.said = true;
+            if (!form) reply.expectsReply = true;   // a conversation: the user answers it
+        }
+    }
+    if (parsed.contains("goto") && parsed["goto"].is_string() && !parsed["goto"].get<std::string>().empty()) {
+        const auto target = parsed["goto"].get<std::string>();
+        if (allowedTargets && std::find(allowedTargets->begin(), allowedTargets->end(), target) != allowedTargets->end())
+            turn.outcome = toTarget(target, "llm");
+        else
+            spdlog::info("[FlowRuntime] ignored the LLM's move to \"{}\": not in allowed_targets", target);
+    }
+    return turn;
 }
 
 bool FlowRuntime::answerFromKnowledge(float atLeast, Reply& reply) {
