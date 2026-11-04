@@ -55,3 +55,15 @@ message TurnExpectation {
   repeated string tools_called = 16;
   TriggerDecision trigger_decision = 17;   // what became of fire_trigger   // the tools call_tool called this turn, in order   // how long the mic stays open after the reply, by the agent's settings
 }
+
+// Utterances and what they should be understood as, for `vasdk_agentc eval`: intent accuracy,
+// and entity precision, recall and F1, without running conversations.
+message NluEvalSet {
+  repeated NluEvalCase cases = 1;
+}
+
+message NluEvalCase {
+  string text = 1;
+  string intent = 2;                 // empty: no intent should match
+  map<string, string> entities = 3;  // entity name (without @) → its value
+}

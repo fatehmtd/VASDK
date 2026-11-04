@@ -1,7 +1,10 @@
 #include "flow/AgentTool.h"
+#include "engine/ProtoFileLoader.h"
 #include "nlu/RuleNluProvider.h"
 
 #include <google/protobuf/util/json_util.h>
+#include <map>
+#include <array>
 
 #include "flow/CompiledAgent.h"
 #include "flow/FlowRuntime.h"
@@ -29,8 +32,9 @@ int usage(const std::string& program) {
                  "       %s test <agent> <case>...\n"
                  "       %s chat <agent> [--session name=value]...\n"
                  "         (an empty line is silence, #2 taps the second choice, !<trigger> {json} fires a trigger)\n"
-                 "       %s try <agent> [--entity @name] <words>\n",
-                 name, name, name, name);
+                 "       %s try <agent> [--entity @name] <words>\n"
+                 "       %s eval <agent> <set.txtpb> [--min-accuracy 0.8]   (intent accuracy, entity F1)\n",
+                 name, name, name, name, name);
     return 2;
 }
 
@@ -116,6 +120,52 @@ int runAgentTool(int argc, char** argv, std::shared_ptr<const FlowRegistry> regi
         }
         std::printf("%d of %d passed\n", argc - 3 - failed, argc - 3);
         return failed == 0 ? 0 : 1;
+    }
+    if (command == "eval") {   // eval <agent> <set.txtpb> [--min-accuracy 0.8]
+        if (argc < 4) return usage();
+        auto agent = load(agentPath, false);
+        if (!agent) return 1;
+        vasdk::flow::NluEvalSet set;
+        std::string error;
+        if (!va::engine::loadProtoFile(argv[3], set, &error)) {
+            std::fprintf(stderr, "%s\n", error.c_str());
+            return 1;
+        }
+        double minAccuracy = 0;
+        if (argc >= 6 && std::string(argv[4]) == "--min-accuracy") minAccuracy = std::atof(argv[5]);
+        int right = 0;
+        std::map<std::string, std::array<int, 3>> counts;   // entity → right, found, expected
+        std::vector<std::string> misses;
+        for (const auto& item : set.cases()) {
+            va::nlu::NluRequest request;
+            request.text = item.text();
+            request.mentions = [&](const std::string& name) { return agent->entities().find(name, item.text()).has_value(); };
+            const auto understood = agent->rules()->understand(request);
+            const std::string intent = understood.intents.empty() ? std::string() : understood.intents.front().intent;
+            if (intent == item.intent()) ++right;
+            else misses.push_back("\"" + item.text() + "\": " + (intent.empty() ? "(none)" : intent) + ", expected " +
+                                  (item.intent().empty() ? "(none)" : item.intent()));
+            std::map<std::string, std::string> found;
+            for (const auto& match : agent->entities().findAll(item.text())) found.emplace(match.entity, toText(match.value));
+            for (const auto& [name, value] : found) {
+                ++counts[name][1];
+                const auto expected = item.entities().find(name);
+                if (expected != item.entities().end() && expected->second == value) ++counts[name][0];
+            }
+            for (const auto& [name, value] : item.entities()) ++counts[name][2];
+        }
+        const int total = set.cases_size();
+        const double accuracy = total ? static_cast<double>(right) / total : 1.0;
+        std::printf("%s: %d utterances, stage rules\nintent accuracy: %.1f%% (%d of %d)\n", agentPath.c_str(), total,
+                    accuracy * 100, right, total);
+        for (const auto& [name, count] : counts) {
+            const double precision = count[1] ? static_cast<double>(count[0]) / count[1] : 1.0;
+            const double recall = count[2] ? static_cast<double>(count[0]) / count[2] : 1.0;
+            const double f1 = precision + recall > 0 ? 2 * precision * recall / (precision + recall) : 0.0;
+            std::printf("@%s  precision %.2f  recall %.2f  F1 %.2f\n", name.c_str(), precision, recall, f1);
+        }
+        for (const auto& miss : misses) std::printf("  miss %s\n", miss.c_str());
+        return accuracy + 1e-9 >= minAccuracy ? 0 : 1;
     }
     if (command == "try") {
         std::string entity, words;

@@ -133,6 +133,40 @@ bool DialogProcessor::shouldProcess(std::shared_ptr<transport::Frame> frame) con
            dynamic_cast<const TriggerFrame*>(frame.get()) != nullptr;
 }
 
+bool DialogProcessor::initialize() {
+    if (!FrameProcessor::initialize()) return false;
+    if (getMetricsConfig().enabled && _collector) {
+        auto counter = [this](metrics::CounterHandle& handle, const char* name, const char* help) {
+            handle.initialize(_collector, metrics::MetricDescriptor{name, metrics::MetricType::Counter, help});
+        };
+        counter(_flowMetrics.turns, "flow_turns", "User turns the agent answered");
+        counter(_flowMetrics.noMatch, "flow_no_match", "Turns no route understood");
+        counter(_flowMetrics.noInput, "flow_no_input", "Questions met with silence");
+        counter(_flowMetrics.maxReprompts, "flow_max_reprompts", "Too many misses in a row");
+        counter(_flowMetrics.toolErrors, "flow_tool_errors", "call_tool failures");
+        counter(_flowMetrics.clarify, "flow_clarify", "Did-you-mean questions");
+        counter(_flowMetrics.pageChanges, "flow_page_changes", "Pages entered");
+        counter(_flowMetrics.sessionsEnded, "flow_sessions_ended", "Conversations the agent ended");
+        counter(_flowMetrics.passedToLlm, "flow_passed_to_llm", "Turns passed on to the LLM");
+        counter(_flowMetrics.triggersSaid, "flow_triggers_said", "Triggers delivered");
+        _flowMetrics.turnMs.initialize(_collector, metrics::MetricDescriptor{"flow_turn_ms", metrics::MetricType::Sampler,
+                                                                            "Time to answer a user turn"});
+    }
+    return true;
+}
+
+void DialogProcessor::count(const Reply& reply) {
+    if (reply.event == kEventNoMatch) _flowMetrics.noMatch.increment();
+    else if (reply.event == kEventNoInput) _flowMetrics.noInput.increment();
+    else if (reply.event == kEventMaxReprompts) _flowMetrics.maxReprompts.increment();
+    else if (reply.event == kEventToolError) _flowMetrics.toolErrors.increment();
+    else if (reply.event == kEventClarify) _flowMetrics.clarify.increment();
+    for (size_t i = 0; i < reply.pageChanges.size(); ++i) _flowMetrics.pageChanges.increment();
+    for (const auto& trigger : reply.triggers)
+        if (trigger.decision == vasdk::flow::STARTED) _flowMetrics.triggersSaid.increment();
+    if (reply.endsSession) _flowMetrics.sessionsEnded.increment();
+}
+
 bool DialogProcessor::start() {
     {
         std::lock_guard<std::mutex> lock(_timerMutex);
@@ -185,6 +219,7 @@ void DialogProcessor::conversationLoop() {
 }
 
 void DialogProcessor::deliver(Reply reply, std::shared_ptr<transport::Frame> turn, bool mayPassOn, bool fromTrigger) {
+    count(reply);
     if (_observer) _observer(reply, _conversation);
     auto frame = std::make_shared<ReplyFrame>();
     frame->reply = std::move(reply);
@@ -292,6 +327,7 @@ void DialogProcessor::processFrame(std::shared_ptr<transport::Frame> frame, pipe
         if (ready->fromTrigger && ready->reply.text.empty() && !ready->reply.expectsReply && !ready->reply.endsSession) return;
         _noInputMs = ready->noInputMs;
         if (ready->mayPassOn && _passUnmatchedTurns) {
+            _flowMetrics.passedToLlm.increment();
             pushDownstream(ready->turn);
             return;
         }
@@ -309,7 +345,10 @@ void DialogProcessor::processFrame(std::shared_ptr<transport::Frame> frame, pipe
             const auto& turn = static_cast<const transport::UserTurnFrame&>(*frame);
             if (turn.replacesPrevious) _conversation = _beforeLastTurn;
             _beforeLastTurn = _conversation;
+            const auto started = std::chrono::steady_clock::now();
             auto reply = _conversation.handleText(turn.text);
+            _flowMetrics.turns.increment();
+            _flowMetrics.turnMs.observe(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
             spdlog::info("[Dialog] \"{}\" → {} on {}/{}", privateAnswer ? maskValue(turn.text) : redact(turn.text, reply.sensitiveValues),
                          reply.matched ? "route " + reply.intent : "not understood", _conversation.flowName(), _conversation.pageName());
             const bool mayPassOn = !reply.matched && !privateAnswer;   // a private answer never goes to an LLM

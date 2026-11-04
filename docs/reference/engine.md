@@ -104,6 +104,14 @@ engine->addListener([](const vasdk::engine::Event& event) {
 
 Listeners run in order on one engine thread, never a pipeline thread, so a slow listener can't stall the audio. Keep them quick anyway: if they fall more than 1024 events behind, the oldest are dropped with a warning. A listener that throws is logged and the others still run. `removeListener(id)` takes one off; listeners can be added before or after `start()`.
 
+## Flow metrics
+
+With an agent and a metrics collector, the dialog reports how conversations go:
+- counters: `flow_turns`, `flow_no_match`, `flow_no_input`, `flow_max_reprompts`, `flow_tool_errors`, `flow_clarify`, `flow_page_changes`, `flow_sessions_ended`, `flow_passed_to_llm` and `flow_triggers_said`
+- a sampler: `flow_turn_ms`, the time to answer a turn
+
+`flow_passed_to_llm` against `flow_turns` is the share of turns the agent answered on its own.
+
 ## Listening for the answer
 
 With an agent, every question tells the pipeline how to listen for its answer: a `TurnPolicyFrame` goes upstream with the reply.

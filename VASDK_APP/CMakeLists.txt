@@ -26,6 +26,9 @@ if(VASDK_ENABLE_ENGINE_CONFIG AND TARGET VASDK)
     if(VASDK_BUILD_TESTS)
         file(GLOB GARAGE_MENU_TESTS ${GARAGE_DIR}/tests/*.txtpb)
         add_test(NAME vasdk_agent_garage_menu COMMAND garage_agentc test ${GARAGE_DIR}/agent.txtpb ${GARAGE_MENU_TESTS})
+        # Intent accuracy and entity F1 on what callers say, misspellings included
+        add_test(NAME vasdk_agent_garage_menu_nlu
+                 COMMAND garage_agentc eval ${GARAGE_DIR}/agent.txtpb ${GARAGE_DIR}/nlu_eval.txtpb --min-accuracy 0.9)
     endif()
 endif()
 

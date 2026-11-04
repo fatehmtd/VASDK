@@ -16,7 +16,8 @@
 > | 19 English values from speech | ✅ committed. Lists of values ("tires and an oil change") wait for 21 |
 > | 20 Listening tuned to the question | ✅ committed. Hints implemented for Soniox only (other recognizers: no-op); the WER gain on a hint set is not measured (needs recorded audio and a cloud key) |
 > | 21 Advanced forms & entities | ✅ committed. Phonetic matching is a compact key (not Double Metaphone); code-backed entities and entity packs not built |
-> | 22–32 | not started |
+> | 22 Offline release | 🟡 committed in part: flow metrics, `vasdk_agentc eval` (+ the garage set in ctest), fuzz targets (libFuzzer with VASDK_BUILD_FUZZERS; a mutation smoke run in ctest). Not done: the audio loopback test and the spoken offline conversation on desktop and Android (no on-device STT/TTS models on this machine, no device) |
+> | 23–32 | not started |
 
 
 *Uses Google Dialogflow CX as the reference model. Definitions are proto-schema'd and written in text proto.*

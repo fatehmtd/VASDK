@@ -2,6 +2,7 @@
 
 #include "vasdk_export.h"
 #include "../FrameProcessor.h"
+#include "../metrics/MetricHandles.h"
 #include "FlowRuntime.h"
 
 #include <algorithm>
@@ -41,6 +42,10 @@ public:
 
     std::string getName() const override { return "Dialog"; }
     bool shouldProcess(std::shared_ptr<transport::Frame> frame) const override;
+    /** With a metrics collector: flow_turns, flow_no_match, flow_no_input, flow_max_reprompts,
+     *  flow_tool_errors, flow_clarify, flow_page_changes, flow_sessions_ended, flow_passed_to_llm,
+     *  flow_triggers_said (counters) and flow_turn_ms (time to answer a turn). */
+    bool initialize() override;
     bool start() override;
     void stop() override;
     void processFrame(std::shared_ptr<transport::Frame> frame, pipeline::FlowDirection direction) override;
@@ -130,6 +135,13 @@ private:
     std::vector<std::pair<std::string, int>> _inactivityTriggers;
     size_t _nextInactivity = 0;
     bool _userSpeaking = false;
+    // Flow metrics (with a collector).
+    struct FlowMetrics {
+        metrics::CounterHandle turns, noMatch, noInput, maxReprompts, toolErrors, clarify, pageChanges, sessionsEnded,
+            passedToLlm, triggersSaid;
+        metrics::SamplerHandle turnMs;
+    } _flowMetrics;
+    void count(const Reply& reply);
 };
 
 } // namespace flow

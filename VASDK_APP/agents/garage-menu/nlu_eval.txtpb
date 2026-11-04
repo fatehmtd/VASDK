@@ -1,0 +1,22 @@
+# proto-file: vasdk/flow/test_case.proto
+# proto-message: vasdk.flow.NluEvalSet
+#
+# What callers say and what it should mean, misspellings included:
+#   garage_agentc eval agents/garage-menu/agent.txtpb agents/garage-menu/nlu_eval.txtpb --min-accuracy 0.9
+cases { text: "I'd like to book an appointment" intent: "book" }
+cases { text: "can I bring my car in tomorrow" intent: "book" }
+cases { text: "I need to schedule a service" intent: "book" }
+cases { text: "I'd like to book an apointment" intent: "book" }
+cases { text: "how much is an oil change" intent: "price" entities { key: "service" value: "oil_change" } }
+cases { text: "what does a tire repair cost" intent: "price" entities { key: "service" value: "tire_repair" } }
+cases { text: "what are your opening hours" intent: "hours" }
+cases { text: "when do you close today" intent: "hours" }
+cases { text: "let me talk to a person" intent: "person" }
+cases { text: "can I speak to a representative" intent: "person" }
+cases { text: "can I speak to a reprasentative" intent: "person" }
+cases { text: "that's all, goodbye" intent: "goodbye" }
+cases { text: "what can you do" intent: "help" }
+cases { text: "hey there" intent: "hello" }
+cases { text: "take me back to the main menu" intent: "back" }
+cases { text: "my tyres are flat" entities { key: "service" value: "tire_repair" } }
+cases { text: "the weather is nice" }
