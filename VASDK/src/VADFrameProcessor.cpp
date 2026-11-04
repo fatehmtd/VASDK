@@ -406,6 +406,20 @@ namespace va {
             }
         }
 
+        // For the next user turn: a phone number said with pauses waits longer (pauses and end), a
+        // quick yes ends sooner; the configured values otherwise.
+        void VADFrameProcessor::applyTurnPolicy(transport::TurnPolicyFrame::TurnEnd turnEnd) {
+            if (!_configuredVadConfig) _configuredVadConfig = _vadConfig;
+            VADConfig config = *_configuredVadConfig;
+            if (turnEnd == transport::TurnPolicyFrame::TurnEnd::Patient) {
+                config.maxSpeechPauseDurationMs = std::max<uint64_t>(config.maxSpeechPauseDurationMs * 2, 1000);
+                config.maxSpeechEndDurationMs = std::max<uint64_t>(config.maxSpeechEndDurationMs * 2, 1500);
+            } else if (turnEnd == transport::TurnPolicyFrame::TurnEnd::Snappy) {
+                config.maxSpeechEndDurationMs = std::min<uint64_t>(config.maxSpeechEndDurationMs, 300);
+            }
+            _vadConfig = config;
+        }
+
         void VADFrameProcessor::processFrame(std::shared_ptr<transport::Frame> frame, FlowDirection direction) {
             if (direction == FlowDirection::DOWNSTREAM) {
                 switch (frame->getType()) {
@@ -423,6 +437,9 @@ namespace va {
                 } break;
                 }
                 pushDownstream(frame);
+            }
+            else if (auto policy = std::dynamic_pointer_cast<transport::TurnPolicyFrame>(frame)) {
+                applyTurnPolicy(policy->turnEnd);
             }
             else if (frame->getType() == transport::FrameType::TURN_STATE) {
                 // Turn detection is confident the user finished: skip the rest of the pause/end wait.

@@ -298,6 +298,7 @@ va::audio::TranscriptionResult SonioxppTranscriptionProvider::writeFullAudioData
     cfg.audio_format = audioFormat;
     cfg.sample_rate = sampleRate;
     cfg.num_channels = channels;
+    cfg.context_json = contextJson();
     cfg.enable_endpoint_detection = false;
 
     std::vector<soniox::Token> finalTokens;
@@ -401,6 +402,19 @@ va::audio::TranscriptionResultListener* SonioxppTranscriptionProvider::getTransc
     return _listener;
 }
 
+void SonioxppTranscriptionProvider::setContextHints(const std::vector<std::string>& phrases)
+{
+    std::lock_guard<std::mutex> lock(_hintsMutex);
+    _hints = phrases;
+}
+
+// The words to expect, as Soniox's context terms; empty without any.
+std::string SonioxppTranscriptionProvider::contextJson()
+{
+    std::lock_guard<std::mutex> lock(_hintsMutex);
+    return _hints.empty() ? std::string() : nlohmann::json{{"terms", _hints}}.dump();
+}
+
 void SonioxppTranscriptionProvider::setAudioConfiguration(const va::audio::AudioConfig& config)
 {
     _audioConfig = config;
@@ -477,6 +491,7 @@ bool SonioxppTranscriptionProvider::ensureRealtimeSessionStarted()
     cfg.audio_format = resolveRealtimeAudioFormat(_audioConfig.format);
     cfg.sample_rate = _audioConfig.sampleRate > 0 ? _audioConfig.sampleRate : 16000;
     cfg.num_channels = _audioConfig.channels > 0 ? _audioConfig.channels : 1;
+    cfg.context_json = contextJson();
     cfg.enable_endpoint_detection = true;
 
     if (needsPcm16Conversion(_audioConfig.format)) {

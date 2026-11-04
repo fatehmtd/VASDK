@@ -431,6 +431,7 @@ void FlowRuntime::finish(Reply& reply) {
     if (reply.expectsReply) {
         reply.expectation = _expectation;
         if (reply.expectation.mode() == Expectation::MODE_UNSET) reply.expectation.set_mode(Expectation::OPEN);
+        listenFor(reply);
         _choices = reply.choices;
     } else {
         reply.expectation.set_mode(Expectation::NONE);
@@ -1077,6 +1078,39 @@ std::vector<std::pair<std::string, int>> FlowRuntime::inactivityTriggers() const
     for (const auto& trigger : _agent->definition().triggers())
         if (trigger.source().has_inactivity()) found.emplace_back(trigger.name(), trigger.source().inactivity().after_ms());
     return found;
+}
+
+// How to listen for the answer: when it's over (a number said with pauses, a quick yes), and
+// words the speech recognizer should expect (the choices, the asked slot's values, the page's intents).
+void FlowRuntime::listenFor(Reply& reply) const {
+    auto& expect = reply.expectation;
+    if (expect.turn_end() == Expectation::TURN_END_UNSET) {
+        if (expect.mode() == Expectation::DIGITS || expect.keyboard() == Expectation::EMAIL) expect.set_turn_end(Expectation::PATIENT);
+        else if (expect.mode() == Expectation::YES_NO || expect.mode() == Expectation::CONFIRMATION) expect.set_turn_end(Expectation::SNAPPY);
+    }
+    constexpr size_t kMostHints = 50;
+    std::vector<std::string> hints(expect.hints().begin(), expect.hints().end());
+    auto add = [&hints](const std::string& phrase) {
+        if (!phrase.empty() && hints.size() < kMostHints && std::find(hints.begin(), hints.end(), phrase) == hints.end())
+            hints.push_back(phrase);
+    };
+    for (const auto& choice : reply.choices) add(choice.label);
+    if (const auto* slot = askedSlot()) {
+        for (const auto& value : slot->values()) add(value);
+        if (!slot->entity().empty())
+            for (const auto& value : _agent->entities().values(entityName(slot->entity()), _dynamicEntities)) {
+                add(value.spoken().empty() ? value.value() : value.spoken());
+                for (const auto& synonym : value.synonyms()) add(synonym);
+            }
+    }
+    if (started())
+        for (const auto& route : _agent->page(_position).routes())
+            for (const auto& intent : _agent->definition().intents())
+                if (intent.name() == route.intent())
+                    for (const auto& example : intent.examples())
+                        if (example.find('@') == std::string::npos) add(example);
+    expect.clear_hints();
+    for (const auto& hint : hints) expect.add_hints(hint);
 }
 
 std::vector<std::string> FlowRuntime::sensitiveValues() const {

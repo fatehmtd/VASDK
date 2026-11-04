@@ -246,6 +246,21 @@ namespace va {
         };
 
         /**
+         * @brief How to listen for the user's next turn, sent upstream with an agent's question:
+         *        VADFrameProcessor and TurnDetectionProcessor adjust when the turn ends, and
+         *        TranscriptionFrameProcessor gives the recognizer the words to expect.
+         */
+        class VASDK_EXPORT TurnPolicyFrame : public Frame {
+            public:
+            enum class TurnEnd { Normal, Patient, Snappy };
+            FrameType getType() const override { return FrameType::CONTROL; }
+            std::shared_ptr<Frame> clone() const override { return std::make_shared<TurnPolicyFrame>(*this); }
+
+            TurnEnd turnEnd = TurnEnd::Normal;   // Patient: pauses don't end it (a phone number); Snappy: a quick yes
+            std::vector<std::string> hints;      // words the answer may hold
+        };
+
+        /**
          * @brief Tool call frame carrying a parsed tool invocation from the LLM.
          *        args is stored as a serialised JSON string to avoid pulling
          *        nlohmann/json into every translation unit that includes Frame.h.

@@ -38,4 +38,15 @@ message Expectation {
   optional int32 follow_up_listen_ms = 10;   // how long the mic stays open after the question (0: close, -1: never)
   Keyboard keyboard = 11;
   optional bool secure_entry = 12;    // the app hides what's typed: a card number
+  // When the answer is over. Unset: PATIENT for DIGITS and an EMAIL keyboard, SNAPPY for YES_NO
+  // and CONFIRMATION, else the engine's turn-taking.
+  TurnEnd turn_end = 13;
+  repeated string hints = 14;         // words the answer may hold, for the speech recognizer; added to those derived
+
+  enum TurnEnd {
+    TURN_END_UNSET = 0;
+    NORMAL = 1;     // the engine's turn-taking
+    PATIENT = 2;    // pauses don't end it ("five five five... one two three"): silence decides, held longer
+    SNAPPY = 3;     // short answers: ends sooner after the user stops
+  }
 }

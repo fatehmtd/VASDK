@@ -453,6 +453,16 @@ void DialogProcessor::speak(const Reply& reply, bool filler) {
     if (const int noInputMs = reply.expectsReply ? _noInputMs : 0; noInputMs > 0)
         window->atLeastMs = noInputMs + kNoInputReplyMarginMs;
     if (!filler) pushUpstream(window);
+    if (!filler) {   // how to listen for the answer; a reply that asks nothing resets it
+        auto policy = std::make_shared<transport::TurnPolicyFrame>();
+        using TurnEnd = transport::TurnPolicyFrame::TurnEnd;
+        const auto turnEnd = reply.expectsReply ? reply.expectation.turn_end() : vasdk::flow::Expectation::NORMAL;
+        policy->turnEnd = turnEnd == vasdk::flow::Expectation::PATIENT ? TurnEnd::Patient
+                        : turnEnd == vasdk::flow::Expectation::SNAPPY  ? TurnEnd::Snappy
+                                                                        : TurnEnd::Normal;
+        if (reply.expectsReply) policy->hints.assign(reply.expectation.hints().begin(), reply.expectation.hints().end());
+        pushUpstream(policy);
+    }
     // A frame per part: a part that can't be interrupted, or has SSML, is spoken on its own.
     const auto& segments = reply.segments;
     for (size_t i = 0; i < segments.size(); ++i) {

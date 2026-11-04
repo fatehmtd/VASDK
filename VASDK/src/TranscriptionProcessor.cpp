@@ -66,6 +66,7 @@ namespace va {
             switch (frame->getType()) {
             case transport::FrameType::AUDIO:
             case transport::FrameType::VAD_STATE:
+            case transport::FrameType::CONTROL:   // TurnPolicyFrame, going up
             return true;
             default:
             return false;
@@ -265,6 +266,12 @@ namespace va {
 
         void TranscriptionFrameProcessor::processFrame(std::shared_ptr<transport::Frame> frame, FlowDirection direction) {
             VASDK_CTRACK_NAME("STT::processFrame");
+            if (direction == FlowDirection::UPSTREAM) {   // words the next answer may hold
+                if (auto policy = std::dynamic_pointer_cast<transport::TurnPolicyFrame>(frame); policy && _transcriptionProvider)
+                    _transcriptionProvider->setContextHints(policy->hints);
+                pushUpstream(frame);
+                return;
+            }
             if (direction == FlowDirection::DOWNSTREAM) {
                 switch (frame->getType()) {
                 case transport::FrameType::AUDIO: {

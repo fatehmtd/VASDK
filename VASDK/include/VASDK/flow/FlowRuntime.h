@@ -228,6 +228,7 @@ private:
     Outcome run(const google::protobuf::RepeatedPtrField<vasdk::flow::Step>& steps, Reply& reply);
     Outcome callTool(const vasdk::flow::CallTool& call, Reply& reply);
     const nlu::NluResult& understanding();
+    void listenFor(Reply& reply) const;
     TimePoint now() const;
     bool conversationActive() const { return started() && !_ended; }
     void enterStartQuietly(Reply& reply, const std::string& reason);

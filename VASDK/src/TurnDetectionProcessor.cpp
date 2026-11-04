@@ -49,6 +49,7 @@ namespace va {
             case va::transport::FrameType::TURN_STATE:
             case va::transport::FrameType::VAD_STATE:
             case va::transport::FrameType::SYNTHESIS_STATE:
+            case va::transport::FrameType::CONTROL:   // TurnPolicyFrame
             return true;
             case va::transport::FrameType::AUDIO:
             return _provider != nullptr;
@@ -67,6 +68,15 @@ namespace va {
                 frame->frameId,
                 frame->sequenceId,
                 frame->timestamp);
+
+            // How to listen for the next answer: patient, a model's guess during a pause doesn't end it.
+            if (frame->getType() == transport::FrameType::CONTROL) {
+                if (auto policy = std::dynamic_pointer_cast<transport::TurnPolicyFrame>(frame))
+                    _patient = policy->turnEnd == transport::TurnPolicyFrame::TurnEnd::Patient;
+                if (direction == FlowDirection::UPSTREAM) pushUpstream(frame);
+                else pushDownstream(frame);
+                return;
+            }
 
             // SynthesisStateFrame flows upstream - update _agentIsSpeaking and pass through.
             if (direction == FlowDirection::UPSTREAM &&
@@ -167,6 +177,14 @@ namespace va {
                 va::metrics::ScopedTimer t(_metrics.inference.get());
                 evaluation = _provider->evaluate(frame, isAgentSpeaking());
             }
+            // Patient: the speech has ended and the model still waits; the silence is the answer's end.
+            if (_patient && evaluation.decision == audio::TurnDetectionProvider::Decision::NONE &&
+                frame->getType() == transport::FrameType::VAD_STATE &&
+                std::static_pointer_cast<transport::VADStateFrame>(frame)->state == transport::VADState::ENDED) {
+                evaluation.decision = audio::TurnDetectionProvider::Decision::TURN_END;
+                evaluation.actor = transport::TurnStateFrame::TurnActor::USER;
+                evaluation.confidence = 1.0f;
+            }
             switch (evaluation.decision) {
             case audio::TurnDetectionProvider::Decision::NONE:
             // No turn event detected, do nothing
@@ -175,6 +193,10 @@ namespace va {
                 emitTurnFrame(evaluation.actor, transport::TurnStateFrame::TurnState::START, evaluation.type, evaluation.confidence);
             } break;
             case audio::TurnDetectionProvider::Decision::TURN_END: {
+                if (_patient && evaluation.actor == transport::TurnStateFrame::TurnActor::USER && _userSpeechOpen) {
+                    spdlog::debug("[{}] Patient turn: a pause isn't the end", getName());
+                    break;   // the VAD's end decides
+                }
                 emitTurnFrame(evaluation.actor, transport::TurnStateFrame::TurnState::END, evaluation.type, evaluation.confidence);
                 if (evaluation.actor == transport::TurnStateFrame::TurnActor::USER && _userSpeechOpen) {
                     // The provider called it during a pause: have the VAD close the segment now.

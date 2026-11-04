@@ -1,4 +1,5 @@
 #pragma once
+#include <optional>
 
 #include <functional>
 
@@ -64,7 +65,10 @@ namespace va {
 
             void processFrame(std::shared_ptr<transport::Frame> frame, FlowDirection direction) override;
 
-            void setConfig(const VADConfig& config) { _vadConfig = config; }
+            void setConfig(const VADConfig& config) {
+                _vadConfig = config;
+                _configuredVadConfig.reset();
+            }
             const VADConfig& getConfig() const { return _vadConfig; }
 
             void setMetricsConfig(const va::metrics::VADMetricsConfig& config);
@@ -116,6 +120,8 @@ namespace va {
 
             std::shared_ptr<audio::VADProvider> _vadProvider;
             VADConfig _vadConfig;
+            std::optional<VADConfig> _configuredVadConfig;   // before a TurnPolicyFrame changed it
+            void applyTurnPolicy(transport::TurnPolicyFrame::TurnEnd turnEnd);
             struct Metrics {
                 va::metrics::VADMetricsConfig config;
                 va::metrics::SamplerHandle    inference;    // inference latency ms

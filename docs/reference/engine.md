@@ -104,6 +104,14 @@ engine->addListener([](const vasdk::engine::Event& event) {
 
 Listeners run in order on one engine thread, never a pipeline thread, so a slow listener can't stall the audio. Keep them quick anyway: if they fall more than 1024 events behind, the oldest are dropped with a warning. A listener that throws is logged and the others still run. `removeListener(id)` takes one off; listeners can be added before or after `start()`.
 
+## Listening for the answer
+
+With an agent, every question tells the pipeline how to listen for its answer: a `TurnPolicyFrame` goes upstream with the reply.
+- The VAD and the turn detector use its turn end: patient for a phone number said with pauses, snappy for a quick yes.
+- The speech recognizer gets the words to expect, through `GenericTranscriptionProvider::setContextHints`. That is a no-op by default; Soniox implements it.
+
+See [Expected input](flows.md#expected-input).
+
 ## Transports
 
 `Options::transport` is any `va::transport::AudioTransport`: `LocalTransport` (mic and speaker) or `WebRtcTransport` (a browser). The engine sets its audio formats, frame size and ring buffer, starts it in `start()`, and stops it in `stop()`. Set `Options::sendAllFramesToTransport` when the other end shows the agent's state (the WebRTC demo page does); otherwise only speech audio is sent.

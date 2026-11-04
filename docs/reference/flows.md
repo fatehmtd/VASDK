@@ -136,6 +136,8 @@ slots { name: "card" type: STRING prompt: "Please type or say your card number."
 | `min_digits`, `max_digits` | With `DIGITS`: fewer digits than `min_digits` is a partial answer, reprompted with `partial_reprompt` (default: "I only got 4 digits." and the question); it counts as a miss. On a `STRING` slot the answer is read as its digits, said or written ("it's 4111 1111…" → `4111111…`), and must have between `min_digits` and `max_digits`. |
 | `no_input_ms`, `max_reprompts` | The no-input timer and the misses allowed, for this question, before the page's settings (and, on a form, the goal's `max_reprompts`). |
 | `follow_up_listen_ms` | How long the mic stays open after the question (see below). |
+| `turn_end` | When the answer is over. `PATIENT`: pauses don't end it, so "five five five... one two three... four five six seven" stays one turn (the VAD holds pauses twice as long, at least 1 s, and the end at least 1.5 s; the turn model's guess during a pause is ignored). `SNAPPY`: ends sooner after the user stops (at most 300 ms). `NORMAL`: the engine's turn-taking. Unset: `PATIENT` for `DIGITS` and an `EMAIL` keyboard, `SNAPPY` for `YES_NO` and `CONFIRMATION`. |
+| `hints` | Words the answer may hold, for the speech recognizer. Added to those derived: the choices' labels, the asked slot's values and synonyms, and the page's intent examples (up to 50). Recognizers that can be biased use them for the next answer; Soniox sends them as its `context` terms. |
 
 **Tapping a choice.** `Session::selectChoice(index)` (from 0) taps one of the last reply's choices, the same as saying its value; `vasdk_agentc chat` taps with `#1`, and test cases with `choice: 0`.
 
@@ -623,4 +625,4 @@ $ vasdk_agentc try agents/garage-menu/agent.txtpb --entity @sys.phone "five five
 
 ## Not yet
 
-These come in later milestones: expectations that tune the speech recogniser (phrase hints) and end-of-turn detection (waiting through pauses in a phone number), arithmetic and dates in expressions (`days_until`, `now`), filters in replies (`|raw`), skipping a slot ("I don't know"), sound-alike matching of names, entities built from others ("a white Toyota from 2019"), guards and before/after steps in envelopes, a different voice or speed per part, and steps, page types and envelopes written in C, Kotlin or Python.
+These come in later milestones: arithmetic and dates in expressions (`days_until`, `now`), filters in replies (`|raw`), skipping a slot ("I don't know"), sound-alike matching of names, entities built from others ("a white Toyota from 2019"), guards and before/after steps in envelopes, a different voice or speed per part, and steps, page types and envelopes written in C, Kotlin or Python.
