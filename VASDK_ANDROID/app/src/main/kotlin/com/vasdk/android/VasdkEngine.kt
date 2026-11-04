@@ -449,6 +449,17 @@ class VasdkEngine private constructor(
         }
     }
 
+    /**
+     * Fires one of the agent's triggers by its app event name (or its own), with a JSON object
+     * for `$trigger.payload`: `fireTrigger("car-ready", """{"car": "Golf"}""")`. The agent's
+     * delivery rules decide when it's said.
+     */
+    fun fireTrigger(name: String, payloadJson: String = "{}") {
+        synchronized(VasdkEngine::class.java) {
+            if (isNativeStarted) nativeFireTrigger(name, payloadJson)
+        }
+    }
+
     fun trigger() {
         synchronized(VasdkEngine::class.java) {
             if (isNativeStarted) nativeTrigger()
@@ -821,6 +832,7 @@ class VasdkEngine private constructor(
     private external fun nativeRelease()
     private external fun nativeTrigger()
     private external fun nativeResetConversation()
+    private external fun nativeFireTrigger(name: String, payloadJson: String)
     private external fun nativeSetBackchannelConfig(enabled: Boolean, pendingPlaybackMode: Int,
                                                     historyMode: Int, tailOverlapMode: Int,
                                                     duckGainDecibels: Float, duckDurationMs: Int)

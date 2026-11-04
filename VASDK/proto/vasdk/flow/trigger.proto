@@ -21,7 +21,29 @@ message TriggerSource {
     SessionStart session_start = 1;   // the conversation starts: its action replaces the start page's entry
     AppEvent app_event = 2;           // the app calls Session::fireTrigger
     Inactivity inactivity = 3;        // no user turn for after_ms while a conversation goes on
+    Schedule schedule = 4;            // at a time: daily, once, or every few minutes
+    ContextChange context_change = 5; // a condition on $context starts or stops holding: low battery, arriving home
   }
+}
+
+// When it fires. `at`: "08:00" every day, or "2026-11-09T08:00" once, local time; references are
+// filled in when it's checked ("$session.booking_date" + "T08:00": a reminder the day of a booking).
+// `every_minutes`: that often, counted from when the conversation first checks.
+message Schedule {
+  string at = 1;
+  int32 every_minutes = 2;
+}
+
+// Fires when `condition` (an expression on $context) changes: RISING when it starts holding,
+// FALLING when it stops, BOTH either way. Its first value is taken as it is, without firing.
+message ContextChange {
+  enum Edge {
+    RISING = 0;
+    FALLING = 1;
+    BOTH = 2;
+  }
+  string condition = 1;               // "$context.battery.level < 15"
+  Edge edge = 2;
 }
 
 message SessionStart {}

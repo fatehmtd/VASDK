@@ -160,6 +160,18 @@ public:
     Reply fireTrigger(const std::string& name, const google::protobuf::Struct& payload = {}, bool betweenTurns = true);
     /** Queued triggers whose moment has come, between turns (a reply has just played): one is delivered, expired ones dropped. */
     Reply deliverQueued();
+    /**
+     * Fires the schedule triggers whose time has come and the context_change triggers whose
+     * condition just changed, as fireTrigger does. Call it now and then (DialogProcessor: every
+     * second, when the agent has them). `betweenTurns` as for fireTrigger.
+     */
+    Reply checkTriggers(bool betweenTurns = true);
+    /** When the next schedule trigger is due, for an app that must wake up for it (Android's AlarmManager); none: nullopt. */
+    std::optional<std::chrono::system_clock::time_point> nextScheduledTrigger() const;
+    /** What the schedules and context conditions have seen, as JSON: save it to keep reminders across restarts. */
+    std::string triggerState() const;
+    /** Restores triggerState(); false for text it can't read. */
+    bool restoreTriggerState(const std::string& json);
     /** The inactivity triggers: name and how long without a user turn before firing it. */
     std::vector<std::pair<std::string, int>> inactivityTriggers() const;
     /** What triggers read as now: their expiry, cooldown, hourly limit and quiet hours. Default: the system clock. */
@@ -238,6 +250,7 @@ private:
     void runTriggerAction(const vasdk::flow::Trigger& trigger, Reply& reply);
     bool deliverDue(Reply& reply);
     bool answerOffer(const std::string& text, Reply& reply);
+    std::optional<TimePoint> dueAt(const vasdk::flow::Trigger& trigger, TimePoint since) const;
     const vasdk::flow::Route* matchRoute();
     const vasdk::flow::Route* matchRoute(const google::protobuf::RepeatedPtrField<vasdk::flow::Route>& routes,
                                          const google::protobuf::RepeatedPtrField<std::string>* intents);
@@ -321,6 +334,8 @@ private:
     std::optional<std::pair<std::string, google::protobuf::Struct>> _trigger;   // $trigger.name, $trigger.payload
     std::optional<Offer> _offer;
     Clock _clock;
+    std::map<std::string, TimePoint> _scheduleChecked;   // per schedule trigger: when it last fired, or was first seen
+    std::map<std::string, bool> _contextHeld;            // per context_change trigger: whether its condition held
     std::shared_ptr<const nlu::NluProvider> _nlu;
     std::optional<nlu::NluResult> _understood;   // this turn's, worked out when a route first needs it
     std::vector<std::string> _alternatives;      // intents tied for the best route this turn

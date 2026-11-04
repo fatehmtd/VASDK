@@ -75,6 +75,13 @@ public:
     const uint64_t generation;
 };
 
+// A second has passed: time to check schedule and context_change triggers.
+class TickFrame : public transport::Frame {
+public:
+    transport::FrameType getType() const override { return transport::FrameType::CONTROL; }
+    std::shared_ptr<transport::Frame> clone() const override { return std::make_shared<TickFrame>(); }
+};
+
 // fireTrigger() from an app thread, decided on the processor's own.
 class TriggerFrame : public transport::Frame {
 public:
@@ -105,6 +112,8 @@ DialogProcessor::DialogProcessor(std::shared_ptr<const CompiledAgent> agent)
     _inactivityTriggers = _conversation.inactivityTriggers();
     std::sort(_inactivityTriggers.begin(), _inactivityTriggers.end(),
               [](const auto& a, const auto& b) { return a.second < b.second; });
+    for (const auto& trigger : agent->definition().triggers())
+        _timedTriggers = _timedTriggers || trigger.source().has_schedule() || trigger.source().has_context_change();
 }
 
 void DialogProcessor::prepare(FlowRuntime& conversation) {
@@ -130,7 +139,8 @@ bool DialogProcessor::shouldProcess(std::shared_ptr<transport::Frame> frame) con
            dynamic_cast<const ReplyFrame*>(frame.get()) != nullptr ||
            dynamic_cast<const RestartFrame*>(frame.get()) != nullptr ||
            dynamic_cast<const InactivityFrame*>(frame.get()) != nullptr ||
-           dynamic_cast<const TriggerFrame*>(frame.get()) != nullptr;
+           dynamic_cast<const TriggerFrame*>(frame.get()) != nullptr ||
+           dynamic_cast<const TickFrame*>(frame.get()) != nullptr;
 }
 
 bool DialogProcessor::initialize() {
@@ -178,6 +188,7 @@ bool DialogProcessor::start() {
     }
     if (!_timerThread.joinable()) _timerThread = std::thread(&DialogProcessor::noInputTimerLoop, this);
     if (!_conversationThread.joinable()) _conversationThread = std::thread(&DialogProcessor::conversationLoop, this);
+    if (_timedTriggers) arm(_tick, 1000);
     return FrameProcessor::start();
 }
 
@@ -254,7 +265,7 @@ void DialogProcessor::noInputTimerLoop() {
     std::unique_lock<std::mutex> lock(_timerMutex);
     while (!_timerStop) {
         const Timer* next = nullptr;
-        for (const Timer* timer : {&_noInput, &_inactivity})
+        for (const Timer* timer : {&_noInput, &_inactivity, &_tick})
             if (timer->deadline && (!next || *timer->deadline < *next->deadline)) next = timer;
         if (!next) {
             _timerChanged.wait(lock);
@@ -263,10 +274,11 @@ void DialogProcessor::noInputTimerLoop() {
         const auto deadline = *next->deadline;
         const auto generation = next->generation;
         if (_timerChanged.wait_until(lock, deadline) != std::cv_status::timeout || generation != next->generation) continue;
-        const bool noInput = next == &_noInput;
-        (noInput ? _noInput : _inactivity).deadline.reset();
+        const bool noInput = next == &_noInput, tick = next == &_tick;
+        (noInput ? _noInput : tick ? _tick : _inactivity).deadline.reset();
         lock.unlock();
         if (noInput) enqueueFrame(std::make_shared<NoInputFrame>(generation), pipeline::FlowDirection::DOWNSTREAM);
+        else if (tick) enqueueFrame(std::make_shared<TickFrame>(), pipeline::FlowDirection::DOWNSTREAM);
         else enqueueFrame(std::make_shared<InactivityFrame>(generation), pipeline::FlowDirection::DOWNSTREAM);
         lock.lock();
     }
@@ -377,6 +389,16 @@ void DialogProcessor::processFrame(std::shared_ptr<transport::Frame> frame, pipe
         if (_nextInactivity >= _inactivityTriggers.size()) return;
         const std::string name = _inactivityTriggers[_nextInactivity++].first;
         post([this, name] { deliver(_conversation.fireTrigger(name), nullptr, false, true); });
+        return;
+    }
+    if (dynamic_cast<const TickFrame*>(frame.get())) {
+        arm(_tick, 1000);
+        const bool betweenTurns = !_replyPlaying && !_userSpeaking && _agentState != transport::AgentState::THINKING &&
+                                  _agentState != transport::AgentState::SPEAKING;
+        post([this, betweenTurns] {
+            auto reply = _conversation.checkTriggers(betweenTurns);
+            if (!reply.triggers.empty()) deliver(std::move(reply), nullptr, false, true);
+        });
         return;
     }
     if (auto trigger = std::dynamic_pointer_cast<TriggerFrame>(frame)) {

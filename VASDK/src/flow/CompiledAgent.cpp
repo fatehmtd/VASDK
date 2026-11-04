@@ -287,7 +287,8 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::build(vasdk::flow::Agent age
     }
     // Secrets stay in the engine config: agent files are shared, committed and sent to tools.
     forEachString(definition, "", [&](const std::string& text, const std::string& where) {
-        if (text.find("${") != std::string::npos)
+        static const std::regex environment(R"(\$\{[A-Z_][A-Z0-9_]*(:-[^}]*)?\})");   // ${ACME_KEY}; ${session.x} is a reference
+        if (std::regex_search(text, environment))
             check.error(where, "${...} reads the environment, which agent files can't: put secrets in the engine "
                                "config's security.secrets and read them in a tool header with $secrets.<name>");
         if (std::regex_search(text, secretPattern()))
@@ -857,6 +858,14 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::build(vasdk::flow::Agent age
         if (trigger.source().kind_case() == vasdk::flow::TriggerSource::KIND_NOT_SET) check.error(where, "has no source");
         if (trigger.source().has_inactivity() && trigger.source().inactivity().after_ms() <= 0)
             check.error(where, "inactivity after_ms must be more than 0");
+        if (trigger.source().has_schedule()) {
+            const auto& schedule = trigger.source().schedule();
+            if (schedule.at().empty() == (schedule.every_minutes() <= 0))
+                check.error(where, "schedule needs either at (\"08:00\", \"2026-11-09T08:00\") or every_minutes");
+            else if (!schedule.at().empty()) checkTemplate(schedule.at(), where + " schedule at");
+        }
+        if (trigger.source().has_context_change()) compileExpression(trigger.source().context_change().condition(),
+                                                                     where + " context_change condition");
         if (!trigger.condition().empty()) compileExpression(trigger.condition(), where + " condition");
         const auto& delivery = trigger.delivery();
         if (!delivery.dedupe_key().empty()) compileExpression(delivery.dedupe_key(), where + " dedupe_key");

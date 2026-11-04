@@ -130,6 +130,8 @@ private:
     std::condition_variable _timerChanged;
     Timer _noInput;
     Timer _inactivity;
+    Timer _tick;                    // every second, for schedule and context_change triggers
+    bool _timedTriggers = false;
     bool _timerStop = false;
     // The agent's inactivity triggers, shortest first; the next to fire since the user last spoke.
     std::vector<std::pair<std::string, int>> _inactivityTriggers;

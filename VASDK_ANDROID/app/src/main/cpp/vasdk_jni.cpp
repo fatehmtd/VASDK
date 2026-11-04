@@ -10,6 +10,7 @@
 #include <VASDK/engine/ProtoFileLoader.h>
 #include <VASDK/flow/CompiledAgent.h>
 #include <VASDK/llm/PromptTemplate.h>
+#include <google/protobuf/util/json_util.h>
 #include <nlohmann/json.hpp>
 #include <algorithm>
 
@@ -441,6 +442,21 @@ Java_com_vasdk_android_VasdkEngine_nativeSetBackchannelConfig(JNIEnv * /*env*/, 
     spdlog::info("[VASDK] Back-channel handling {} (playback {}, history {}, tail overlap {}, duck {} dB for {} ms)",
                  backchannel.enabled ? "on" : "off", pendingPlaybackMode, historyMode, tailOverlapMode,
                  backchannel.duckGainDecibels, backchannel.duckDurationMs);
+}
+
+//  nativeFireTrigger: one of the agent's triggers (an app event, a notification), payload as JSON
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_vasdk_android_VasdkEngine_nativeFireTrigger(JNIEnv *env, jobject /*thiz*/, jstring name, jstring payloadJson) {
+    std::lock_guard<std::mutex> lock(gSessionMutex);
+    if (!gSession) return;
+    google::protobuf::Struct payload;
+    const std::string json = jstringToStdString(env, payloadJson);
+    if (!json.empty() && !google::protobuf::util::JsonStringToMessage(json, &payload).ok()) {
+        spdlog::error("[VASDK] fireTrigger: the payload isn't a JSON object");
+        return;
+    }
+    gSession->engine->fireTrigger(jstringToStdString(env, name), payload);
 }
 
 //  nativeResetConversation

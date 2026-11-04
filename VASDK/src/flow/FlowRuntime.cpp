@@ -1083,6 +1083,99 @@ bool FlowRuntime::answerOffer(const std::string& text, Reply& reply) {
     return true;
 }
 
+// When a schedule trigger is next due after `since`: daily "HH:MM", once "YYYY-MM-DDTHH:MM"
+// (references filled in now), or every N minutes from `since`.
+std::optional<FlowRuntime::TimePoint> FlowRuntime::dueAt(const vasdk::flow::Trigger& trigger, TimePoint since) const {
+    const auto& schedule = trigger.source().schedule();
+    if (schedule.every_minutes() > 0) return since + std::chrono::minutes(schedule.every_minutes());
+    const std::string at = render(schedule.at());
+    std::tm local{};
+    const std::time_t sinceSeconds = std::chrono::system_clock::to_time_t(since);
+#ifdef _WIN32
+    localtime_s(&local, &sinceSeconds);
+#else
+    localtime_r(&sinceSeconds, &local);
+#endif
+    int year = 0, month = 0, day = 0, hour = 0, minute = 0;
+    const bool once = std::sscanf(at.c_str(), "%d-%d-%dT%d:%d", &year, &month, &day, &hour, &minute) == 5;
+    if (once) {
+        local.tm_year = year - 1900;
+        local.tm_mon = month - 1;
+        local.tm_mday = day;
+    } else if (std::sscanf(at.c_str(), "%d:%d", &hour, &minute) != 2) {
+        return std::nullopt;   // not a time (a reference not set yet)
+    }
+    local.tm_hour = hour;
+    local.tm_min = minute;
+    local.tm_sec = 0;
+    local.tm_isdst = -1;
+    auto due = std::chrono::system_clock::from_time_t(std::mktime(&local));
+    if (!once && due <= since) due += std::chrono::hours(24);   // daily: tomorrow's, once today's has passed
+    if (once && due <= since) return std::nullopt;             // once, and already past
+    return due;
+}
+
+Reply FlowRuntime::checkTriggers(bool betweenTurns) {
+    Reply reply;
+    const auto when = now();
+    for (const auto& trigger : _agent->definition().triggers()) {
+        const auto& source = trigger.source();
+        if (source.has_schedule()) {
+            const auto seen = _scheduleChecked.find(trigger.name());
+            if (seen == _scheduleChecked.end()) {   // first look: counted from now, nothing past fires
+                _scheduleChecked[trigger.name()] = when;
+                continue;
+            }
+            const auto due = dueAt(trigger, seen->second);
+            if (!due || *due > when) continue;
+            seen->second = when;
+            arbitrate(trigger, {}, betweenTurns, reply);
+        } else if (source.has_context_change()) {
+            const bool holdsNow = holds(source.context_change().condition());
+            const auto seen = _contextHeld.find(trigger.name());
+            const std::optional<bool> before = seen == _contextHeld.end() ? std::nullopt : std::optional<bool>(seen->second);
+            _contextHeld[trigger.name()] = holdsNow;
+            if (!before || *before == holdsNow) continue;   // its first value, or no change
+            const auto edge = source.context_change().edge();
+            if (edge == vasdk::flow::ContextChange::BOTH || (edge == vasdk::flow::ContextChange::RISING) == holdsNow)
+                arbitrate(trigger, {}, betweenTurns, reply);
+        }
+    }
+    if (!reply.text.empty() || reply.expectsReply) finish(reply);
+    return reply;
+}
+
+std::optional<std::chrono::system_clock::time_point> FlowRuntime::nextScheduledTrigger() const {
+    std::optional<TimePoint> next;
+    for (const auto& trigger : _agent->definition().triggers()) {
+        if (!trigger.source().has_schedule()) continue;
+        const auto seen = _scheduleChecked.find(trigger.name());
+        const auto due = dueAt(trigger, seen == _scheduleChecked.end() ? now() : seen->second);
+        if (due && (!next || *due < *next)) next = due;
+    }
+    return next;
+}
+
+std::string FlowRuntime::triggerState() const {
+    nlohmann::json state = {{"schedules", nlohmann::json::object()}, {"context", nlohmann::json::object()}};
+    for (const auto& [name, at] : _scheduleChecked)
+        state["schedules"][name] = std::chrono::duration_cast<std::chrono::milliseconds>(at.time_since_epoch()).count();
+    for (const auto& [name, held] : _contextHeld) state["context"][name] = held;
+    return state.dump();
+}
+
+bool FlowRuntime::restoreTriggerState(const std::string& json) {
+    const auto state = nlohmann::json::parse(json, nullptr, false);
+    if (state.is_discarded() || !state.is_object()) return false;
+    const auto schedules = state.value("schedules", nlohmann::json::object());
+    const auto context = state.value("context", nlohmann::json::object());
+    for (const auto& [name, at] : schedules.items())
+        if (at.is_number_integer()) _scheduleChecked[name] = TimePoint(std::chrono::milliseconds(at.get<long long>()));
+    for (const auto& [name, held] : context.items())
+        if (held.is_boolean()) _contextHeld[name] = held.get<bool>();
+    return true;
+}
+
 std::vector<std::pair<std::string, int>> FlowRuntime::inactivityTriggers() const {
     std::vector<std::pair<std::string, int>> found;
     for (const auto& trigger : _agent->definition().triggers())

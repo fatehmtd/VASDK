@@ -331,6 +331,8 @@ proactive_policy { quiet_from: "22:00" quiet_until: "07:00" max_per_hour: 4 }
 | `session_start` | When the conversation starts. Its action replaces the start page's entry: a `say` comes before the greeting, a `goto` enters another page, a `start_flow` runs a flow and then enters the start page. |
 | `app_event` | On `Session::fireTrigger(name, payload)`. `name` is the event's; without one, it's the trigger's own name. |
 | `inactivity` | After `after_ms` without a user turn, counted from the end of the last reply, while a conversation goes on. Each fires once per silence, shortest first. |
+| `schedule` | At a time: `at: "08:00"` every day; `at: "2026-11-09T08:00"` once, local time; or `every_minutes: 30`. References are filled in when it's checked: `at: "${session.booking_day}T08:00"` reminds the caller the morning of their booking. A time that passed before the first check doesn't fire. |
+| `context_change` | When `condition`, an expression on `$context`, starts holding (`edge: RISING`, the default), stops (`FALLING`) or either (`BOTH`): `"$context.battery.level < 15"`. Its first value is taken as it is. |
 
 **Actions:**
 - `say`: says it, then asks the conversation's question again, unless the reply it's added to already asks one.
@@ -353,6 +355,12 @@ proactive_policy { quiet_from: "22:00" quiet_until: "07:00" max_per_hour: 4 }
 - `cooldown_ms` drops one fired again too soon after it was said.
 - `proactive_policy` suppresses all but `CRITICAL` ones in its quiet hours (local time) and caps them at `max_per_hour`.
 - `ask_first { text: "I have an update on your order. Want to hear it?" }` asks, expecting yes or no. Yes runs the action; no gets "Okay." and the question again. Any other answer lets the offer go, and the words are a turn as usual.
+
+**Checking schedules and context.** The dialog checks `schedule` and `context_change` triggers every second, when an agent has them. `FlowRuntime::checkTriggers()` does the same by hand. An app that sleeps between conversations can do two things:
+- Keep reminders across restarts: save `triggerState()` (JSON) and give it back to `restoreTriggerState()`. A reminder that came due while the app was down is said once, when it's back.
+- Wake up when the next one is due: `nextScheduledTrigger()` (on Android, for `AlarmManager`).
+
+On Android, `VasdkEngine.fireTrigger(name, payloadJson)` fires one, from a notification listener for instance.
 
 Each fired trigger is reported in a `trigger_fired` event, with its decision: `STARTED`, `QUEUED`, `DROPPED`, `EXPIRED` or `SUPPRESSED`, and why. In `vasdk_agentc chat`, `!car-ready {"car": "Golf"}` fires one.
 
