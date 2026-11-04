@@ -85,6 +85,8 @@ message Envelope {
 //   no-match       no route understood the user ("Sorry, I can't help with that here.")
 //   no-input       the user said nothing for no_input_ms after a question (built in: the question again)
 //   tool-error     a call_tool failed: unknown, refused, timed out, or the service said no
+//   clarify        the words fit two intents equally well: "Did you mean $nlu.alternatives?"
+//                  (without a handler, the first route wins)
 //   max-reprompts  more than max_reprompts no-match or no-input in a row on a page (built in:
 //                  the no-match or no-input behaviour again)
 // The steps run, then the conversation moves to target; staying on the page with nothing asked,
@@ -119,11 +121,17 @@ message SessionParam {
   bool sensitive = 4;                  // masked in events and logs, never given to an LLM
 }
 
-// What the user wants, recognised by keyword phrases: the intent matches when the user's words
-// contain one of the examples, in order. The longest phrase found wins between intents.
+// What the user wants, recognised by its examples: the intent matches when the user's words
+// contain one of them, in order. The longest example found wins between intents.
+//  - Misspelled words still match, as speech recognition makes them: "tyres", "apointment".
+//  - An example may name entities: "book an @service for @sys.date".
+//  - Negated it doesn't match: "I don't want to book" isn't book.
+// Built in, without declaring them: sys.yes, sys.no, sys.cancel, sys.repeat, sys.help, sys.skip
+// (declaring one of those names replaces its examples).
 message Intent {
   string name = 1;
-  repeated string examples = 2;   // "book", "oil change", "talk to a person"
+  repeated string examples = 2;            // "book", "oil change", "book an @service"
+  repeated string negative_examples = 3;   // in the words, the intent doesn't match: "don't cancel"
 }
 
 // Entered with "flow:<name>": the conversation remembers where it was, and END_FLOW goes back

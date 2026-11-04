@@ -200,6 +200,8 @@ if(VASDK_ENABLE_ENGINE_CONFIG)
         ./src/flow/DialogProcessor.cpp
         ./src/flow/FlowTestRunner.cpp
         ./src/flow/Tools.cpp
+        ./src/nlu/NluProvider.cpp
+        ./src/nlu/RuleNluProvider.cpp
         ./proto/vasdk/engine/engine_config.proto
         ./proto/vasdk/engine/events.proto
         ./proto/vasdk/nlu/entity.proto
@@ -377,6 +379,9 @@ if(VASDK_BUILD_TESTS)
         add_executable(vasdk_trigger_arbiter_test tests/trigger_arbiter_test.cpp)
         target_link_libraries(vasdk_trigger_arbiter_test PRIVATE VASDK)
         add_test(NAME vasdk_trigger_arbiter COMMAND vasdk_trigger_arbiter_test)
+        add_executable(vasdk_rule_nlu_test tests/rule_nlu_test.cpp)
+        target_link_libraries(vasdk_rule_nlu_test PRIVATE VASDK)
+        add_test(NAME vasdk_rule_nlu COMMAND vasdk_rule_nlu_test)
 
         add_executable(vasdk_engine_events_test tests/engine_events_test.cpp)
         target_link_libraries(vasdk_engine_events_test PRIVATE VASDK)

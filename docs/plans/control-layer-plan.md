@@ -12,7 +12,8 @@
 > | 16 Tools & security | ✅ committed. Tools run synchronously on the conversation's own thread (not resumable steps); masking covers events and the dialog's logs, not every processor's |
 > | 5 Android on VAEngine | ✅ committed. Full protobuf (G1), NDK 28; Kotlin builds the engine config as text proto (no generated Kotlin classes). Built for arm64; not run on a device here |
 > | 17 Triggers | ✅ committed. Not in it: notification and schedule sources (23), IMMEDIATE cutting a reply already playing (it waits for the reply to end) |
-> | 18–32 | not started |
+> | 18 Smarter understanding | ✅ committed. Not in it: phonetic (sound-alike) matching (21); the cascade isn't in the engine config yet (24, with its first model stage) |
+> | 19–32 | not started |
 
 
 *Uses Google Dialogflow CX as the reference model. Definitions are proto-schema'd and written in text proto.*

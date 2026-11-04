@@ -50,7 +50,7 @@ flows {
 | Part | What it does |
 |---|---|
 | `start_flow` | The flow a conversation starts in, at its `start_page`. |
-| `intents` | What the user wants, by keyword phrase: an intent matches when the user's words contain one of its `examples`, in order, as whole words ("book" doesn't match "bookkeeping"). Case and punctuation are ignored. |
+| `intents` | What the user wants, by example: an intent matches when the user's words contain one of its `examples`, in order, as whole words ("book" doesn't match "bookkeeping"). Case and punctuation are ignored. See [Understanding](#understanding) for misspellings, entities in examples, negation and the built-in `sys.*` intents. |
 | `flows` | Named groups of pages. `target: "flow:handoff"` goes to another flow's start page, remembering where it came from: `END_FLOW` goes back (see [Shared behaviour and navigation](#shared-behaviour-and-navigation)). |
 | `pages` | `on_enter` steps run each time the conversation enters the page; `routes` are tried against each user turn while it's there. |
 | `routes` | `intent` to match, `steps` to run, then `target`: a page of this flow, `flow:<name>`, `END_FLOW`, `CURRENT_PAGE` (enter this page again) or `END_SESSION`. No target: stay on the page without entering it again, and ask its question again unless the steps asked something. |
@@ -67,6 +67,22 @@ Steps:
 | `custom` | `custom { [type.googleapis.com/acme.Points] { into: "$session.points" } }` | A step written in C++, chosen by its params' type: see [Extensions](#extensions-page-types-and-c). |
 
 Everything said in one turn is joined into one reply: a route's steps, then the `on_enter` steps of every page entered.
+
+## Understanding
+
+Intents are understood from their examples, with no model and no LLM. When several match, the longest example found wins.
+
+| What | Example |
+|---|---|
+| Speech-recognition misspellings | "cancel my apointment" matches `cancel my appointment`. Words of 4 letters or more match when at least 80% alike (an edit, or two letters swapped, in a 5-letter word); shorter ones must be exact. List entity synonyms match the same way ("tyres" is `tires`). An entity can opt out with `matching { fuzzy: false }`, or ask for more or less with `min_similarity`. |
+| Entities in examples | `examples: ["book @service"]` matches "book my tyres": the words around the entity in order, the entity anywhere in the words. Each entity counts as one word. |
+| Negation | "I don't want to cancel" doesn't match `cancel`: a negating word (not, no, never, don't, can't, ...) up to three words before the example. `negative_examples: ["don't cancel"]` rules an intent out whenever they're in the words. |
+| Built-in intents | `sys.yes`, `sys.no`, `sys.cancel`, `sys.repeat`, `sys.help` and `sys.skip` work in routes without declaring them. Declaring an intent of the same name replaces its examples. |
+| Did you mean...? | When two routes' intents fit equally well, a `clarify` handler runs. `$nlu.alternatives` lists those intents: `handlers { event: "clarify" steps { say { text: "Did you mean $nlu.alternatives?" } } }`. Without a handler, the first route wins. |
+
+`$nlu.intent` is the matched route's intent. `$nlu.confidence` (0 to 1) is how fully its example matched, and `$nlu.stage` is what understood it (`rules`). `vasdk_agentc try` shows the best three.
+
+**More stages.** `FlowRuntime::setNlu(std::make_shared<nlu::CascadeNluProvider>(stages, 0.55))` tries stages in order: the rules, then, for instance, an on-device model or an LLM. A later stage is asked only when the earlier ones aren't sure enough. `nlu::NluProvider` is the interface a stage implements.
 
 ## Rich replies
 
@@ -555,13 +571,13 @@ turns { user: "I have a flat" expect { page: "service" } }
 turns { user: "my windshield is cracked" expect { matched: false said_contains: "can't help with that" } }
 ```
 
-  Expectations: `page`, `flow`, `said` (the whole reply), `choices` (the labels offered, in order), `said_contains` (case-insensitive), `matched`, `expects_reply`, `ends_session`, `session { key: "service" value: "an oil change" }` (a param as a reply would say it), `form { key: "day" value: "tuesday" }` (a slot, or `complete`/`confirmed`/`failed`; `""` when empty), `entities { key: "service" value: "oil_change" }` (`$nlu.entities`), and `event` (`no-match`, `no-input`, `max-reprompts`). A turn with `no_input: true` is silence instead of words. `fire_trigger: "car-ready"` (with `trigger_payload`) fires a trigger instead, and `trigger_decision: QUEUED` checks what became of it. `after_ms` moves the clock on before a turn, from the case's `start_time` (local, `"2026-11-09T08:00:00"`). A turn's `tool_results` stand in for tools, and `tools_called` checks which ran. A case can set session params and context before the first turn: `session { fields { key: "tier" value { string_value: "gold" } } }`, `context { … }`. The same runs from C++ with `va::flow::runFlowTest`, and the example's cases run in `ctest` (`vasdk_agent_garage_menu`).
+  Expectations: `page`, `flow`, `said` (the whole reply), `choices` (the labels offered, in order), `said_contains` (case-insensitive), `matched`, `expects_reply`, `ends_session`, `session { key: "service" value: "an oil change" }` (a param as a reply would say it), `form { key: "day" value: "tuesday" }` (a slot, or `complete`/`confirmed`/`failed`; `""` when empty), `entities { key: "service" value: "oil_change" }` (`$nlu.entities`), and `event` (`no-match`, `no-input`, `max-reprompts`, `tool-error`, `clarify`). A turn with `no_input: true` is silence instead of words. `fire_trigger: "car-ready"` (with `trigger_payload`) fires a trigger instead, and `trigger_decision: QUEUED` checks what became of it. `after_ms` moves the clock on before a turn, from the case's `start_time` (local, `"2026-11-09T08:00:00"`). A turn's `tool_results` stand in for tools, and `tools_called` checks which ran. A case can set session params and context before the first turn: `session { fields { key: "tier" value { string_value: "gold" } } }`, `context { … }`. The same runs from C++ with `va::flow::runFlowTest`, and the example's cases run in `ctest` (`vasdk_agent_garage_menu`).
 - **`chat`** talks to the agent by typing, showing the page (and any event) after each reply, the choices offered, and the parts that can't be interrupted. An empty line is silence (no-input). `--session tier=gold` sets a session param first.
 - **`try`** shows what a sentence matches, without running the conversation:
 
 ```
 $ vasdk_agentc try agents/garage-menu/agent.txtpb "can I book a lube for the afternoon"
-intent: book (1 word)
+intent: book (score 2.00, confidence 1.00)
 @service = oil_change  spoken "an oil change"  heard "lube"  price=49  minutes=30
 @available_time = 14:00  spoken "2 PM"  heard "afternoon"
 $ vasdk_agentc try agents/garage-menu/agent.txtpb --entity @sys.phone "five five five, one two three, double four six seven"
@@ -586,4 +602,4 @@ $ vasdk_agentc try agents/garage-menu/agent.txtpb --entity @sys.phone "five five
 
 ## Not yet
 
-These come in later milestones: expectations that tune the speech recogniser (phrase hints) and end-of-turn detection (waiting through pauses in a phone number), `sys.yes`/`sys.no` as intents, arithmetic and dates in expressions (`days_until`, `now`), filters in replies (`|raw`), spoken dates and times in forms ("next Tuesday"), skipping a slot ("I don't know"), fuzzy and sound-alike matching of entity values, `@entity` inside intent examples, entities built from others ("a white Toyota from 2019"), guards and before/after steps in envelopes, numbers like "the second one" for choices, a different voice or speed per part, and steps, page types and envelopes written in C, Kotlin or Python.
+These come in later milestones: expectations that tune the speech recogniser (phrase hints) and end-of-turn detection (waiting through pauses in a phone number), arithmetic and dates in expressions (`days_until`, `now`), filters in replies (`|raw`), spoken dates and times in forms ("next Tuesday"), skipping a slot ("I don't know"), sound-alike matching of names, entities built from others ("a white Toyota from 2019"), guards and before/after steps in envelopes, numbers like "the second one" for choices, a different voice or speed per part, and steps, page types and envelopes written in C, Kotlin or Python.

@@ -4,6 +4,7 @@
 #include "Entities.h"
 #include "Expression.h"
 #include "FlowRegistry.h"
+#include "../nlu/RuleNluProvider.h"
 #include "vasdk/flow/agent.pb.h"
 
 #include <map>
@@ -60,8 +61,10 @@ public:
 
     /** A page of `from`'s flow, "flow:<name>" or "CURRENT_PAGE"; nullopt otherwise (END_SESSION too). */
     std::optional<PageRef> resolve(const std::string& target, PageRef from) const;
-    /** The word count of the intent's longest example found in `words`, in order; 0 for none. */
-    int matchIntent(const std::string& intent, const std::vector<std::string>& words) const;
+    /** Understands the user's intents from the agent's examples (and the built-in sys.* ones). */
+    std::shared_ptr<const nlu::RuleNluProvider> rules() const { return _rules; }
+    /** A declared or built-in (sys.*) intent. */
+    bool knowsIntent(const std::string& name) const;
     /** A declared session param, or nullptr. */
     const vasdk::flow::SessionParam* sessionParam(const std::string& name) const;
     /** An expression from the agent, parsed when it loaded; nullptr for text it doesn't hold. */
@@ -106,7 +109,7 @@ private:
     PageRef _startPage;
     std::map<std::string, int> _flows;
     std::vector<std::map<std::string, int>> _pages;   // per flow: page name → index
-    std::map<std::string, std::vector<std::vector<std::string>>> _intentExamples;   // split into words
+    std::shared_ptr<const nlu::RuleNluProvider> _rules;
     std::map<std::string, int> _sessionParams;                                       // name → index
     std::map<std::string, std::shared_ptr<const Expression>> _expressions;           // by source text
     std::map<std::string, int> _goals;                                               // name → index
@@ -133,6 +136,7 @@ inline constexpr const char* kEventNoMatch = "no-match";
 inline constexpr const char* kEventNoInput = "no-input";
 inline constexpr const char* kEventMaxReprompts = "max-reprompts";
 inline constexpr const char* kEventToolError = "tool-error";
+inline constexpr const char* kEventClarify = "clarify";
 
 /** "@service" → "service"; "" when it doesn't start with @. */
 VASDK_EXPORT std::string entityName(const std::string& reference);

@@ -157,10 +157,16 @@ int main() {
     {
         check(flow::splitWords("Book an Oil-Change, don't!") ==
                   std::vector<std::string>({"book", "an", "oil", "change", "don't"}), "words split");
-        const auto words = flow::splitWords("please cancel my appointment");
-        check(agent->matchIntent("cancel", words) == 3 && agent->matchIntent("book", words) == 1,
+        auto scoreOf = [&](const std::string& intent, const std::string& text) {
+            nlu::NluRequest request;
+            request.text = text;
+            request.candidates = {intent};
+            const auto understood = agent->rules()->understand(request);
+            return understood.intents.empty() ? 0.0f : understood.intents[0].score;
+        };
+        check(scoreOf("cancel", "please cancel my appointment") == 3 && scoreOf("book", "please cancel my appointment") == 1,
               "longest example scores");
-        check(agent->matchIntent("book", flow::splitWords("bookkeeping")) == 0, "whole words only");
+        check(scoreOf("book", "bookkeeping") == 0, "whole words only");
         flow::FlowRuntime conversation(agent);
         conversation.start();
         check(conversation.handleText("cancel my appointment").intent == "cancel", "longest phrase wins over route order");

@@ -1,4 +1,5 @@
 #include "flow/Entities.h"
+#include "nlu/NluProvider.h"
 
 #include <algorithm>
 #include <cctype>
@@ -304,6 +305,11 @@ std::vector<EntityMatch> EntityCatalog::matches(const std::string& name, const s
     if (!entity) return {};
     std::vector<EntityMatch> found;
     if (entity->has_list()) {
+        // Misspelled words match too ("tyres"), unless the entity says otherwise.
+        const auto& matching = entity->matching();
+        const float minSimilarity = matching.has_fuzzy() && !matching.fuzzy() ? 1.0f
+                                  : matching.has_min_similarity()           ? matching.min_similarity()
+                                                                            : 0.8f;
         std::vector<vasdk::nlu::EntityValue> declared;
         for (const auto& value : *listValues(name, dynamic, declared)) {
             std::vector<std::string> said(value.synonyms().begin(), value.synonyms().end());
@@ -312,10 +318,8 @@ std::vector<EntityMatch> EntityCatalog::matches(const std::string& name, const s
             for (const auto& phrase : said) {
                 const auto phraseWords = entityWords(phrase);
                 if (phraseWords.empty()) continue;
-                for (auto at = words.begin();
-                     (at = std::search(at, words.end(), phraseWords.begin(), phraseWords.end())) != words.end(); ++at) {
-                    auto match = matchOf(name, stringValue(value.value()), words, static_cast<size_t>(at - words.begin()),
-                                         phraseWords.size());
+                for (const auto& [start, similarity] : nlu::findPhrase(words, phraseWords, minSimilarity)) {
+                    auto match = matchOf(name, stringValue(value.value()), words, start, phraseWords.size());
                     match.spoken = value.spoken().empty() ? value.value() : value.spoken();
                     match.attributes = value.attributes();
                     found.push_back(std::move(match));

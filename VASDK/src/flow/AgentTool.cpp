@@ -1,4 +1,5 @@
 #include "flow/AgentTool.h"
+#include "nlu/RuleNluProvider.h"
 
 #include <google/protobuf/util/json_util.h>
 
@@ -135,18 +136,17 @@ int runAgentTool(int argc, char** argv, std::shared_ptr<const FlowRegistry> regi
             std::printf("%s\n", match ? describe(*match).c_str() : ("@" + entity + ": not found").c_str());
             return match ? 0 : 1;
         }
-        // The intent the longest example picks, among every intent (pages narrow this down).
-        const auto split = va::flow::splitWords(words);
-        std::string intent;
-        int best = 0;
-        for (const auto& candidate : agent->definition().intents()) {
-            const int score = agent->matchIntent(candidate.name(), split);
-            if (score > best) {
-                best = score;
-                intent = candidate.name();
-            }
+        // What the rules make of the words, among every intent (pages narrow this down).
+        va::nlu::NluRequest request;
+        request.text = words;
+        request.mentions = [&](const std::string& name) { return agent->entities().find(name, words).has_value(); };
+        const auto understood = agent->rules()->understand(request);
+        if (understood.intents.empty()) std::printf("intent: (none)\n");
+        for (size_t i = 0; i < understood.intents.size() && i < 3; ++i) {
+            const auto& match = understood.intents[i];
+            std::printf("%s %s (score %.2f, confidence %.2f)\n", i == 0 ? "intent:" : "   or:", match.intent.c_str(), match.score,
+                        match.confidence);
         }
-        std::printf("intent: %s\n", intent.empty() ? "(none)" : (intent + " (" + std::to_string(best) + (best == 1 ? " word)" : " words)")).c_str());
         for (const auto& match : agent->entities().findAll(words)) std::printf("%s\n", describe(match).c_str());
         return 0;
     }

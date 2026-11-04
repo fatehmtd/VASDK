@@ -134,7 +134,10 @@ Value TurnContext::lookup(const std::string& reference) const {
 }
 void TurnContext::set(const std::string& key, const Value& value) { _runtime.store(key, value); }
 const std::string& TurnContext::text() const { return _runtime._inputText; }
-void TurnContext::setText(std::string text) { _runtime._inputText = std::move(text); }
+void TurnContext::setText(std::string text) {
+    _runtime._inputText = std::move(text);
+    _runtime._understood.reset();
+}
 void TurnContext::say(const std::string& text) { append(_reply, text); }
 std::string TurnContext::render(const std::string& text) const { return _runtime.render(text); }
 void TurnContext::goTo(const std::string& target) { _target = target; }
@@ -252,6 +255,18 @@ Value FlowRuntime::resolve(const Path& path, bool spoken) const {
     if (root == "input" && field == "text") return stringValue(_inputText);
     if (root == "input" && field == "digit_count") return numberValue(static_cast<double>(digitCount(_inputText)));
     if (root == "nlu" && field == "intent") return _intent.empty() ? nullValue() : stringValue(_intent);
+    if (root == "nlu" && (field == "confidence" || field == "stage" || field == "alternatives")) {
+        if (!_understood) return nullValue();
+        if (field == "stage") return stringValue(_understood->stage);
+        if (field == "alternatives") {
+            Value list;
+            for (const auto& intent : _alternatives) *list.mutable_list_value()->add_values() = stringValue(intent);
+            return list;
+        }
+        for (const auto& match : _understood->intents)
+            if (match.intent == _intent) return numberValue(match.confidence);
+        return nullValue();
+    }
     if (root == "nlu" && field == "entities" && path.size() > 2) {
         const auto match = entities.find(path[2], _inputText, _dynamicEntities);
         return match ? entityField(*match, path, 3, spoken) : nullValue();
@@ -424,6 +439,8 @@ void FlowRuntime::takeTurn(const std::string& text, Reply& reply) {
     _inputText = text;
     _intent.clear();
     _entity.reset();
+    _understood.reset();
+    _alternatives.clear();
     // Envelopes written in C++, outermost first, then a page type written in C++: each may
     // answer the turn itself.
     const auto& extensions = _agent->extensions(_position);
@@ -453,6 +470,13 @@ void FlowRuntime::takeTurn(const std::string& text, Reply& reply) {
         return;
     }
     const auto* best = matchRoute();
+    if (best && _alternatives.size() > 1) {   // as likely one as another: ask which, when the agent says how
+        if (const auto* clarify = findHandler(kEventClarify)) {
+            reply.event = kEventClarify;
+            follow(runHandler(*clarify, reply), reply);
+            return;
+        }
+    }
     if (!best) {
         if (formActive()) {
             follow(repromptForm(reply), reply);
@@ -591,7 +615,6 @@ const vasdk::flow::Route* FlowRuntime::matchRoute() {
 
 const vasdk::flow::Route* FlowRuntime::matchRoute(const google::protobuf::RepeatedPtrField<vasdk::flow::Route>& routes,
                                                   const google::protobuf::RepeatedPtrField<std::string>* intents) {
-    const auto words = splitWords(_inputText);
     // A route's entity must be in the words; $entity reads it while its condition is checked.
     auto entityHolds = [this](const vasdk::flow::Route& route) {
         _entity.reset();
@@ -599,21 +622,34 @@ const vasdk::flow::Route* FlowRuntime::matchRoute(const google::protobuf::Repeat
         _entity = _agent->entities().find(entityName(route.entity()), _inputText, _dynamicEntities);
         return _entity.has_value();
     };
+    const auto& understood = understanding();
+    auto scoreOf = [&](const std::string& intent) {
+        for (const auto& match : understood.intents)
+            if (match.intent == intent) return match.score;
+        return 0.0f;
+    };
     const vasdk::flow::Route* best = nullptr;
     std::optional<EntityMatch> bestEntity;
-    int bestScore = 0;
+    float bestScore = 0;
+    std::vector<std::string> tied;   // intents as good as the best: the first route wins, or clarify
     for (const auto& route : routes) {
         if (route.intent().empty()) continue;
         if (intents && !intents->empty() && std::find(intents->begin(), intents->end(), route.intent()) == intents->end()) continue;
-        const int score = _agent->matchIntent(route.intent(), words);
-        if (score > bestScore && entityHolds(route) && holds(route.condition())) {   // ties: the first route wins
+        const float score = scoreOf(route.intent());
+        if (score <= 0 || score < bestScore) continue;
+        if (score > bestScore && entityHolds(route) && holds(route.condition())) {
             best = &route;
             bestEntity = _entity;
             bestScore = score;
+            tied = {route.intent()};
+        } else if (score == bestScore && best && route.intent() != best->intent() &&
+                   std::find(tied.begin(), tied.end(), route.intent()) == tied.end() && entityHolds(route) && holds(route.condition())) {
+            tied.push_back(route.intent());
         }
     }
     if (best) {
         _entity = bestEntity;
+        _alternatives = std::move(tied);
         return best;
     }
     for (const auto& route : routes)
@@ -799,6 +835,20 @@ FlowRuntime::Outcome FlowRuntime::callTool(const vasdk::flow::CallTool& call, Re
     }
     outcome.halted = true;
     return outcome;
+}
+
+// What the words mean, worked out once per turn: the agent's rules, or the NLU set with setNlu.
+const nlu::NluResult& FlowRuntime::understanding() {
+    if (!_understood) {
+        nlu::NluRequest request;
+        request.text = _inputText;
+        request.mentions = [this](const std::string& entity) {
+            return _agent->entities().find(entity, _inputText, _dynamicEntities).has_value();
+        };
+        const std::shared_ptr<const nlu::NluProvider> provider = _nlu ? _nlu : _agent->rules();
+        _understood = provider->understand(request);
+    }
+    return *_understood;
 }
 
 //  Triggers

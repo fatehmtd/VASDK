@@ -266,19 +266,17 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::build(vasdk::flow::Agent age
     };
 
     // Names first: targets and intents are resolved against them.
+    std::set<std::string> intentNames;
     for (int i = 0; i < definition.intents_size(); ++i) {
         const auto& intent = definition.intents(i);
         const std::string where = "intent " + (intent.name().empty() ? std::to_string(i + 1) : quoted(intent.name()));
         if (intent.name().empty()) check.error(where, "has no name");
-        else if (compiled->_intentExamples.count(intent.name())) check.error(where, "is declared twice");
-        auto& examples = compiled->_intentExamples[intent.name()];
-        for (const auto& example : intent.examples()) {
-            auto words = splitWords(example);
-            if (words.empty()) check.error(where, "example " + quoted(example) + " has no words");
-            else examples.push_back(std::move(words));
-        }
+        else if (!intentNames.insert(intent.name()).second) check.error(where, "is declared twice");
+        for (const auto& example : intent.examples())
+            if (splitWords(example).empty()) check.error(where, "example " + quoted(example) + " has no words");
         if (intent.examples().empty()) check.error(where, "has no examples");
     }
+    compiled->_rules = std::make_shared<nlu::RuleNluProvider>(definition.intents());
     for (int i = 0; i < definition.session_params_size(); ++i) {
         const auto& param = definition.session_params(i);
         const std::string where = "session param " + (param.name().empty() ? std::to_string(i + 1) : quoted(param.name()));
@@ -346,6 +344,7 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::build(vasdk::flow::Agent age
             check.error(where, "unknown entity " + quoted(reference) + " (declare it in entity_types, or use @sys.integer, "
                                                                         "@sys.number, @sys.phone, @sys.digits or @sys.yes_no)");
     };
+    for (const auto& entity : compiled->_rules->entitiesUsed()) checkEntity("@" + entity, "intent examples");
 
     // The goal whose slots $form.<slot> names: the page's form, or the goal being checked.
     const vasdk::goal::GoalDefinition* formGoal = nullptr;
@@ -370,7 +369,8 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::build(vasdk::flow::Agent age
             } else if (root == "input") {
                 known = (field == "text" || field == "digit_count") && path.size() == 2;
             } else if (root == "nlu") {
-                known = (field == "intent" && path.size() == 2) ||
+                known = ((field == "intent" || field == "confidence" || field == "stage" || field == "alternatives") &&
+                         path.size() == 2) ||
                         (field == "entities" && path.size() >= 3 && compiled->_entities.knows(path[2]));
             } else if (root == "entity") {
                 if (routeEntity.empty()) {
@@ -435,7 +435,7 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::build(vasdk::flow::Agent age
     };
     auto checkExpect = [&](const vasdk::flow::Expectation& expect, const std::string& where) {
         for (const auto& intent : expect.intents())
-            if (!compiled->_intentExamples.count(intent)) check.error(where + " expect", "unknown intent " + quoted(intent));
+            if (!compiled->knowsIntent(intent)) check.error(where + " expect", "unknown intent " + quoted(intent));
         if (expect.has_min_digits() && expect.has_max_digits() && expect.min_digits() > expect.max_digits())
             check.error(where + " expect", "min_digits is more than max_digits");
         if (expect.has_no_input_ms() && expect.no_input_ms() < 0) check.error(where + " expect", "no_input_ms is negative");
@@ -666,7 +666,7 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::build(vasdk::flow::Agent age
             const std::string routeWhere = where + " route " + std::to_string(r + 1);
             if (route.intent().empty() && route.entity().empty() && route.condition().empty())
                 check.error(routeWhere, "has no intent, entity or condition");
-            else if (!route.intent().empty() && !compiled->_intentExamples.count(route.intent()))
+            else if (!route.intent().empty() && !compiled->knowsIntent(route.intent()))
                 check.error(routeWhere, "unknown intent " + quoted(route.intent()));
             if (!route.entity().empty()) checkEntity(route.entity(), routeWhere);
             routeEntity = route.entity();
@@ -682,8 +682,9 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::build(vasdk::flow::Agent age
             const auto& handler = handlers.Get(h);
             const std::string handlerWhere = where + " handler " + std::to_string(h + 1);
             if (handler.event() != kEventNoMatch && handler.event() != kEventNoInput && handler.event() != kEventMaxReprompts &&
-                handler.event() != kEventToolError)
-                check.error(handlerWhere, "unknown event " + quoted(handler.event()) + " (no-match, no-input, max-reprompts or tool-error)");
+                handler.event() != kEventToolError && handler.event() != kEventClarify)
+                check.error(handlerWhere, "unknown event " + quoted(handler.event()) +
+                                              " (no-match, no-input, max-reprompts, tool-error or clarify)");
             checkSteps(handler.steps(), handlerWhere);
             checkTarget(handler.target(), handlerWhere);
         }
@@ -976,16 +977,7 @@ bool fitsType(vasdk::flow::SessionParam::Type type, const Value& value) {
     }
 }
 
-int CompiledAgent::matchIntent(const std::string& intent, const std::vector<std::string>& words) const {
-    const auto found = _intentExamples.find(intent);
-    if (found == _intentExamples.end()) return 0;
-    int best = 0;
-    for (const auto& example : found->second)
-        if (static_cast<int>(example.size()) > best &&
-            std::search(words.begin(), words.end(), example.begin(), example.end()) != words.end())
-            best = static_cast<int>(example.size());
-    return best;
-}
+bool CompiledAgent::knowsIntent(const std::string& name) const { return _rules && _rules->knows(name); }
 
 } // namespace flow
 } // namespace va

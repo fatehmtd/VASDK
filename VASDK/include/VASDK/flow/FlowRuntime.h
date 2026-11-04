@@ -165,6 +165,11 @@ public:
     /** What triggers read as now: their expiry, cooldown, hourly limit and quiet hours. Default: the system clock. */
     using Clock = std::function<std::chrono::system_clock::time_point()>;
     void setClock(Clock clock) { _clock = std::move(clock); }
+    /**
+     * What understands the user's intents: default, the agent's rules (its examples, fuzzy, with
+     * entities and negation). A CascadeNluProvider adds stages: an on-device model, an LLM.
+     */
+    void setNlu(std::shared_ptr<const nlu::NluProvider> provider) { _nlu = std::move(provider); }
     /** The current values of the sensitive slots and session params, as stored and as said. */
     std::vector<std::string> sensitiveValues() const;
     /** The value a reference resolves to now ($session.tier, $form.day, $nlu.entities.service, ...). */
@@ -222,6 +227,7 @@ private:
     std::optional<std::string> readSlot(const vasdk::goal::Slot& slot, const std::string& text) const;
     Outcome run(const google::protobuf::RepeatedPtrField<vasdk::flow::Step>& steps, Reply& reply);
     Outcome callTool(const vasdk::flow::CallTool& call, Reply& reply);
+    const nlu::NluResult& understanding();
     TimePoint now() const;
     bool conversationActive() const { return started() && !_ended; }
     void enterStartQuietly(Reply& reply, const std::string& reason);
@@ -311,6 +317,9 @@ private:
     std::optional<std::pair<std::string, google::protobuf::Struct>> _trigger;   // $trigger.name, $trigger.payload
     std::optional<Offer> _offer;
     Clock _clock;
+    std::shared_ptr<const nlu::NluProvider> _nlu;
+    std::optional<nlu::NluResult> _understood;   // this turn's, worked out when a route first needs it
+    std::vector<std::string> _alternatives;      // intents tied for the best route this turn
     std::function<void(const Reply&)> _fillerSink;
 };
 

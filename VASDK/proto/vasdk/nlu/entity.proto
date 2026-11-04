@@ -17,6 +17,13 @@ message EntityType {
   // List only: the app may replace the values for one conversation (Session::setEntityValues),
   // e.g. the appointment times still free today. The declared values are the defaults.
   bool dynamic = 20;
+  Matching matching = 21;
+}
+
+// How a list entity's values are found in the words.
+message Matching {
+  optional bool fuzzy = 1;            // misspelled words still match ("tyres" for "tires"); unset: true
+  optional float min_similarity = 2;  // how alike a word must be, 0 to 1; unset: 0.8
 }
 
 // One value of a list entity. `value` is what conditions compare and what's stored; `spoken` is
