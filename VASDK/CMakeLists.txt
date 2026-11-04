@@ -219,7 +219,18 @@ if(VASDK_ENABLE_ENGINE_CONFIG)
         ./proto/vasdk/flow/test_case.proto
         ./proto/vasdk/flow/step_outcome.proto
     )
+    # A Windows DLL exports only what's marked: the generated messages are marked VASDK_EXPORT, so
+    # apps and tests can use vasdk::flow::Agent, vasdk::engine::Event... The generated headers
+    # don't include vasdk_export.h, so every file that may include them gets it first.
+    set(_vasdk_proto_export)
+    if(WIN32 AND VASDK_LIBRARY_TYPE STREQUAL "SHARED")
+        set(_vasdk_proto_export EXPORT_MACRO VASDK_EXPORT)
+        target_compile_options(VASDK PUBLIC
+            "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/FIvasdk_export.h>"
+            "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<NOT:$<CXX_COMPILER_ID:MSVC>>>:SHELL:-include vasdk_export.h>")
+    endif()
     protobuf_generate(TARGET VASDK
+        ${_vasdk_proto_export}
         IMPORT_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/proto
         PROTOC_OUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/proto)
     target_include_directories(VASDK PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/proto>)
