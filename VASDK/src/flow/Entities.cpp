@@ -108,8 +108,10 @@ std::vector<EntityMatch> numbers(const std::string& entity, const std::vector<st
     return found;
 }
 
-// A run of 7 to 11 digits, written or said one by one ("double four" too): "5551234567".
-std::vector<EntityMatch> phones(const std::vector<std::string>& words) {
+// Runs of digits, written or said one by one ("double four" too): "5551234567". sys.phone keeps
+// the runs of 7 to 11; sys.digits any.
+std::vector<EntityMatch> digitRuns(const std::string& entity, const std::vector<std::string>& words, size_t fewest,
+                                   size_t most) {
     std::vector<EntityMatch> found;
     for (size_t i = 0; i < words.size();) {
         std::string digits;
@@ -129,7 +131,7 @@ std::vector<EntityMatch> phones(const std::vector<std::string>& words) {
             }
             repeat = 1;
         }
-        if (digits.size() >= 7 && digits.size() <= 11) found.push_back(matchOf("sys.phone", stringValue(digits), words, i, j - i));
+        if (digits.size() >= fewest && digits.size() <= most) found.push_back(matchOf(entity, stringValue(digits), words, i, j - i));
         i = j > i ? j : i + 1;
     }
     return found;
@@ -253,7 +255,7 @@ void EntityCatalog::build(const google::protobuf::RepeatedPtrField<vasdk::nlu::E
         const auto baseType = _types.find(base);
         if (!isSystem(base) && (baseType == _types.end() || baseType->second.has_derived()))
             errors.push_back(where + ": base " + inQuotes(type.derived().base()) +
-                             " must be @sys.integer, @sys.number, @sys.phone, @sys.yes_no or a list or pattern entity");
+                             " must be @sys.integer, @sys.number, @sys.phone, @sys.digits, @sys.yes_no or a list or pattern entity");
         if (type.derived().condition().empty()) continue;
         std::string parseError;
         auto condition = Expression::parse(type.derived().condition(), &parseError);
@@ -295,7 +297,8 @@ std::vector<EntityMatch> EntityCatalog::matches(const std::string& name, const s
                                                 const DynamicEntityValues& dynamic) const {
     if (name == "sys.integer") return numbers(name, words, false);
     if (name == "sys.number") return numbers(name, words, true);
-    if (name == "sys.phone") return phones(words);
+    if (name == "sys.phone") return digitRuns(name, words, 7, 11);
+    if (name == "sys.digits") return digitRuns(name, words, 1, std::string::npos);
     if (name == "sys.yes_no") return yesNo(words);
     const auto* entity = type(name);
     if (!entity) return {};
@@ -409,6 +412,12 @@ EntityMatch EntityCatalog::describe(const std::string& name, const Value& value,
         }
     }
     return match;
+}
+
+std::vector<vasdk::nlu::EntityValue> EntityCatalog::values(const std::string& name, const DynamicEntityValues& dynamic) const {
+    std::vector<vasdk::nlu::EntityValue> declared;
+    const auto* values = listValues(name, dynamic, declared);
+    return values ? *values : std::vector<vasdk::nlu::EntityValue>();
 }
 
 std::vector<std::string> EntityCatalog::spokenValues(const std::string& name, const DynamicEntityValues& dynamic) const {

@@ -26,6 +26,39 @@ constexpr const char* kNotUnderstood = "Sorry, I can't help with that here.";
 constexpr const char* kDidNotGetThat = "Sorry, I didn't get that.";
 constexpr const char* kSayYesOrNo = "Please say yes or no.";
 constexpr const char* kWhatToChange = "What would you like to change?";
+constexpr size_t kMaxSlotChoices = 5;   // a slot with more values offers no buttons
+
+using Expectation = vasdk::flow::Expectation;
+
+// The derived expectation, with the fields `given` sets in place of its own.
+Expectation merged(Expectation derived, const Expectation& given) {
+    std::vector<const google::protobuf::FieldDescriptor*> fields;
+    given.GetReflection()->ListFields(given, &fields);
+    for (const auto* field : fields)
+        if (field->is_repeated()) derived.GetReflection()->ClearField(&derived, field);
+    derived.MergeFrom(given);
+    return derived;
+}
+
+// What a form slot's answer is, from its type, then its own expect.
+Expectation slotExpectation(const vasdk::goal::Slot& slot) {
+    using Slot = vasdk::goal::Slot;
+    Expectation expectation;
+    expectation.set_mode(Expectation::SLOT);
+    expectation.set_slot(slot.name());
+    if (slot.entity().empty()) {
+        if (slot.type() == Slot::PHONE) {
+            expectation.set_mode(Expectation::DIGITS);
+            expectation.set_min_digits(7);   // as GoalState accepts: 7 or 10, or 11 starting with 1
+            expectation.set_max_digits(11);
+        }
+        if (slot.type() == Slot::PHONE || slot.type() == Slot::INTEGER || slot.type() == Slot::NUMBER)
+            expectation.set_keyboard(Expectation::NUMERIC);
+        if (slot.type() == Slot::EMAIL) expectation.set_keyboard(Expectation::EMAIL);
+        if (slot.type() == Slot::BOOLEAN) expectation.set_mode(Expectation::YES_NO);
+    }
+    return merged(std::move(expectation), slot.expect());
+}
 
 // "phone_number" → "phone number": how a slot is named when spoken.
 std::string spokenName(const std::string& name) {
@@ -64,7 +97,46 @@ std::string withoutTags(const std::string& ssml) {
     }
     return text;
 }
+// "type.googleapis.com/acme.Points" → "acme.Points".
+std::string typeName(const google::protobuf::Any& any) {
+    const auto slash = any.type_url().rfind('/');
+    return slash == std::string::npos ? any.type_url() : any.type_url().substr(slash + 1);
+}
+
+// A page's params for its C++ page type; an empty message when it takes none.
+const google::protobuf::Message& paramsOf(const CompiledAgent::PageExtensions& extensions) {
+    return extensions.params ? *extensions.params : vasdk::flow::End::default_instance();
+}
 } // namespace
+
+//  TurnContext: what C++ steps, page types and envelopes see of the conversation
+
+Value TurnContext::lookup(const std::string& reference) const {
+    const auto expression = Expression::parse(reference);
+    const Path* path = expression ? expression->reference() : nullptr;
+    return path ? _runtime.lookup(*path) : nullValue();
+}
+void TurnContext::set(const std::string& key, const Value& value) { _runtime.store(key, value); }
+const std::string& TurnContext::text() const { return _runtime._inputText; }
+void TurnContext::setText(std::string text) { _runtime._inputText = std::move(text); }
+void TurnContext::say(const std::string& text) { append(_reply, text); }
+std::string TurnContext::render(const std::string& text) const { return _runtime.render(text); }
+void TurnContext::goTo(const std::string& target) { _target = target; }
+const std::string& TurnContext::replyText() const { return _reply.text; }
+std::string TurnContext::flowName() const { return _runtime.flowName(); }
+std::string TurnContext::pageName() const { return _runtime.pageName(); }
+
+void TurnContext::ask(const std::string& question, const std::vector<vasdk::flow::Choice>& choices,
+                      const vasdk::flow::Expectation& expect) {
+    append(_reply, question);
+    _runtime._lastQuestion = question;
+    _runtime._questionChoices = choices;
+    Expectation derived;
+    derived.set_mode(choices.empty() ? Expectation::OPEN : Expectation::CHOICE);
+    _runtime._expectation = merged(std::move(derived), expect);
+    _reply.expectsReply = true;
+    _runtime.offerChoices(_reply);
+}
 
 FlowRuntime::Form::Form() = default;
 FlowRuntime::Form::Form(Form&& other) noexcept = default;
@@ -138,6 +210,7 @@ Value FlowRuntime::resolve(const Path& path, bool spoken) const {
     if (root == "page" && field == "name") return stringValue(pageName());
     if (root == "page" && field == "locals" && path.size() > 2) return fromFields(_pageLocals, path[2], 3);
     if (root == "input" && field == "text") return stringValue(_inputText);
+    if (root == "input" && field == "digit_count") return numberValue(static_cast<double>(digitCount(_inputText)));
     if (root == "nlu" && field == "intent") return _intent.empty() ? nullValue() : stringValue(_intent);
     if (root == "nlu" && field == "entities" && path.size() > 2) {
         const auto match = entities.find(path[2], _inputText, _dynamicEntities);
@@ -150,6 +223,7 @@ Value FlowRuntime::resolve(const Path& path, bool spoken) const {
         return list;
     }
     if (root == "context" && _context) return fromFields(_context(), field, 2);
+    if (root == "params" && started()) return valueAt(_agent->extensions(_position).paramsValue, path, 1);
     if (root == "form" && _form) {
         if (field == "complete") return boolValue(_form->state->isComplete());
         if (field == "confirmed") return boolValue(_form->state->isConfirmed());
@@ -175,6 +249,8 @@ void FlowRuntime::store(const std::string& key, const Value& value) {
     } else if (path.size() == 2 && path[0] == "form" && _form) {
         const auto result = _form->state->updateSlot(path[1], toText(value));
         if (!result.valid) spdlog::error("[FlowRuntime] {}: {}", key, result.errorMessage);
+    } else {   // only from C++: an agent's keys were checked when it loaded
+        spdlog::error("[FlowRuntime] can't store {}: use $session.<name>, $page.locals.<name> or, on a form page, $form.<slot>", key);
     }
 }
 
@@ -207,17 +283,61 @@ Reply FlowRuntime::start() {
     _replyCut = false;
     _stack.clear();
     moveTo(_agent->startPage(), "start", reply);
+    runAfterEnvelopes(reply);
+    finish(reply);
     return reply;
 }
 
 Reply FlowRuntime::handleText(const std::string& text) {
     Reply reply;
+    takeTurn(text, reply);
+    runAfterEnvelopes(reply);
+    finish(reply);
+    return reply;
+}
+
+Reply FlowRuntime::selectChoice(int index) {
+    if (index < 0 || static_cast<size_t>(index) >= _choices.size()) {
+        spdlog::warn("[FlowRuntime] no choice {} to select: the last reply offered {}", index, _choices.size());
+        Reply reply;
+        reply.matched = false;
+        return reply;
+    }
+    return handleText(_choices[static_cast<size_t>(index)].value);
+}
+
+// What the reply expects, and how long to listen after it: a say's own value, the question's,
+// else the page's settings, its envelopes', the flow's and the agent's.
+void FlowRuntime::finish(Reply& reply) {
+    if (reply.expectsReply) {
+        reply.expectation = _expectation;
+        if (reply.expectation.mode() == Expectation::MODE_UNSET) reply.expectation.set_mode(Expectation::OPEN);
+        _choices = reply.choices;
+    } else {
+        reply.expectation.set_mode(Expectation::NONE);
+        _choices.clear();
+    }
+    if (reply.followUpListenMs || !started()) return;
+    if (reply.expectsReply && reply.expectation.has_follow_up_listen_ms()) {
+        reply.followUpListenMs = reply.expectation.follow_up_listen_ms();
+        return;
+    }
+    for (const auto& layer : _agent->layers(_position)) {
+        if (layer.settings && layer.settings->has_follow_up_listen_ms()) {
+            reply.followUpListenMs = layer.settings->follow_up_listen_ms();
+            return;
+        }
+    }
+}
+
+void FlowRuntime::takeTurn(const std::string& text, Reply& reply) {
     if (!started() || _ended) {
         reply.pageChanges.push_back(changeTo(_agent->startPage(), started() ? "restart" : "start"));
         _position = _agent->startPage();
         _ended = false;
         _lastQuestion.clear();
-        _lastAsk = nullptr;
+        _questionChoices.clear();
+        _expectation.Clear();
         _stack.clear();
         _misses = 0;
         _form.reset();
@@ -228,34 +348,74 @@ Reply FlowRuntime::handleText(const std::string& text) {
         }
     }
 
-    _inputText = chosenValue(text);
+    _inputText = text;
     _intent.clear();
     _entity.reset();
+    // Envelopes written in C++, outermost first, then a page type written in C++: each may
+    // answer the turn itself.
+    const auto& extensions = _agent->extensions(_position);
+    for (auto envelope = extensions.envelopes.rbegin(); envelope != extensions.envelopes.rend(); ++envelope) {
+        TurnContext turn(*this, reply);
+        if (!(*envelope)->before || !(*envelope)->before(turn)) continue;
+        _replyCut = false;
+        _misses = 0;
+        follow(answered(fromContext(turn), reply), reply);
+        return;
+    }
+    _inputText = chosenValue(_inputText);
+    if (const auto* type = extensions.registeredType; type && type->onTurn) {
+        TurnContext turn(*this, reply);
+        if (type->onTurn(paramsOf(extensions), turn)) {
+            _replyCut = false;
+            _misses = 0;
+            follow(answered(fromContext(turn), reply), reply);
+            return;
+        }
+    }
     const bool answeredForm = formActive() && fillForm(_inputText);
     _replyCut = false;
     if (answeredForm) {   // an answer for the form
         _misses = 0;
         follow(advanceForm(reply), reply);
-        return reply;
+        return;
     }
     const auto* best = matchRoute();
     if (!best) {
         if (formActive()) {
             follow(repromptForm(reply), reply);
-            return reply;
+            return;
         }
         reply.matched = false;
         follow(miss(kEventNoMatch, reply), reply);
-        return reply;
+        return;
     }
     _misses = 0;
-    auto outcome = takeRoute(*best, reply);
-    // Staying on the page: the form asks for what it still needs (a cleared slot, say), and
-    // anything else asks its question again ("We're open 8 to 6." then the question).
-    if (!outcome.moves() && formActive()) outcome = advanceForm(reply);
-    else if (!outcome.moves() && !reply.expectsReply && !reply.endsSession) askAgain(reply);
-    follow(std::move(outcome), reply);
-    return reply;
+    follow(answered(takeRoute(*best, reply), reply), reply);
+}
+
+// Staying on the page after the turn was answered: the form asks for what it still needs (a
+// cleared slot, say), and anything else asks its question again ("We're open 8 to 6." then the question).
+FlowRuntime::Outcome FlowRuntime::answered(Outcome outcome, Reply& reply) {
+    if (!outcome.moves() && formActive()) return advanceForm(reply);
+    if (!outcome.moves() && !reply.expectsReply && !reply.endsSession) askAgain(reply);
+    return outcome;
+}
+
+FlowRuntime::Outcome FlowRuntime::fromContext(const TurnContext& turn) const {
+    if (turn._target.empty()) return {};
+    auto outcome = toTarget(turn._target, "goto");
+    if (!outcome.moves()) spdlog::error("[FlowRuntime] goTo: unknown target \"{}\" from page \"{}\"", turn._target, pageName());
+    return outcome;
+}
+
+// Envelopes written in C++, innermost first, once the reply is ready.
+void FlowRuntime::runAfterEnvelopes(Reply& reply) {
+    if (!started()) return;
+    for (const auto* envelope : _agent->extensions(_position).envelopes) {
+        if (!envelope->after) continue;
+        TurnContext turn(*this, reply);
+        envelope->after(turn);
+    }
 }
 
 Reply FlowRuntime::handleNoInput() {
@@ -267,17 +427,21 @@ Reply FlowRuntime::handleNoInput() {
     _entity.reset();
     reply.matched = false;
     follow(miss(kEventNoInput, reply), reply);
+    runAfterEnvelopes(reply);
+    finish(reply);
     return reply;
 }
 
 int FlowRuntime::noInputMs() const {
     if (!started() || _ended) return 0;
+    if (_expectation.has_no_input_ms()) return _expectation.no_input_ms();
     for (const auto& layer : _agent->layers(_position))
         if (layer.settings && layer.settings->has_no_input_ms()) return layer.settings->no_input_ms();
     return findHandler(kEventNoInput) ? 8000 : 0;
 }
 
 int FlowRuntime::maxReprompts() const {
+    if (_expectation.has_max_reprompts()) return _expectation.max_reprompts();
     for (const auto& layer : _agent->layers(_position))
         if (layer.settings && layer.settings->has_max_reprompts()) return layer.settings->max_reprompts();
     return 2;
@@ -321,18 +485,17 @@ void FlowRuntime::askAgain(Reply& reply) {
 }
 
 void FlowRuntime::offerChoices(Reply& reply) const {
-    if (!_lastAsk) return;
     reply.choices.clear();
-    for (const auto& choice : _lastAsk->choices())
+    for (const auto& choice : _questionChoices)
         reply.choices.push_back({choice.label(), choice.value().empty() ? choice.label() : choice.value()});
 }
 
 // The value of the choice whose label, value or synonym is the whole answer; else the answer.
 std::string FlowRuntime::chosenValue(const std::string& text) const {
-    if (!_lastAsk || _lastAsk->choices().empty()) return text;
+    if (_questionChoices.empty()) return text;
     const auto words = splitWords(text);
     auto said = [&words](const std::string& name) { return !name.empty() && splitWords(name) == words; };
-    for (const auto& choice : _lastAsk->choices()) {
+    for (const auto& choice : _questionChoices) {
         const std::string value = choice.value().empty() ? choice.label() : choice.value();
         if (said(choice.label()) || said(value) || std::any_of(choice.synonyms().begin(), choice.synonyms().end(), said))
             return value;
@@ -340,13 +503,20 @@ std::string FlowRuntime::chosenValue(const std::string& text) const {
     return text;
 }
 
+// The question's expect narrows what's matched: only its intents on the page, and no envelope
+// routes without allow_global.
 const vasdk::flow::Route* FlowRuntime::matchRoute() {
-    for (const auto& layer : _agent->layers(_position))
-        if (const auto* route = matchRoute(*layer.routes)) return route;
+    const bool global = !_expectation.has_allow_global() || _expectation.allow_global();
+    for (const auto& layer : _agent->layers(_position)) {
+        const bool own = layer.settings == nullptr;
+        if (!own && !global) continue;
+        if (const auto* route = matchRoute(*layer.routes, own ? &_expectation.intents() : nullptr)) return route;
+    }
     return nullptr;
 }
 
-const vasdk::flow::Route* FlowRuntime::matchRoute(const google::protobuf::RepeatedPtrField<vasdk::flow::Route>& routes) {
+const vasdk::flow::Route* FlowRuntime::matchRoute(const google::protobuf::RepeatedPtrField<vasdk::flow::Route>& routes,
+                                                  const google::protobuf::RepeatedPtrField<std::string>* intents) {
     const auto words = splitWords(_inputText);
     // A route's entity must be in the words; $entity reads it while its condition is checked.
     auto entityHolds = [this](const vasdk::flow::Route& route) {
@@ -360,6 +530,7 @@ const vasdk::flow::Route* FlowRuntime::matchRoute(const google::protobuf::Repeat
     int bestScore = 0;
     for (const auto& route : routes) {
         if (route.intent().empty()) continue;
+        if (intents && !intents->empty() && std::find(intents->begin(), intents->end(), route.intent()) == intents->end()) continue;
         const int score = _agent->matchIntent(route.intent(), words);
         if (score > bestScore && entityHolds(route) && holds(route.condition())) {   // ties: the first route wins
             best = &route;
@@ -417,7 +588,7 @@ void FlowRuntime::pushFrame() {
         spdlog::error("[FlowRuntime] {} flows deep: \"{}\" won't be returned to", kMaxFlowDepth, pageName());
         return;
     }
-    _stack.push_back({_position, _lastQuestion, _lastAsk, _form, _pageLocals});
+    _stack.push_back({_position, _lastQuestion, _questionChoices, _expectation, _form, _pageLocals});
 }
 
 // END_FLOW: back to the page that entered this flow, as it was, and its question again. In the
@@ -432,7 +603,8 @@ void FlowRuntime::returnFromFlow(Reply& reply) {
     reply.pageChanges.push_back(changeTo(frame.page, "return"));
     _position = frame.page;
     _lastQuestion = std::move(frame.lastQuestion);
-    _lastAsk = frame.lastAsk;
+    _questionChoices = std::move(frame.questionChoices);
+    _expectation = std::move(frame.expectation);
     _form = std::move(frame.form);
     _pageLocals = std::move(frame.pageLocals);
     _misses = 0;
@@ -446,12 +618,16 @@ FlowRuntime::Outcome FlowRuntime::run(const google::protobuf::RepeatedPtrField<v
         case vasdk::flow::Step::kSay:
             say(step.say(), reply);
             break;
-        case vasdk::flow::Step::kAsk:
+        case vasdk::flow::Step::kAsk: {
             _lastQuestion = say(step.ask().say(), reply);
-            _lastAsk = &step.ask();
+            _questionChoices.assign(step.ask().choices().begin(), step.ask().choices().end());
+            Expectation derived;
+            derived.set_mode(step.ask().choices().empty() ? Expectation::OPEN : Expectation::CHOICE);
+            _expectation = merged(std::move(derived), step.ask().expect());
             reply.expectsReply = true;
             offerChoices(reply);
             break;
+        }
         case vasdk::flow::Step::kSet:
             store(step.set().key(), evaluate(step.set().value()));
             break;
@@ -492,6 +668,15 @@ FlowRuntime::Outcome FlowRuntime::run(const google::protobuf::RepeatedPtrField<v
             outcome.ended = true;
             return outcome;
         }
+        case vasdk::flow::Step::kCustom: {
+            const auto* function = _agent->registry().step(typeName(step.custom()));
+            const auto* params = _agent->params(step.custom());
+            if (!function || !params) break;   // checked when the agent loaded
+            TurnContext turn(*this, reply);
+            (*function)(*params, turn);
+            if (auto outcome = fromContext(turn); outcome.moves()) return outcome;
+            break;
+        }
         case vasdk::flow::Step::KIND_NOT_SET:
             break;
         }
@@ -505,6 +690,7 @@ std::string FlowRuntime::say(const vasdk::flow::Say& say, Reply& reply) {
     if (text.empty()) text = withoutTags(ssml);
     append(reply, text, !say.has_interruptible() || say.interruptible(), ssml);
     if (say.has_ui()) reply.ui.MergeFrom(say.ui());
+    if (say.has_follow_up_listen_ms()) reply.followUpListenMs = say.follow_up_listen_ms();
     return text;
 }
 
@@ -528,9 +714,67 @@ std::string FlowRuntime::ask(const Texts& texts, const void* key, const std::str
     std::string question = texts.empty() ? fallback : sayOne(texts, key, reply);
     if (texts.empty()) append(reply, fallback);
     _lastQuestion = question;
-    _lastAsk = nullptr;
+    _questionChoices.clear();
+    _expectation = formExpectation();
+    if (const auto* slot = askedSlot()) reply.choices = slotChoices(*slot);
     reply.expectsReply = true;
     return question;
+}
+
+// What the form is asking for: what to change, a slot, or a yes to the read-back.
+Expectation FlowRuntime::formExpectation() const {
+    Expectation expectation;
+    if (_form->awaitingChange) {
+        expectation.set_mode(Expectation::OPEN);
+    } else if (const auto* slot = askedSlot()) {
+        expectation = slotExpectation(*slot);
+    } else if (_form->awaitingConfirmation) {
+        expectation.set_mode(Expectation::CONFIRMATION);
+    }
+    return expectation;
+}
+
+const vasdk::goal::Slot* FlowRuntime::askedSlot() const {
+    if (!_form || _form->asking.empty() || _form->awaitingChange || _form->awaitingConfirmation) return nullptr;
+    for (const auto& slot : _form->goal->slots())
+        if (slot.name() == _form->asking) return &slot;
+    return nullptr;
+}
+
+// A slot's values as buttons: its list entity's or ENUM values, when there are few.
+std::vector<ReplyChoice> FlowRuntime::slotChoices(const vasdk::goal::Slot& slot) const {
+    std::vector<ReplyChoice> choices;
+    if (!slot.entity().empty()) {
+        for (const auto& value : _agent->entities().values(entityName(slot.entity()), _dynamicEntities))
+            choices.push_back({value.spoken().empty() ? value.value() : value.spoken(), value.value()});
+    } else if (slot.type() == vasdk::goal::Slot::ENUM) {
+        for (const auto& value : slot.values()) choices.push_back({value, value});
+    }
+    if (choices.size() > kMaxSlotChoices) choices.clear();
+    return choices;
+}
+
+// The most digits said or written in a row ("five five five, one two" → 5).
+size_t FlowRuntime::digitCount(const std::string& text) const {
+    const auto run = _agent->entities().find("sys.digits", text);
+    return run ? run->value.string_value().size() : 0;
+}
+
+// The answer to the slot asked: its digits when DIGITS are expected of a plain slot, else as
+// readSlot reads it.
+std::optional<std::string> FlowRuntime::readAnswer(const vasdk::goal::Slot& slot, const std::string& text) const {
+    using Slot = vasdk::goal::Slot;
+    if (_expectation.mode() != Expectation::DIGITS || !slot.entity().empty() ||
+        (slot.type() != Slot::STRING && slot.type() != Slot::ENUM))
+        return readSlot(slot, text);
+    const auto run = _agent->entities().find("sys.digits", text);
+    if (!run) return std::nullopt;
+    const auto& digits = run->value.string_value();
+    const auto count = static_cast<int>(digits.size());
+    if ((_expectation.has_min_digits() && count < _expectation.min_digits()) ||
+        (_expectation.has_max_digits() && count > _expectation.max_digits()))
+        return std::nullopt;
+    return digits;
 }
 
 //  Forms
@@ -594,7 +838,7 @@ bool FlowRuntime::fillForm(const std::string& text) {
             const auto slot = std::find_if(form.goal->slots().begin(), form.goal->slots().end(),
                                            [&](const auto& candidate) { return candidate.name() == form.asking; });
             if (slot != form.goal->slots().end())
-                if (const auto value = readSlot(*slot, text))
+                if (const auto value = readAnswer(*slot, text))
                     used = form.state->updateSlot(form.asking, *value).valid;
         }
         used = fillNamedValues(text, false) || used;
@@ -633,7 +877,8 @@ FlowRuntime::Outcome FlowRuntime::repromptForm(Reply& reply) {
     auto& form = *_form;
     reply.matched = false;
     reply.event = kEventNoMatch;
-    const int limit = form.goal->max_reprompts() > 0 ? form.goal->max_reprompts() : maxReprompts();
+    const int limit = form.goal->max_reprompts() > 0 && !_expectation.has_max_reprompts() ? form.goal->max_reprompts()
+                                                                                          : maxReprompts();
     if (++form.reprompts > limit && !form.failed) {
         form.failed = true;
         auto outcome = conditionRoute(reply);
@@ -653,6 +898,19 @@ FlowRuntime::Outcome FlowRuntime::repromptForm(Reply& reply) {
         const auto slot = std::find_if(goal.slots().begin(), goal.slots().end(),
                                        [&](const auto& candidate) { return candidate.name() == form.asking; });
         if (slot == goal.slots().end()) return advanceForm(reply);
+        // Too few digits: say so, rather than that the answer wasn't understood.
+        const auto digits = digitCount(_inputText);
+        if (_expectation.mode() == Expectation::DIGITS && digits > 0 && _expectation.has_min_digits() &&
+            digits < static_cast<size_t>(_expectation.min_digits())) {
+            const auto& partial = slot->expect().partial_reprompt();
+            if (!partial.empty()) {
+                ask(partial, &partial, "", reply);
+                return {};
+            }
+            append(reply, "I only got " + std::to_string(digits) + (digits == 1 ? " digit." : " digits."));
+            ask(slot->prompt(), &slot->prompt(), "What's the " + spokenName(slot->name()) + "?", reply);
+            return {};
+        }
         if (!slot->reprompt().empty()) {
             ask(slot->reprompt(), &slot->reprompt(), "", reply);
         } else {
@@ -691,7 +949,8 @@ void FlowRuntime::moveTo(CompiledAgent::PageRef target, std::string reason, Repl
         const bool samePage = _position == *next;
         _position = *next;
         _lastQuestion.clear();
-        _lastAsk = nullptr;
+        _questionChoices.clear();
+        _expectation.Clear();
         _pageLocals.Clear();
         _misses = 0;
         const auto* goal = _agent->goal(_agent->page(_position).form().goal());
@@ -702,7 +961,17 @@ void FlowRuntime::moveTo(CompiledAgent::PageRef target, std::string reason, Repl
             _form->goal = goal;
             _form->state = _agent->newGoalState(goal->name());
         }
-        auto outcome = run(_agent->page(_position).on_enter(), reply);
+        // The page type's steps first, then the page's own.
+        const auto& extensions = _agent->extensions(_position);
+        Outcome outcome;
+        if (extensions.declaredType) {
+            outcome = run(extensions.declaredType->on_enter(), reply);
+        } else if (extensions.registeredType && extensions.registeredType->onEnter) {
+            TurnContext turn(*this, reply);
+            extensions.registeredType->onEnter(paramsOf(extensions), turn);
+            outcome = fromContext(turn);
+        }
+        if (!outcome.moves()) outcome = run(_agent->page(_position).on_enter(), reply);
         if (!outcome.ended && !outcome.jump && _form) {
             if (!samePage && !_inputText.empty()) fillNamedValues(_inputText, false);   // "book an oil change"
             outcome = advanceForm(reply);

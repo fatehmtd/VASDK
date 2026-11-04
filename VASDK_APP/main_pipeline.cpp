@@ -4,6 +4,7 @@
 #include <VASDK/Pipeline.h>
 #include <VASDK/VAEngine.h>
 #include <VASDK/flow/CompiledAgent.h>
+#include "GarageExtensions.h"
 #include "vasdk/engine/events.pb.h"
 #include <VASDK/llm/Tool.h>
 #include <VASDK/FrameProcessor.h>
@@ -737,7 +738,10 @@ int main(int argc, char* argv[]) {
     options.transport = io.transport;
     if (!args.agentPath.empty()) {
         std::string agentError;
-        options.agent = va::flow::CompiledAgent::load(args.agentPath, &agentError);
+        // The example agent's steps and envelopes written in C++; other agents may use the built-in ones only.
+        auto extensions = std::make_shared<va::flow::FlowRegistry>();
+        garage::registerExtensions(*extensions);
+        options.agent = va::flow::CompiledAgent::load(args.agentPath, &agentError, nullptr, extensions);
         if (!options.agent) {
             spdlog::error("{}: {}", args.agentPath, agentError);
             return -1;

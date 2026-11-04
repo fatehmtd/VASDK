@@ -42,6 +42,8 @@ struct Reply {
     std::string intent;            // the matched route's intent
     std::string event;             // no-match, no-input or max-reprompts, when the turn raised one
     bool expectsReply = false;     // the reply asks a question
+    vasdk::flow::Expectation expectation;   // what the user is expected to say next; mode NONE when nothing was asked
+    std::optional<int> followUpListenMs;    // how long the mic stays open after it, by the agent; unset: the engine's setting
     bool endsSession = false;      // the conversation ended with this reply
     std::vector<PageChange> pageChanges;
 };
@@ -59,6 +61,7 @@ struct Reply {
  * @endcode
  */
 class VASDK_EXPORT FlowRuntime {
+    friend class TurnContext;
 public:
     explicit FlowRuntime(std::shared_ptr<const CompiledAgent> agent);
 
@@ -84,6 +87,11 @@ public:
      * plain "yes" in the next turn: it's read back again. Any other answer counts as usual.
      */
     void replyInterrupted() { _replyCut = true; }
+    /**
+     * The user tapped the last reply's choice at `index` (from 0): the same as saying its value.
+     * Out of range, nothing happens: the reply is empty and not matched.
+     */
+    Reply selectChoice(int index);
 
     bool started() const { return _position.valid(); }
     bool ended() const { return _ended; }
@@ -148,7 +156,8 @@ private:
     std::optional<std::string> readSlot(const vasdk::goal::Slot& slot, const std::string& text) const;
     Outcome run(const google::protobuf::RepeatedPtrField<vasdk::flow::Step>& steps, Reply& reply);
     const vasdk::flow::Route* matchRoute();
-    const vasdk::flow::Route* matchRoute(const google::protobuf::RepeatedPtrField<vasdk::flow::Route>& routes);
+    const vasdk::flow::Route* matchRoute(const google::protobuf::RepeatedPtrField<vasdk::flow::Route>& routes,
+                                         const google::protobuf::RepeatedPtrField<std::string>* intents);
     Outcome toTarget(const std::string& target, std::string reason) const;
     Outcome takeRoute(const vasdk::flow::Route& route, Reply& reply);
     const vasdk::flow::Handler* findHandler(const std::string& event) const;
@@ -156,6 +165,16 @@ private:
     Outcome miss(const std::string& event, Reply& reply);
     Outcome runHandler(const vasdk::flow::Handler& handler, Reply& reply);
     void askAgain(Reply& reply);
+    void takeTurn(const std::string& text, Reply& reply);
+    Outcome fromContext(const TurnContext& turn) const;
+    Outcome answered(Outcome outcome, Reply& reply);
+    void runAfterEnvelopes(Reply& reply);
+    void finish(Reply& reply);
+    vasdk::flow::Expectation formExpectation() const;
+    std::vector<ReplyChoice> slotChoices(const vasdk::goal::Slot& slot) const;
+    const vasdk::goal::Slot* askedSlot() const;
+    size_t digitCount(const std::string& text) const;
+    std::optional<std::string> readAnswer(const vasdk::goal::Slot& slot, const std::string& text) const;
     void pushFrame();
     void returnFromFlow(Reply& reply);
     void follow(Outcome outcome, Reply& reply);
@@ -193,14 +212,17 @@ private:
     struct Frame {
         CompiledAgent::PageRef page;
         std::string lastQuestion;
-        const vasdk::flow::Ask* lastAsk;
+        std::vector<vasdk::flow::Choice> questionChoices;
+        vasdk::flow::Expectation expectation;
         std::optional<Form> form;
         google::protobuf::Struct pageLocals;
     };
     std::vector<Frame> _stack;
     int _misses = 0;                        // no-match and no-input in a row on this page
     std::string _lastQuestion;                              // repeated when an answer isn't understood
-    const vasdk::flow::Ask* _lastAsk = nullptr;             // the ask step behind it: its choices
+    std::vector<vasdk::flow::Choice> _questionChoices;      // its choices
+    vasdk::flow::Expectation _expectation;                  // what the last question expects; cleared on entering a page
+    std::vector<ReplyChoice> _choices;                      // the last reply's choices, for selectChoice
     bool _replyCut = false;                                 // the last reply was cut off (replyInterrupted)
     std::map<const void*, size_t> _sayCounts;               // which of a Say's (or prompt's) texts comes next
 };

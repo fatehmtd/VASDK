@@ -29,7 +29,7 @@ struct EntityMatch {
 using DynamicEntityValues = std::map<std::string, std::vector<vasdk::nlu::EntityValue>>;
 
 /** System entities, usable everywhere a declared one is: "@sys.integer" etc. */
-inline constexpr const char* kSystemEntities[] = {"sys.integer", "sys.number", "sys.phone", "sys.yes_no"};
+inline constexpr const char* kSystemEntities[] = {"sys.integer", "sys.number", "sys.phone", "sys.digits", "sys.yes_no"};
 
 /**
  * @brief An agent's entities, checked and ready to find in text.
@@ -55,6 +55,8 @@ public:
                                     const DynamicEntityValues& dynamic = {}) const;
     /** A value as if it had been said: a list value's spoken form and attributes. */
     EntityMatch describe(const std::string& name, const Value& value, const DynamicEntityValues& dynamic = {}) const;
+    /** Every value of a list entity: this conversation's for a dynamic one; empty for other kinds. */
+    std::vector<vasdk::nlu::EntityValue> values(const std::string& name, const DynamicEntityValues& dynamic = {}) const;
     /** Every value of a list entity, as replies say them. */
     std::vector<std::string> spokenValues(const std::string& name, const DynamicEntityValues& dynamic = {}) const;
 

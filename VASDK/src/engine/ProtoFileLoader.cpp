@@ -5,6 +5,7 @@
 #include <google/protobuf/io/tokenizer.h>
 #include <google/protobuf/text_format.h>
 #include <google/protobuf/util/json_util.h>
+#include <google/protobuf/util/type_resolver_util.h>
 
 #include <algorithm>
 #include <cstdlib>
@@ -33,6 +34,20 @@ public:
         errors += std::to_string(line + 1) + ":" + std::to_string(column + 1) + ": " + std::string(message);
     }
     std::string errors;
+};
+
+// Any types from `pool` first, then the types linked into the binary.
+class PoolFinder : public google::protobuf::TextFormat::Finder {
+public:
+    explicit PoolFinder(const google::protobuf::DescriptorPool* pool) : _pool(pool) {}
+    const google::protobuf::Descriptor* FindAnyType(const google::protobuf::Message& message, const std::string& prefix,
+                                                    const std::string& name) const override {
+        if (const auto* type = _pool->FindMessageTypeByName(name)) return type;
+        return Finder::FindAnyType(message, prefix, name);
+    }
+
+private:
+    const google::protobuf::DescriptorPool* _pool;
 };
 
 bool formatForPath(const std::string& path, ProtoFormat& format) {
@@ -99,17 +114,32 @@ bool expandEnvironmentVariables(const std::string& text, std::string& expanded, 
 }
 
 bool parseProto(const std::string& content, ProtoFormat format,
-                google::protobuf::Message& message, std::string* error) {
+                google::protobuf::Message& message, std::string* error,
+                const google::protobuf::DescriptorPool* anyTypes) {
     message.Clear();
     switch (format) {
     case ProtoFormat::Text: {
         TextErrorCollector collector;
         google::protobuf::TextFormat::Parser parser;
         parser.RecordErrorsTo(&collector);
+        PoolFinder finder(anyTypes);
+        if (anyTypes) parser.SetFinder(&finder);
         if (!parser.ParseFromString(content, &message)) return fail(error, collector.errors);
         return true;
     }
     case ProtoFormat::Json: {
+        if (anyTypes) {
+            // The pool holds `message`'s own type too: it falls back to the linked-in types.
+            constexpr const char* kPrefix = "type.googleapis.com";
+            std::unique_ptr<google::protobuf::util::TypeResolver> resolver(
+                google::protobuf::util::NewTypeResolverForDescriptorPool(kPrefix, anyTypes));
+            std::string binary;
+            auto status = google::protobuf::util::JsonToBinaryString(
+                resolver.get(), std::string(kPrefix) + "/" + std::string(message.GetTypeName()), content, &binary);
+            if (!status.ok()) return fail(error, std::string(status.message()));
+            if (!message.ParseFromString(binary)) return fail(error, "not a valid " + std::string(message.GetTypeName()));
+            return true;
+        }
         auto status = google::protobuf::util::JsonStringToMessage(content, &message);
         if (!status.ok()) return fail(error, std::string(status.message()));
         return true;
@@ -122,7 +152,7 @@ bool parseProto(const std::string& content, ProtoFormat format,
 }
 
 bool loadProtoFile(const std::string& path, google::protobuf::Message& message,
-                   std::string* error, bool expandEnvironment) {
+                   std::string* error, bool expandEnvironment, const google::protobuf::DescriptorPool* anyTypes) {
     ProtoFormat format;
     if (!formatForPath(path, format))
         return fail(error, path + ": unknown extension (use .txtpb, .json or .pb)");
@@ -137,7 +167,7 @@ bool loadProtoFile(const std::string& path, google::protobuf::Message& message,
     if (expandEnvironment && format != ProtoFormat::Binary
         && !expandEnvironmentVariables(content, content, &detail))
         return fail(error, path + ": " + detail);
-    if (!parseProto(content, format, message, &detail))
+    if (!parseProto(content, format, message, &detail, anyTypes))
         return fail(error, path + ":" + (format == ProtoFormat::Text ? "" : " ") + detail);
     return true;
 }

@@ -493,6 +493,14 @@ void Session::injectUserText(const std::string& text) {
     _state->userInput->inject(turn);
 }
 
+void Session::selectChoice(int index) {
+    if (!_state->dialog) {
+        spdlog::warn("{} selectChoice ignored: no agent", _state->logTag);
+        return;
+    }
+    _state->dialog->selectChoice(index);
+}
+
 void Session::interrupt() { _state->trigger->trigger(transport::TriggerType::BUTTON_PRESS); }
 
 void Session::pushToTalk(bool held) {

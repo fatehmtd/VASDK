@@ -37,6 +37,19 @@ public:
     const std::vector<vasdk::nlu::EntityValue> values;
 };
 
+// selectChoice() from an app thread, handled on the processor's own thread.
+class ChoiceFrame : public transport::Frame {
+public:
+    explicit ChoiceFrame(int index) : index(index) {}
+    transport::FrameType getType() const override { return transport::FrameType::CONTROL; }
+    std::shared_ptr<transport::Frame> clone() const override { return std::make_shared<ChoiceFrame>(index); }
+    const int index;
+};
+
+// After a question, the mic stays open past the no-input timer, so its reprompt is heard.
+// shortcut: a fixed allowance for the reprompt to start playing; measure TTS start-up if it's too short.
+constexpr int kNoInputReplyMarginMs = 2000;
+
 // The no-input timer fired, handled on the processor's own thread.
 class NoInputFrame : public transport::Frame {
 public:
@@ -56,6 +69,7 @@ bool DialogProcessor::shouldProcess(std::shared_ptr<transport::Frame> frame) con
            dynamic_cast<const ConnectionFrame*>(frame.get()) != nullptr ||
            dynamic_cast<const SessionParamFrame*>(frame.get()) != nullptr ||
            dynamic_cast<const EntityValuesFrame*>(frame.get()) != nullptr ||
+           dynamic_cast<const ChoiceFrame*>(frame.get()) != nullptr ||
            dynamic_cast<const NoInputFrame*>(frame.get()) != nullptr;
 }
 
@@ -119,6 +133,10 @@ void DialogProcessor::setEntityValues(const std::string& name, std::vector<vasdk
     enqueueFrame(std::make_shared<EntityValuesFrame>(name, std::move(values)), pipeline::FlowDirection::DOWNSTREAM);
 }
 
+void DialogProcessor::selectChoice(int index) {
+    enqueueFrame(std::make_shared<ChoiceFrame>(index), pipeline::FlowDirection::DOWNSTREAM);
+}
+
 void DialogProcessor::setContextSource(FlowRuntime::ContextSource source) {
     _contextSource = std::move(source);
     _conversation.setContextSource(_contextSource);
@@ -147,6 +165,18 @@ void DialogProcessor::processFrame(std::shared_ptr<transport::Frame> frame, pipe
         _beforeLastTurn = _conversation;
         const auto reply = _conversation.handleNoInput();
         spdlog::info("[Dialog] no input → {} on {}/{}", reply.event, _conversation.flowName(), _conversation.pageName());
+        if (_observer) _observer(reply, _conversation);
+        if (reply.endsSession) _greetingPending = true;
+        speak(reply);
+        return;
+    }
+    if (auto choice = dynamic_cast<const ChoiceFrame*>(frame.get())) {
+        disarmNoInput();
+        _beforeLastTurn = _conversation;
+        _greetingPending = false;
+        const auto reply = _conversation.selectChoice(choice->index);
+        spdlog::info("[Dialog] choice {} → {} on {}/{}", choice->index, reply.matched ? "route " + reply.intent : "not understood",
+                     _conversation.flowName(), _conversation.pageName());
         if (_observer) _observer(reply, _conversation);
         if (reply.endsSession) _greetingPending = true;
         speak(reply);
@@ -229,6 +259,13 @@ void DialogProcessor::speak(const Reply& reply) {
     _awaitingAnswer = reply.expectsReply;
     if (reply.text.empty()) return;
     _replyPlaying = true;
+    // How long the mic stays open after this reply: the agent's own setting, and at least until
+    // the no-input reprompt of a question.
+    auto window = std::make_shared<transport::FollowUpListenFrame>();
+    window->listenMs = reply.followUpListenMs;
+    if (const int noInputMs = reply.expectsReply ? _conversation.noInputMs() : 0; noInputMs > 0)
+        window->atLeastMs = noInputMs + kNoInputReplyMarginMs;
+    pushUpstream(window);
     // A frame per part: a part that can't be interrupted, or has SSML, is spoken on its own.
     const auto& segments = reply.segments;
     for (size_t i = 0; i < segments.size(); ++i) {
@@ -242,6 +279,7 @@ void DialogProcessor::speak(const Reply& reply) {
             text->isExpecting = reply.expectsReply;
             for (const auto& choice : reply.choices) text->choices.push_back({choice.label, choice.value});
             if (reply.ui.fields_size() > 0) (void)google::protobuf::util::MessageToJsonString(reply.ui, &text->uiJson);
+            text->expectBytes = reply.expectation.SerializeAsString();
         }
         pushDownstream(text);
     }

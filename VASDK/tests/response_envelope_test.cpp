@@ -135,8 +135,9 @@ int main() {
     check(reply.text == "We're open 8 to 6. Book a service or hear our hours?" && reply.choices.size() == 2,
           "the question asked again offers its choices");
     reply = conversation.handleText("Make a booking!");
-    check(conversation.pageName() == "booking" && reply.text == "Which day?" && reply.choices.empty(),
-          "a choice's synonym routes like its value");
+    check(conversation.pageName() == "booking" && reply.text == "Which day?" && reply.choices.size() == 2 &&
+              reply.choices[0].label == "monday",
+          "a choice's synonym routes like its value; the slot's few values are its choices");
 
     // Delivery feedback: "yes" to a read-back that was cut off reads it back again.
     reply = conversation.handleText("monday");

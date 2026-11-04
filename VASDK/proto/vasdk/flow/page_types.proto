@@ -1,0 +1,35 @@
+// The params of the built-in page types: menu, yes_no and end.
+//   pages { name: "main" type: "menu" params { [type.googleapis.com/vasdk.flow.MenuParams] {
+//     prompt: "Book, or hear our hours?"
+//     options { label: "Book" target: "booking" }
+//     options { label: "Hours" synonyms: ["opening times"] target: "hours" } } } }
+syntax = "proto3";
+
+package vasdk.flow;
+
+// Asks the prompt with the options as choices; naming one (its label, value or a synonym, as
+// the whole answer or within it) moves to its target. Anything else goes to the page's routes.
+message MenuParams {
+  string prompt = 1;
+  repeated MenuOption options = 2;
+}
+
+message MenuOption {
+  string label = 1;
+  string value = 2;               // what a button sends; empty: the label
+  repeated string synonyms = 3;
+  string target = 4;              // as Route.target; empty: the page's routes decide
+}
+
+// Asks a yes-or-no question and moves to yes_target or no_target. Anything else goes to the
+// page's routes.
+message YesNoParams {
+  string question = 1;
+  string yes_target = 2;
+  string no_target = 3;
+}
+
+// Says the text and ends the conversation.
+message EndParams {
+  string text = 1;
+}

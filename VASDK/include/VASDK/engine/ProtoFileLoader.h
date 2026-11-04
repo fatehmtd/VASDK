@@ -4,7 +4,7 @@
 
 #include <string>
 
-namespace google::protobuf { class Message; }
+namespace google::protobuf { class DescriptorPool; class Message; }
 namespace vasdk::engine { class EngineConfig; }
 
 namespace va {
@@ -23,18 +23,21 @@ VASDK_EXPORT bool expandEnvironmentVariables(const std::string& text, std::strin
 
 /**
  * Parses `content` into `message`. Unknown fields and type errors fail; text-format errors
- * report "line:column: message" (1-based). `Any` fields resolve against the types linked
- * into the binary, so provider options messages must be compiled in.
+ * report "line:column: message" (1-based). `Any` fields resolve against `anyTypes`, then the
+ * types linked into the binary (provider options messages are compiled in). For JSON,
+ * `anyTypes` must also hold `message`'s own type.
  */
 VASDK_EXPORT bool parseProto(const std::string& content, ProtoFormat format,
-                             google::protobuf::Message& message, std::string* error = nullptr);
+                             google::protobuf::Message& message, std::string* error = nullptr,
+                             const google::protobuf::DescriptorPool* anyTypes = nullptr);
 
 /**
  * Loads a .txtpb/.textproto/.pbtxt (text), .json or .pb/.binpb (binary) file into `message`.
  * `expandEnvironment` applies expandEnvironmentVariables() to text and JSON files first.
  */
 VASDK_EXPORT bool loadProtoFile(const std::string& path, google::protobuf::Message& message,
-                                std::string* error = nullptr, bool expandEnvironment = false);
+                                std::string* error = nullptr, bool expandEnvironment = false,
+                                const google::protobuf::DescriptorPool* anyTypes = nullptr);
 
 /** loadProtoFile() for an engine config: ${ENV} references are expanded (secrets live here). */
 VASDK_EXPORT bool loadEngineConfig(const std::string& path, vasdk::engine::EngineConfig& config,

@@ -4,12 +4,22 @@
 #include "flow/SlotExtraction.h"
 #include "goal/GoalState.h"
 
+#include <google/protobuf/compiler/importer.h>
+#include <google/protobuf/descriptor_database.h>
+#include <google/protobuf/dynamic_message.h>
+#include <google/protobuf/text_format.h>
+#include <google/protobuf/util/json_util.h>
+#include <nlohmann/json.hpp>
+#include <spdlog/spdlog.h>
+
 #include <algorithm>
 #include <cctype>
 #include <deque>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <set>
+#include <sstream>
 
 namespace va {
 namespace flow {
@@ -77,12 +87,97 @@ public:
 
 } // namespace
 
+// The types of proto_imports: the .proto files next to the agent, which may import those linked
+// into the binary (google/protobuf/*.proto, vasdk/...).
+struct CompiledAgent::ImportedTypes {
+    class Errors : public google::protobuf::compiler::MultiFileErrorCollector {
+    public:
+        void RecordError(absl::string_view file, int line, int column, absl::string_view message) override {
+            text += (text.empty() ? "" : "\n") + std::string(file) + ":" + std::to_string(line + 1) + ":" +
+                    std::to_string(column + 1) + ": " + std::string(message);
+        }
+        std::string text;
+    };
+    explicit ImportedTypes(const std::string& directory) : files(&sourceTree, &linked), merged(&linked, &files), pool(&merged) {
+        sourceTree.MapPath("", directory.empty() ? "." : directory);
+        files.RecordErrorsTo(&errors);
+    }
+    google::protobuf::compiler::DiskSourceTree sourceTree;
+    google::protobuf::DescriptorPoolDatabase linked{*google::protobuf::DescriptorPool::generated_pool()};
+    google::protobuf::compiler::SourceTreeDescriptorDatabase files;
+    google::protobuf::MergedDescriptorDatabase merged;
+    google::protobuf::DescriptorPool pool;
+    mutable google::protobuf::DynamicMessageFactory factory{&pool};   // thread-safe; GetPrototype isn't const
+    Errors errors;
+};
+
+namespace {
+
+// An Any's type, by its full name: "type.googleapis.com/acme.Points" → "acme.Points".
+std::string typeName(const google::protobuf::Any& any) {
+    const auto slash = any.type_url().rfind('/');
+    return slash == std::string::npos ? any.type_url() : any.type_url().substr(slash + 1);
+}
+
+// An agent file's proto_imports, read before the file itself can be: its params' types may be in them.
+std::vector<std::string> readProtoImports(const std::string& path) {
+    std::ifstream file(path, std::ios::binary);
+    std::stringstream buffer;
+    buffer << file.rdbuf();
+    const std::string content = buffer.str();
+    std::vector<std::string> imports;
+    const auto extension = std::filesystem::path(path).extension().string();
+    vasdk::flow::Agent agent;
+    if (extension == ".pb" || extension == ".binpb") {
+        agent.ParseFromString(content);
+    } else if (extension == ".json") {
+        const auto json = nlohmann::json::parse(content, nullptr, false);
+        for (const char* key : {"protoImports", "proto_imports"})
+            if (json.is_object() && json.contains(key) && json[key].is_array())
+                for (const auto& name : json[key])
+                    if (name.is_string()) imports.push_back(name.get<std::string>());
+        return imports;
+    } else if (content.find("proto_imports") != std::string::npos) {
+        // Params of unknown types are read as empty messages, their fields skipped.
+        class AnyAsEmpty : public google::protobuf::TextFormat::Finder {
+            const google::protobuf::Descriptor* FindAnyType(const google::protobuf::Message& message, const std::string& prefix,
+                                                            const std::string& name) const override {
+                const auto* type = Finder::FindAnyType(message, prefix, name);
+                return type ? type : vasdk::flow::End::descriptor();
+            }
+        } finder;
+        google::protobuf::TextFormat::Parser parser;
+        parser.SetFinder(&finder);
+        parser.AllowUnknownField(true);
+        class Quiet : public google::protobuf::io::ErrorCollector {
+            void RecordError(int, google::protobuf::io::ColumnNumber, absl::string_view) override {}
+        } quiet;
+        parser.RecordErrorsTo(&quiet);
+        parser.ParseFromString(content, &agent);   // errors are reported by the real parse
+    }
+    imports.assign(agent.proto_imports().begin(), agent.proto_imports().end());
+    return imports;
+}
+
+} // namespace
+
 std::shared_ptr<const CompiledAgent> CompiledAgent::load(const std::string& path, std::string* error,
-                                                         std::vector<std::string>* warnings) {
+                                                         std::vector<std::string>* warnings,
+                                                         std::shared_ptr<const FlowRegistry> registry) {
+    const auto directory = std::filesystem::path(path).parent_path();
+    std::shared_ptr<ImportedTypes> imports;
+    for (const auto& file : readProtoImports(path)) {
+        if (!imports) imports = std::make_shared<ImportedTypes>(directory.string());
+        if (!imports->pool.FindFileByName(file)) {
+            if (error)
+                *error = path + ": proto_imports " + quoted(file) + ": " +
+                         (imports->errors.text.empty() ? "not found next to the agent" : imports->errors.text);
+            return nullptr;
+        }
+    }
     vasdk::flow::Agent agent;
     // No ${ENV} expansion: secrets belong in the engine config, never in an agent.
-    if (!engine::loadProtoFile(path, agent, error)) return nullptr;
-    const auto directory = std::filesystem::path(path).parent_path();
+    if (!engine::loadProtoFile(path, agent, error, false, imports ? &imports->pool : nullptr)) return nullptr;
     for (const auto& file : agent.goal_files()) {
         vasdk::goal::GoalDefinition goal;
         std::string goalError;
@@ -92,15 +187,51 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::load(const std::string& path
         }
         *agent.add_goals() = std::move(goal);
     }
-    return compile(std::move(agent), error, warnings);
+    return build(std::move(agent), std::move(imports), std::move(registry), error, warnings);
 }
 
 std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent agent, std::string* error,
-                                                            std::vector<std::string>* warnings) {
+                                                            std::vector<std::string>* warnings,
+                                                            std::shared_ptr<const FlowRegistry> registry) {
+    return build(std::move(agent), nullptr, std::move(registry), error, warnings);
+}
+
+std::shared_ptr<const CompiledAgent> CompiledAgent::build(vasdk::flow::Agent agent, std::shared_ptr<const ImportedTypes> imports,
+                                                          std::shared_ptr<const FlowRegistry> registry, std::string* error,
+                                                          std::vector<std::string>* warnings) {
     std::shared_ptr<CompiledAgent> compiled(new CompiledAgent());
     compiled->_agent = std::move(agent);
+    compiled->_imports = std::move(imports);
+    compiled->_registry = registry ? std::move(registry) : FlowRegistry::defaults();
     const auto& definition = compiled->_agent;
+    const auto& extensions = *compiled->_registry;
     Checker check;
+
+    // A params message's type: linked into the binary, else from proto_imports.
+    auto findType = [&](const std::string& name) -> const google::protobuf::Descriptor* {
+        if (const auto* type = google::protobuf::DescriptorPool::generated_pool()->FindMessageTypeByName(name)) return type;
+        return compiled->_imports ? compiled->_imports->pool.FindMessageTypeByName(name) : nullptr;
+    };
+    // Reads an Any's params once, for every conversation to use.
+    auto readParams = [&](const google::protobuf::Any& any, const std::string& where) -> const google::protobuf::Message* {
+        if (const auto found = compiled->_params.find(&any); found != compiled->_params.end()) return found->second.get();
+        const std::string name = typeName(any);
+        const auto* type = findType(name);
+        if (!type) {
+            check.error(where, "params type " + quoted(name) + " is unknown: list its .proto in proto_imports, or link it into the app");
+            return nullptr;
+        }
+        const auto* prototype = type->file()->pool() == google::protobuf::DescriptorPool::generated_pool()
+                                    ? google::protobuf::MessageFactory::generated_factory()->GetPrototype(type)
+                                    : compiled->_imports->factory.GetPrototype(type);
+        std::shared_ptr<google::protobuf::Message> params(prototype->New());
+        if (!params->ParseFromString(any.value())) {
+            check.error(where, "params aren't a valid " + quoted(name));
+            return nullptr;
+        }
+        compiled->_params[&any] = params;
+        return params.get();
+    };
 
     // Names first: targets and intents are resolved against them.
     for (int i = 0; i < definition.intents_size(); ++i) {
@@ -131,6 +262,17 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent a
         else if (!compiled->_goals.emplace(goal.name(), i).second) check.error(where, "is declared twice");
     }
 
+    std::map<std::string, const vasdk::flow::PageType*> pageTypes;
+    for (int i = 0; i < definition.page_types_size(); ++i) {
+        const auto& type = definition.page_types(i);
+        const std::string where = "page type " + (type.name().empty() ? std::to_string(i + 1) : quoted(type.name()));
+        if (type.name().empty()) check.error(where, "has no name");
+        else if (!pageTypes.emplace(type.name(), &type).second) check.error(where, "is declared twice");
+        if (!type.params_type().empty() && !findType(type.params_type()))
+            check.error(where, "params_type " + quoted(type.params_type()) +
+                                   " is unknown: list its .proto in proto_imports, or link it into the app");
+    }
+
     {
         std::vector<std::string> entityErrors;
         compiled->_entities.build(definition.entity_types(), entityErrors);
@@ -139,13 +281,15 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent a
     auto checkEntity = [&](const std::string& reference, const std::string& where) {
         if (!compiled->_entities.knows(entityName(reference)))
             check.error(where, "unknown entity " + quoted(reference) + " (declare it in entity_types, or use @sys.integer, "
-                                                                        "@sys.number, @sys.phone or @sys.yes_no)");
+                                                                        "@sys.number, @sys.phone, @sys.digits or @sys.yes_no)");
     };
 
     // The goal whose slots $form.<slot> names: the page's form, or the goal being checked.
     const vasdk::goal::GoalDefinition* formGoal = nullptr;
     // The entity $entity reads: a route's, while its condition and steps are checked.
     std::string routeEntity;
+    // What $params reads: the params of the page being checked.
+    const google::protobuf::Descriptor* paramsType = nullptr;
 
     // References must name something that exists: a declared session param, a page field, ...
     auto checkReferences = [&](const std::vector<Path>& references, const std::string& where) {
@@ -161,7 +305,7 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent a
             } else if (root == "page") {
                 known = (field == "name" && path.size() == 2) || (field == "locals" && path.size() >= 3);
             } else if (root == "input") {
-                known = field == "text" && path.size() == 2;
+                known = (field == "text" || field == "digit_count") && path.size() == 2;
             } else if (root == "nlu") {
                 known = (field == "intent" && path.size() == 2) ||
                         (field == "entities" && path.size() >= 3 && compiled->_entities.knows(path[2]));
@@ -175,6 +319,12 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent a
                 known = path.size() == 2 && type && type->has_list();
             } else if (root == "context") {
                 known = path.size() >= 2;
+            } else if (root == "params") {
+                if (!paramsType) {
+                    check.error(where, pathText(path) + ": the page has no params");
+                    continue;
+                }
+                known = paramsType->FindFieldByName(field) != nullptr;
             } else if (root == "form") {
                 if (!formGoal) {
                     check.error(where, pathText(path) + ": the page has no form");
@@ -190,8 +340,8 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent a
             if (!known)
                 check.error(where, "unknown reference " + pathText(path) +
                                        " (use $session.<name>, $page.name, $page.locals.<name>, $input.text, "
-                                       "$nlu.intent, $nlu.entities.<entity>, $entities.<list entity>, $context.<name> "
-                                       "or, on a form page, $form.<slot>)");
+                                       "$nlu.intent, $nlu.entities.<entity>, $entities.<list entity>, $context.<name>, "
+                                       "$params.<field> or, on a form page, $form.<slot>)");
         }
     };
     auto compileExpression = [&](const std::string& text, const std::string& where) {
@@ -215,6 +365,19 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent a
         if (!templateReferences(text, references, &templateError)) check.error(where, templateError);
         checkReferences(references, where);
     };
+    auto checkListenMs = [&](const google::protobuf::int32 ms, const std::string& where) {
+        if (ms < -1) check.error(where, "follow_up_listen_ms must be -1 (never close), 0 or more");
+    };
+    auto checkExpect = [&](const vasdk::flow::Expectation& expect, const std::string& where) {
+        for (const auto& intent : expect.intents())
+            if (!compiled->_intentExamples.count(intent)) check.error(where + " expect", "unknown intent " + quoted(intent));
+        if (expect.has_min_digits() && expect.has_max_digits() && expect.min_digits() > expect.max_digits())
+            check.error(where + " expect", "min_digits is more than max_digits");
+        if (expect.has_no_input_ms() && expect.no_input_ms() < 0) check.error(where + " expect", "no_input_ms is negative");
+        if (expect.has_max_reprompts() && expect.max_reprompts() < 0) check.error(where + " expect", "max_reprompts is negative");
+        if (expect.has_follow_up_listen_ms()) checkListenMs(expect.follow_up_listen_ms(), where + " expect");
+        for (const auto& text : expect.partial_reprompt()) checkTemplate(text, where + " expect partial_reprompt");
+    };
 
     for (const auto& goal : definition.goals()) {
         const std::string where = "goal " + quoted(goal.name());
@@ -230,6 +393,7 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent a
             if (slot.name().empty()) check.error(slotWhere, "has no name");
             else if (!slotNames.insert(slot.name()).second) check.error(slotWhere, "is declared twice");
             else if (isFormStatus(slot.name())) check.error(slotWhere, "is a reserved name ($form.complete, confirmed and failed)");
+            checkExpect(slot.expect(), slotWhere);
             const bool isEnum = slot.type() == vasdk::goal::Slot::ENUM;
             if (!slot.entity().empty()) {
                 checkEntity(slot.entity(), slotWhere);
@@ -360,6 +524,7 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent a
         if (say.text().empty() && say.ssml().empty()) check.error(at, kind + " has no text");
         for (const auto& text : say.text()) checkTemplate(text, at);
         if (!say.ssml().empty()) checkTemplate(say.ssml(), at + " ssml");
+        if (say.has_follow_up_listen_ms()) checkListenMs(say.follow_up_listen_ms(), at);
     };
     using Steps = google::protobuf::RepeatedPtrField<vasdk::flow::Step>;
     std::function<void(const Steps&, const std::string&)> checkSteps = [&](const Steps& steps, const std::string& at) {
@@ -375,6 +540,7 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent a
                 for (int c = 0; c < step.ask().choices_size(); ++c)
                     if (step.ask().choices(c).label().empty())
                         check.error(stepWhere, "choice " + std::to_string(c + 1) + " has no label");
+                checkExpect(step.ask().expect(), stepWhere);
                 break;
             case vasdk::flow::Step::kSet:
                 compileExpression(step.set().value(), stepWhere + " set value");
@@ -406,6 +572,11 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent a
                 checkTarget(step.goto_().target(), stepWhere);
                 break;
             case vasdk::flow::Step::kEnd:
+                break;
+            case vasdk::flow::Step::kCustom:
+                if (readParams(step.custom(), stepWhere) && !extensions.step(typeName(step.custom())))
+                    check.error(stepWhere, "no step is registered for " + quoted(typeName(step.custom())) +
+                                               " (FlowRegistry::addStep)");
                 break;
             case vasdk::flow::Step::KIND_NOT_SET:
                 check.error(stepWhere, "is empty");
@@ -443,7 +614,8 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent a
     auto checkEnvelopeNames = [&](const google::protobuf::RepeatedPtrField<std::string>& names, const std::string& where) {
         for (const auto& name : names) {
             usedEnvelopes.insert(name);
-            if (!compiled->_envelopes.count(name)) check.error(where, "unknown envelope " + quoted(name));
+            if (!compiled->_envelopes.count(name) && !extensions.envelope(name))
+                check.error(where, "unknown envelope " + quoted(name) + " (declare it in envelope_defs, or register it with FlowRegistry::addEnvelope)");
         }
     };
 
@@ -457,6 +629,7 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent a
             check.error(where, "no_input_ms is negative");
         if (envelope.settings().has_max_reprompts() && envelope.settings().max_reprompts() < 0)
             check.error(where, "max_reprompts is negative");
+        if (envelope.settings().has_follow_up_listen_ms()) checkListenMs(envelope.settings().follow_up_listen_ms(), where);
     }
     inEnvelope = false;
     checkEnvelopeNames(definition.envelopes(), "agent envelopes");
@@ -477,6 +650,35 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent a
                 else if (!formGoal) check.error(where, "form: unknown goal " + quoted(page.form().goal()));
             }
             checkEnvelopeNames(page.envelopes(), where + " envelopes");
+            // Its type and params: the type's steps are checked on each page that uses it.
+            paramsType = nullptr;
+            const auto declared = pageTypes.find(page.type());
+            const auto* declaredType = declared == pageTypes.end() ? nullptr : declared->second;
+            const auto* registeredType = declaredType || page.type().empty() ? nullptr : extensions.pageType(page.type());
+            const std::string wanted = declaredType ? declaredType->params_type() : registeredType ? registeredType->paramsType : "";
+            if (!page.type().empty() && !declaredType && !registeredType) {
+                check.error(where, "unknown page type " + quoted(page.type()) +
+                                       " (declare it in page_types, register it with FlowRegistry::addPageType, or use menu, yes_no or end)");
+            } else if (page.has_params() && page.type().empty()) {
+                check.error(where, "has params but no type");
+            } else if (page.has_params() && wanted.empty()) {
+                check.error(where, "page type " + quoted(page.type()) + " takes no params");
+            } else if (!wanted.empty() && !page.has_params()) {
+                check.error(where, "page type " + quoted(page.type()) + " needs params of type " + quoted(wanted));
+            } else if (!wanted.empty() && typeName(page.params()) != wanted) {
+                check.error(where, "params are " + quoted(typeName(page.params())) + ", but page type " + quoted(page.type()) +
+                                       " takes " + quoted(wanted));
+            } else if (const auto* params = page.has_params() ? readParams(page.params(), where + " params") : nullptr) {
+                paramsType = params->GetDescriptor();
+                if (registeredType && registeredType->targets)
+                    for (const auto& target : registeredType->targets(*params)) checkTarget(target, where + " params");
+            }
+            if (declaredType) {
+                const std::string typeWhere = where + " (page type " + quoted(page.type()) + ")";
+                checkSteps(declaredType->on_enter(), typeWhere + " on_enter");
+                checkRoutes(declaredType->routes(), typeWhere);
+                checkHandlers(declaredType->handlers(), typeWhere);
+            }
             checkSteps(page.on_enter(), where + " on_enter");
             checkRoutes(page.routes(), where);
             checkHandlers(page.handlers(), where);
@@ -484,7 +686,7 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent a
                 return step.has_goto_() || step.has_end();
             });
             const bool sharesRoutes = !page.envelopes().empty() || !flow.envelopes().empty() || !definition.envelopes().empty();
-            if (page.routes().empty() && !leavesOnEntry && !page.has_form() && !sharesRoutes)
+            if (page.routes().empty() && !leavesOnEntry && !page.has_form() && !sharesRoutes && page.type().empty())
                 check.warn(where, "has no routes: every answer on it is not understood");
             const bool hasConditionRoute = std::any_of(page.routes().begin(), page.routes().end(), [](const auto& route) {
                 return route.intent().empty() && route.entity().empty();
@@ -494,6 +696,7 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent a
         }
     }
     formGoal = nullptr;
+    paramsType = nullptr;
     for (const auto& envelope : definition.envelope_defs())
         if (!envelope.name().empty() && !usedEnvelopes.count(envelope.name())) {
             bool extended = false;
@@ -503,16 +706,39 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent a
 
     // Each page's layers, innermost first: its own, then its envelopes, its flow's and the agent's,
     // each followed by what it extends.
+    // A page type's routes and handlers come right after the page's own; envelopes written in C++
+    // are kept apart, in the same order.
     if (check.errors.empty()) {
         compiled->_layers.resize(definition.flows_size());
+        compiled->_extensions.resize(definition.flows_size());
         for (int f = 0; f < definition.flows_size(); ++f) {
             const auto& flow = definition.flows(f);
             for (const auto& page : flow.pages()) {
+                PageExtensions pageExtensions;
                 std::vector<Layer> layers{{&page.routes(), &page.handlers(), nullptr}};
+                if (const auto declared = pageTypes.find(page.type()); declared != pageTypes.end()) {
+                    pageExtensions.declaredType = declared->second;
+                    layers.push_back({&declared->second->routes(), &declared->second->handlers(), nullptr});
+                } else if (!page.type().empty()) {
+                    pageExtensions.registeredType = extensions.pageType(page.type());
+                }
+                if (page.has_params()) {
+                    pageExtensions.params = compiled->_params.at(&page.params()).get();
+                    google::protobuf::json::PrintOptions options;
+                    options.preserve_proto_field_names = true;
+                    std::string json;
+                    if (!google::protobuf::util::MessageToJsonString(*pageExtensions.params, &json, options).ok() ||
+                        !google::protobuf::util::JsonStringToMessage(json, &pageExtensions.paramsValue).ok())
+                        spdlog::warn("[CompiledAgent] page {}: $params can't be read", page.name());
+                }
                 std::set<std::string> seen;
                 auto add = [&](const google::protobuf::RepeatedPtrField<std::string>& names) {
                     for (const auto& name : names)
                         for (std::string at = name; !at.empty() && seen.insert(at).second;) {
+                            if (!compiled->_envelopes.count(at)) {
+                                pageExtensions.envelopes.push_back(extensions.envelope(at));
+                                break;
+                            }
                             const auto& envelope = definition.envelope_defs(compiled->_envelopes.at(at));
                             layers.push_back({&envelope.routes(), &envelope.handlers(), &envelope.settings()});
                             at = envelope.extends();
@@ -522,6 +748,7 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent a
                 add(flow.envelopes());
                 add(definition.envelopes());
                 compiled->_layers[f].push_back(std::move(layers));
+                compiled->_extensions[f].push_back(std::move(pageExtensions));
             }
         }
     }
@@ -576,6 +803,11 @@ std::optional<CompiledAgent::PageRef> CompiledAgent::resolve(const std::string& 
     const auto page = _pages[from.flow].find(target);
     if (page == _pages[from.flow].end()) return std::nullopt;
     return PageRef{from.flow, page->second};
+}
+
+const google::protobuf::Message* CompiledAgent::params(const google::protobuf::Any& params) const {
+    const auto found = _params.find(&params);
+    return found == _params.end() ? nullptr : found->second.get();
 }
 
 const vasdk::flow::SessionParam* CompiledAgent::sessionParam(const std::string& name) const {

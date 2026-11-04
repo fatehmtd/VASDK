@@ -4,6 +4,8 @@ syntax = "proto3";
 
 package vasdk.engine;
 
+import "vasdk/flow/expectation.proto";
+
 message Event {
   int64 timestamp_ms = 1;   // milliseconds since the Unix epoch
   string session_id = 2;    // Session::Options::id; empty for an unnamed session
@@ -35,6 +37,7 @@ message AgentReply {
   repeated string choices = 4;  // set on the final piece: answers a UI can offer as buttons
   repeated string choice_values = 5;  // what each choice sends back with injectUserText ("" for an LLM's)
   string ui_json = 6;         // set on the final piece: an agent's `ui` for the app, as a JSON object
+  vasdk.flow.Expectation expect = 7;   // set on an agent's final piece: what to offer for the answer (a keypad)
 }
 
 // The assistant's conversation state: IDLE, LISTENING, THINKING, SPEAKING or INTERRUPTED.

@@ -1,0 +1,11 @@
+// Params of the garage agent's steps written in C++ (extensions/GarageExtensions.cpp). Listed in
+// the agent's proto_imports, so vasdk_agentc can read the agent; garage_agentc and VASDK_Pipeline
+// have the steps themselves.
+syntax = "proto3";
+
+package garage;
+
+// Makes a booking reference ("AG-4821") from the booking form's values and stores it in `into`.
+message BookingReference {
+  string into = 1;   // a set key: "$session.reference"
+}

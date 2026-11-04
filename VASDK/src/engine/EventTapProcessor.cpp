@@ -133,6 +133,8 @@ void EventTapProcessor::processFrame(std::shared_ptr<transport::Frame> frame, pi
                 reply->add_choice_values(choice.value);
             }
             reply->set_ui_json(text->uiJson);
+            if (!text->expectBytes.empty() && !reply->mutable_expect()->ParseFromString(text->expectBytes))
+                spdlog::warn("[EventTap] unreadable expectation on a reply");
             _reply.clear();
         }
         break;

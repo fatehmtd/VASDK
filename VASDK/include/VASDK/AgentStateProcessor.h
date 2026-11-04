@@ -124,7 +124,8 @@ namespace va {
              * is a new turn, no wake word or button needed; it cancels the window. When nobody speaks,
              * the agent goes IDLE (always-on: stays LISTENING), with FOLLOW_UP_WINDOW_CLOSED.
              * 0 (default): no window, as before: IDLE straight away unless always-on. -1: never closes.
-             * Thread-safe; applies from the next reply.
+             * Thread-safe; applies from the next reply. An agent's reply can set its own window
+             * (FollowUpListenFrame, sent upstream by the dialog stage), for that reply only.
              */
             void setFollowUpListenMs(int ms) { _followUpListenMs = ms; }
 
@@ -224,6 +225,7 @@ namespace va {
             bool _alwaysOn{ true };
             uint32_t _interruptTimeoutMs{ 500 };
             std::atomic<int> _followUpListenMs{ 0 };
+            transport::FollowUpListenFrame _nextReplyWindow;   // the reply being spoken's own window; under _followUpMutex
             std::atomic<bool> _pushToTalkHeld{ false };
             std::atomic<bool> _userSpeaking{ false };   // between the user's turn start and end
 

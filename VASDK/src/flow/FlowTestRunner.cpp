@@ -38,10 +38,13 @@ FlowTestResult runFlowTest(std::shared_ptr<const CompiledAgent> agent, const vas
     for (int i = 0; i < testCase.turns_size(); ++i) {
         const auto& turn = testCase.turns(i);
         const Reply reply = turn.no_input()        ? conversation.handleNoInput()
+                          : turn.has_choice()     ? conversation.selectChoice(turn.choice())
                           : turn.user().empty()   ? conversation.start()
                                                   : conversation.handleText(turn.user());
         const std::string where = "turn " + std::to_string(i + 1) + " " +
-                                  (turn.user().empty() ? std::string("(start)") : quoted(turn.user()));
+                                  (turn.has_choice()    ? "(choice " + std::to_string(turn.choice()) + ")"
+                                   : turn.user().empty() ? std::string("(start)")
+                                                         : quoted(turn.user()));
         auto fail = [&](const std::string& message) { result.failures.push_back(where + ": " + message); };
         const auto& expect = turn.expect();
         if (!expect.page().empty() && conversation.pageName() != expect.page())
@@ -73,6 +76,16 @@ FlowTestResult runFlowTest(std::shared_ptr<const CompiledAgent> agent, const vas
             for (const auto& label : expect.choices()) expected += (expected.empty() ? "" : ", ") + quoted(label);
             if (offered != expected) fail("choices are [" + offered + "], expected [" + expected + "]");
         }
+        using Expectation = vasdk::flow::Expectation;
+        if (expect.expect_mode() != Expectation::MODE_UNSET && reply.expectation.mode() != expect.expect_mode())
+            fail("expects " + Expectation::Mode_Name(reply.expectation.mode()) + ", expected " +
+                 Expectation::Mode_Name(expect.expect_mode()));
+        if (expect.keyboard() != Expectation::KEYBOARD_UNSET && reply.expectation.keyboard() != expect.keyboard())
+            fail("keyboard is " + Expectation::Keyboard_Name(reply.expectation.keyboard()) + ", expected " +
+                 Expectation::Keyboard_Name(expect.keyboard()));
+        if (expect.has_follow_up_listen_ms() && reply.followUpListenMs != expect.follow_up_listen_ms())
+            fail("follow_up_listen_ms is " + (reply.followUpListenMs ? std::to_string(*reply.followUpListenMs) : "unset") +
+                 ", expected " + std::to_string(expect.follow_up_listen_ms()));
         for (const auto& [name, expected] : expect.entities()) {
             const std::string actual = toText(conversation.lookup({"nlu", "entities", name}));
             if (actual != expected) fail("$nlu.entities." + name + " is " + quoted(actual) + ", expected " + quoted(expected));

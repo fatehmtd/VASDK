@@ -60,9 +60,10 @@ Steps:
 | Step | Example | What it does |
 |---|---|---|
 | `say` | `say { text: ["Got it.", "Okay."] }` | Speaks one text; with several, a different one each time the step runs. Also `ssml`, `interruptible` and `ui`: see [Rich replies](#rich-replies). |
-| `ask` | `ask { say { text: "Which day?" } }` | Speaks a question: the reply expects an answer (`agent_reply.expects_reply`), and the question is repeated when the answer isn't understood. `choices` offer answers as buttons. |
+| `ask` | `ask { say { text: "Which day?" } }` | Speaks a question: the reply expects an answer (`agent_reply.expects_reply`), and the question is repeated when the answer isn't understood. `choices` offer answers as buttons; `expect` says what the answer is: see [Expected input](#expected-input). |
 | `goto` | `goto { target: "confirm" }` | Moves to the target at once; the steps after it don't run. |
 | `end` | `end {}` | Ends the conversation once the reply has played. |
+| `custom` | `custom { [type.googleapis.com/acme.Points] { into: "$session.points" } }` | A step written in C++, chosen by its params' type: see [Extensions](#extensions-page-types-and-c). |
 
 Everything said in one turn is joined into one reply: a route's steps, then the `on_enter` steps of every page entered.
 
@@ -89,6 +90,42 @@ on_enter { ask { say { ssml: "<speak>Book a service <break time='300ms'/> or hea
 
 **Checked at load:** a `say` or `ask` with neither text nor SSML, a choice without a label, and the references in SSML.
 
+## Expected input
+
+Every reply says what the user is expected to say next (`Reply::expectation`, the engine's `agent_reply.expect`), so an app can show a keypad or buttons, and the agent can listen for the right thing. It's derived from the question; an `expect` on an `ask` or a form slot changes it, each field it sets replacing the derived one.
+
+| The reply | Derived expectation |
+|---|---|
+| asks nothing | `NONE` |
+| an `ask` with `choices` / without | `CHOICE` / `OPEN` |
+| a form slot | `SLOT`, named in `slot`. `PHONE`: `DIGITS` from 7 to 11 with a `NUMERIC` keyboard; `INTEGER` and `NUMBER`: `NUMERIC`; `EMAIL`: `EMAIL`; `BOOLEAN`: `YES_NO`. A slot of up to 5 values (`ENUM`, or a list entity) offers them as choices. |
+| a form's read-back / "what would you like to change?" | `CONFIRMATION` / `OPEN` |
+
+```textproto
+on_enter { ask { say { text: "Book or hear our hours?" }
+                 choices { label: "Book" value: "book" } choices { label: "Hours" value: "hours" }
+                 expect { intents: ["book", "hours"] no_input_ms: 5000 } } }
+
+slots { name: "card" type: STRING prompt: "Please type or say your card number."
+        expect { mode: DIGITS min_digits: 16 max_digits: 16 keyboard: NUMERIC secure_entry: true
+                 partial_reprompt: "I got $input.digit_count digits. Card numbers have 16." } }
+```
+
+| `expect` field | What it does |
+|---|---|
+| `mode`, `slot`, `keyboard`, `secure_entry` | For the app: what to offer for the answer (a keypad, hidden typing). |
+| `intents` | Only these intents are matched on the page while the question is open; "do you sell cars" on a book-or-hours question is not understood. Envelope routes still match. |
+| `allow_global: false` | The envelopes' routes (hours, a person) don't match either. |
+| `min_digits`, `max_digits` | With `DIGITS`: fewer digits than `min_digits` is a partial answer, reprompted with `partial_reprompt` (default: "I only got 4 digits." and the question); it counts as a miss. On a `STRING` slot the answer is read as its digits, said or written ("it's 4111 1111…" → `4111111…`), and must have between `min_digits` and `max_digits`. |
+| `no_input_ms`, `max_reprompts` | The no-input timer and the misses allowed, for this question, before the page's settings (and, on a form, the goal's `max_reprompts`). |
+| `follow_up_listen_ms` | How long the mic stays open after the question (see below). |
+
+**Tapping a choice.** `Session::selectChoice(index)` (from 0) taps one of the last reply's choices, the same as saying its value; `vasdk_agentc chat` taps with `#1`, and test cases with `choice: 0`.
+
+**How long the mic stays open after a reply.** The innermost value set wins: a `say`'s own `follow_up_listen_ms`, then the question's `expect`, then `settings { follow_up_listen_ms }` in the page's envelopes, the flow's and the agent's, then the engine's (`Session::setFollowUpListenMs`, else the config's [`activation.follow_up`](engine-config.md#activation)). `0` closes the mic at once ("Goodbye!"), `-1` never. After a question with a no-input timer, the mic stays open at least until its reprompt starts. A proactive message's own window comes with triggers (milestone 17).
+
+**Checked at load:** unknown intents in `expect`, `min_digits` above `max_digits`, negative timers, a window below `-1`, and the references in `partial_reprompt` (`$input.digit_count` is the most digits the user said in a row).
+
 ## How a turn is answered
 
 1. **Matching.** Every route on the current page is scored by the longest example of its intent found in the user's words, if its `condition` holds. The best score wins; on a tie, the first route. "cancel my appointment" picks `cancel` (three words) over `book` ("appointment", one word). When no intent route matches, the first route with only a condition that holds is taken. Only when nothing on the page matches are its envelopes' routes tried, then the flow's and the agent's: a page route always wins over a shared one, however short its example.
@@ -111,7 +148,7 @@ envelope_defs {
   routes { intent: "person" target: "flow:handoff" }
   handlers { event: "no-input"      steps { say { text: ["Are you still there?", "Hello?"] } } }
   handlers { event: "max-reprompts" steps { say { text: "Let me get someone." } } target: "flow:handoff" }
-  settings { no_input_ms: 8000 max_reprompts: 2 }
+  settings { no_input_ms: 8000 max_reprompts: 2 follow_up_listen_ms: 10000 }
 }
 envelope_defs { name: "booking" extends: "standard" settings { max_reprompts: 1 } }
 flows { name: "booking" envelopes: ["booking"] … }   # a flow's pages; pages take `envelopes` too
@@ -138,6 +175,63 @@ bot: An oil change costs 49 dollars. Which day works for you?   [main/booking]
 ```
 
 Flows nest up to 8 deep; deeper, the way back isn't kept. `END_FLOW` in the start flow ends the conversation, and `END_SESSION` forgets every way back.
+
+## Extensions: page types and C++
+
+**Page types.** A page with `type` gets the type's steps, routes and handlers along with its own: its `on_enter` runs first, its routes and handlers come right after the page's. The page's `params` are typed by the type's `params_type`, and read as `$params.<field>`.
+
+```textproto
+proto_imports: ["acme.proto"]    # message InfoParams { string text = 1; string more = 2; }
+page_types {
+  name: "info"
+  params_type: "acme.InfoParams"
+  on_enter { ask { say { text: "$params.text Want more?" } } }
+  routes { intent: "more" steps { say { text: "$params.more" } } target: "done" }
+}
+pages { name: "hours"  type: "info" params { [type.googleapis.com/acme.InfoParams] { text: "Open 8 to 6." more: "Saturdays too." } } }
+pages { name: "prices" type: "info" params { [type.googleapis.com/acme.InfoParams] { text: "Oil is 49." more: "Tires are 89." } } }
+```
+
+Built in (params in `vasdk/flow/page_types.proto`); one declared in `page_types` with the same name replaces it:
+
+| Type | Params | What it does |
+|---|---|---|
+| `menu` | `MenuParams { prompt options { label value synonyms target } }` | Asks the prompt with the options as choices. Naming one (its label, value or a synonym, as the whole answer or within it: "um, how much is it") or tapping it moves to its `target`; anything else goes to the page's routes. |
+| `yes_no` | `YesNoParams { question yes_target no_target }` | Asks, expecting yes or no, and moves to the target for the answer; anything else goes to the page's routes. |
+| `end` | `EndParams { text }` | Says the text and ends the conversation. |
+
+A form is still the page's `form { goal }`, not a page type.
+
+**Params types.** `proto_imports` lists `.proto` files next to the agent: their messages type params with no code generation, in text, JSON and binary agents alike. Types compiled into the app are found without them. A misspelled field fails when the file loads, with its line and column.
+
+**Written in C++.** A `FlowRegistry` holds steps, page types and envelopes, given to `CompiledAgent::load`:
+
+```cpp
+auto registry = std::make_shared<va::flow::FlowRegistry>();   // menu, yes_no and end included
+registry->addStep<garage::BookingReference>([](const garage::BookingReference& params, va::flow::TurnContext& turn) {
+    turn.set(params.into(), va::flow::stringValue(makeReference(turn.lookup("$form.phone"))));
+});
+va::flow::FlowRegistry::Envelope thanks;
+thanks.before = [](va::flow::TurnContext& turn) {   // true: the turn is answered
+    if (va::flow::splitWords(turn.text()) != std::vector<std::string>{"thanks"}) return false;
+    turn.say("You're welcome.");
+    return true;
+};
+registry->addEnvelope("thanks", thanks);
+auto agent = va::flow::CompiledAgent::load("agent.txtpb", &error, nullptr, registry);
+```
+
+| Kind | Used as | Runs |
+|---|---|---|
+| step | `custom { [type.googleapis.com/<params type>] { ... } }` | Where it stands among the steps. A `goTo` moves on once it returns; the steps after it don't run. |
+| page type | `type: "<name>"` with its `params` | `onEnter` before the page's `on_enter`; `onTurn` first in each turn on the page: `true` answers it, `false` leaves it to the routes. `targets` lists the targets its params name, checked at load and counted as reachable. |
+| envelope | `envelopes: ["<name>"]`, with the text ones | `before` ahead of the page's routes, outermost envelope first (the agent's, the flow's, the page's): it may change the words the routes see (`setText`, to redact them) or answer the turn (`true`). `after` once the reply is ready, innermost first, also after the greeting and no-input. |
+
+What they get, `TurnContext`: `lookup("$session.tier")`, `set(key, value)` (the keys `set` takes), `text()` and `setText()`, `say(text)`, `render(template)`, `ask(question, choices, expect)`, `goTo(target)`, `replyText()`, `flowName()`, `pageName()`. Typed params come as their C++ class, generated from their `.proto`; params of a type loaded with `proto_imports` are converted to it. One registered by name (`addStep("acme.Points", ...)`) gets a `google::protobuf::Message` to read by reflection. Every conversation shares them: keep a conversation's state in its values (`$session.*`, `$page.locals.*`), never in the C++ object.
+
+Answered by a C++ envelope or page type, and staying on the page with nothing asked, the page's question is asked again, as after a route.
+
+**Checked at load:** an unknown page type, step or envelope (with what to register), params of the wrong type or missing, params of a type neither linked in nor imported, `$params` fields that don't exist, and the targets a page type's params name.
 
 ## Stored values and conditions
 
@@ -295,7 +389,7 @@ entity_types { name: "free_time"  dynamic: true list { values { value: "09:00" s
 | `pattern` | the regex (ECMAScript, ignoring case) against a run of words joined by spaces, or by nothing with `strip_spaces`. With `spelled`, words are read letter by letter first: "alpha bravo one two" → `ab12`; letters and digits as the STT writes them ("AB 12") work too | the words joined; `uppercase` stores them in upper case |
 | `derived` | what its `base` matches (`@sys.*`, a list or a pattern), within `min`/`max` and where `condition` (on `$value`) holds | the base's value |
 
-**System entities**, with nothing to declare: `@sys.integer` and `@sys.number` (digits or words: "twenty five", "a hundred and two", "2.5"; "five five" is two numbers), `@sys.phone` (7 to 11 digits in a row, written or spoken, "double four" too) and `@sys.yes_no`.
+**System entities**, with nothing to declare: `@sys.integer` and `@sys.number` (digits or words: "twenty five", "a hundred and two", "2.5"; "five five" is two numbers), `@sys.phone` (7 to 11 digits in a row, written or spoken, "double four" too), `@sys.digits` (any number of digits in a row, the same way) and `@sys.yes_no`.
 
 **Where they're used:**
 
@@ -322,11 +416,13 @@ With an agent, listeners also get `page_changed` (`from_flow`/`from_page` → `t
 
 ## Checking and testing: `vasdk_agentc`
 
+An agent that uses steps, page types or envelopes written in C++ needs a copy of the tool that registers them: `flow::runAgentTool(argc, argv, registry)` is the whole of it ([garage_agentc.cpp](../../VASDK_APP/agents/garage-menu/extensions/garage_agentc.cpp)). `vasdk_agentc` itself names what's missing. The example agent uses `garage_agentc`.
+
 ```
-$ vasdk_agentc lint agents/garage-menu/agent.txtpb
+$ garage_agentc lint agents/garage-menu/agent.txtpb
 agents/garage-menu/agent.txtpb: ok (3 flows, 5 pages, 10 intents, 2 entities)
 
-$ vasdk_agentc test agents/garage-menu/agent.txtpb agents/garage-menu/tests/*.txtpb
+$ garage_agentc test agents/garage-menu/agent.txtpb agents/garage-menu/tests/*.txtpb
 PASS book a tire repair, then say goodbye
 PASS the booking form: values on the way in, a closed day, the hours, and changing the answers
 PASS asking for a person hands off and ends
@@ -368,7 +464,9 @@ $ vasdk_agentc try agents/garage-menu/agent.txtpb --entity @sys.phone "five five
 
 | Type | Use |
 |---|---|
-| `flow::CompiledAgent` | `load(path)` or `compile(proto)`: checked once, immutable, shared by every session that runs it. |
+| `flow::CompiledAgent` | `load(path, error, warnings, registry)` or `compile(proto, ...)`: checked once, immutable, shared by every session that runs it. |
+| `flow::FlowRegistry`, `TurnContext` | Steps, page types and envelopes written in C++: see [Extensions](#extensions-page-types-and-c). |
+| `flow::runAgentTool` | `vasdk_agentc`'s commands, for an app's own copy with its registry. |
 | `flow::FlowRuntime` | One conversation's place in an agent: `start()`, `handleText(text)` and `handleNoInput()` → `Reply` (text, its segments, choices, ui, matched, intent, event, expects reply, ends session, page changes), `replyInterrupted()`, `noInputMs()`, `setSessionParam`, `setEntityValues`, `setContextSource`. Copyable, way back included. |
 | `flow::Expression` | `parse(text)` once, then `evaluate(lookup)` or `test(lookup)`; `renderTemplate` for replies. |
 | `flow::DialogProcessor` | The pipeline stage `Session` adds for `Options::agent`, after the turn assembler. |
@@ -379,4 +477,4 @@ $ vasdk_agentc try agents/garage-menu/agent.txtpb --entity @sys.phone "five five
 
 ## Not yet
 
-These come in later milestones: arithmetic and dates in expressions (`days_until`, `now`), filters in replies (`|raw`), spoken dates and times in forms ("next Tuesday"), skipping a slot ("I don't know"), fuzzy and sound-alike matching of entity values, `@entity` inside intent examples, entities built from others ("a white Toyota from 2019"), values filled by tools, guards and before/after steps in envelopes, numbers like "the second one" for choices, a different voice or speed per part, and custom steps written in C++.
+These come in later milestones: expectations that tune the speech recogniser (phrase hints) and end-of-turn detection (waiting through pauses in a phone number), `sys.yes`/`sys.no` as intents, arithmetic and dates in expressions (`days_until`, `now`), filters in replies (`|raw`), spoken dates and times in forms ("next Tuesday"), skipping a slot ("I don't know"), fuzzy and sound-alike matching of entity values, `@entity` inside intent examples, entities built from others ("a white Toyota from 2019"), values filled by tools, guards and before/after steps in envelopes, numbers like "the second one" for choices, a different voice or speed per part, and steps, page types and envelopes written in C, Kotlin or Python.

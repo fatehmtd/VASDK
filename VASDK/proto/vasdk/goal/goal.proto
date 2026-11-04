@@ -7,6 +7,8 @@ syntax = "proto3";
 
 package vasdk.goal;
 
+import "vasdk/flow/expectation.proto";
+
 message GoalDefinition {
   string name = 1;
   string objective = 2;                // what the goal is for
@@ -49,4 +51,7 @@ message Slot {
   // spoken in its spoken form; $form.<name>.<attribute> reads its attributes. `type` and
   // `values` are then not used.
   string entity = 12;
+  // What the answer is, for the app and the reprompts. Derived from the type: DIGITS for PHONE,
+  // a keypad for numbers, YES_NO for BOOLEAN, choices for up to 5 values; set fields replace those.
+  vasdk.flow.Expectation expect = 13;
 }

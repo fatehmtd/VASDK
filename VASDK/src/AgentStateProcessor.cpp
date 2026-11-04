@@ -170,6 +170,8 @@ namespace va {
             case transport::FrameType::SYNTHESIS_STATE:
             case transport::FrameType::AUDIO:
             return true;
+            case transport::FrameType::CONTROL:
+            return dynamic_cast<const transport::FollowUpListenFrame*>(frame.get()) != nullptr;
             default:
             return false;
             }
@@ -185,6 +187,10 @@ namespace va {
                 if (frame->getType() == transport::FrameType::SYNTHESIS_STATE) {
                     handleSynthesisStateFrame(
                         std::dynamic_pointer_cast<transport::SynthesisStateFrame>(frame));
+                } else if (auto window = std::dynamic_pointer_cast<transport::FollowUpListenFrame>(frame)) {
+                    std::lock_guard<std::mutex> lock(_followUpMutex);
+                    _nextReplyWindow = *window;
+                    return;   // for this stage only
                 }
                 pushUpstream(frame);
                 return;
@@ -835,8 +841,15 @@ namespace va {
 
         void AgentStateProcessor::finishReply(transport::AgentStateTransition reason)
         {
+            transport::FollowUpListenFrame reply;
+            {
+                std::lock_guard<std::mutex> lock(_followUpMutex);
+                std::swap(reply, _nextReplyWindow);   // this reply's own window, used once
+            }
+            int windowMs = reply.listenMs.value_or(_followUpListenMs.load());
+            if (windowMs >= 0) windowMs = std::max(windowMs, reply.atLeastMs);
             // Push-to-talk held through the reply: the user is answering now.
-            const int windowMs = _pushToTalkHeld ? -1 : _followUpListenMs.load();
+            if (_pushToTalkHeld) windowMs = -1;
             if (windowMs == 0) {
                 transitionTo(_alwaysOn ? transport::AgentState::LISTENING : transport::AgentState::IDLE, reason);
                 return;

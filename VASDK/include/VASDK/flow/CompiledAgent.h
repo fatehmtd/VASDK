@@ -3,6 +3,7 @@
 #include "vasdk_export.h"
 #include "Entities.h"
 #include "Expression.h"
+#include "FlowRegistry.h"
 #include "vasdk/flow/agent.pb.h"
 
 #include <map>
@@ -41,10 +42,16 @@ public:
      * don't stop it (an unreachable page, an unused intent) go to `warnings`.
      */
     static std::shared_ptr<const CompiledAgent> compile(vasdk::flow::Agent agent, std::string* error = nullptr,
-                                                        std::vector<std::string>* warnings = nullptr);
-    /** Loads a .txtpb, .json or .pb agent file and its goal_files, then compile(). */
+                                                        std::vector<std::string>* warnings = nullptr,
+                                                        std::shared_ptr<const FlowRegistry> registry = nullptr);
+    /**
+     * Loads a .txtpb, .json or .pb agent file, its proto_imports and goal_files, then compile().
+     * `registry` holds the C++ steps, page types and envelopes it names; nullptr: the built-in
+     * page types only.
+     */
     static std::shared_ptr<const CompiledAgent> load(const std::string& path, std::string* error = nullptr,
-                                                     std::vector<std::string>* warnings = nullptr);
+                                                     std::vector<std::string>* warnings = nullptr,
+                                                     std::shared_ptr<const FlowRegistry> registry = nullptr);
 
     const vasdk::flow::Agent& definition() const { return _agent; }
     PageRef startPage() const { return _startPage; }
@@ -74,8 +81,26 @@ public:
     /** The agent's entities, and the @sys.* ones. */
     const EntityCatalog& entities() const { return _entities; }
 
+    /** The C++ steps, page types and envelopes the agent was loaded with. */
+    const FlowRegistry& registry() const { return *_registry; }
+    /** A custom step's params, read when the agent loaded; nullptr for an Any it doesn't hold. */
+    const google::protobuf::Message* params(const google::protobuf::Any& params) const;
+    /** What a page's type and the C++ envelopes applied to it add to it. */
+    struct PageExtensions {
+        const vasdk::flow::PageType* declaredType = nullptr;      // from page_types
+        const FlowRegistry::PageType* registeredType = nullptr;   // written in C++
+        const google::protobuf::Message* params = nullptr;        // the page's params
+        Value paramsValue;                                        // the same, as $params reads them
+        std::vector<const FlowRegistry::Envelope*> envelopes;     // written in C++, innermost first
+    };
+    const PageExtensions& extensions(PageRef where) const { return _extensions[where.flow][where.page]; }
+
 private:
+    struct ImportedTypes;
     CompiledAgent() = default;
+    static std::shared_ptr<const CompiledAgent> build(vasdk::flow::Agent agent, std::shared_ptr<const ImportedTypes> imports,
+                                                      std::shared_ptr<const FlowRegistry> registry, std::string* error,
+                                                      std::vector<std::string>* warnings);
 
     vasdk::flow::Agent _agent;
     PageRef _startPage;
@@ -89,6 +114,10 @@ private:
     EntityCatalog _entities;
     std::map<std::string, int> _envelopes;                                           // name → index
     std::vector<std::vector<std::vector<Layer>>> _layers;                            // per flow, per page
+    std::shared_ptr<const ImportedTypes> _imports;                                   // proto_imports' types
+    std::shared_ptr<const FlowRegistry> _registry;
+    std::map<const google::protobuf::Any*, std::shared_ptr<const google::protobuf::Message>> _params;   // by where they are in _agent
+    std::vector<std::vector<PageExtensions>> _extensions;                            // per flow, per page
 };
 
 /** Whether `value` fits a session param of `type`; null always does. */

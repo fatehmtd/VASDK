@@ -5,6 +5,8 @@
 #   vasdk_agentc chat VASDK_APP/agents/garage-menu/agent.txtpb
 #   vasdk_agentc try VASDK_APP/agents/garage-menu/agent.txtpb "my tyres are flat"
 #   VASDK_Pipeline --agent VASDK_APP/agents/garage-menu/agent.txtpb
+# It uses a step and an envelope written in C++ (extensions/), so its tests and chats run with
+# garage_agentc, vasdk_agentc with them registered: garage_agentc chat VASDK_APP/agents/garage-menu/agent.txtpb
 schema_version: 1
 name: "garage-menu"
 locale: "en-US"
@@ -16,6 +18,9 @@ session_params { name: "tier"    type: STRING default { string_value: "standard"
 session_params { name: "service" type: STRING }
 session_params { name: "day"     type: STRING }
 session_params { name: "time"    type: STRING }
+session_params { name: "reference" type: STRING }   # made by a C++ step when a booking is confirmed
+
+proto_imports: ["garage.proto"]   # the C++ step's params, so any tool can read this file
 
 goal_files: ["goals/booking.txtpb"]   # what the booking form asks for
 
@@ -60,13 +65,13 @@ intents { name: "yes"     examples: ["yes", "yeah", "yep", "sure", "go ahead"] }
 intents { name: "no"      examples: ["no", "nope", "nothing", "that's all"] }
 
 # Works on every page: hours, prices, a person, goodbye; silence and repeated misunderstandings.
-envelopes: ["standard"]
+envelopes: ["standard", "thanks"]   # "thanks" is written in C++: "thanks" alone gets "You're welcome."
 envelope_defs {
   name: "standard"
   routes { intent: "hours" steps { say { text: "We're open 8 to 6, Monday to Saturday." } } }   # then the page's question again
   routes { intent: "price" target: "flow:prices" }   # a digression: back to where it was asked
   routes { intent: "person" target: "flow:handoff" }
-  routes { intent: "goodbye" steps { say { text: "Thanks for calling. Goodbye!" } } target: "END_SESSION" }
+  routes { intent: "goodbye" steps { say { text: "Thanks for calling. Goodbye!" follow_up_listen_ms: 0 } } target: "END_SESSION" }   # the mic closes as it ends
   handlers { event: "no-input" steps { say { text: ["Are you still there?", "Hello?"] } } }
   handlers { event: "max-reprompts" steps { say { text: "Let me get someone to help you." } } target: "flow:handoff" }
   settings { no_input_ms: 8000 max_reprompts: 2 }
@@ -110,6 +115,7 @@ flows {
       steps { set { key: "$session.service" value: "$form.service.spoken" } }
       steps { set { key: "$session.day" value: "$form.day" } }
       steps { set { key: "$session.time" value: "$form.time.spoken" } }
+      steps { custom { [type.googleapis.com/garage.BookingReference] { into: "$session.reference" } } }   # written in C++
       target: "booked"
     }
     routes { condition: "$form.failed" steps { say { text: "Let me get someone to help you with that." } } target: "flow:handoff" }
@@ -118,7 +124,7 @@ flows {
 
   pages {
     name: "booked"
-    on_enter { say { text: "You're booked for $session.service, $session.day at $session.time." } }
+    on_enter { say { text: "You're booked for $session.service, $session.day at $session.time. Your reference is $session.reference." } }
     on_enter { branch { if: "$session.tier : ('gold', 'platinum')" then { say { text: "As a $session.tier member, there's no charge." } }
                         # plays to its end even if the caller talks over it
                         else { say { text: "Cancelling less than a day ahead costs 20 dollars." interruptible: false } } } }

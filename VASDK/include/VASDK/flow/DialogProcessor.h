@@ -25,6 +25,8 @@ namespace flow {
  * A turn the user resumed (UserTurnFrame::replacesPrevious) undoes the previous one first.
  * After a question has played, silence for the page's no_input_ms raises no-input
  * (FlowRuntime::handleNoInput); the user starting to speak cancels it.
+ * Each reply also goes upstream as a FollowUpListenFrame, for how long AgentStateProcessor keeps
+ * the mic open after it, and its final TextFrame carries what the user is expected to say.
  */
 class VASDK_EXPORT DialogProcessor : public pipeline::FrameProcessor {
 public:
@@ -53,6 +55,8 @@ public:
     void setSessionParam(const std::string& name, const Value& value);
     /** Replaces a dynamic entity's values, as FlowRuntime::setEntityValues; errors are logged. Thread-safe. */
     void setEntityValues(const std::string& name, std::vector<vasdk::nlu::EntityValue> values);
+    /** The user tapped the last reply's choice at `index`, from 0 (FlowRuntime::selectChoice). Thread-safe. */
+    void selectChoice(int index);
     /** What $context.* reads; called on the pipeline thread, so it must be thread-safe. Before start(). */
     void setContextSource(FlowRuntime::ContextSource source);
 

@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 #include <chrono>
@@ -212,6 +213,7 @@ namespace va {
                 cloned->ssml = ssml;
                 cloned->interruptible = interruptible;
                 cloned->uiJson = uiJson;
+                cloned->expectBytes = expectBytes;
                 return cloned;
             }
 
@@ -223,8 +225,22 @@ namespace va {
             std::string ssml;                  // spoken instead of text by a provider that supportsSsml()
             bool interruptible = true;         // false: the user can't talk over this frame's audio
             std::string uiJson;                // app UI for the reply, a JSON object (set on the final chunk only)
+            std::string expectBytes;           // what the user is expected to say, a serialized vasdk.flow.Expectation (an agent's final chunk only)
 
             TextFrame() : language("en-US") {}
+        };
+
+        /**
+         * @brief Sent upstream with each reply of an agent, for AgentStateProcessor: how long the
+         *        mic stays open after that reply, instead of its setFollowUpListenMs() value.
+         */
+        class VASDK_EXPORT FollowUpListenFrame : public Frame {
+            public:
+            FrameType getType() const override { return FrameType::CONTROL; }
+            std::shared_ptr<Frame> clone() const override { return std::make_shared<FollowUpListenFrame>(*this); }
+
+            std::optional<int> listenMs;   // unset: setFollowUpListenMs()'s value
+            int atLeastMs = 0;             // open at least this long: an answer is awaited (-1 still never closes)
         };
 
         /**

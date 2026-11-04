@@ -7,6 +7,28 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include(GNUInstallDirs)
 
+# The garage agent's steps and envelopes written in C++, and garage_agentc: vasdk_agentc with them
+# registered, which runs the agent's scripted conversations. Needs no audio, so before the checks below.
+if(VASDK_ENABLE_ENGINE_CONFIG AND TARGET VASDK)
+    set(GARAGE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/agents/garage-menu)
+    add_library(garage_extensions STATIC ${GARAGE_DIR}/extensions/GarageExtensions.cpp ${GARAGE_DIR}/garage.proto)
+    protobuf_generate(TARGET garage_extensions
+        IMPORT_DIRS ${GARAGE_DIR}
+        PROTOC_OUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/garage_proto)
+    target_include_directories(garage_extensions PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/garage_proto>
+        $<BUILD_INTERFACE:${GARAGE_DIR}/extensions>)
+    target_link_libraries(garage_extensions PUBLIC VASDK)
+
+    add_executable(garage_agentc ${GARAGE_DIR}/extensions/garage_agentc.cpp)
+    target_link_libraries(garage_agentc PRIVATE garage_extensions)
+
+    if(VASDK_BUILD_TESTS)
+        file(GLOB GARAGE_MENU_TESTS ${GARAGE_DIR}/tests/*.txtpb)
+        add_test(NAME vasdk_agent_garage_menu COMMAND garage_agentc test ${GARAGE_DIR}/agent.txtpb ${GARAGE_MENU_TESTS})
+    endif()
+endif()
+
 # Check if required modules are enabled for VASDK_Pipeline
 set(VASDK_PIPELINE_REQUIRED_MODULES_ENABLED TRUE)
 set(VASDK_PIPELINE_MISSING_MODULES "")
@@ -79,12 +101,8 @@ endif()
 # VAD, STT and TTS providers: every one built in this tree, picked by id from --config
 target_link_libraries(VASDK_Pipeline PRIVATE vasdk_provider_catalog)
 
-# The example agents' scripted conversations (vasdk.flow.FlowTestCase files)
-if(VASDK_BUILD_TESTS AND TARGET vasdk_agentc)
-    file(GLOB GARAGE_MENU_TESTS ${CMAKE_CURRENT_SOURCE_DIR}/agents/garage-menu/tests/*.txtpb)
-    add_test(NAME vasdk_agent_garage_menu
-             COMMAND vasdk_agentc test ${CMAKE_CURRENT_SOURCE_DIR}/agents/garage-menu/agent.txtpb ${GARAGE_MENU_TESTS})
-endif()
+# The example agent's steps and envelopes written in C++ (registered in main_pipeline.cpp)
+target_link_libraries(VASDK_Pipeline PRIVATE garage_extensions)
 
 if(VASDK_BUILD_FFMPEG_AUDIO AND TARGET vasdk_ffmpeg_audio)
     target_link_libraries(VASDK_Pipeline PRIVATE vasdk_ffmpeg_audio)

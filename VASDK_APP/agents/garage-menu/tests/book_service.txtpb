@@ -10,6 +10,8 @@ turns { user: "the afternoon" expect { said: "And what's the best number to reac
 turns { user: "five five five, one two three, four five six seven"
         expect { said: "So that's a tire repair on tuesday at 2 PM, for 89 dollars, and we'll call you at 555-123-4567. Shall I book it?" } }
 turns { user: "yes please"
-        expect { page: "booked" said: "You're booked for a tire repair, tuesday at 2 PM. Cancelling less than a day ahead costs 20 dollars. Is there anything else I can help with?" } }
+        expect { page: "booked" said: "You're booked for a tire repair, tuesday at 2 PM. Your reference is AG-9282. Cancelling less than a day ahead costs 20 dollars. Is there anything else I can help with?"
+                 session { key: "reference" value: "AG-9282" } } }   # made by a C++ step from the booking
+turns { user: "thanks" expect { said: "You're welcome. Is there anything else I can help with?" page: "booked" } }   # a C++ envelope
 turns { user: "no that's all thanks" expect { said_contains: "goodbye" ends_session: true expects_reply: false } }
 turns { user: "hours please" expect { page: "welcome" said_contains: "8 to 6" } }   # the next conversation starts over

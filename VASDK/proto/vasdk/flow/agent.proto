@@ -6,7 +6,9 @@ syntax = "proto3";
 
 package vasdk.flow;
 
+import "google/protobuf/any.proto";
 import "google/protobuf/struct.proto";
+import "vasdk/flow/expectation.proto";
 import "vasdk/goal/goal.proto";
 import "vasdk/nlu/entity.proto";
 
@@ -23,7 +25,25 @@ message Agent {
   repeated string goal_files = 14;             // more goals, one per file, relative to this file
   repeated vasdk.nlu.EntityType entity_types = 15;   // @<name>: kinds of value recognised in what the user says
   repeated Envelope envelope_defs = 16;        // shared behaviour, applied by name below, to flows and to pages
-  repeated string envelopes = 17;              // apply to every page
+  repeated string envelopes = 17;              // apply to every page; also those written in C++ (FlowRegistry::addEnvelope)
+  repeated PageType page_types = 18;           // kinds of page, used with Page.type
+  // .proto files whose messages type the params of pages and custom steps, relative to this
+  // file: no code generation needed. Types compiled into the app are found without them.
+  repeated string proto_imports = 19;
+}
+
+// A kind of page, written once and used by many: a page with `type: "<name>"` runs its steps
+// and routes along with its own, and reads its params as $params.<field>.
+//   page_types { name: "info" params_type: "acme.InfoParams" on_enter { say { text: "$params.text" } } }
+//   pages { name: "hours" type: "info" params { [type.googleapis.com/acme.InfoParams] { text: "Open 8 to 6." } } }
+// Page types written in C++ (FlowRegistry::addPageType) are used the same way; menu, yes_no and
+// end are built in. One declared here replaces a C++ one of the same name.
+message PageType {
+  string name = 1;
+  string params_type = 2;          // the full name of the params message; empty: no params
+  repeated Step on_enter = 3;      // before the page's own
+  repeated Route routes = 4;       // after the page's own
+  repeated Handler handlers = 5;   // after the page's own
 }
 
 // Behaviour shared by many pages: global commands ("hours", "talk to a person"), what to do
@@ -54,6 +74,9 @@ message Handler {
 message Settings {
   optional int32 no_input_ms = 1;    // silence after a question before no-input; unset: 8000 with a no-input handler, else never
   optional int32 max_reprompts = 2;  // misses in a row before max-reprompts; unset: 2. Forms use their goal's first.
+  // How long the mic stays open after each reply, instead of the engine's activation.follow_up
+  // (0: close at once, -1: never). A question's expect and a say's own value come first.
+  optional int32 follow_up_listen_ms = 3;
 }
 
 // A value the conversation keeps: set by `set` steps, by the app (Session::setSessionParam),
@@ -93,6 +116,8 @@ message Page {
   Form form = 4;                // collect a goal's values on this page
   repeated Handler handlers = 5;
   repeated string envelopes = 6;
+  string type = 7;                 // a page type: declared in page_types, written in C++, or menu, yes_no, end
+  google.protobuf.Any params = 8;  // the page type's params, of its params_type
 }
 
 // Asks for the goal's slots one by one, then confirms them (require_confirmation). Each answer
@@ -132,6 +157,9 @@ message Step {
     Switch switch = 13;
     Goto goto = 14;
     End end = 17;
+    // A step written in C++ (FlowRegistry::addStep), chosen by its params' type:
+    //   custom { [type.googleapis.com/acme.LoyaltyPoints] { into: "$page.locals.points" } }
+    google.protobuf.Any custom = 100;
   }
 }
 
@@ -144,12 +172,14 @@ message Say {
   string ssml = 2;
   optional bool interruptible = 3;   // false: the user can't talk over this part; it plays to its end
   google.protobuf.Struct ui = 6;     // given to the app with the reply: a card, a map, a picture
+  optional int32 follow_up_listen_ms = 7;   // how long the mic stays open after this reply; before any other setting
 }
 
 // A question: the user is expected to answer, and it is repeated when the answer isn't understood.
 message Ask {
   Say say = 1;
   repeated Choice choices = 2;       // answers the app can show as buttons
+  Expectation expect = 3;            // what the answer is: CHOICE with choices, else OPEN; set fields replace those
 }
 
 // An answer offered with a question. Saying the label, the value or a synonym, as the whole

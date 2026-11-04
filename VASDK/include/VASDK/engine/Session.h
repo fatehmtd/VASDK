@@ -101,6 +101,12 @@ public:
     void say(const std::string& text);
     /** Sends `text` as a finished user turn, as if spoken. Needs an LLM or an agent. Thread-safe. */
     void injectUserText(const std::string& text);
+    /**
+     * The user tapped the choice at `index` (from 0) of the agent's last reply, its
+     * AgentReply.choices: the same as saying its value. Thread-safe; needs Options::agent (for an
+     * LLM's choices, send the label with injectUserText).
+     */
+    void selectChoice(int index);
     /** Stops the assistant's current reply, like a barge-in. Thread-safe. */
     void interrupt();
     /**

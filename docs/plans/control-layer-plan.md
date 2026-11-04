@@ -1,15 +1,17 @@
 # VASDK control layer: VAEngine + offline-first, user-extensible Flows
 
-> **Status (2026-11-03, branch `feature/control-layer-m0`)**
+> **Status (2026-11-04, branch `feature/control-layer-m0`)**
 >
 > | Milestones | State |
 > |---|---|
 > | 0, 1, 2, 3, 4, 6, 7 (Part A) | ✅ committed (`6271f44` … `648a924`) |
 > | 8, 9, 10, 11, 12 (Part B) | ✅ committed (`2adbde3` … `a04d4e3`) |
-> | 13 Rich replies | 🟡 built and tested, not committed |
+> | 13 Rich replies | ✅ committed (`be01736`) |
+> | 14 Expected input | 🟡 built and tested, not committed. Not in it: STT hints and end-of-turn by expectation (20), trigger-delivery window (17), the keypad on Android (needs 5) |
+> | 15 Extensions | 🟡 built and tested, not committed (with 14). `form` stays the page's `form` field, not a page type |
 > | 5 Android on VAEngine | ⏸ blocked on gate G1 |
-> | 14 Expected input | ⏭ next |
-> | 15–32 | not started |
+> | 16 Tools & security | ⏭ next |
+> | 17–32 | not started |
 
 
 *Uses Google Dialogflow CX as the reference model. Definitions are proto-schema'd and written in text proto.*

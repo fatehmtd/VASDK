@@ -158,8 +158,8 @@ int main() {
     failing.handleText("book an oil change on monday");
     check(form(failing, "day") == "monday", "two values from one answer");
     reply = failing.handleText("one two three");
-    check(!reply.matched && contains(reply.text, "Sorry, I didn't get that.") && form(failing, "phone").empty(),
-          "three digits aren't a phone number");
+    check(!reply.matched && contains(reply.text, "I only got 3 digits.") && form(failing, "phone").empty(),
+          "three digits aren't a phone number: too few, said so");
     failing.handleText("blue");
     reply = failing.handleText("green");
     check(failing.pageName() == "handoff", "max_reprompts 2: the third miss fails");

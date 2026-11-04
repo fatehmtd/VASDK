@@ -185,14 +185,18 @@ if(VASDK_ENABLE_ENGINE_CONFIG)
         ./src/flow/SlotExtraction.cpp
         ./src/flow/Entities.cpp
         ./src/flow/CompiledAgent.cpp
+        ./src/flow/FlowRegistry.cpp
+        ./src/flow/AgentTool.cpp
         ./src/flow/FlowRuntime.cpp
         ./src/flow/DialogProcessor.cpp
         ./src/flow/FlowTestRunner.cpp
         ./proto/vasdk/engine/engine_config.proto
         ./proto/vasdk/engine/events.proto
         ./proto/vasdk/nlu/entity.proto
+        ./proto/vasdk/flow/expectation.proto
         ./proto/vasdk/goal/goal.proto
         ./proto/vasdk/flow/agent.proto
+        ./proto/vasdk/flow/page_types.proto
         ./proto/vasdk/flow/test_case.proto
     )
     protobuf_generate(TARGET VASDK
@@ -341,6 +345,18 @@ if(VASDK_BUILD_TESTS)
         add_executable(vasdk_response_envelope_test tests/response_envelope_test.cpp)
         target_link_libraries(vasdk_response_envelope_test PRIVATE VASDK)
         add_test(NAME vasdk_response_envelope COMMAND vasdk_response_envelope_test)
+
+        add_executable(vasdk_expectation_test tests/expectation_test.cpp)
+        target_link_libraries(vasdk_expectation_test PRIVATE VASDK)
+        add_test(NAME vasdk_expectation COMMAND vasdk_expectation_test)
+
+        add_executable(vasdk_page_type_test tests/page_type_test.cpp)
+        target_link_libraries(vasdk_page_type_test PRIVATE VASDK)
+        add_test(NAME vasdk_page_type COMMAND vasdk_page_type_test)
+
+        add_executable(vasdk_primitive_test tests/primitive_test.cpp)
+        target_link_libraries(vasdk_primitive_test PRIVATE VASDK)
+        add_test(NAME vasdk_primitive COMMAND vasdk_primitive_test)
 
         add_executable(vasdk_engine_events_test tests/engine_events_test.cpp)
         target_link_libraries(vasdk_engine_events_test PRIVATE VASDK)

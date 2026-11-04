@@ -1,0 +1,15 @@
+# proto-file: vasdk/flow/test_case.proto
+# proto-message: vasdk.flow.FlowTestCase
+#
+# What each reply expects: buttons for the welcome and for a slot's few values, a keypad for the
+# phone number, a partial number reprompted, and the mic closing after goodbye.
+name: "expected input: buttons, a keypad and a partial phone number"
+turns { expect { expect_mode: CHOICE choices: ["Book a service", "Opening hours", "Talk to a person"] } }
+turns { choice: 0 expect { page: "booking" expect_mode: SLOT choices: ["an oil change", "a tire repair"] } }
+turns { choice: 1 expect { said: "Which day works for you?" form { key: "service" value: "tire_repair" } } }
+turns { user: "Tuesday" expect { choices: ["9 AM", "11 AM", "2 PM"] } }
+turns { choice: 2 expect { form { key: "time" value: "14:00" } expect_mode: DIGITS keyboard: NUMERIC } }
+turns { user: "five five five one" expect { said: "I only got 4 digits. And what's the best number to reach you?" expect_mode: DIGITS } }
+turns { user: "5551234567" expect { expect_mode: CONFIRMATION said_contains: "555-123-4567" } }
+turns { user: "no" expect { said: "What would you like to change?" expect_mode: OPEN } }
+turns { user: "goodbye" expect { ends_session: true expect_mode: NONE follow_up_listen_ms: 0 } }

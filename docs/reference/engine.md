@@ -65,9 +65,10 @@ Processors that read the mic audio directly use `inputRingBuffer()`.
 |---|---|
 | `say(text)` | Speaks `text` as the assistant. |
 | `injectUserText(text)` | Sends `text` as a finished user turn, as if it had been spoken. Needs an LLM or an agent. |
+| `selectChoice(index)` | With an agent: taps the last reply's choice at `index` (from 0), the same as saying its value. |
 | `interrupt()` | Stops the current reply, the same way a barge-in does. |
 | `pushToTalk(held)` | The push-to-talk button: listens while held, and cuts a reply in progress. Released mid-sentence, the user's turn still gets its answer. |
-| `setFollowUpListenMs(ms)` | How long the mic stays open after each reply; overrides the config's [`activation.follow_up`](engine-config.md#activation). |
+| `setFollowUpListenMs(ms)` | How long the mic stays open after each reply; overrides the config's [`activation.follow_up`](engine-config.md#activation). An agent's own settings come first: see [Expected input](flows.md#expected-input). |
 | `setSessionParam(name, value)` | With an agent: sets a declared `$session.<name>`, e.g. the caller's tier. `Options::context` gives the agent's `$context.*` a `ContextProvider`. See [Agents](flows.md#stored-values-and-conditions). |
 | `setEntityValues(name, values)` | With an agent: replaces a `dynamic` entity's values for this conversation, e.g. the appointment times still free today. See [Entities](flows.md#entities). |
 | `registerTool(tool)` | Makes a tool available to the LLM; call it before `start()`. |
@@ -81,7 +82,7 @@ Processors that read the mic audio directly use `inputRingBuffer()`.
 | Event | When |
 |---|---|
 | `transcript` | The user said something (partial and final results), or `injectUserText` sent it. Back-channels ("mm-hmm") are marked. |
-| `agent_reply` | Once per streamed piece of the reply; `text` is the whole reply so far, `is_final` marks the end, with `expects_reply`, `choices` (with `choice_values`, what each sends back) and `ui_json` (an agent's `ui`). `say()` text arrives as one final piece. |
+| `agent_reply` | Once per streamed piece of the reply; `text` is the whole reply so far, `is_final` marks the end, with `expects_reply`, `choices` (with `choice_values`, what each sends back), `ui_json` (an agent's `ui`) and `expect` (an agent's [expected input](flows.md#expected-input): a keypad, a yes/no). `say()` text arrives as one final piece. |
 | `agent_state` | Every state change: `IDLE`, `LISTENING`, `THINKING`, `SPEAKING`, `INTERRUPTED`, with the transition that caused it. |
 | `tool_call` | A tool the LLM called, with its arguments and result, when it returns. |
 | `error` | A processor or transport reported a failure, e.g. the LLM endpoint is unreachable. |
