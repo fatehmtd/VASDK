@@ -3,6 +3,7 @@
 #include "nlu/NluProvider.h"
 
 #include <algorithm>
+#include <sstream>
 #include <regex>
 #include <cctype>
 #include <cstdlib>
@@ -272,10 +273,36 @@ void EntityCatalog::build(const google::protobuf::RepeatedPtrField<vasdk::nlu::E
             if (type.pattern().regex().empty()) error("pattern has no regex");
             break;
         case vasdk::nlu::EntityType::kDerived:
+        case vasdk::nlu::EntityType::kComposite:
             break;   // checked below, once every name is known
         case vasdk::nlu::EntityType::KIND_NOT_SET:
-            error("needs a list, pattern or derived kind");
+            error("needs a list, pattern, derived or composite kind");
             break;
+        }
+    }
+    for (const auto& name : _order) {   // a composite's parts: known entities, each filling a field once
+        const auto& type = _types.at(name);
+        if (!type.has_composite()) continue;
+        const std::string where = "entity " + inQuotes(name);
+        if (type.composite().templates().empty()) errors.push_back(where + ": composite has no templates");
+        for (const auto& text : type.composite().templates()) {
+            std::set<std::string> fields;
+            bool anyPart = false;
+            std::istringstream tokens(text);
+            std::string token;
+            while (tokens >> token) {
+                if (token[0] != '@') continue;
+                anyPart = true;
+                const auto colon = token.find(':');
+                const std::string part = token.substr(1, colon == std::string::npos ? std::string::npos : colon - 1);
+                const std::string field = colon == std::string::npos ? std::string() : token.substr(colon + 1);
+                const auto partType = _types.find(part);
+                if (!isSystem(part) && (partType == _types.end() || partType->second.has_composite()))
+                    errors.push_back(where + ": template " + inQuotes(text) + ": @" + part + " must be a system, list, pattern or derived entity");
+                if (field.empty()) errors.push_back(where + ": template " + inQuotes(text) + ": @" + part + " needs a field: @" + part + ":<field>");
+                else if (!fields.insert(field).second) errors.push_back(where + ": template " + inQuotes(text) + " fills " + inQuotes(field) + " twice");
+            }
+            if (!anyPart) errors.push_back(where + ": template " + inQuotes(text) + " has no @entity parts");
         }
     }
     for (const auto& name : _order) {
@@ -320,8 +347,8 @@ const std::vector<vasdk::nlu::EntityValue>* EntityCatalog::listValues(const std:
 
 int EntityCatalog::kindRank(const std::string& name) const {
     const auto* entity = type(name);
-    if (!entity) return 3;
-    return entity->has_pattern() ? 0 : entity->has_list() ? 1 : 2;
+    if (!entity) return 4;
+    return entity->has_pattern() ? 0 : entity->has_list() ? 1 : entity->has_derived() ? 2 : 3;
 }
 
 std::vector<EntityMatch> EntityCatalog::matches(const std::string& name, const std::vector<std::string>& words,
@@ -357,6 +384,12 @@ std::vector<EntityMatch> EntityCatalog::matches(const std::string& name, const s
         const float minSimilarity = matching.has_fuzzy() && !matching.fuzzy() ? 1.0f
                                   : matching.has_min_similarity()           ? matching.min_similarity()
                                                                             : 0.8f;
+        auto phoneticPhrase = [](const std::vector<std::string>& phrase) {
+            std::vector<std::string> keys;
+            for (const auto& word : phrase) keys.push_back(nlu::phoneticKey(word));
+            return keys;
+        };
+        const auto phoneticWords = matching.phonetic() ? phoneticPhrase(words) : std::vector<std::string>();
         std::vector<vasdk::nlu::EntityValue> declared;
         for (const auto& value : *listValues(name, dynamic, declared)) {
             std::vector<std::string> said(value.synonyms().begin(), value.synonyms().end());
@@ -365,7 +398,13 @@ std::vector<EntityMatch> EntityCatalog::matches(const std::string& name, const s
             for (const auto& phrase : said) {
                 const auto phraseWords = entityWords(phrase);
                 if (phraseWords.empty()) continue;
-                for (const auto& [start, similarity] : nlu::findPhrase(words, phraseWords, minSimilarity)) {
+                auto spots = nlu::findPhrase(words, phraseWords, minSimilarity);
+                if (matching.phonetic()) {   // "Catherine" for "Katherine"
+                    for (const auto& spot : nlu::findPhrase(phoneticWords, phoneticPhrase(phraseWords), 1.0f))
+                        if (std::none_of(spots.begin(), spots.end(), [&](const auto& found) { return found.first == spot.first; }))
+                            spots.push_back(spot);
+                }
+                for (const auto& [start, similarity] : spots) {
                     auto match = matchOf(name, stringValue(value.value()), words, start, phraseWords.size());
                     match.spoken = value.spoken().empty() ? value.value() : value.spoken();
                     match.attributes = value.attributes();
@@ -394,6 +433,51 @@ std::vector<EntityMatch> EntityCatalog::matches(const std::string& name, const s
                     longest = matchOf(name, stringValue(pattern.uppercase() ? upper(candidate) : candidate), words, start, length);
             }
             if (longest) found.push_back(std::move(*longest));
+        }
+    } else if (entity->has_composite()) {
+        // Each template in order from each word: its words said as they are, each part a match
+        // of its entity starting right there (the longest).
+        for (const auto& text : entity->composite().templates()) {
+            std::vector<std::string> tokens;
+            std::istringstream split(text);
+            for (std::string token; split >> token;) tokens.push_back(token);
+            for (size_t start = 0; start < words.size(); ++start) {
+                size_t cursor = start;
+                google::protobuf::Struct fields;
+                std::string spoken;
+                bool matched = true;
+                for (const auto& token : tokens) {
+                    if (token[0] != '@') {
+                        for (const auto& literal : entityWords(token)) {
+                            if (cursor >= words.size() || nlu::wordMatch(words[cursor], literal, 0.8f) == 0.0f) {
+                                matched = false;
+                                break;
+                            }
+                            spoken += (spoken.empty() ? "" : " ") + words[cursor++];
+                        }
+                        if (!matched) break;
+                        continue;
+                    }
+                    const auto colon = token.find(':');
+                    const std::string part = token.substr(1, colon - 1), field = token.substr(colon + 1);
+                    std::optional<EntityMatch> best;
+                    for (auto& candidate : matches(part, words, dynamic, now))
+                        if (candidate.start == cursor && (!best || candidate.length > best->length)) best = std::move(candidate);
+                    if (!best) {
+                        matched = false;
+                        break;
+                    }
+                    (*fields.mutable_fields())[field] = best->value;
+                    spoken += (spoken.empty() ? "" : " ") + best->spoken;
+                    cursor += best->length;
+                }
+                if (!matched || cursor == start) continue;
+                Value value;
+                *value.mutable_struct_value() = std::move(fields);
+                auto match = matchOf(name, std::move(value), words, start, cursor - start);
+                match.spoken = spoken;
+                found.push_back(std::move(match));
+            }
         }
     } else if (entity->has_derived()) {
         const auto& derived = entity->derived();

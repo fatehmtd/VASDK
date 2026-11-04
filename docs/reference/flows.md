@@ -470,7 +470,12 @@ you: yes                                → $form.confirmed: the first route goe
 
 Any other empty `ENUM` slot whose value is named is filled too, so "an oil change on Tuesday" fills two. That also happens with the words that led to the page.
 
-**Order.** The form asks for the first required slot still empty, in the goal's order; a slot with a `condition` is required only while it holds (it reads `$form.<slot>` only). `optional` slots aren't asked. With `require_confirmation`, it then speaks `confirm`, and:
+**Order.** The form asks for the first required slot still empty, in the goal's order; a slot with a `condition` is required only while it holds (it reads `$form.<slot>` only). `optional` slots aren't asked.
+
+**Edge cases:**
+- **Skipping.** A `skippable: true` slot is asked, but "skip", "I don't know" or "not sure" leaves it empty (`$form.<slot>` is `""`) and moves on. Said for any other slot, those words aren't an answer, and the slot is asked again.
+- **Lists.** A `list: true` slot (`ENUM`, or an entity) keeps every value named, in the order said: "a wax and a car wash" → `["wax", "wash"]`. A reply says "a wax and a car wash".
+- **Corrections.** Changing an answer ("no, make it an oil change") clears the answers whose `condition` reads it, such as the tire size. They're asked again only if they still apply. With `require_confirmation`, it then speaks `confirm`, and:
 - *yes*: `$form.confirmed` becomes true;
 - *no* with a new `ENUM` value ("no, Tuesday"): it changes and is read back again;
 - a plain *no*: "What would you like to change?" (or the goal's `change` text). Naming a value changes it; naming a slot ("the phone number") empties it and asks for it again.
@@ -509,9 +514,10 @@ entity_types { name: "free_time"  dynamic: true list { values { value: "09:00" s
 
 | Kind | Matches | Its value |
 |---|---|---|
-| `list` | the `value`, `spoken` form or any synonym, as whole words, ignoring case and punctuation | `value`; replies say `spoken` |
+| `list` | the `value`, `spoken` form or any synonym, as whole words, ignoring case and punctuation. Misspellings match too (see [Understanding](#understanding)); `matching { phonetic: true }` also matches words that sound alike, for names ("Catherine" for `katherine`, "Steven" for `stephen`) | `value`; replies say `spoken` |
 | `pattern` | the regex (ECMAScript, ignoring case) against a run of words joined by spaces, or by nothing with `strip_spaces`. With `spelled`, words are read letter by letter first: "alpha bravo one two" → `ab12`; letters and digits as the STT writes them ("AB 12") work too | the words joined; `uppercase` stores them in upper case |
 | `derived` | what its `base` matches (`@sys.*`, a list or a pattern), within `min`/`max` and where `condition` (on `$value`) holds | the base's value |
+| `composite` | one of its `templates` in order: `"@color:color @make:make from @sys.integer:year"`. Each part is a match of that entity starting right there; the words between them are said as they are. The longest template found wins, and a composite beats its parts | a struct, a field per part: `{color: "white", make: "toyota", year: 2019}`; replies say the parts as said ("white Toyota from 2019") |
 
 **System entities.** These need no declaring. Each reads English as speech recognizers write it, in words or in digits. Dates count from the conversation's clock.
 
@@ -625,4 +631,4 @@ $ vasdk_agentc try agents/garage-menu/agent.txtpb --entity @sys.phone "five five
 
 ## Not yet
 
-These come in later milestones: arithmetic and dates in expressions (`days_until`, `now`), filters in replies (`|raw`), skipping a slot ("I don't know"), sound-alike matching of names, entities built from others ("a white Toyota from 2019"), guards and before/after steps in envelopes, a different voice or speed per part, and steps, page types and envelopes written in C, Kotlin or Python.
+These come in later milestones: arithmetic and dates in expressions (`days_until`, `now`), filters in replies (`|raw`), guards and before/after steps in envelopes, a different voice or speed per part, and steps, page types and envelopes written in C, Kotlin or Python.

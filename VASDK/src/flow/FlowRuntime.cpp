@@ -293,6 +293,16 @@ Value FlowRuntime::resolve(const Path& path, bool spoken) const {
         const Value value = slotValue(*_form->state, field);
         const auto slot = std::find_if(_form->goal->slots().begin(), _form->goal->slots().end(),
                                        [&](const auto& candidate) { return candidate.name() == field; });
+        if (spoken && path.size() == 2 && value.kind_case() == Value::kListValue && slot != _form->goal->slots().end()) {
+            std::vector<std::string> items;   // "an oil change and a tire repair"
+            for (const auto& item : value.list_value().values())
+                items.push_back(slot->entity().empty() ? toText(item)
+                                                       : entities.describe(entityName(slot->entity()), item, _dynamicEntities).spoken);
+            std::string said;
+            for (size_t i = 0; i < items.size(); ++i)
+                said += (i == 0 ? "" : i + 1 == items.size() ? " and " : ", ") + items[i];
+            return stringValue(said);
+        }
         if (slot == _form->goal->slots().end() || slot->entity().empty() || value.kind_case() == Value::kNullValue) {
             // As a reply says it: "2026-11-10" → "Tuesday, November 10th", "15:30" → "3:30 PM".
             if (spoken && path.size() == 2 && slot != _form->goal->slots().end() && value.kind_case() == Value::kStringValue) {
@@ -1224,6 +1234,55 @@ std::optional<std::string> FlowRuntime::readAnswer(const vasdk::goal::Slot& slot
 
 //  Forms
 
+bool FlowRuntime::saysSkip(const std::string& text) const {
+    nlu::NluRequest request;
+    request.text = text;
+    request.candidates = {"sys.skip"};
+    return !_agent->rules()->understand(request).intents.empty();
+}
+
+// Every value of a list slot named in the words, in the order said: "tires and an oil change".
+nlohmann::json FlowRuntime::readList(const vasdk::goal::Slot& slot, const std::string& text) const {
+    nlohmann::json values = nlohmann::json::array();
+    auto add = [&values](const std::string& value) {
+        if (std::find(values.begin(), values.end(), value) == values.end()) values.push_back(value);
+    };
+    if (!slot.entity().empty()) {
+        for (const auto& match : _agent->entities().findAll(text, _dynamicEntities, now()))
+            if (match.entity == entityName(slot.entity())) add(toText(match.value));
+    } else {
+        const auto words = splitWords(text);
+        std::vector<std::pair<size_t, std::string>> found;   // where it was said, the value
+        for (const auto& value : slot.values()) {
+            const auto valueWords = splitWords(value);
+            const auto at = std::search(words.begin(), words.end(), valueWords.begin(), valueWords.end());
+            if (!valueWords.empty() && at != words.end()) found.emplace_back(static_cast<size_t>(at - words.begin()), value);
+        }
+        std::sort(found.begin(), found.end());
+        for (const auto& [at, value] : found) add(value);
+    }
+    return values;
+}
+
+// Sets a slot; a changed answer clears the slots whose condition reads it ("make it an oil change"
+// clears the tire size), so they're asked again if they still apply.
+bool FlowRuntime::setSlot(const std::string& name, const std::string& value) {
+    const auto before = _form->state->slotValueJson(name);
+    if (!_form->state->updateSlot(name, value).valid) return false;
+    if (before.is_null() || before == _form->state->slotValueJson(name)) return true;
+    for (const auto& slot : _form->goal->slots()) {
+        if (slot.condition().empty() || _form->state->slotValueJson(slot.name()).is_null()) continue;
+        const auto condition = _agent->expression(slot.condition());
+        if (!condition) continue;
+        const auto& references = condition->references();
+        const bool reads = std::any_of(references.begin(), references.end(), [&](const Path& path) {
+            return path.size() >= 2 && path[0] == "form" && path[1] == name;
+        });
+        if (reads) _form->state->clearSlot(slot.name());
+    }
+    return true;
+}
+
 bool FlowRuntime::formActive() const {
     if (!_form) return false;
     const bool needsYes = _form->goal->require_confirmation() && !_form->state->isConfirmed();
@@ -1243,7 +1302,7 @@ bool FlowRuntime::fillNamedValues(const std::string& text, bool overwrite) {
         if (!overwrite && !_form->state->slotValueJson(slot.name()).is_null()) continue;
         const auto value = readSlot(slot, text);
         if (!value || toText(slotValue(*_form->state, slot.name())) == *value) continue;
-        filled = _form->state->updateSlot(slot.name(), *value).valid || filled;
+        filled = setSlot(slot.name(), *value) || filled;
     }
     return filled;
 }
@@ -1282,9 +1341,17 @@ bool FlowRuntime::fillForm(const std::string& text) {
         if (!form.asking.empty()) {
             const auto slot = std::find_if(form.goal->slots().begin(), form.goal->slots().end(),
                                            [&](const auto& candidate) { return candidate.name() == form.asking; });
-            if (slot != form.goal->slots().end())
-                if (const auto value = readAnswer(*slot, text))
-                    used = form.state->updateSlot(form.asking, *value).valid;
+            if (slot != form.goal->slots().end()) {
+                if (saysSkip(text)) {
+                    // "I don't know": a skippable slot stays empty; any other is asked again.
+                    if (slot->skippable()) used = form.state->prefillSlot(form.asking, "");
+                } else if (slot->list()) {
+                    const auto values = readList(*slot, text);
+                    if (!values.empty()) used = form.state->prefillSlot(form.asking, values);
+                } else if (const auto value = readAnswer(*slot, text)) {
+                    used = setSlot(form.asking, *value);
+                }
+            }
         }
         used = fillNamedValues(text, false) || used;
     }

@@ -13,6 +13,7 @@ message EntityType {
     ListEntity list = 10;        // a fixed set of values, each with synonyms
     PatternEntity pattern = 11;  // a regular expression
     DerivedEntity derived = 12;  // another entity, narrowed
+    CompositeEntity composite = 13;   // built from other entities: "a white Toyota from 2019"
   }
   // List only: the app may replace the values for one conversation (Session::setEntityValues),
   // e.g. the appointment times still free today. The declared values are the defaults.
@@ -24,6 +25,14 @@ message EntityType {
 message Matching {
   optional bool fuzzy = 1;            // misspelled words still match ("tyres" for "tires"); unset: true
   optional float min_similarity = 2;  // how alike a word must be, 0 to 1; unset: 0.8
+  bool phonetic = 3;                  // words that sound alike match too: names ("Catherine" for "Katherine")
+}
+
+// Values built from other entities, each template in order: "@color:color @car_make:make" names
+// the parts and the fields they fill. Words between the parts must be said as they are; the
+// longest template found wins. The value has a field per part: {color: "white", make: "toyota"}.
+message CompositeEntity {
+  repeated string templates = 1;      // "@car_make:make @car_model:model from @sys.integer:year"
 }
 
 // One value of a list entity. `value` is what conditions compare and what's stored; `spoken` is

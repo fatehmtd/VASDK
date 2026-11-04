@@ -48,6 +48,40 @@ float wordMatch(const std::string& heard, const std::string& expected, float min
     return similarity >= minSimilarity ? similarity : 0.0f;
 }
 
+std::string phoneticKey(const std::string& word) {
+    std::string text;
+    for (const unsigned char c : word)
+        if (std::isalpha(c)) text += static_cast<char>(std::tolower(c));
+    if (text.empty()) return text;
+    // Spellings that sound the same, first: "ph" is "f", "ck" is "k", a silent start ("kn", "wr").
+    auto replaceAll = [&text](const std::string& from, const std::string& to) {
+        for (size_t at = text.find(from); at != std::string::npos; at = text.find(from, at + to.size())) text.replace(at, from.size(), to);
+    };
+    if (text.rfind("kn", 0) == 0 || text.rfind("gn", 0) == 0 || text.rfind("wr", 0) == 0) text.erase(0, 1);
+    replaceAll("ph", "f");
+    replaceAll("ck", "k");
+    replaceAll("th", "0");
+    replaceAll("sh", "x");
+    replaceAll("gh", "");
+    std::string key;
+    for (size_t i = 0; i < text.size(); ++i) {
+        char c = text[i];
+        const char next = i + 1 < text.size() ? text[i + 1] : '\0';
+        if (c == 'c') c = next == 'e' || next == 'i' || next == 'y' ? 's' : 'k';
+        else if (c == 'q') c = 'k';
+        else if (c == 'z') c = 's';
+        else if (c == 'v') c = 'f';
+        else if (c == 'x' && i > 0) c = 's';
+        else if (c == 'h' && i > 0) continue;   // "john": the h is silent after a consonant or vowel
+        const bool vowel = std::string("aeiouy").find(c) != std::string::npos;
+        if (vowel && !key.empty()) continue;   // vowels count only at the start
+        if (vowel) c = 'a';
+        if (!key.empty() && key.back() == c) continue;
+        key += c;
+    }
+    return key;
+}
+
 std::vector<std::pair<size_t, float>> findPhrase(const std::vector<std::string>& words, const std::vector<std::string>& phrase,
                                                  float minSimilarity) {
     std::vector<std::pair<size_t, float>> found;

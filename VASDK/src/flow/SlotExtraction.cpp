@@ -33,6 +33,12 @@ Value slotValue(const goal::GoalState& state, const std::string& slot) {
     if (json.is_number()) return numberValue(json.get<double>());
     if (json.is_string()) return stringValue(json.get<std::string>());
     if (json.is_null()) return nullValue();
+    if (json.is_array()) {   // a list slot: "tires and an oil change"
+        Value list;
+        for (const auto& item : json)
+            *list.mutable_list_value()->add_values() = item.is_string() ? stringValue(item.get<std::string>()) : stringValue(item.dump());
+        return list;
+    }
     return stringValue(json.dump());
 }
 

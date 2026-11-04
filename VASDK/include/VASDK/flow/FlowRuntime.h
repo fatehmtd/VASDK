@@ -269,6 +269,9 @@ private:
     std::string sayOne(const Texts& texts, const void* key, Reply& reply);
     std::string ask(const Texts& texts, const void* key, const std::string& fallback, Reply& reply);
     bool formActive() const;
+    bool saysSkip(const std::string& text) const;
+    nlohmann::json readList(const vasdk::goal::Slot& slot, const std::string& text) const;
+    bool setSlot(const std::string& name, const std::string& value);
     bool fillForm(const std::string& text);
     bool fillNamedValues(const std::string& text, bool overwrite);
     Outcome advanceForm(Reply& reply);

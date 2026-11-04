@@ -458,6 +458,9 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::build(vasdk::flow::Agent age
             if (slot.name().empty()) check.error(slotWhere, "has no name");
             else if (!slotNames.insert(slot.name()).second) check.error(slotWhere, "is declared twice");
             else if (isFormStatus(slot.name())) check.error(slotWhere, "is a reserved name ($form.complete, confirmed and failed)");
+            if (slot.list() && slot.entity().empty() && slot.type() != vasdk::goal::Slot::ENUM)
+                check.error(slotWhere, "list needs an entity or ENUM values");
+            if (slot.skippable() && slot.optional()) check.error(slotWhere, "is optional, so never asked: skippable has no effect");
             checkExpect(slot.expect(), slotWhere);
             const bool isEnum = slot.type() == vasdk::goal::Slot::ENUM;
             if (!slot.entity().empty()) {

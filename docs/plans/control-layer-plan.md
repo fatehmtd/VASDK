@@ -15,7 +15,8 @@
 > | 18 Smarter understanding | ✅ committed. Not in it: phonetic (sound-alike) matching (21); the cascade isn't in the engine config yet (24, with its first model stage) |
 > | 19 English values from speech | ✅ committed. Lists of values ("tires and an oil change") wait for 21 |
 > | 20 Listening tuned to the question | ✅ committed. Hints implemented for Soniox only (other recognizers: no-op); the WER gain on a hint set is not measured (needs recorded audio and a cloud key) |
-> | 21–32 | not started |
+> | 21 Advanced forms & entities | ✅ committed. Phonetic matching is a compact key (not Double Metaphone); code-backed entities and entity packs not built |
+> | 22–32 | not started |
 
 
 *Uses Google Dialogflow CX as the reference model. Definitions are proto-schema'd and written in text proto.*

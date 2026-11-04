@@ -55,4 +55,6 @@ message Slot {
   // a keypad for numbers, YES_NO for BOOLEAN, choices for up to 5 values; set fields replace those.
   vasdk.flow.Expectation expect = 13;
   bool sensitive = 14;                 // a card or phone number: masked in events and logs, never given to an LLM, typed privately
+  bool skippable = 15;                 // asked, but "skip", "I don't know" leaves it empty ($form.<slot> is "") and moves on
+  bool list = 16;                      // ENUM or entity: every value named, as a list ("tires and an oil change")
 }

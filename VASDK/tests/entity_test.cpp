@@ -211,6 +211,35 @@ int main() {
     check(result.passed(), "a test case with dynamic values");
     for (const auto& failure : result.failures) std::fprintf(stderr, "  %s\n", failure.c_str());
 
+    // Version 2: composite entities, built from others; names matched by how they sound.
+    {
+        std::string error;
+        auto cars = compileText(R"agent(
+            start_flow: "main"
+            entity_types { name: "color" list { values { value: "white" } values { value: "red" } } }
+            entity_types { name: "make" list { values { value: "toyota" spoken: "Toyota" } values { value: "honda" spoken: "Honda" } } }
+            entity_types { name: "car" composite { templates: ["@color:color @make:make", "@color:color @make:make from @sys.integer:year"] } }
+            entity_types { name: "contact" list { values { value: "katherine" spoken: "Katherine" } values { value: "stephen" spoken: "Stephen" } }
+                           matching { phonetic: true } }
+            flows { name: "main" start_page: "p" pages { name: "p" on_enter { end {} } } }
+        )agent", &error);
+        check(cars != nullptr, "the v2 agent compiles");
+        if (cars) {
+            const auto car = cars->entities().find("car", "it's a white toyota from 2019");
+            check(car && car->value.struct_value().fields().at("make").string_value() == "toyota" &&
+                      car->value.struct_value().fields().at("year").number_value() == 2019 && car->spoken == "white Toyota from 2019",
+                  "a composite: the longest template, a field per part");
+            const auto all = cars->entities().findAll("a red honda please");
+            check(all.size() == 1 && all[0].entity == "car", "a composite beats its parts");
+            check(cars->entities().find("contact", "call catherine")->value.string_value() == "katherine", "sounds alike: Catherine");
+            check(cars->entities().find("contact", "message steven")->value.string_value() == "stephen", "sounds alike: Steven");
+            check(!cars->entities().find("contact", "call kevin"), "a different name isn't matched");
+        }
+        check(contains(lintError("entity_types {", "entity_types { name: \"bad\" composite { templates: [\"@nothing:x\"] } }\nentity_types {"),
+                       "@nothing must be"),
+              "a composite's part must be an entity");
+    }
+
     if (failures == 0) std::printf("entity_test: all passed\n");
     return failures == 0 ? 0 : 1;
 }

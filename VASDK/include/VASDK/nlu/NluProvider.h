@@ -66,6 +66,12 @@ VASDK_EXPORT float wordSimilarity(const std::string& a, const std::string& b);
  * "apointment"); else 0.
  */
 VASDK_EXPORT float wordMatch(const std::string& heard, const std::string& expected, float minSimilarity);
+/**
+ * How a word sounds, roughly, for names a speech recognizer spells its own way: "catherine" and
+ * "katherine" → "k0rn", "stephen" and "steven" → "stfn". Letters only; vowels after the first
+ * letter and repeats are dropped.
+ */
+VASDK_EXPORT std::string phoneticKey(const std::string& word);
 /** Where `phrase` occurs in `words`, word for word by wordMatch: each start, and the sum of its words' matches. */
 VASDK_EXPORT std::vector<std::pair<size_t, float>> findPhrase(const std::vector<std::string>& words,
                                                               const std::vector<std::string>& phrase, float minSimilarity);
