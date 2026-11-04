@@ -33,6 +33,9 @@ message LlmConfig {
   bool speculative_firing = 5;         // start the request on the partial at a pause (needs streaming_transcription)
   int32 speculative_min_words = 6;     // 0: 3
   repeated string tool_filler_phrases = 7;  // said in turn while a tool runs, e.g. "One moment."
+  // An agent's LLM intent check (what its rules aren't sure of) is given up after this, and the
+  // rules' guess stands: the turn waits for it. unset: 1500; 0 or less: up to the LLM's 8 s.
+  optional int32 intent_timeout_ms = 8;
 }
 
 // How quickly the assistant decides the user has finished speaking.

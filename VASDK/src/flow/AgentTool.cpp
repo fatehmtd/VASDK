@@ -158,11 +158,12 @@ int runAgentTool(int argc, char** argv, std::shared_ptr<const FlowRegistry> regi
     if (argc < 3) return usage();
     const std::string command = argv[1];
     const std::string agentPath = argv[2];
-    // Understanding: the agent's rules, then the LLM when one is given.
+    // Understanding: the agent's rules, then the LLM when one is given. Tests and evals wait for
+    // its answer (no intent time limit), so results don't depend on how fast the network is.
     auto understander = [&completion](const std::shared_ptr<const CompiledAgent>& agent) -> std::shared_ptr<const nlu::NluProvider> {
         if (!completion) return agent->rules();
         return std::make_shared<nlu::CascadeNluProvider>(std::vector<std::shared_ptr<const nlu::NluProvider>>{
-            agent->rules(), std::make_shared<nlu::LlmNluProvider>(completion, agent->definition().intents())});
+            agent->rules(), std::make_shared<nlu::LlmNluProvider>(completion, agent->definition().intents(), 0)});
     };
     auto assist = [&](const std::shared_ptr<const CompiledAgent>& agent) -> FlowTestSetup {
         if (!completion) return nullptr;

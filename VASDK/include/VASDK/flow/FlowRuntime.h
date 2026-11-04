@@ -187,6 +187,7 @@ public:
     void setNlu(std::shared_ptr<const nlu::NluProvider> provider) { _nlu = std::move(provider); }
     /** The LLM answered the last turn: an intent takes the next one only when it is most of the words
      *  ("book a tire repair", not "help" in "I'm hard of hearing, help me out"); rules only, no LLM asked.
+     *  So does an entity route's entity ("tire repair", not "tire repair" in a story about last year's).
      *  And a reply that would ask the page's question again ("You're welcome.", "Are you still there?") doesn't. */
     void setLlmHasConversation(bool has) { _llmHasConversation = has; }
     /** Answers knowledge questions by meaning with it, instead of by their words. */
@@ -370,6 +371,7 @@ private:
     std::shared_ptr<const nlu::NluProvider> _nlu;
     std::shared_ptr<const nlu::EmbeddingNluProvider> _embeddings;
     bool _llmHasConversation = false;
+    float _chatMinShare = 0.5f;   // mid-chat, the share of the words an intent or a route's entity must account for
     std::optional<nlu::NluResult> _understood;   // this turn's, worked out when a route first needs it
     std::vector<std::string> _alternatives;      // intents tied for the best route this turn
     std::function<void(const Reply&)> _fillerSink;

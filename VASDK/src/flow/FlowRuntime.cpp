@@ -760,8 +760,17 @@ const vasdk::flow::Route* FlowRuntime::matchRoute(const google::protobuf::Repeat
         _alternatives = std::move(tied);
         return best;
     }
+    // Mid-chat with the LLM, an entity route needs its entity to be most of the words: "tire repair",
+    // not a service named in a story about last year's.
+    std::optional<size_t> wordCount;
+    auto entityIsTheAnswer = [&] {
+        if (!_llmHasConversation) return true;
+        if (!wordCount) wordCount = entityWords(_inputText).size();
+        return *wordCount == 0 || static_cast<float>(_entity->length) >= _chatMinShare * static_cast<float>(*wordCount);
+    };
     for (const auto& route : routes)
-        if (route.intent().empty() && !route.entity().empty() && entityHolds(route) && holds(route.condition())) return &route;
+        if (route.intent().empty() && !route.entity().empty() && entityHolds(route) && entityIsTheAnswer() && holds(route.condition()))
+            return &route;
     _entity.reset();
     for (const auto& route : routes)
         if (route.intent().empty() && route.entity().empty() && holds(route.condition())) return &route;
@@ -972,7 +981,8 @@ const nlu::NluResult& FlowRuntime::understanding() {
         _understood = provider->understand(request);
         if (_llmHasConversation) {
             auto& intents = _understood->intents;
-            intents.erase(std::remove_if(intents.begin(), intents.end(), [](const nlu::IntentMatch& match) { return match.explains < 0.5f; }),
+            intents.erase(std::remove_if(intents.begin(), intents.end(),
+                                         [this](const nlu::IntentMatch& match) { return match.explains < _chatMinShare; }),
                           intents.end());
         }
     }
@@ -1458,10 +1468,10 @@ void FlowRuntime::listenFor(Reply& reply) const {
         if (expect.mode() == Expectation::DIGITS || expect.keyboard() == Expectation::EMAIL) expect.set_turn_end(Expectation::PATIENT);
         else if (expect.mode() == Expectation::YES_NO || expect.mode() == Expectation::CONFIRMATION) expect.set_turn_end(Expectation::SNAPPY);
     }
-    constexpr size_t kMostHints = 50;
+    const size_t mostHints = 50;
     std::vector<std::string> hints(expect.hints().begin(), expect.hints().end());
-    auto add = [&hints](const std::string& phrase) {
-        if (!phrase.empty() && hints.size() < kMostHints && std::find(hints.begin(), hints.end(), phrase) == hints.end())
+    auto add = [&hints, mostHints](const std::string& phrase) {
+        if (!phrase.empty() && hints.size() < mostHints && std::find(hints.begin(), hints.end(), phrase) == hints.end())
             hints.push_back(phrase);
     };
     for (const auto& choice : reply.choices) add(choice.label);

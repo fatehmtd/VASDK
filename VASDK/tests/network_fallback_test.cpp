@@ -46,6 +46,22 @@ struct ScriptedLlm : llm::Completion {
     }
 };
 
+// An LLM whose intent checks run past their time limit (slow), or fail at once (unreachable).
+struct LateLlm : llm::Completion {
+    mutable std::atomic<int> calls{0};
+    mutable std::atomic<int> lastLimitMs{-1};
+    std::atomic<bool> slow{true};
+    std::optional<std::string> complete(const std::vector<llm::ConversationMessage>& messages) const override {
+        return completeWithin(messages, 0);
+    }
+    std::optional<std::string> completeWithin(const std::vector<llm::ConversationMessage>&, int timeLimitMs) const override {
+        ++calls;
+        lastLimitMs = timeLimitMs;
+        if (slow) std::this_thread::sleep_for(std::chrono::milliseconds(timeLimitMs + 20));
+        return std::nullopt;
+    }
+};
+
 struct EventRecorder {
     std::mutex mutex;
     std::vector<vasdk::engine::Event> events;
@@ -207,6 +223,50 @@ int main() {
     check(localLoads == 1, "the fallbacks loaded before are reused");
 
     session->stop();
+
+    // The intent check has a time limit (llm.intent_timeout_ms): past it, the rules' guess stands
+    // and the LLM isn't rested, so the next turn asks it again. A request that fails at once does rest it.
+    {
+        engine::ProviderRegistry lateRegistry;
+        lateRegistry.add<audio::VADProvider>("vad", [](const engine::ProviderContext&) { return std::make_shared<fakes::FakeVad>(); });
+        lateRegistry.add<audio::GenericTranscriptionProvider>("stt", [](const engine::ProviderContext&) {
+            return std::make_shared<fakes::FakeStt>();
+        });
+        lateRegistry.add<audio::GenericVoiceSynthesisProvider>("tts", [](const engine::ProviderContext&) {
+            return std::make_shared<fakes::FakeTts>();
+        });
+        vasdk::engine::EngineConfig lateConfig;
+        engine::parseProto(R"(
+            providers { stt { id: "stt" } tts { id: "tts" } }
+            llm { intent_timeout_ms: 50 })", engine::ProtoFormat::Text, lateConfig, &error);
+        EventRecorder lateEvents;
+        auto late = std::make_shared<LateLlm>();
+        VAEngine::Options lateOptions;
+        lateOptions.transport = std::make_shared<fakes::FakeTransport>();
+        lateOptions.agent = agent;
+        lateOptions.llmCompletion = late;
+        auto lateSession = VAEngine::create(lateConfig, lateRegistry, lateOptions, &error);
+        if (!lateSession) { std::fprintf(stderr, "  %s\n", error.c_str()); return 1; }
+        lateSession->addListener(lateEvents.listener());
+        check(lateSession->start(&error), "starts: " + error);
+        const auto notUnderstood = [](const vasdk::engine::Event& event) {   // the greeting's question follows when it was asked
+            return event.has_agent_reply() && event.agent_reply().is_final() &&
+                   event.agent_reply().text().rfind("Sorry, I can't help with that here.", 0) == 0;
+        };
+        auto ask = [&](const std::string& words, int replies) {
+            lateSession->injectUserText(words);
+            for (int i = 0; i < 150 && lateEvents.count(notUnderstood) < replies; ++i) std::this_thread::sleep_for(20ms);
+            return lateEvents.count(notUnderstood) == replies;
+        };
+        check(ask("my brakes are squealing", 1) && late->calls == 1 && late->lastLimitMs == 50,
+              "asked within the configured limit, then not understood: " + std::to_string(late->lastLimitMs));
+        check(ask("my wipers are streaky", 2) && late->calls == 2, "too slow isn't unreachable: asked again");
+        late->slow = false;
+        check(ask("my horn is quiet", 3) && late->calls == 3, "a request that fails at once");
+        check(ask("my seat is wobbly", 4) && late->calls == 3, "rests the LLM: not asked on the next turn");
+        lateSession->stop();
+    }
+
     if (failures == 0) std::printf("network_fallback_test: all passed\n");
     return failures == 0 ? 0 : 1;
 }

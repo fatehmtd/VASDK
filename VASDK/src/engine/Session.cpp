@@ -98,11 +98,16 @@ public:
     GatedCompletion(std::shared_ptr<const llm::Completion> inner, std::shared_ptr<std::atomic<bool>> offline)
         : _inner(std::move(inner)), _offline(std::move(offline)) {}
     std::optional<std::string> complete(const std::vector<llm::ConversationMessage>& messages) const override {
+        return completeWithin(messages, 0);
+    }
+    // A question given up at its time limit doesn't rest the LLM: it's slow, not unreachable.
+    std::optional<std::string> completeWithin(const std::vector<llm::ConversationMessage>& messages, int timeLimitMs) const override {
         using namespace std::chrono;
-        const auto now = duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
+        const auto clock = [] { return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count(); };
+        const auto now = clock();
         if (*_offline || now - _failedAt.load() < kRetryAfterMs) return std::nullopt;
-        auto reply = _inner->complete(messages);
-        if (!reply) _failedAt = now;
+        auto reply = timeLimitMs > 0 ? _inner->completeWithin(messages, timeLimitMs) : _inner->complete(messages);
+        if (!reply && (timeLimitMs <= 0 || clock() - now < timeLimitMs)) _failedAt = now;
         return reply;
     }
 
@@ -497,7 +502,8 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
         }
         if (completion) {
             completion = std::make_shared<GatedCompletion>(completion, state->llmOffline);
-            stages.push_back(std::make_shared<nlu::LlmNluProvider>(completion, options.agent->definition().intents()));
+            const int intentTimeoutMs = config.llm().has_intent_timeout_ms() ? config.llm().intent_timeout_ms() : 1500;
+            stages.push_back(std::make_shared<nlu::LlmNluProvider>(completion, options.agent->definition().intents(), intentTimeoutMs));
             state->dialog->setLlm(completion);
         }
         if (stages.size() > 1) state->dialog->setNlu(std::make_shared<nlu::CascadeNluProvider>(std::move(stages)), embeddings);

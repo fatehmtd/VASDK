@@ -24,6 +24,15 @@ public:
     virtual ~Completion() = default;
     /** The LLM's reply; nullopt, logged, when it can't be reached or fails. Blocks until it answers. */
     virtual std::optional<std::string> complete(const std::vector<ConversationMessage>& messages) const = 0;
+    /**
+     * The same, given up after timeLimitMs (when shorter than the client's own timeout): nullopt
+     * then, as for a failure. For questions a turn can't wait long for (the intent check).
+     * 0 or less: no limit beyond the client's. Default: complete(messages), the limit not kept.
+     */
+    virtual std::optional<std::string> completeWithin(const std::vector<ConversationMessage>& messages, int timeLimitMs) const {
+        (void)timeLimitMs;
+        return complete(messages);
+    }
 };
 
 /**
@@ -35,6 +44,7 @@ class VASDK_EXPORT OpenAICompletion : public Completion {
 public:
     explicit OpenAICompletion(LLMConfig config, std::shared_ptr<network::HttpInterface> http = nullptr);
     std::optional<std::string> complete(const std::vector<ConversationMessage>& messages) const override;
+    std::optional<std::string> completeWithin(const std::vector<ConversationMessage>& messages, int timeLimitMs) const override;
 
 private:
     LLMConfig _config;

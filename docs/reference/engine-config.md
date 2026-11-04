@@ -150,6 +150,7 @@ llm {
 | `history` | Messages kept in the conversation; default 10. |
 | `speculative_firing`, `speculative_min_words` | Start the request on the partial at a pause of at least `speculative_min_words` words (default 3); the reply is held until the final transcript matches. Needs `streaming_transcription`. |
 | `tool_filler_phrases` | Said in turn while a tool runs, so the caller doesn't hear silence. |
+| `intent_timeout_ms` | With an agent: how long a turn waits for the LLM's intent check (asked only when the rules and the on-device model aren't sure). After that the rules' guess stands. A late answer doesn't rest the LLM. Default 1500; 0 or less waits up to the LLM's own 8 s. `vasdk_agentc` always waits. |
 
 These apply also when the app passes its own LLM transport in code, as VASDK_CallCenter does with `--llm-endpoint`.
 

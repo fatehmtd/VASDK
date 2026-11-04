@@ -31,8 +31,8 @@
 >
 > **Next (where to pick up):**
 >
-> 1. **Intent check time limit.** The LLM intent check blocks the conversation for up to 8 s; one live turn took 4.6 s. Cap it at about 1.5 s and fall back to the rules' guess.
-> 2. **Entity routes in a chat.** Entity routes (`@service`) can still take over an LLM chat. Apply the same `explains` check to them.
+> 1. ~~**Intent check time limit.**~~ Done: `llm.intent_timeout_ms` (default 1500) through `Completion::completeWithin`. Past it, the cascade keeps the rules' guess. A late answer doesn't start the LLM's 30 s rest; a fast failure still does. `vasdk_agentc` waits with no limit. Spoken replies (`llm` steps, generative pages) keep 8 s.
+> 2. ~~**Entity routes in a chat.**~~ Done: mid-chat, an entity-only route needs its entity to be at least half the words, the same share intents need (`FlowRuntime::_chatMinShare`).
 > 3. **Speaker echo.** Echo through speakers can pause the agent. Try it with headphones off, and tune `commit_after_ms` / `min_interrupt_confidence`.
 > 4. **Thresholds are untested.** The "a sixth of the words" weight and the 0.5 threshold mid-chat are judgement calls, not measured on real speech. Measure them with `vasdk_agentc eval` on recorded turns.
 > 5. **Still open from above.** Milestone 22's audio loopback test and on-device run, every "not run on a device" item, and gate G4 (28).

@@ -9,8 +9,8 @@ namespace va {
 namespace nlu {
 
 LlmNluProvider::LlmNluProvider(std::shared_ptr<const llm::Completion> completion,
-                               const google::protobuf::RepeatedPtrField<vasdk::flow::Intent>& intents)
-    : _completion(std::move(completion)) {
+                               const google::protobuf::RepeatedPtrField<vasdk::flow::Intent>& intents, int timeLimitMs)
+    : _completion(std::move(completion)), _timeLimitMs(timeLimitMs) {
     for (const auto& intent : intents)
         _intents.emplace_back(intent.name(), std::vector<std::string>(intent.examples().begin(), intent.examples().end()));
 }
@@ -38,9 +38,12 @@ NluResult LlmNluProvider::understand(const NluRequest& request) const {
         "(@name stands for a value of that kind):\n" + listing +
         "Reply with only a JSON object: {\"intent\": \"<one of the intent names, or none>\", "
         "\"confidence\": <0 to 1>}. Say none when the words mean none of them.";
-    const auto reply = _completion->complete({{llm::MessageRole::SYSTEM, instructions, 0},
-                                              {llm::MessageRole::USER, request.text, 0}});
-    if (!reply) return result;
+    const auto reply = _completion->completeWithin({{llm::MessageRole::SYSTEM, instructions, 0},
+                                                    {llm::MessageRole::USER, request.text, 0}}, _timeLimitMs);
+    if (!reply) {
+        spdlog::info("[LlmNlu] no answer (failed, or not within {} ms): the earlier stages' guess stands", _timeLimitMs);
+        return result;
+    }
     try {
         const auto answer = nlohmann::json::parse(llm::jsonObjectIn(*reply));
         const auto intent = answer.value("intent", std::string());

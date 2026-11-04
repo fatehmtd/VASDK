@@ -32,8 +32,15 @@ struct ScriptedLlm : llm::Completion {
     std::function<std::string(const std::vector<llm::ConversationMessage>&)> answer;
     mutable int calls = 0;
     mutable std::vector<llm::ConversationMessage> lastMessages;
+    mutable int lastTimeLimitMs = -1;   // completeWithin's; -1: asked by complete
+    std::optional<std::string> completeWithin(const std::vector<llm::ConversationMessage>& messages, int timeLimitMs) const override {
+        auto reply = complete(messages);
+        lastTimeLimitMs = timeLimitMs;
+        return reply;
+    }
     std::optional<std::string> complete(const std::vector<llm::ConversationMessage>& messages) const override {
         ++calls;
+        lastTimeLimitMs = -1;
         lastMessages = messages;
         if (!answer) return std::nullopt;
         return answer(messages);
@@ -50,10 +57,12 @@ std::string lastUserWords(const std::vector<llm::ConversationMessage>& messages)
 
 struct FakeHttp : network::HttpInterface {
     int status = 200;
+    int sentTimeoutMs = 0;
     std::string body, sentUrl, sentBody;
     std::map<std::string, std::string> sentHeaders;
     network::HttpResponse post(const std::string& url, const std::map<std::string, std::string>& headers,
-                               const std::string& request, int, std::function<void(const std::string&)>) override {
+                               const std::string& request, int timeoutMs, std::function<void(const std::string&)>) override {
+        sentTimeoutMs = timeoutMs;
         sentUrl = url;
         sentHeaders = headers;
         sentBody = request;
@@ -144,6 +153,11 @@ int main() {
                   sent["messages"][1]["content"] == "hi",
               "the model and messages are sent");
         check(http->sentHeaders["Authorization"] == "Bearer test-key" && http->sentUrl == config.endpoint, "to the endpoint, with the key");
+        check(http->sentTimeoutMs == config.timeoutMs, "complete: the client's own timeout");
+        completion.completeWithin({{llm::MessageRole::USER, "hi", 0}}, 1500);
+        check(http->sentTimeoutMs == 1500, "completeWithin: its time limit, when shorter");
+        completion.completeWithin({{llm::MessageRole::USER, "hi", 0}}, config.timeoutMs + 1000);
+        check(http->sentTimeoutMs == config.timeoutMs, "and never longer than the client's own");
         http->status = 500;
         check(!completion.complete({{llm::MessageRole::USER, "hi", 0}}), "an error status: no reply");
     }
@@ -162,6 +176,10 @@ int main() {
         check(understood.intents.size() == 1 && understood.intents[0].intent == "book" && understood.stage == "llm",
               "an intent of the agent");
         check(llm->lastMessages.front().content.find("make an appointment") != std::string::npos, "shown with its examples");
+        check(provider.timeLimitMs() == 1500 && llm->lastTimeLimitMs == 1500, "asked within 1.5 s by default");
+        nlu::LlmNluProvider patient(llm, agent->definition().intents(), 0);
+        patient.understand(request);
+        check(llm->lastTimeLimitMs == 0, "or with no limit of its own");
         llm->answer = [](const auto&) { return std::string(R"({"intent": "fly_to_mars", "confidence": 0.99})"); };
         check(provider.understand(request).intents.empty(), "an intent the agent doesn't have: none");
         llm->answer = [](const auto&) { return std::string("I think they want to book"); };
@@ -207,6 +225,29 @@ int main() {
         chatting.setLlmHasConversation(true);
         const auto answered = chatting.handleText("opening hours");
         check(answered.text == "We're open 8 to 6." && answered.expectsReply, "mid-chat: the answer alone: " + answered.text);
+    }
+
+    // Mid-chat, an entity route takes the turn only when its entity is most of the words.
+    {
+        auto definition = parse();
+        auto* route = definition.mutable_flows(0)->mutable_pages(0)->add_routes();
+        route->set_entity("@service");
+        route->set_target("booking");
+        auto withEntityRoute = compile(definition);
+        if (!withEntityRoute) return 1;
+        const std::string story = "my uncle had a tire repair last year and now he drives everywhere with a spare in the back";
+        FlowRuntime menu(withEntityRoute);
+        menu.start();
+        menu.handleText(story);
+        check(menu.pageName() == "booking", "on its own: the service named anywhere takes the route");
+        FlowRuntime chatting(withEntityRoute);
+        chatting.start();
+        chatting.setLlmHasConversation(true);
+        chatting.handleText(story);
+        check(chatting.pageName() == "welcome", "mid-chat: a service named in a story doesn't: " + chatting.pageName());
+        chatting.handleText("a tire repair please");
+        check(chatting.pageName() == "booking" && toText(chatting.lookup({"form", "service"})) == "tires",
+              "the service as the answer does, and fills the form: " + chatting.pageName());
     }
 
     // A keyword in a long question isn't sure: the LLM is asked, and its "none" wins over the keyword.

@@ -27,6 +27,11 @@ OpenAICompletion::OpenAICompletion(LLMConfig config, std::shared_ptr<network::Ht
 }
 
 std::optional<std::string> OpenAICompletion::complete(const std::vector<ConversationMessage>& messages) const {
+    return completeWithin(messages, 0);
+}
+
+std::optional<std::string> OpenAICompletion::completeWithin(const std::vector<ConversationMessage>& messages, int timeLimitMs) const {
+    const int timeoutMs = timeLimitMs > 0 && (_config.timeoutMs <= 0 || timeLimitMs < _config.timeoutMs) ? timeLimitMs : _config.timeoutMs;
     nlohmann::json payload{{"model", _config.model}, {"temperature", _config.temperature}, {"max_tokens", _config.maxTokens}};
     if (!_config.reasoningEffort.empty()) payload["reasoning_effort"] = _config.reasoningEffort;
     auto& list = payload["messages"] = nlohmann::json::array();
@@ -36,7 +41,7 @@ std::optional<std::string> OpenAICompletion::complete(const std::vector<Conversa
     if (!_config.apiKey.empty()) headers["Authorization"] = "Bearer " + _config.apiKey;
     for (const auto& [key, value] : _config.headers) headers[key] = value;
 
-    const auto response = _http->post(_config.endpoint, headers, payload.dump(), _config.timeoutMs);
+    const auto response = _http->post(_config.endpoint, headers, payload.dump(), timeoutMs);
     if (response.statusCode < 200 || response.statusCode >= 300) {
         spdlog::warn("[Completion] {} answered {}: {}", _config.endpoint, response.statusCode,
                      response.body.empty() ? response.error.message : response.body.substr(0, 300));
