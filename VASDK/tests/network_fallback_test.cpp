@@ -46,6 +46,37 @@ struct ScriptedLlm : llm::Completion {
     }
 };
 
+// A cloud voice whose connection drops while it speaks its first sentence.
+class DroppingTts : public fakes::FakeTts {
+public:
+    ~DroppingTts() override {
+        if (_dropper.joinable()) _dropper.join();
+    }
+    bool synthesizeSpeech(const std::string& text) override {
+        if (dropped.exchange(true)) return FakeTts::synthesizeSpeech(text);
+        {
+            std::lock_guard<std::mutex> lock(_mutex);
+            cutOff.push_back(text);
+        }
+        _dropper = std::thread([this] {
+            getVoiceSynthesisResultListener()->onSynthesisStarted();
+            std::this_thread::sleep_for(20ms);
+            getVoiceSynthesisResultListener()->onSynthesisError("connection lost");
+        });
+        return true;
+    }
+    std::vector<std::string> cutOffText() {
+        std::lock_guard<std::mutex> lock(_mutex);
+        return cutOff;
+    }
+    std::atomic<bool> dropped{false};
+
+private:
+    std::mutex _mutex;
+    std::vector<std::string> cutOff;
+    std::thread _dropper;
+};
+
 // An LLM whose intent checks run past their time limit (slow), or fail at once (unreachable).
 struct LateLlm : llm::Completion {
     mutable std::atomic<int> calls{0};
@@ -223,6 +254,40 @@ int main() {
     check(localLoads == 1, "the fallbacks loaded before are reused");
 
     session->stop();
+
+    // The cloud voice drops while it speaks the greeting: the local voice takes over and says it again.
+    {
+        auto droppingTts = std::make_shared<DroppingTts>();
+        auto localVoice = std::make_shared<fakes::FakeTts>();
+        engine::ProviderRegistry dropRegistry;
+        dropRegistry.add<audio::VADProvider>("vad", [](const engine::ProviderContext&) { return std::make_shared<fakes::FakeVad>(); });
+        dropRegistry.add<audio::GenericTranscriptionProvider>("stt", [](const engine::ProviderContext&) {
+            return std::make_shared<fakes::FakeStt>();
+        });
+        dropRegistry.add<audio::GenericVoiceSynthesisProvider>("cloud-tts", [&](const engine::ProviderContext&) { return droppingTts; });
+        dropRegistry.add<audio::GenericVoiceSynthesisProvider>("local-tts", [&](const engine::ProviderContext&) { return localVoice; });
+        vasdk::engine::EngineConfig dropConfig;
+        engine::parseProto(R"(providers { stt { id: "stt" } tts { id: "cloud-tts" fallback: ["local-tts"] } })",
+                           engine::ProtoFormat::Text, dropConfig, &error);
+        EventRecorder dropEvents;
+        VAEngine::Options dropOptions;
+        dropOptions.transport = std::make_shared<fakes::FakeTransport>();
+        dropOptions.agent = agent;
+        auto dropSession = VAEngine::create(dropConfig, dropRegistry, dropOptions, &error);
+        if (!dropSession) { std::fprintf(stderr, "  %s\n", error.c_str()); return 1; }
+        dropSession->addListener(dropEvents.listener());
+        check(dropSession->start(&error), "starts: " + error);
+        check(dropEvents.waitFor(switched("tts", "local-tts")), "the dropped connection switches TTS");
+        check(spoke(*localVoice, "How can I help?"), "the greeting it cut off, in the local voice");
+        const auto cut = droppingTts->cutOffText();
+        check(cut.size() == 1 && cut[0].find("How can I help?") != std::string::npos, "the cloud voice had started it");
+        dropSession->injectUserText("when are you open");
+        check(spoke(*localVoice, "We're open 8 to 6."), "and the next reply in the local voice");
+        int greetings = 0;
+        for (const auto& said : localVoice->said()) greetings += said.find("How can I help?") == 0 ? 1 : 0;
+        check(greetings == 1, "said again once");
+        dropSession->stop();
+    }
 
     // The intent check has a time limit (llm.intent_timeout_ms): past it, the rules' guess stands
     // and the LLM isn't rested, so the next turn asks it again. A request that fails at once does rest it.

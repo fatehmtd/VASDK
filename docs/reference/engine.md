@@ -125,7 +125,7 @@ providers {
 | LLM | Not asked: an agent answers on its own (no LLM stage, `llm` steps run their `offline` steps), and turns it doesn't understand aren't passed on | Unchanged |
 | Back | `setNetworkAvailable(true)`: the configured providers and the LLM again | Stays on the fallback until the app says the network is up |
 
-An agent's LLM requests also rest for 30 seconds after one fails, so a turn doesn't wait out the timeout each time. `fallback_options { key: "parakeet" value { [type.googleapis.com/vasdk.providers.LocalSttOptions] { model_dir: "..." } } }` gives a fallback its own options. A reply that was cut off by the failure isn't said again.
+An agent's LLM requests also rest for 30 seconds after one fails, so a turn doesn't wait out the timeout each time. `fallback_options { key: "parakeet" value { [type.googleapis.com/vasdk.providers.LocalSttOptions] { model_dir: "..." } } }` gives a fallback its own options. A reply the failure cut off is said again by the fallback voice, from its first part the user hadn't fully heard; not if the user spoke meanwhile or another reply came first. An intent check that's only slow (past `llm.intent_timeout_ms`) doesn't rest the LLM.
 
 ## Flow metrics
 

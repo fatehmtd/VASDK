@@ -10,6 +10,8 @@
 #include <mutex>
 #include <condition_variable>
 #include <chrono>
+#include <deque>
+#include <vector>
 #include <atomic>
 #include <deque>
 #include <string>
@@ -39,7 +41,9 @@ public:
     /**
      * Speaks with `provider` from the next reply on (a reply already playing finishes with the
      * one before): that one is stopped, this one started. A local voice for when the network
-     * drops, and back. Thread-safe.
+     * drops, and back. A reply the old provider's error cut off is spoken again with the new
+     * one, from its first part the user hadn't fully heard (unless the user spoke meanwhile, or
+     * another reply came). Thread-safe.
      */
     void replaceProvider(std::shared_ptr<audio::GenericVoiceSynthesisProvider> provider);
     /** Called, on the provider's thread, when the provider reports an error (a lost connection). */
@@ -130,6 +134,9 @@ private:
     void holdReleaseLoop();
 
     void applyReplacement();
+    // A reply cut off by a provider error, spoken again once another provider took over.
+    // On the pipeline thread; true when it was (or there's nothing to speak again).
+    void respeakCutOff();
 
     std::shared_ptr<audio::GenericVoiceSynthesisProvider> _synthesisProvider;   // written under _providerMutex, between replies
     mutable std::mutex _providerMutex;
@@ -146,6 +153,17 @@ private:
         bool interruptible = true;
     };
     std::deque<Sentence>    _pendingSentences;  // not yet handed to the provider
+    // The parts of this reply handed to the provider, and when each one's audio ends playing
+    // (known once synthesized): what a provider error cuts off is from the first unheard one.
+    struct SentPart {
+        Sentence sentence;
+        bool synthesized = false;
+        std::chrono::steady_clock::time_point endsAt;
+    };
+    std::vector<SentPart>   _sentParts;
+    std::deque<Sentence>    _cutOff;            // to speak again with the next provider
+    bool                    _cutOffClosed{ false };   // the cut-off reply had all its text
+    std::shared_ptr<audio::GenericVoiceSynthesisProvider> _cutOffBy;   // the provider that failed
     bool                    _providerBusy{ false };
     bool                    _textClosed{ false };  // final TextFrame of the reply received
     bool                    _turnActive{ false };  // STARTED emitted, COMPLETED not yet
