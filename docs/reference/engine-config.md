@@ -177,6 +177,34 @@ security {
 
 See [Tools and security](flows.md#tools-and-security).
 
+## Remote control
+
+Watch a running session from a browser, and with `mode: CONTROL` drive it, over HTTP:
+
+```textproto
+remote_control { enabled: true token: "${VASDK_RC_TOKEN}" mode: CONTROL }   # bind: "127.0.0.1:8765" by default
+```
+
+| Request | What |
+|---|---|
+| `GET /` | A page with the live trace (what the user said, the replies, page changes, state changes) and a box to type as the user. Open `http://127.0.0.1:8765/?token=<token>`. |
+| `GET /events` | Every [event](engine.md#events) as Server-Sent Events, one JSON object each (`{"pageChanged": {...}}`). The last 512 come first, then the live ones. |
+| `POST /command` | A `vasdk.engine.Command` as JSON: `{"injectText": "book"}`, `{"selectChoice": 0}`, `{"say": "Hello"}`, `{"interrupt": true}`, `{"fireTrigger": {"name": "car-ready", "payload": {...}}}`, `{"setSessionParam": {"name": "tier", "value": "gold"}}`. |
+
+- **Every request** (but the page) needs the token: `Authorization: Bearer <token>`, or `?token=<token>`, since a browser's `EventSource` can't send headers. A wrong token gets 401.
+- **Without a token** the session doesn't start.
+- **`OBSERVE` (the default)** streams events and refuses commands (403).
+- **The bind** is this machine only unless you set another address; port 0 picks a free one.
+- **Sensitive values** are masked in the events as everywhere else.
+- **Example:**
+
+  ```
+  curl -N -H "Authorization: Bearer $VASDK_RC_TOKEN" http://127.0.0.1:8765/events
+  curl -H "Authorization: Bearer $VASDK_RC_TOKEN" -d '{"injectText": "what are your hours"}' http://127.0.0.1:8765/command
+  ```
+
+`engine::RemoteControl::start(session, config)` starts one from code. It needs the build's HTTP server (`VASDK_ENABLE_WEBSOCKET_SERVER`, on by default).
+
 ## Using it from C++
 
 ```cpp

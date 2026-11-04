@@ -26,7 +26,7 @@
 > | 29 C API | ✅ committed. `VASDK/c/vasdk.h`: registry (steps, tools, envelopes in C), agents (load/parse), text conversations with JSON replies, `StepOutcome`, test files; `vasdk_c_test.c` in ctest. Not in it: audio sessions and their events (they need the provider catalog, outside core); page types in C |
 > | 30 Kotlin extensions | ✅ committed. `registerAgentTool`, `registerAgentStep` (StepOutcome JSON), `setEntityValues` + `ContactsEntity`, `events` as a SharedFlow; the phone agent ("call mom" → confirm → call) as an asset, tested on desktop in ctest. Declared tools may omit `http` (the app provides them). Built for arm64; not run on a device |
 > | 31 Python | ✅ committed. `bindings/python/vasdk` (ctypes over the C API: registry, agents, conversations, test files); the garage suite runs from Python in ctest with its step, envelope and tool in Python. Needs a shared VASDK; not packaged for pip |
-> | 32 | not started |
+> | 32 Remote control | ✅ committed. Over HTTP rather than WebSocket (core's cpp-httplib has no WebSocket server; libdatachannel's is built off): `GET /events` as Server-Sent Events, `POST /command` (`vasdk.engine.Command`), `GET /` a live trace page; token (header or query), OBSERVE by default, localhost bind; started by Session from `remote_control`. Round trip and auth tested in ctest; the page not checked in a browser here |
 
 
 *Uses Google Dialogflow CX as the reference model. Definitions are proto-schema'd and written in text proto.*

@@ -12,6 +12,7 @@
 #include "VADFrameProcessor.h"
 #include "WakeWordProcessor.h"
 #include "engine/EventTapProcessor.h"
+#include "engine/RemoteControl.h"
 #include "engine/Runtime.h"
 #include "context/ContextProvider.h"
 #include "flow/DialogProcessor.h"
@@ -217,6 +218,7 @@ struct Session::State {
     void networkLost(const std::string& reason, bool dropLlm);
     void networkBack();
     void post(const std::string& kind, const std::string& from, const std::string& to, const std::string& reason) const;
+    std::unique_ptr<RemoteControl> remote;   // remote_control: watched and driven over HTTP
     // Last, so it's joined before anything it uses is destroyed.
     struct Loader {
         std::thread thread;
@@ -606,10 +608,19 @@ bool Session::start(std::string* error) {
     }
     _state->pipeline = pipeline;
     spdlog::info("{} Started: {}", _state->logTag, describe());
+    if (const auto& remote = _state->lease.runtime->config().remote_control(); remote.enabled()) {
+        std::string reason;
+        _state->remote = RemoteControl::start(*this, remote, &reason);
+        if (!_state->remote) {
+            stop();
+            return fail(reason);
+        }
+    }
     return true;
 }
 
 void Session::stop() {
+    _state->remote.reset();
     if (!_state->pipeline) return;
     _state->pipeline->stop();
     _state->options.transport->stop();

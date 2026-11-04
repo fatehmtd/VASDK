@@ -4,6 +4,7 @@ syntax = "proto3";
 
 package vasdk.engine;
 
+import "google/protobuf/struct.proto";
 import "vasdk/flow/expectation.proto";
 import "vasdk/flow/trigger.proto";
 
@@ -122,4 +123,28 @@ message PageChanged {
 message SessionEnded {
   string flow = 1;   // where it ended
   string page = 2;
+}
+
+// What a remote client asks a running session to do (remote_control in CONTROL mode), as JSON:
+//   {"injectText": "book an oil change"}, {"selectChoice": 0}, {"interrupt": true},
+//   {"fireTrigger": {"name": "car-ready", "payload": {"car": "Golf"}}}
+message Command {
+  oneof kind {
+    string inject_text = 1;                 // a user turn, as if spoken
+    int32 select_choice = 2;                // the last reply's choice, from 0
+    TriggerCommand fire_trigger = 3;
+    string say = 4;                         // spoken as the assistant
+    bool interrupt = 5;                     // stops the reply playing
+    SessionParamCommand set_session_param = 6;
+  }
+}
+
+message TriggerCommand {
+  string name = 1;
+  google.protobuf.Struct payload = 2;
+}
+
+message SessionParamCommand {
+  string name = 1;
+  google.protobuf.Value value = 2;
 }

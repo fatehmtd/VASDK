@@ -148,4 +148,22 @@ message EngineConfig {
   Activation activation = 5;
   Audio audio = 6;
   Security security = 7;
+  RemoteControl remote_control = 8;
+}
+
+// Watch, and with CONTROL drive, a running session from a browser or a script, over HTTP:
+//   GET  /events   every event (events.proto) as Server-Sent Events, one JSON object each
+//   POST /command  a Command as JSON (CONTROL only)
+//   GET  /         a page that shows the live trace
+// Every request needs the token: "Authorization: Bearer <token>", or ?token=<token> (EventSource
+// can't send headers). Off unless enabled; without a token it doesn't start.
+message RemoteControl {
+  enum Mode {
+    OBSERVE = 0;   // events only: commands are refused
+    CONTROL = 1;   // events, and commands
+  }
+  bool enabled = 1;
+  string bind = 2;    // "host:port"; unset: "127.0.0.1:8765", this machine only. Port 0: any free one
+  string token = 3;   // required, e.g. "${VASDK_RC_TOKEN}"
+  Mode mode = 4;
 }

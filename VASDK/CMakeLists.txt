@@ -207,6 +207,7 @@ if(VASDK_ENABLE_ENGINE_CONFIG)
         ./src/nlu/EmbeddingNluProvider.cpp
         ./src/nlu/LlmNluProvider.cpp
         ./src/c/vasdk_c.cpp
+        ./src/engine/RemoteControl.cpp
         ./proto/vasdk/engine/engine_config.proto
         ./proto/vasdk/engine/events.proto
         ./proto/vasdk/nlu/entity.proto
@@ -390,6 +391,11 @@ if(VASDK_BUILD_TESTS)
         if(EXISTS ${PHONE_AGENT} AND NOT ANDROID)
             file(GLOB PHONE_AGENT_TESTS ${CMAKE_SOURCE_DIR}/VASDK_ANDROID/agent-tests/phone/*.txtpb)
             add_test(NAME vasdk_agent_android_phone COMMAND vasdk_agentc test ${PHONE_AGENT} ${PHONE_AGENT_TESTS})
+        endif()
+        if(TARGET httplib::httplib)
+            add_executable(vasdk_remote_control_test tests/remote_control_test.cpp)
+            target_link_libraries(vasdk_remote_control_test PRIVATE VASDK httplib::httplib)
+            add_test(NAME vasdk_remote_control COMMAND vasdk_remote_control_test)
         endif()
         enable_language(C)
         add_executable(vasdk_c_test tests/vasdk_c_test.c)   # the C API, from C

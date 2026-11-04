@@ -104,6 +104,8 @@ engine->addListener([](const vasdk::engine::Event& event) {
 });
 ```
 
+A browser or a script can watch the same events, and send commands, over HTTP: see [remote control](engine-config.md#remote-control).
+
 Listeners run in order on one engine thread, never a pipeline thread, so a slow listener can't stall the audio. Keep them quick anyway: if they fall more than 1024 events behind, the oldest are dropped with a warning. A listener that throws is logged and the others still run. `removeListener(id)` takes one off; listeners can be added before or after `start()`.
 
 ## When the network drops
