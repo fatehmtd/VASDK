@@ -9,6 +9,9 @@
 #include <VASDK/LocalTransport.h>
 #include <VASDK/engine/ProtoFileLoader.h>
 #include <VASDK/flow/CompiledAgent.h>
+#include <VASDK/flow/FlowRegistry.h>
+#include "vasdk/flow/step_outcome.pb.h"
+#include "vasdk/nlu/entity.pb.h"
 #include <VASDK/llm/PromptTemplate.h>
 #include <google/protobuf/util/json_util.h>
 #include <nlohmann/json.hpp>
@@ -82,6 +85,7 @@ JNIEnv *attachedEnv() {
 struct Callbacks {
     jweak target = nullptr;
     jmethodID onTranscript = nullptr, onStatus = nullptr, onLlmResponse = nullptr, onError = nullptr;
+    jmethodID onEngineEvent = nullptr;   // every event, as JSON (VasdkEngine.events)
     std::string replySoFar;   // AgentReply carries the whole reply so far; Kotlin wants the new part
 
     void call(const std::function<void(JNIEnv *, jobject)> &invoke) const {
@@ -103,6 +107,15 @@ struct Callbacks {
 
     void onEvent(const vasdk::engine::Event &event) {
         using Event = vasdk::engine::Event;
+        if (onEngineEvent) {
+            std::string json;
+            if (google::protobuf::util::MessageToJsonString(event, &json).ok())
+                call([&](JNIEnv *env, jobject callback) {
+                    jstring jJson = env->NewStringUTF(json.c_str());
+                    env->CallVoidMethod(callback, onEngineEvent, jJson);
+                    env->DeleteLocalRef(jJson);
+                });
+        }
         switch (event.kind_case()) {
         case Event::kTranscript:
             call([&](JNIEnv *env, jobject callback) {
@@ -162,6 +175,69 @@ struct Callbacks {
 
 } // namespace
 
+// Calls a Kotlin method of VasdkEngine taking and returning Strings, from any thread.
+std::string callKotlin(jweak target, jmethodID method, const std::vector<std::string> &args) {
+    JNIEnv *env = attachedEnv();
+    if (!env) return R"({"error":"failed to attach JVM thread"})";
+    std::string result = R"({"error":"callback unavailable"})";
+    jobject callback = env->NewLocalRef(target);
+    if (!callback) return result;
+    std::vector<jvalue> values(args.size());
+    for (size_t i = 0; i < args.size(); ++i) values[i].l = env->NewStringUTF(args[i].c_str());
+    auto jResult = static_cast<jstring>(env->CallObjectMethodA(callback, method, values.data()));
+    if (env->ExceptionCheck()) env->ExceptionClear();
+    for (auto &value : values) env->DeleteLocalRef(value.l);
+    env->DeleteLocalRef(callback);
+    if (jResult) {
+        const char *chars = env->GetStringUTFChars(jResult, nullptr);
+        result = chars;
+        env->ReleaseStringUTFChars(jResult, chars);
+        env->DeleteLocalRef(jResult);
+    }
+    return result;
+}
+
+std::vector<std::string> stringArray(JNIEnv *env, jobjectArray array) {
+    std::vector<std::string> strings;
+    if (!array) return strings;
+    for (jsize i = 0; i < env->GetArrayLength(array); ++i) {
+        auto item = static_cast<jstring>(env->GetObjectArrayElement(array, i));
+        strings.push_back(jstringToStdString(env, item));
+        env->DeleteLocalRef(item);
+    }
+    return strings;
+}
+
+// The agent's steps and tools written in Kotlin (VasdkEngine.registerAgentStep / registerAgentTool).
+std::shared_ptr<va::flow::FlowRegistry> kotlinExtensions(jweak target, jmethodID onAgentTool, jmethodID onAgentStep,
+                                                         const std::vector<std::string> &tools,
+                                                         const std::vector<std::string> &steps) {
+    auto registry = std::make_shared<va::flow::FlowRegistry>();
+    for (const auto &name : tools) {
+        va::llm::Tool tool(name, "written in Kotlin");
+        tool.onCall([target, onAgentTool, name](const nlohmann::json &args) -> nlohmann::json {
+            auto result = nlohmann::json::parse(callKotlin(target, onAgentTool, {name, args.dump()}), nullptr, false);
+            return result.is_discarded() ? nlohmann::json{{"error", name + " returned something that isn't JSON"}} : result;
+        });
+        registry->addTool(std::move(tool));
+    }
+    for (const auto &type : steps) {
+        registry->addStep(type, [target, onAgentStep, type](const google::protobuf::Message &params, va::flow::TurnContext &turn) {
+            std::string paramsJson;
+            (void) google::protobuf::util::MessageToJsonString(params, &paramsJson);
+            const nlohmann::json context{{"text", turn.text()}, {"flow", turn.flowName()}, {"page", turn.pageName()}};
+            const std::string outcomeJson = callKotlin(target, onAgentStep, {type, paramsJson, context.dump()});
+            vasdk::flow::StepOutcome outcome;
+            std::string error;
+            if (!google::protobuf::util::JsonStringToMessage(outcomeJson, &outcome).ok())
+                spdlog::error("[VASDK] step {}: not a StepOutcome: {}", type, outcomeJson);
+            else if (!turn.apply(outcome, &error))
+                spdlog::error("[VASDK] step {}: {}", type, error);
+        });
+    }
+    return registry;
+}
+
 //  nativeInit
 //
 // engineConfig: a vasdk.engine.EngineConfig in text proto (VasdkEngine builds it from the
@@ -176,7 +252,8 @@ Java_com_vasdk_android_VasdkEngine_nativeInit(JNIEnv *env, jobject thiz, jstring
                                               jstring llmModelPath, jstring llmChatFormat,
                                               jstring systemPrompt,
                                               jstring responseFormatInstruction,
-                                              jstring toolCallExceptionClause) {
+                                              jstring toolCallExceptionClause,
+                                              jobjectArray agentTools, jobjectArray agentSteps) {
     std::lock_guard<std::mutex> lock(gSessionMutex);
     if (gSession) {
         spdlog::warn("[VASDK] nativeInit: session already exists");
@@ -206,7 +283,12 @@ Java_com_vasdk_android_VasdkEngine_nativeInit(JNIEnv *env, jobject thiz, jstring
     callbacks->onLlmResponse = env->GetMethodID(cls, "onLlmResponse", "(Ljava/lang/String;ZZLjava/lang/String;)V");
     callbacks->onError = env->GetMethodID(cls, "onError", "(ILjava/lang/String;)V");
     jmethodID onToolCall = env->GetMethodID(cls, "onToolCall", "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;");
-    if (!callbacks->onTranscript || !callbacks->onStatus || !callbacks->onLlmResponse || !callbacks->onError || !onToolCall)
+    jmethodID onAgentTool = env->GetMethodID(cls, "onAgentTool", "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;");
+    jmethodID onAgentStep = env->GetMethodID(cls, "onAgentStep",
+                                             "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;");
+    callbacks->onEngineEvent = env->GetMethodID(cls, "onEngineEvent", "(Ljava/lang/String;)V");
+    if (!callbacks->onTranscript || !callbacks->onStatus || !callbacks->onLlmResponse || !callbacks->onError || !onToolCall ||
+        !onAgentTool || !onAgentStep || !callbacks->onEngineEvent)
         return fail("Could not resolve callback methods on VasdkEngine");
 #ifdef VASDK_HAS_VIZANIM
     jmethodID onAudioFeatures = env->GetMethodID(cls, "onAudioFeatures", "(Ljava/lang/String;[F)V");
@@ -273,7 +355,9 @@ Java_com_vasdk_android_VasdkEngine_nativeInit(JNIEnv *env, jobject thiz, jstring
     const std::string agentFile = jstringToStdString(env, agentPath);
     if (!agentFile.empty()) {
         std::vector<std::string> warnings;
-        options.agent = va::flow::CompiledAgent::load(agentFile, &error, &warnings);
+        auto extensions = kotlinExtensions(session->callbackRef, onAgentTool, onAgentStep, stringArray(env, agentTools),
+                                           stringArray(env, agentSteps));
+        options.agent = va::flow::CompiledAgent::load(agentFile, &error, &warnings, extensions);
         if (!options.agent) return fail("Agent " + agentFile + ": " + error);
         for (const auto &warning : warnings) spdlog::warn("[VASDK] Agent: {}", warning);
     }
@@ -457,6 +541,30 @@ Java_com_vasdk_android_VasdkEngine_nativeFireTrigger(JNIEnv *env, jobject /*thiz
         return;
     }
     gSession->engine->fireTrigger(jstringToStdString(env, name), payload);
+}
+
+//  nativeSetEntityValues: a dynamic entity's values (the phone book), a JSON array of vasdk.nlu.EntityValue
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_vasdk_android_VasdkEngine_nativeSetEntityValues(JNIEnv *env, jobject /*thiz*/, jstring name, jstring valuesJson) {
+    std::lock_guard<std::mutex> lock(gSessionMutex);
+    if (!gSession) return JNI_FALSE;
+    const auto values = nlohmann::json::parse(jstringToStdString(env, valuesJson), nullptr, false);
+    if (!values.is_array()) {
+        spdlog::error("[VASDK] setEntityValues: not a JSON array");
+        return JNI_FALSE;
+    }
+    std::vector<vasdk::nlu::EntityValue> parsed;
+    for (const auto &item : values) {
+        vasdk::nlu::EntityValue value;
+        if (!google::protobuf::util::JsonStringToMessage(item.dump(), &value).ok()) {
+            spdlog::error("[VASDK] setEntityValues: not an EntityValue: {}", item.dump());
+            return JNI_FALSE;
+        }
+        parsed.push_back(std::move(value));
+    }
+    gSession->engine->setEntityValues(jstringToStdString(env, name), parsed);
+    return JNI_TRUE;
 }
 
 //  nativeSetNetworkAvailable: down, the local fallbacks speak and listen and the LLM rests

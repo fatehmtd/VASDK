@@ -59,6 +59,19 @@ sequenceDiagram
     VM-->>UI: ModelInfoOverlay renders it
 ```
 
+## An agent before the LLM
+
+`VasdkEngine.agentAsset` names an [agent](../docs/reference/flows.md) in the app's assets. It answers what it understands, and everything else goes on to the LLM as before. The app ships [`agents/phone/agent.txtpb`](app/src/main/assets/agents/phone/agent.txtpb): "call mom" finds the contact by name in the phone book, asks "Call Mom?", and calls on a yes. The same conversation runs on the desktop in `ctest` (`vasdk_agent_android_phone`, cases in [`agent-tests/phone/`](agent-tests/phone/)).
+
+| Call | Use |
+|---|---|
+| `registerAgentTool(name) { argsJson -> resultJson }` | A tool for the agent's `call_tool` steps, written in Kotlin (`place_call` here). Declare it in the agent with no `http` (`tools { name: "place_call" }`), so lint and tests know it. |
+| `registerAgentStep(paramsType) { paramsJson, turnJson -> outcomeJson }` | A step for `custom { [type.googleapis.com/<paramsType>] { ... } }`. It gets the turn's text, flow and page, and returns a [`StepOutcome`](../VASDK/proto/vasdk/flow/step_outcome.proto) as JSON: values to set, texts to say, a target. |
+| `setEntityValues(name, valuesJson)` | Replaces a dynamic entity's values: `ContactsEntity.values(context)` gives the phone book as `@contact` (number as the value, the name as spoken and said). |
+| `events` | A `SharedFlow<String>` of every engine event as JSON (`{"pageChanged": {...}}`, `{"agentReply": {...}}`): `engine.events.collect { ... }`. |
+
+Register tools and steps, and set `agentAsset`, before `init()`. They run on a native thread and may block.
+
 ## Tools and tool confirmation
 
 Tool calls cross the JNI boundary too: when the LLM requests a tool, the native side calls `VasdkEngine.onToolCall` synchronously from a native worker thread, which dispatches into [`tools/`](app/src/main/kotlin/com/vasdk/android/tools/) against real Android APIs. This is the piece that turns the assistant from a chatbot into something that can act on the device.

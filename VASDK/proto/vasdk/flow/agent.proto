@@ -54,7 +54,7 @@ message Knowledge {
 message Tool {
   string name = 1;
   string description = 2;
-  HttpCall http = 3;
+  HttpCall http = 3;   // unset: the app provides it (FlowRegistry::addTool, the C API, Kotlin), so tests and lint know its name
 }
 
 // The call's args go as a JSON object: the body of a POST, the query of a GET. The reply's body,

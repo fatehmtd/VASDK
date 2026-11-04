@@ -385,6 +385,12 @@ if(VASDK_BUILD_TESTS)
         add_executable(vasdk_trigger_arbiter_test tests/trigger_arbiter_test.cpp)
         target_link_libraries(vasdk_trigger_arbiter_test PRIVATE VASDK)
         add_test(NAME vasdk_trigger_arbiter COMMAND vasdk_trigger_arbiter_test)
+        # The Android app's phone agent ("call mom"), by text on the desktop
+        set(PHONE_AGENT ${CMAKE_SOURCE_DIR}/VASDK_ANDROID/app/src/main/assets/agents/phone/agent.txtpb)
+        if(EXISTS ${PHONE_AGENT} AND NOT ANDROID)
+            file(GLOB PHONE_AGENT_TESTS ${CMAKE_SOURCE_DIR}/VASDK_ANDROID/agent-tests/phone/*.txtpb)
+            add_test(NAME vasdk_agent_android_phone COMMAND vasdk_agentc test ${PHONE_AGENT} ${PHONE_AGENT_TESTS})
+        endif()
         enable_language(C)
         add_executable(vasdk_c_test tests/vasdk_c_test.c)   # the C API, from C
         target_link_libraries(vasdk_c_test PRIVATE VASDK)

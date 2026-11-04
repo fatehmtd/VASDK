@@ -153,8 +153,11 @@ ToolResult ToolRunner::call(const std::string& name, const nlohmann::json& args)
             return failed("failed");
         }
     }
-    for (const auto& tool : _agent->definition().tools())
-        if (tool.name() == name) return callHttp(tool, args);
+    for (const auto& tool : _agent->definition().tools()) {
+        if (tool.name() != name) continue;
+        if (!tool.has_http()) return failed("\"" + name + "\" is provided by the app, and this app has none");
+        return callHttp(tool, args);
+    }
     return failed("no tool \"" + name + "\"");
 }
 

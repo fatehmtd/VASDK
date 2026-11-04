@@ -303,6 +303,7 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::build(vasdk::flow::Agent age
         const std::string where = "tool " + (tool.name().empty() ? std::to_string(i + 1) : quoted(tool.name()));
         if (tool.name().empty()) check.error(where, "has no name");
         else if (!declaredTools.insert(tool.name()).second) check.error(where, "is declared twice");
+        if (!tool.has_http()) continue;   // the app provides it (FlowRegistry::addTool)
         const auto& url = tool.http().url();
         if (url.rfind("https://", 0) != 0 && url.rfind("http://", 0) != 0)
             check.error(where, "http url must start with https:// (or http://)");

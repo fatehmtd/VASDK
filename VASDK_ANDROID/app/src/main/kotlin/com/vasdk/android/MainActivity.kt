@@ -19,6 +19,7 @@ import androidx.activity.viewModels
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.vasdk.android.services.ModelDownloadService
+import com.vasdk.android.tools.ContactsEntity
 import com.vasdk.android.tools.CameraTools
 import com.vasdk.android.tools.CommunicationTools
 import com.vasdk.android.tools.ConfirmationSignal
@@ -122,6 +123,9 @@ class MainActivity : ComponentActivity(), VasdkEngine.Listener {
 
         engine = VasdkEngine.getInstance(this)
         engine.setListener(this)
+        // "Call mom": answered by the phone agent from the phone book, before the LLM.
+        engine.agentAsset = "agents/phone/agent.txtpb"
+        engine.registerAgentTool("place_call") { args -> ContactsEntity.placeCall(applicationContext, args) }
         viewModel.setInitialConfig(
             sttProvider = engine.sttProvider,
             sttStreaming = engine.sttStreaming,
@@ -344,6 +348,7 @@ class MainActivity : ComponentActivity(), VasdkEngine.Listener {
             return
         }
         viewModel.onPermissionGrantedAndEngineStarted()
+        Thread { engine.setEntityValues("contact", ContactsEntity.values(applicationContext)) }.start()
     }
 
     override fun onTranscriptReceived(text: String, isFinal: Boolean) {

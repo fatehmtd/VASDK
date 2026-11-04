@@ -293,6 +293,7 @@ A tool that fails (it's unknown, refused, too slow, its reply is too long, or th
 
 **Where tools come from:**
 - **Written in C++:** `registry->addTool(va::llm::Tool("save_booking", "...").onCall([](const nlohmann::json& args) { ...; return result; }))`. It runs on a thread of its own and may block. An exception, or a result of `{"error": "..."}`, fails the call.
+- **Provided by the app, in any language** ([C](c-api.md), [Kotlin](../../VASDK_ANDROID/README.md#an-agent-before-the-llm)): declare it with its name only, `tools { name: "place_call" description: "Calls a number" }`, so `lint` and test cases (with `tool_results`) know it. The app registers it at runtime; without one, calling it fails.
 - **Over HTTP**, declared in the agent:
 
 ```textproto

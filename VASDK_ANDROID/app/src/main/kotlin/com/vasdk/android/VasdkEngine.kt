@@ -8,8 +8,12 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import androidx.annotation.Keep
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import org.json.JSONObject
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import java.io.FileOutputStream
 
 /** Download URL, GGUF filename, and chat format for one local LLM preset. */
@@ -166,6 +170,58 @@ class VasdkEngine private constructor(
 
     private var listener: Listener? = null
     private val mainHandler = Handler(Looper.getMainLooper())
+
+    //  The agent (vasdk/flow/agent.proto): answers what it understands before the LLM
+
+    /** An agent in the app's assets ("agents/phone/agent.txtpb", with its files beside it); null: none. Before init(). */
+    var agentAsset: String? = null
+    private val agentTools = ConcurrentHashMap<String, (String) -> String>()
+    private val agentSteps = ConcurrentHashMap<String, (String, String) -> String>()
+
+    /**
+     * A tool for the agent's call_tool steps, written in Kotlin: gets the step's args as a JSON
+     * object and returns its result as JSON ({"error": "..."} fails it). Runs on a native thread
+     * and may block. Before init().
+     */
+    fun registerAgentTool(name: String, tool: (argsJson: String) -> String) { agentTools[name] = tool }
+
+    /**
+     * A step for the agent's `custom { [type.googleapis.com/<paramsType>] { ... } }` steps, written in
+     * Kotlin: gets its params and the turn ({"text", "flow", "page"}) as JSON and returns a
+     * vasdk.flow.StepOutcome as JSON: {"set": {"$session.x": 1}, "say": ["..."], "goto": "page"}.
+     * Before init().
+     */
+    fun registerAgentStep(paramsType: String, step: (paramsJson: String, turnJson: String) -> String) {
+        agentSteps[paramsType] = step
+    }
+
+    /**
+     * Replaces a dynamic entity's values for the conversation, e.g. the phone book as @contact
+     * (ContactsEntity.values): a JSON array of {"value", "spoken", "synonyms"}. After start().
+     */
+    fun setEntityValues(name: String, valuesJson: String): Boolean = synchronized(VasdkEngine::class.java) {
+        isNativeStarted && nativeSetEntityValues(name, valuesJson)
+    }
+
+    private val eventFlow = MutableSharedFlow<String>(extraBufferCapacity = 256)
+    /** Everything the engine reports (vasdk/engine/events.proto), each a JSON object: {"agentReply": {...}}, {"pageChanged": {...}}. */
+    val events: SharedFlow<String> = eventFlow.asSharedFlow()
+
+    // The agent asset and the files beside it, copied where native code can read them.
+    private fun extractAgent(asset: String): String? = try {
+        val folder = asset.substringBeforeLast('/', "")
+        val target = File(contextWrapper.filesDir, folder.ifEmpty { "agent" })
+        target.mkdirs()
+        for (name in contextWrapper.assets.list(folder).orEmpty()) {
+            val source = if (folder.isEmpty()) name else "$folder/$name"
+            if (contextWrapper.assets.list(source).orEmpty().isNotEmpty()) continue   // a folder (tests): skipped
+            contextWrapper.assets.open(source).use { input -> File(target, name).outputStream().use { input.copyTo(it) } }
+        }
+        File(target, asset.substringAfterLast('/')).absolutePath
+    } catch (e: Exception) {
+        Log.e(TAG, "Could not extract the agent $asset", e)
+        null
+    }
 
     fun setListener(l: Listener?) {
         listener = l
@@ -372,9 +428,10 @@ class VasdkEngine private constructor(
                 ttsModelDir = ttsModelDir.absolutePath,
                 caBundlePath = caBundlePath
             )
+            val agentPath = agentAsset?.let { extractAgent(it) } ?: ""
             isNativeInitialized = nativeInit(
                 engineConfig = engineConfig,
-                agentPath = "",
+                agentPath = agentPath,
                 nativeLibDir = contextWrapper.applicationInfo.nativeLibraryDir,
                 speakerModelPath = if (speakerModelFile.exists()) speakerModelFile.absolutePath else "",
                 useLocalLLM = useLocalLLM,
@@ -382,7 +439,9 @@ class VasdkEngine private constructor(
                 llmChatFormat = llmModelMeta.format,
                 systemPrompt = contextWrapper.getString(R.string.default_system_prompt),
                 formatInstruction = contextWrapper.getString(R.string.response_format_instruction),
-                toolCallExceptionClause = contextWrapper.getString(R.string.tool_call_exception_clause)
+                toolCallExceptionClause = contextWrapper.getString(R.string.tool_call_exception_clause),
+                agentTools = agentTools.keys.toTypedArray(),
+                agentSteps = agentSteps.keys.toTypedArray()
             )
             return isNativeInitialized
         }
@@ -849,6 +908,27 @@ class VasdkEngine private constructor(
         return listener?.onToolCall(toolName, argsJson) ?: "{\"error\":\"no listener\"}"
     }
 
+    // The agent's Kotlin tools and steps, called synchronously from a native thread.
+    @Keep
+    fun onAgentTool(name: String, argsJson: String): String = try {
+        agentTools[name]?.invoke(argsJson) ?: JSONObject().put("error", "no tool $name").toString()
+    } catch (e: Exception) {
+        JSONObject().put("error", e.message ?: "failed").toString()
+    }
+
+    @Keep
+    fun onAgentStep(paramsType: String, paramsJson: String, turnJson: String): String = try {
+        agentSteps[paramsType]?.invoke(paramsJson, turnJson) ?: "{}"
+    } catch (e: Exception) {
+        Log.e(TAG, "Agent step $paramsType failed", e)
+        "{}"
+    }
+
+    @Keep
+    fun onEngineEvent(json: String) {
+        eventFlow.tryEmit(json)
+    }
+
     //  Native declarations 
 
     private external fun nativeInit(engineConfig: String,
@@ -860,7 +940,9 @@ class VasdkEngine private constructor(
                                     llmChatFormat: String,
                                     systemPrompt: String,
                                     formatInstruction: String,
-                                    toolCallExceptionClause: String): Boolean
+                                    toolCallExceptionClause: String,
+                                    agentTools: Array<String>,
+                                    agentSteps: Array<String>): Boolean
     private external fun nativeStart(): Boolean
     private external fun nativeStop()
     private external fun nativeRelease()
@@ -868,6 +950,7 @@ class VasdkEngine private constructor(
     private external fun nativeResetConversation()
     private external fun nativeFireTrigger(name: String, payloadJson: String)
     private external fun nativeSetNetworkAvailable(available: Boolean)
+    private external fun nativeSetEntityValues(name: String, valuesJson: String): Boolean
     private external fun nativeSetBackchannelConfig(enabled: Boolean, pendingPlaybackMode: Int,
                                                     historyMode: Int, tailOverlapMode: Int,
                                                     duckGainDecibels: Float, duckDurationMs: Int)

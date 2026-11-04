@@ -24,7 +24,8 @@
 > | 27 Call center on agent files | ✅ committed. `agents/callcenter/` (routing page, schedule and account forms, handoff), CRM tools in C++, agent per DNIS (`--dnis`), suite offline and with a scripted LLM in ctest; a command for a real LLM. Not carried over: resume on redial (goal-state persistence), the OBJECT vehicle slot (now free text), call metrics. A free-text slot now lets a global command ("talk to a person") through |
 > | 28 Wake word | ⏸ waiting on gate G4 (model licence): openWakeWord's code is Apache-2.0, its pretrained models are non-commercial, and a "hey garage" model needs training or a commercial engine |
 > | 29 C API | ✅ committed. `VASDK/c/vasdk.h`: registry (steps, tools, envelopes in C), agents (load/parse), text conversations with JSON replies, `StepOutcome`, test files; `vasdk_c_test.c` in ctest. Not in it: audio sessions and their events (they need the provider catalog, outside core); page types in C |
-> | 30–32 | not started |
+> | 30 Kotlin extensions | ✅ committed. `registerAgentTool`, `registerAgentStep` (StepOutcome JSON), `setEntityValues` + `ContactsEntity`, `events` as a SharedFlow; the phone agent ("call mom" → confirm → call) as an asset, tested on desktop in ctest. Declared tools may omit `http` (the app provides them). Built for arm64; not run on a device |
+> | 31–32 | not started |
 
 
 *Uses Google Dialogflow CX as the reference model. Definitions are proto-schema'd and written in text proto.*
