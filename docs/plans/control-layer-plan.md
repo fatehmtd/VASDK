@@ -11,7 +11,8 @@
 > | 15 Extensions | ✅ committed (`bdd2448`). `form` stays the page's `form` field, not a page type |
 > | 16 Tools & security | ✅ committed. Tools run synchronously on the conversation's own thread (not resumable steps); masking covers events and the dialog's logs, not every processor's |
 > | 5 Android on VAEngine | ✅ committed. Full protobuf (G1), NDK 28; Kotlin builds the engine config as text proto (no generated Kotlin classes). Built for arm64; not run on a device here |
-> | 17–32 | not started |
+> | 17 Triggers | ✅ committed. Not in it: notification and schedule sources (23), IMMEDIATE cutting a reply already playing (it waits for the reply to end) |
+> | 18–32 | not started |
 
 
 *Uses Google Dialogflow CX as the reference model. Definitions are proto-schema'd and written in text proto.*

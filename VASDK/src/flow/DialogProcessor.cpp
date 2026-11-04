@@ -66,6 +66,25 @@ public:
     const uint64_t generation;
 };
 
+// The inactivity timer fired, handled on the processor's own thread.
+class InactivityFrame : public transport::Frame {
+public:
+    explicit InactivityFrame(uint64_t generation) : generation(generation) {}
+    transport::FrameType getType() const override { return transport::FrameType::CONTROL; }
+    std::shared_ptr<transport::Frame> clone() const override { return std::make_shared<InactivityFrame>(generation); }
+    const uint64_t generation;
+};
+
+// fireTrigger() from an app thread, decided on the processor's own.
+class TriggerFrame : public transport::Frame {
+public:
+    TriggerFrame(std::string name, google::protobuf::Struct payload) : name(std::move(name)), payload(std::move(payload)) {}
+    transport::FrameType getType() const override { return transport::FrameType::CONTROL; }
+    std::shared_ptr<transport::Frame> clone() const override { return std::make_shared<TriggerFrame>(name, payload); }
+    const std::string name;
+    const google::protobuf::Struct payload;
+};
+
 // A reply from the conversation's thread, spoken on the processor's own.
 class ReplyFrame : public transport::Frame {
 public:
@@ -76,12 +95,16 @@ public:
     bool filler = false;                       // said while a tool runs; the turn's reply follows
     std::shared_ptr<transport::Frame> turn;    // the user turn it answers
     bool mayPassOn = false;                    // not understood, and not private: an LLM may take it
+    bool fromTrigger = false;                  // a trigger's; with nothing to say, it changes nothing
 };
 } // namespace
 
 DialogProcessor::DialogProcessor(std::shared_ptr<const CompiledAgent> agent)
     : _conversation(agent), _beforeLastTurn(agent), _agent(agent) {
     prepare(_conversation);
+    _inactivityTriggers = _conversation.inactivityTriggers();
+    std::sort(_inactivityTriggers.begin(), _inactivityTriggers.end(),
+              [](const auto& a, const auto& b) { return a.second < b.second; });
 }
 
 void DialogProcessor::prepare(FlowRuntime& conversation) {
@@ -105,7 +128,9 @@ bool DialogProcessor::shouldProcess(std::shared_ptr<transport::Frame> frame) con
            dynamic_cast<const ChoiceFrame*>(frame.get()) != nullptr ||
            dynamic_cast<const NoInputFrame*>(frame.get()) != nullptr ||
            dynamic_cast<const ReplyFrame*>(frame.get()) != nullptr ||
-           dynamic_cast<const RestartFrame*>(frame.get()) != nullptr;
+           dynamic_cast<const RestartFrame*>(frame.get()) != nullptr ||
+           dynamic_cast<const InactivityFrame*>(frame.get()) != nullptr ||
+           dynamic_cast<const TriggerFrame*>(frame.get()) != nullptr;
 }
 
 bool DialogProcessor::start() {
@@ -159,47 +184,61 @@ void DialogProcessor::conversationLoop() {
     }
 }
 
-void DialogProcessor::deliver(Reply reply, std::shared_ptr<transport::Frame> turn, bool mayPassOn) {
+void DialogProcessor::deliver(Reply reply, std::shared_ptr<transport::Frame> turn, bool mayPassOn, bool fromTrigger) {
     if (_observer) _observer(reply, _conversation);
     auto frame = std::make_shared<ReplyFrame>();
     frame->reply = std::move(reply);
     frame->noInputMs = _conversation.noInputMs();
     frame->turn = std::move(turn);
     frame->mayPassOn = mayPassOn;
+    frame->fromTrigger = fromTrigger;
     enqueueFrame(frame, pipeline::FlowDirection::DOWNSTREAM);
 }
 
-void DialogProcessor::armNoInput(int ms) {
+void DialogProcessor::arm(Timer& timer, int ms) {
     std::lock_guard<std::mutex> lock(_timerMutex);
-    ++_noInputGeneration;
-    _noInputDeadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);
+    ++timer.generation;
+    timer.deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);
     _timerChanged.notify_all();
 }
 
-void DialogProcessor::disarmNoInput() {
+void DialogProcessor::disarm(Timer& timer) {
     std::lock_guard<std::mutex> lock(_timerMutex);
-    if (!_noInputDeadline) return;
-    ++_noInputGeneration;
-    _noInputDeadline.reset();
+    if (!timer.deadline) return;
+    ++timer.generation;
+    timer.deadline.reset();
     _timerChanged.notify_all();
+}
+
+// After a reply has played: the next inactivity trigger, counted from now.
+void DialogProcessor::armInactivity() {
+    if (_nextInactivity < _inactivityTriggers.size()) arm(_inactivity, _inactivityTriggers[_nextInactivity].second);
 }
 
 void DialogProcessor::noInputTimerLoop() {
     std::unique_lock<std::mutex> lock(_timerMutex);
     while (!_timerStop) {
-        if (!_noInputDeadline) {
+        const Timer* next = nullptr;
+        for (const Timer* timer : {&_noInput, &_inactivity})
+            if (timer->deadline && (!next || *timer->deadline < *next->deadline)) next = timer;
+        if (!next) {
             _timerChanged.wait(lock);
             continue;
         }
-        const auto deadline = *_noInputDeadline;
-        const auto generation = _noInputGeneration;
-        if (_timerChanged.wait_until(lock, deadline) == std::cv_status::timeout && generation == _noInputGeneration) {
-            _noInputDeadline.reset();
-            lock.unlock();
-            enqueueFrame(std::make_shared<NoInputFrame>(generation), pipeline::FlowDirection::DOWNSTREAM);
-            lock.lock();
-        }
+        const auto deadline = *next->deadline;
+        const auto generation = next->generation;
+        if (_timerChanged.wait_until(lock, deadline) != std::cv_status::timeout || generation != next->generation) continue;
+        const bool noInput = next == &_noInput;
+        (noInput ? _noInput : _inactivity).deadline.reset();
+        lock.unlock();
+        if (noInput) enqueueFrame(std::make_shared<NoInputFrame>(generation), pipeline::FlowDirection::DOWNSTREAM);
+        else enqueueFrame(std::make_shared<InactivityFrame>(generation), pipeline::FlowDirection::DOWNSTREAM);
+        lock.lock();
     }
+}
+
+void DialogProcessor::fireTrigger(const std::string& name, const google::protobuf::Struct& payload) {
+    enqueueFrame(std::make_shared<TriggerFrame>(name, payload), pipeline::FlowDirection::DOWNSTREAM);
 }
 
 void DialogProcessor::setSessionParam(const std::string& name, const Value& value) {
@@ -249,6 +288,8 @@ void DialogProcessor::processFrame(std::shared_ptr<transport::Frame> frame, pipe
             speak(ready->reply, true);
             return;
         }
+        // A trigger queued or dropped: the conversation is where it was.
+        if (ready->fromTrigger && ready->reply.text.empty() && !ready->reply.expectsReply && !ready->reply.endsSession) return;
         _noInputMs = ready->noInputMs;
         if (ready->mayPassOn && _passUnmatchedTurns) {
             pushDownstream(ready->turn);
@@ -260,6 +301,8 @@ void DialogProcessor::processFrame(std::shared_ptr<transport::Frame> frame, pipe
     }
     if (frame->getType() == transport::FrameType::USER_TURN) {
         disarmNoInput();
+        disarm(_inactivity);
+        _nextInactivity = 0;
         _greetingPending = false;   // the user spoke first: their words are routed on the start page
         const bool privateAnswer = _privateAnswer;
         post([this, frame, privateAnswer] {
@@ -277,13 +320,32 @@ void DialogProcessor::processFrame(std::shared_ptr<transport::Frame> frame, pipe
     if (auto noInput = dynamic_cast<const NoInputFrame*>(frame.get())) {
         {
             std::lock_guard<std::mutex> lock(_timerMutex);
-            if (noInput->generation != _noInputGeneration) return;   // moved on since it fired
+            if (noInput->generation != _noInput.generation) return;   // moved on since it fired
         }
         post([this] {
             _beforeLastTurn = _conversation;
             auto reply = _conversation.handleNoInput();
             spdlog::info("[Dialog] no input → {} on {}/{}", reply.event, _conversation.flowName(), _conversation.pageName());
             deliver(std::move(reply));
+        });
+        return;
+    }
+    if (auto inactivity = dynamic_cast<const InactivityFrame*>(frame.get())) {
+        {
+            std::lock_guard<std::mutex> lock(_timerMutex);
+            if (inactivity->generation != _inactivity.generation) return;
+        }
+        if (_nextInactivity >= _inactivityTriggers.size()) return;
+        const std::string name = _inactivityTriggers[_nextInactivity++].first;
+        post([this, name] { deliver(_conversation.fireTrigger(name), nullptr, false, true); });
+        return;
+    }
+    if (auto trigger = std::dynamic_pointer_cast<TriggerFrame>(frame)) {
+        // Between turns: no reply playing or on its way, and the user isn't speaking.
+        const bool betweenTurns = !_replyPlaying && !_userSpeaking && _agentState != transport::AgentState::THINKING &&
+                                  _agentState != transport::AgentState::SPEAKING;
+        post([this, trigger, betweenTurns] {
+            deliver(_conversation.fireTrigger(trigger->name, trigger->payload, betweenTurns), nullptr, false, true);
         });
         return;
     }
@@ -348,6 +410,15 @@ void DialogProcessor::processFrame(std::shared_ptr<transport::Frame> frame, pipe
     } else if (state.transition == transport::AgentStateTransition::BARGE_IN_INTERRUPT && _replyPlaying) {
         _replyPlaying = false;
         post([this] { _conversation.replyInterrupted(); });
+    }
+    if (state.transition == transport::AgentStateTransition::USER_STARTED_SPEAKING) _userSpeaking = true;
+    else if (state.currentState != transport::AgentState::LISTENING) _userSpeaking = false;
+    if (state.transition == transport::AgentStateTransition::SYNTHESIS_COMPLETED && !_greetingPending) {
+        armInactivity();
+        post([this] {   // a trigger that waited for this reply to end
+            auto reply = _conversation.deliverQueued();
+            if (!reply.triggers.empty()) deliver(std::move(reply), nullptr, false, true);
+        });
     }
     // A question has finished playing: wait for an answer. Anything else stops waiting.
     if (state.transition == transport::AgentStateTransition::SYNTHESIS_COMPLETED &&

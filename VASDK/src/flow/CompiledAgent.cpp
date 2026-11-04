@@ -380,6 +380,8 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::build(vasdk::flow::Agent age
             } else if (root == "entities") {
                 const auto* type = compiled->_entities.type(field);
                 known = path.size() == 2 && type && type->has_list();
+            } else if (root == "trigger") {
+                known = (field == "name" && path.size() == 2) || (field == "payload" && path.size() >= 2);
             } else if (root == "context") {
                 known = path.size() >= 2;
             } else if (root == "params") {
@@ -825,6 +827,58 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::build(vasdk::flow::Agent age
                 compiled->_layers[f].push_back(std::move(layers));
                 compiled->_extensions[f].push_back(std::move(pageExtensions));
             }
+        }
+    }
+
+    // Triggers, and the proactive policy.
+    formGoal = nullptr;
+    paramsType = nullptr;
+    auto validTime = [](const std::string& text) {
+        return text.size() == 5 && text[2] == ':' && std::isdigit(static_cast<unsigned char>(text[0])) &&
+               std::isdigit(static_cast<unsigned char>(text[1])) && std::isdigit(static_cast<unsigned char>(text[3])) &&
+               std::isdigit(static_cast<unsigned char>(text[4])) && std::stoi(text.substr(0, 2)) < 24 && std::stoi(text.substr(3)) < 60;
+    };
+    const auto& policy = definition.proactive_policy();
+    if (policy.quiet_from().empty() != policy.quiet_until().empty())
+        check.error("proactive_policy", "quiet_from and quiet_until go together");
+    for (const auto* time : {&policy.quiet_from(), &policy.quiet_until()})
+        if (!time->empty() && !validTime(*time)) check.error("proactive_policy", quoted(*time) + " must be HH:MM, 00:00 to 23:59");
+    if (policy.max_per_hour() < 0) check.error("proactive_policy", "max_per_hour is negative");
+    std::set<std::string> triggerNames;
+    for (int i = 0; i < definition.triggers_size(); ++i) {
+        const auto& trigger = definition.triggers(i);
+        const std::string where = "trigger " + (trigger.name().empty() ? std::to_string(i + 1) : quoted(trigger.name()));
+        if (trigger.name().empty()) check.error(where, "has no name");
+        else if (!triggerNames.insert(trigger.name()).second) check.error(where, "is declared twice");
+        if (trigger.source().kind_case() == vasdk::flow::TriggerSource::KIND_NOT_SET) check.error(where, "has no source");
+        if (trigger.source().has_inactivity() && trigger.source().inactivity().after_ms() <= 0)
+            check.error(where, "inactivity after_ms must be more than 0");
+        if (!trigger.condition().empty()) compileExpression(trigger.condition(), where + " condition");
+        const auto& delivery = trigger.delivery();
+        if (!delivery.dedupe_key().empty()) compileExpression(delivery.dedupe_key(), where + " dedupe_key");
+        if (delivery.expires_after_ms() < 0 || delivery.cooldown_ms() < 0)
+            check.error(where, "expires_after_ms and cooldown_ms can't be negative");
+        for (const auto& text : delivery.ask_first().text()) checkTemplate(text, where + " ask_first");
+        if (delivery.has_follow_up_listen_ms()) checkListenMs(delivery.follow_up_listen_ms(), where);
+        const auto& action = trigger.action();
+        switch (action.kind_case()) {
+        case vasdk::flow::TriggerAction::kStartFlow:
+            if (auto entered = compiled->resolve("flow:" + action.start_flow(), compiled->_startPage)) reachedFromAnywhere.push_back(*entered);
+            else check.error(where, "unknown flow " + quoted(action.start_flow()));
+            break;
+        case vasdk::flow::TriggerAction::kGoto:
+            if (action.goto_() != kTargetEndSession && action.goto_() != kTargetEndFlow && action.goto_() != kTargetCurrentPage) {
+                if (auto next = compiled->resolve(action.goto_(), compiled->_startPage)) reachedFromAnywhere.push_back(*next);
+                else check.error(where, "unknown target " + quoted(action.goto_()));
+            }
+            break;
+        case vasdk::flow::TriggerAction::kSay:
+            if (action.say().text().empty()) check.error(where, "say has no text");
+            for (const auto& text : action.say().text()) checkTemplate(text, where + " say");
+            break;
+        case vasdk::flow::TriggerAction::KIND_NOT_SET:
+            check.error(where, "has no action");
+            break;
         }
     }
 

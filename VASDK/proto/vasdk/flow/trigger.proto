@@ -1,0 +1,87 @@
+// What may start or interrupt a conversation: the agent's triggers, and how politely they are
+// delivered. See docs/reference/flows.md#triggers.
+syntax = "proto3";
+
+package vasdk.flow;
+
+// When its source fires and its condition holds, its action runs, as its delivery allows.
+//   triggers { name: "car_ready" source { app_event {} }
+//              action { say { text: "Your car is ready for pickup." } }
+//              delivery { interrupt: AFTER_FLOW priority: HIGH dedupe_key: "$trigger.payload.booking" } }
+message Trigger {
+  string name = 1;
+  TriggerSource source = 2;
+  string condition = 3;            // an expression; $trigger.payload.<field> reads what fired it
+  TriggerAction action = 4;
+  Delivery delivery = 5;
+}
+
+message TriggerSource {
+  oneof kind {
+    SessionStart session_start = 1;   // the conversation starts: its action replaces the start page's entry
+    AppEvent app_event = 2;           // the app calls Session::fireTrigger
+    Inactivity inactivity = 3;        // no user turn for after_ms while a conversation goes on
+  }
+}
+
+message SessionStart {}
+
+message AppEvent {
+  string name = 1;                 // what the app fires; empty: the trigger's name
+}
+
+message Inactivity {
+  int32 after_ms = 1;
+}
+
+message TriggerAction {
+  oneof kind {
+    string start_flow = 1;         // enters the flow; END_FLOW comes back to where the conversation was
+    string goto = 2;               // as a goto step, from the page the conversation is on
+    TriggerSay say = 3;            // says it; then the conversation's question again
+  }
+}
+
+message TriggerSay {
+  repeated string text = 1;        // one of them, in turn; references work
+}
+
+message Delivery {
+  // When a conversation is going on. With none (before it starts, after it ends), it's delivered at once.
+  enum Interrupt {
+    AFTER_TURN = 0;   // once the current reply has played
+    AFTER_FLOW = 1;   // once the conversation is between tasks: no form being filled, no flow it will come back from
+    IMMEDIATE = 2;    // now
+    NEVER = 3;        // only when no conversation is going on; dropped otherwise
+  }
+  enum Priority {
+    NORMAL = 0;
+    LOW = 1;
+    HIGH = 2;
+    CRITICAL = 3;     // also during quiet hours
+  }
+  Interrupt interrupt = 1;
+  Priority priority = 2;           // the order queued ones are delivered in
+  int32 expires_after_ms = 3;      // queued longer: dropped; 0: never
+  string dedupe_key = 4;           // an expression: one queued per value ("$trigger.payload.order")
+  int32 cooldown_ms = 5;           // after delivery, fired again within this: dropped
+  TriggerSay ask_first = 6;        // asked first, expecting yes or no; the action runs on yes
+  optional int32 follow_up_listen_ms = 7;   // how long the mic stays open after it
+}
+
+// Limits on what the assistant says unprompted (app_event and inactivity triggers).
+message ProactivePolicy {
+  string quiet_from = 1;           // "22:00", local time: suppressed from then...
+  string quiet_until = 2;          // ..."07:00"; CRITICAL ones still come
+  int32 max_per_hour = 3;          // more: dropped; 0: no limit
+}
+
+// What became of a fired trigger.
+enum TriggerDecision {
+  DECISION_UNSET = 0;
+  STARTED = 1;      // delivered now
+  QUEUED = 2;       // waits for its moment
+  DROPPED = 3;      // condition false, a duplicate, cooling down, over the hourly limit, or NEVER mid-conversation
+  EXPIRED = 4;      // queued past expires_after_ms
+  SUPPRESSED = 5;   // quiet hours
+}

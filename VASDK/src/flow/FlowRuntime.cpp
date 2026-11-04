@@ -10,6 +10,7 @@
 
 #include <cctype>
 #include <cstdlib>
+#include <ctime>
 #include <utility>
 
 namespace va {
@@ -262,6 +263,12 @@ Value FlowRuntime::resolve(const Path& path, bool spoken) const {
         return list;
     }
     if (root == "context" && _context) return fromFields(_context(), field, 2);
+    if (root == "trigger" && _trigger) {
+        if (field == "name") return stringValue(_trigger->first);
+        Value payload;
+        *payload.mutable_struct_value() = _trigger->second;
+        if (field == "payload") return valueAt(payload, path, 2);
+    }
     if (root == "params" && started()) return valueAt(_agent->extensions(_position).paramsValue, path, 1);
     if (root == "form" && _form) {
         if (field == "complete") return boolValue(_form->state->isComplete());
@@ -332,7 +339,36 @@ Reply FlowRuntime::start() {
     _inputText.clear();
     _replyCut = false;
     _stack.clear();
-    moveTo(_agent->startPage(), "start", reply);
+    _offer.reset();
+    // A session-start trigger whose condition holds takes the place of the start page's entry.
+    const vasdk::flow::Trigger* opening = nullptr;
+    for (const auto& trigger : _agent->definition().triggers()) {
+        if (!trigger.source().has_session_start()) continue;
+        _trigger.emplace(trigger.name(), google::protobuf::Struct());
+        if (holds(trigger.condition())) {
+            opening = &trigger;
+            break;
+        }
+    }
+    if (!opening) {
+        _trigger.reset();
+        moveTo(_agent->startPage(), "start", reply);
+    } else {
+        reply.triggers.push_back({opening->name(), vasdk::flow::STARTED, ""});
+        const auto& action = opening->action();
+        if (action.has_start_flow()) {   // into the flow; coming back enters the start page
+            enterStartQuietly(reply, "start");
+            pushFrame();
+            if (!_stack.empty()) _stack.back().reenter = true;
+            follow(toTarget("flow:" + action.start_flow(), "trigger:" + opening->name()), reply);
+        } else if (action.has_goto_()) {
+            const auto target = _agent->resolve(action.goto_(), _agent->startPage());
+            moveTo(target ? *target : _agent->startPage(), "trigger:" + opening->name(), reply);
+        } else {
+            sayOne(action.say().text(), &action.say(), reply);
+            moveTo(_agent->startPage(), "start", reply);
+        }
+    }
     runAfterEnvelopes(reply);
     finish(reply);
     return reply;
@@ -340,8 +376,9 @@ Reply FlowRuntime::start() {
 
 Reply FlowRuntime::handleText(const std::string& text) {
     Reply reply;
-    takeTurn(text, reply);
+    if (!_offer || !answerOffer(text, reply)) takeTurn(text, reply);
     runAfterEnvelopes(reply);
+    deliverDue(reply);   // a queued trigger whose moment has come, after the reply
     finish(reply);
     return reply;
 }
@@ -382,22 +419,7 @@ void FlowRuntime::finish(Reply& reply) {
 }
 
 void FlowRuntime::takeTurn(const std::string& text, Reply& reply) {
-    if (!started() || _ended) {
-        reply.pageChanges.push_back(changeTo(_agent->startPage(), started() ? "restart" : "start"));
-        _position = _agent->startPage();
-        _ended = false;
-        _lastQuestion.clear();
-        _questionChoices.clear();
-        _expectation.Clear();
-        _stack.clear();
-        _misses = 0;
-        _form.reset();
-        if (const auto* goal = _agent->goal(_agent->page(_position).form().goal())) {
-            _form.emplace();
-            _form->goal = goal;
-            _form->state = _agent->newGoalState(goal->name());
-        }
-    }
+    if (!started() || _ended) enterStartQuietly(reply, started() ? "restart" : "start");
 
     _inputText = text;
     _intent.clear();
@@ -479,6 +501,7 @@ Reply FlowRuntime::handleNoInput() {
     reply.matched = false;
     follow(miss(kEventNoInput, reply), reply);
     runAfterEnvelopes(reply);
+    deliverDue(reply);
     finish(reply);
     return reply;
 }
@@ -651,6 +674,10 @@ void FlowRuntime::returnFromFlow(Reply& reply) {
     }
     Frame frame = std::move(_stack.back());
     _stack.pop_back();
+    if (frame.reenter) {   // entered from the start, before the start page ran
+        moveTo(frame.page, "return", reply);
+        return;
+    }
     reply.pageChanges.push_back(changeTo(frame.page, "return"));
     _position = frame.page;
     _lastQuestion = std::move(frame.lastQuestion);
@@ -772,6 +799,211 @@ FlowRuntime::Outcome FlowRuntime::callTool(const vasdk::flow::CallTool& call, Re
     }
     outcome.halted = true;
     return outcome;
+}
+
+//  Triggers
+
+FlowRuntime::TimePoint FlowRuntime::now() const { return _clock ? _clock() : std::chrono::system_clock::now(); }
+
+// The start page, without running it: a turn before start(), or a trigger with no conversation.
+void FlowRuntime::enterStartQuietly(Reply& reply, const std::string& reason) {
+    reply.pageChanges.push_back(changeTo(_agent->startPage(), reason));
+    _position = _agent->startPage();
+    _ended = false;
+    _lastQuestion.clear();
+    _questionChoices.clear();
+    _expectation.Clear();
+    _stack.clear();
+    _misses = 0;
+    _form.reset();
+    if (const auto* goal = _agent->goal(_agent->page(_position).form().goal())) {
+        _form.emplace();
+        _form->goal = goal;
+        _form->state = _agent->newGoalState(goal->name());
+    }
+}
+
+bool FlowRuntime::quietHours(TimePoint when) const {
+    const auto& policy = _agent->definition().proactive_policy();
+    if (policy.quiet_from().empty() || policy.quiet_until().empty()) return false;
+    auto minuteOf = [](const std::string& time) { return std::stoi(time.substr(0, 2)) * 60 + std::stoi(time.substr(3, 2)); };
+    const std::time_t seconds = std::chrono::system_clock::to_time_t(when);
+    std::tm local{};
+#ifdef _WIN32
+    localtime_s(&local, &seconds);
+#else
+    localtime_r(&seconds, &local);
+#endif
+    const int minute = local.tm_hour * 60 + local.tm_min;
+    const int from = minuteOf(policy.quiet_from()), until = minuteOf(policy.quiet_until());
+    return from <= until ? minute >= from && minute < until : minute >= from || minute < until;   // past midnight
+}
+
+Reply FlowRuntime::fireTrigger(const std::string& name, const google::protobuf::Struct& payload, bool betweenTurns) {
+    Reply reply;
+    bool known = false;
+    for (const auto& trigger : _agent->definition().triggers()) {
+        if (trigger.source().has_session_start()) continue;
+        const auto& event = trigger.source().app_event().name();
+        if (trigger.name() != name && !(trigger.source().has_app_event() && event == name)) continue;
+        known = true;
+        arbitrate(trigger, payload, betweenTurns, reply);
+    }
+    if (!known) {
+        spdlog::warn("[FlowRuntime] no trigger or app event \"{}\"", name);
+        reply.triggers.push_back({name, vasdk::flow::DROPPED, "no such trigger"});
+    }
+    if (!reply.text.empty() || reply.expectsReply) finish(reply);   // else the last reply's choices stay
+    return reply;
+}
+
+void FlowRuntime::arbitrate(const vasdk::flow::Trigger& trigger, const google::protobuf::Struct& payload, bool betweenTurns,
+                            Reply& reply) {
+    using Delivery = vasdk::flow::Delivery;
+    const auto& delivery = trigger.delivery();
+    auto decide = [&](vasdk::flow::TriggerDecision decision, std::string reason) {
+        if (!reason.empty()) spdlog::info("[FlowRuntime] trigger \"{}\": {}", trigger.name(), reason);
+        reply.triggers.push_back({trigger.name(), decision, std::move(reason)});
+    };
+    const auto when = now();
+    const auto saved = _trigger;
+    _trigger.emplace(trigger.name(), payload);
+    const bool holdsNow = holds(trigger.condition());
+    const std::string dedupe = delivery.dedupe_key().empty() ? std::string() : toText(evaluate(delivery.dedupe_key()));
+    _trigger = saved;
+    if (!holdsNow) return decide(vasdk::flow::DROPPED, "its condition doesn't hold");
+    if (trigger.source().has_inactivity() && !conversationActive()) return decide(vasdk::flow::DROPPED, "no conversation");
+    if (delivery.priority() != Delivery::CRITICAL && quietHours(when)) return decide(vasdk::flow::SUPPRESSED, "quiet hours");
+    if (const auto last = _lastDelivered.find(trigger.name());
+        last != _lastDelivered.end() && when - last->second < std::chrono::milliseconds(delivery.cooldown_ms()))
+        return decide(vasdk::flow::DROPPED, "cooling down");
+    while (!_deliveredThisHour.empty() && when - _deliveredThisHour.front() >= std::chrono::hours(1)) _deliveredThisHour.pop_front();
+    if (const int most = _agent->definition().proactive_policy().max_per_hour();
+        most > 0 && static_cast<int>(_deliveredThisHour.size()) >= most)
+        return decide(vasdk::flow::DROPPED, "max_per_hour reached");
+    for (const auto& queued : _queuedTriggers)
+        if (!dedupe.empty() && queued.trigger == &trigger && queued.dedupe == dedupe)
+            return decide(vasdk::flow::DROPPED, "already queued for " + dedupe);
+
+    QueuedTrigger fired{&trigger, payload, when, dedupe};
+    if (!conversationActive()) return deliver(fired, reply);   // no conversation to interrupt
+    switch (delivery.interrupt()) {
+    case Delivery::NEVER:
+        return decide(vasdk::flow::DROPPED, "a conversation is going on");
+    case Delivery::IMMEDIATE:
+        return deliver(fired, reply);
+    case Delivery::AFTER_FLOW:
+        if (betweenTurns && !formActive() && _stack.empty() && !_offer) return deliver(fired, reply);
+        break;
+    default:   // AFTER_TURN
+        if (betweenTurns && !_offer) return deliver(fired, reply);
+        break;
+    }
+    _queuedTriggers.push_back(std::move(fired));
+    decide(vasdk::flow::QUEUED, "");
+}
+
+// Says it (or asks first), then the conversation's question again when nothing else asked one.
+void FlowRuntime::deliver(const QueuedTrigger& queued, Reply& reply) {
+    const auto& trigger = *queued.trigger;
+    const auto when = now();
+    _lastDelivered[trigger.name()] = when;
+    _deliveredThisHour.push_back(when);
+    reply.triggers.push_back({trigger.name(), vasdk::flow::STARTED, ""});
+    if (trigger.delivery().has_follow_up_listen_ms()) reply.followUpListenMs = trigger.delivery().follow_up_listen_ms();
+    _trigger.emplace(trigger.name(), queued.payload);
+    if (!conversationActive()) enterStartQuietly(reply, "trigger:" + trigger.name());
+    if (trigger.delivery().has_ask_first()) {
+        _offer = Offer{queued, _lastQuestion, _questionChoices, _expectation};
+        const auto& question = trigger.delivery().ask_first();
+        _lastQuestion = sayOne(question.text(), &question, reply);
+        _questionChoices.clear();
+        _expectation.Clear();
+        _expectation.set_mode(Expectation::YES_NO);
+        reply.choices.clear();
+        reply.expectsReply = true;
+        return;
+    }
+    runTriggerAction(trigger, reply);
+}
+
+void FlowRuntime::runTriggerAction(const vasdk::flow::Trigger& trigger, Reply& reply) {
+    const auto& action = trigger.action();
+    if (action.has_start_flow()) {
+        follow(toTarget("flow:" + action.start_flow(), "trigger:" + trigger.name()), reply);
+    } else if (action.has_goto_()) {
+        follow(toTarget(action.goto_(), "trigger:" + trigger.name()), reply);
+    } else {
+        const bool asked = reply.expectsReply;   // appended to a reply that asks: it needn't be asked again
+        sayOne(action.say().text(), &action.say(), reply);
+        if (!asked && !_ended) askAgain(reply);
+    }
+}
+
+// The queued trigger whose moment has come, highest priority first; expired ones are dropped.
+bool FlowRuntime::deliverDue(Reply& reply) {
+    using Delivery = vasdk::flow::Delivery;
+    const auto when = now();
+    for (auto queued = _queuedTriggers.begin(); queued != _queuedTriggers.end();) {
+        const int expiresMs = queued->trigger->delivery().expires_after_ms();
+        if (expiresMs > 0 && when - queued->firedAt >= std::chrono::milliseconds(expiresMs)) {
+            reply.triggers.push_back({queued->trigger->name(), vasdk::flow::EXPIRED, "queued past expires_after_ms"});
+            queued = _queuedTriggers.erase(queued);
+        } else {
+            ++queued;
+        }
+    }
+    if (_offer || _ended) return false;
+    auto rank = [](const QueuedTrigger& queued) {
+        switch (queued.trigger->delivery().priority()) {
+        case Delivery::CRITICAL: return 3;
+        case Delivery::HIGH: return 2;
+        case Delivery::LOW: return 0;
+        default: return 1;
+        }
+    };
+    auto best = _queuedTriggers.end();
+    for (auto queued = _queuedTriggers.begin(); queued != _queuedTriggers.end(); ++queued) {
+        const bool due = queued->trigger->delivery().interrupt() != Delivery::AFTER_FLOW || (!formActive() && _stack.empty());
+        if (due && (best == _queuedTriggers.end() || rank(*queued) > rank(*best))) best = queued;
+    }
+    if (best == _queuedTriggers.end()) return false;
+    const QueuedTrigger due = std::move(*best);
+    _queuedTriggers.erase(best);
+    deliver(due, reply);
+    return true;
+}
+
+Reply FlowRuntime::deliverQueued() {
+    Reply reply;
+    if (deliverDue(reply)) finish(reply);
+    return reply;
+}
+
+// The answer to a trigger's ask_first: yes runs its action, no says so; anything else lets the
+// offer lapse and is a turn as usual (false).
+bool FlowRuntime::answerOffer(const std::string& text, Reply& reply) {
+    Offer offer = std::move(*_offer);
+    _offer.reset();
+    _lastQuestion = std::move(offer.lastQuestion);
+    _questionChoices = std::move(offer.questionChoices);
+    _expectation = std::move(offer.expectation);
+    const auto answer = extractYesNo(text);
+    if (!answer) return false;
+    if (*answer) {
+        runTriggerAction(*offer.trigger.trigger, reply);
+    } else {
+        append(reply, "Okay.");
+        askAgain(reply);
+    }
+    return true;
+}
+
+std::vector<std::pair<std::string, int>> FlowRuntime::inactivityTriggers() const {
+    std::vector<std::pair<std::string, int>> found;
+    for (const auto& trigger : _agent->definition().triggers())
+        if (trigger.source().has_inactivity()) found.emplace_back(trigger.name(), trigger.source().inactivity().after_ms());
+    return found;
 }
 
 std::vector<std::string> FlowRuntime::sensitiveValues() const {

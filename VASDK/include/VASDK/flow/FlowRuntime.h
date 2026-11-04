@@ -4,6 +4,8 @@
 #include "CompiledAgent.h"
 #include "Tools.h"
 
+#include <chrono>
+#include <deque>
 #include <functional>
 #include <map>
 #include <optional>
@@ -41,6 +43,13 @@ struct ReplyToolCall {
     bool ok = false;
 };
 
+/** What became of a trigger this turn: fired, delivered from the queue, or expired there. */
+struct ReplyTrigger {
+    std::string name;
+    vasdk::flow::TriggerDecision decision = vasdk::flow::DECISION_UNSET;
+    std::string reason;            // why it was dropped, expired or suppressed
+};
+
 /** What one turn produced. */
 struct Reply {
     std::string text;              // what to say; empty when nothing is said
@@ -56,6 +65,7 @@ struct Reply {
     bool endsSession = false;      // the conversation ended with this reply
     std::vector<PageChange> pageChanges;
     std::vector<ReplyToolCall> toolCalls;
+    std::vector<ReplyTrigger> triggers;
     // Values to mask wherever this reply or the user's words are shown or logged: those of the
     // sensitive slots and session params, as stored and as said (maskValue).
     std::vector<std::string> sensitiveValues;
@@ -140,6 +150,21 @@ public:
      * Unset: the filler is part of the reply.
      */
     void setFillerSink(std::function<void(const Reply& sofar)> sink) { _fillerSink = std::move(sink); }
+    /**
+     * The app fires a trigger, by its app_event name or its own (agent.triggers): its condition,
+     * the proactive policy and its delivery decide (Reply::triggers says what became of it). Said
+     * now, it's in the reply; queued, it comes at the end of a later turn, or from
+     * deliverQueued(). `betweenTurns`: no reply is playing and the user isn't speaking, so an
+     * AFTER_TURN trigger needn't wait.
+     */
+    Reply fireTrigger(const std::string& name, const google::protobuf::Struct& payload = {}, bool betweenTurns = true);
+    /** Queued triggers whose moment has come, between turns (a reply has just played): one is delivered, expired ones dropped. */
+    Reply deliverQueued();
+    /** The inactivity triggers: name and how long without a user turn before firing it. */
+    std::vector<std::pair<std::string, int>> inactivityTriggers() const;
+    /** What triggers read as now: their expiry, cooldown, hourly limit and quiet hours. Default: the system clock. */
+    using Clock = std::function<std::chrono::system_clock::time_point()>;
+    void setClock(Clock clock) { _clock = std::move(clock); }
     /** The current values of the sensitive slots and session params, as stored and as said. */
     std::vector<std::string> sensitiveValues() const;
     /** The value a reference resolves to now ($session.tier, $form.day, $nlu.entities.service, ...). */
@@ -151,6 +176,20 @@ public:
     static constexpr size_t kMaxFlowDepth = 8;
 
 private:
+    // A trigger waiting for its moment, and one asked about first (ask_first) with the question it interrupted.
+    using TimePoint = std::chrono::system_clock::time_point;
+    struct QueuedTrigger {
+        const vasdk::flow::Trigger* trigger = nullptr;
+        google::protobuf::Struct payload;
+        TimePoint firedAt;
+        std::string dedupe;
+    };
+    struct Offer {
+        QueuedTrigger trigger;
+        std::string lastQuestion;
+        std::vector<vasdk::flow::Choice> questionChoices;
+        vasdk::flow::Expectation expectation;
+    };
     struct Outcome {
         std::optional<CompiledAgent::PageRef> jump;
         bool ended = false;
@@ -183,6 +222,15 @@ private:
     std::optional<std::string> readSlot(const vasdk::goal::Slot& slot, const std::string& text) const;
     Outcome run(const google::protobuf::RepeatedPtrField<vasdk::flow::Step>& steps, Reply& reply);
     Outcome callTool(const vasdk::flow::CallTool& call, Reply& reply);
+    TimePoint now() const;
+    bool conversationActive() const { return started() && !_ended; }
+    void enterStartQuietly(Reply& reply, const std::string& reason);
+    bool quietHours(TimePoint when) const;
+    void arbitrate(const vasdk::flow::Trigger& trigger, const google::protobuf::Struct& payload, bool betweenTurns, Reply& reply);
+    void deliver(const QueuedTrigger& queued, Reply& reply);
+    void runTriggerAction(const vasdk::flow::Trigger& trigger, Reply& reply);
+    bool deliverDue(Reply& reply);
+    bool answerOffer(const std::string& text, Reply& reply);
     const vasdk::flow::Route* matchRoute();
     const vasdk::flow::Route* matchRoute(const google::protobuf::RepeatedPtrField<vasdk::flow::Route>& routes,
                                          const google::protobuf::RepeatedPtrField<std::string>* intents);
@@ -244,6 +292,7 @@ private:
         vasdk::flow::Expectation expectation;
         std::optional<Form> form;
         google::protobuf::Struct pageLocals;
+        bool reenter = false;   // entered from the start before its page ran: enter it on the way back
     };
     std::vector<Frame> _stack;
     int _misses = 0;                        // no-match and no-input in a row on this page
@@ -254,6 +303,14 @@ private:
     bool _replyCut = false;                                 // the last reply was cut off (replyInterrupted)
     std::map<const void*, size_t> _sayCounts;               // which of a Say's (or prompt's) texts comes next
     ToolCaller _toolCaller;                                 // unset until the first call_tool: a ToolRunner
+    // Triggers: queued ones, when each was last delivered, deliveries this hour, what $trigger
+    // reads, and one asked about first (ask_first), with the question it interrupted.
+    std::vector<QueuedTrigger> _queuedTriggers;
+    std::map<std::string, TimePoint> _lastDelivered;
+    std::deque<TimePoint> _deliveredThisHour;
+    std::optional<std::pair<std::string, google::protobuf::Struct>> _trigger;   // $trigger.name, $trigger.payload
+    std::optional<Offer> _offer;
+    Clock _clock;
     std::function<void(const Reply&)> _fillerSink;
 };
 

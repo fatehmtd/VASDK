@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-namespace google::protobuf { class Value; }
+#include <google/protobuf/struct.pb.h>
 namespace vasdk::nlu { class EntityValue; }
 
 namespace va {
@@ -109,6 +109,12 @@ public:
     void selectChoice(int index);
     /** Stops the assistant's current reply, like a barge-in. Thread-safe. */
     void interrupt();
+    /**
+     * Fires one of the agent's triggers, by its app_event name or its own, with what its
+     * $trigger.payload reads: "car-ready" with {"booking": "B-42"}. Its delivery decides when it's
+     * said (a trigger_fired event tells). Thread-safe; needs Options::agent.
+     */
+    void fireTrigger(const std::string& name, const google::protobuf::Struct& payload = {});
     /**
      * Starts the conversation over: the reply is cut, the LLM's history dropped, and an agent goes
      * back to its start page with its session params at their defaults (greeting on the next

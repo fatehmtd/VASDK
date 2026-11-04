@@ -25,6 +25,15 @@ proto_imports: ["garage.proto"]   # the C++ step's params, so any tool can read 
 
 goal_files: ["goals/booking.txtpb"]   # what the booking form asks for
 
+# The app says when a car is ready: session->fireTrigger("car-ready", {"car": "Golf"}). It waits
+# until the caller isn't in the middle of a booking, and is said once per car.
+triggers {
+  name: "car_ready"
+  source { app_event { name: "car-ready" } }
+  action { say { text: "By the way, your $trigger.payload.car is ready for pickup." } }
+  delivery { interrupt: AFTER_FLOW priority: HIGH dedupe_key: "$trigger.payload.car" expires_after_ms: 3600000 }
+}
+
 entity_types {
   name: "service"
   description: "A service the garage offers"

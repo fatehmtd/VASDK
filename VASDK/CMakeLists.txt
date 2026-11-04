@@ -204,6 +204,7 @@ if(VASDK_ENABLE_ENGINE_CONFIG)
         ./proto/vasdk/engine/events.proto
         ./proto/vasdk/nlu/entity.proto
         ./proto/vasdk/flow/expectation.proto
+        ./proto/vasdk/flow/trigger.proto
         ./proto/vasdk/goal/goal.proto
         ./proto/vasdk/flow/agent.proto
         ./proto/vasdk/flow/page_types.proto
@@ -373,6 +374,9 @@ if(VASDK_BUILD_TESTS)
         add_executable(vasdk_security_test tests/security_test.cpp)
         target_link_libraries(vasdk_security_test PRIVATE VASDK)
         add_test(NAME vasdk_security COMMAND vasdk_security_test)
+        add_executable(vasdk_trigger_arbiter_test tests/trigger_arbiter_test.cpp)
+        target_link_libraries(vasdk_trigger_arbiter_test PRIVATE VASDK)
+        add_test(NAME vasdk_trigger_arbiter COMMAND vasdk_trigger_arbiter_test)
 
         add_executable(vasdk_engine_events_test tests/engine_events_test.cpp)
         target_link_libraries(vasdk_engine_events_test PRIVATE VASDK)

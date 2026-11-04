@@ -354,8 +354,9 @@ namespace va {
         {
             const auto state = _currentState.load();
             // From LISTENING too: speech nobody asked for (an agent's greeting, say()) is spoken
-            // like a reply, so the user can cut it and its echo isn't taken for a turn.
-            if (state == transport::AgentState::THINKING ||
+            // like a reply, so the user can cut it and its echo isn't taken for a turn. From IDLE:
+            // the assistant speaks first (a trigger), and the follow-up window opens after it.
+            if (state == transport::AgentState::THINKING || state == transport::AgentState::IDLE ||
                 (state == transport::AgentState::LISTENING && !_userSpeaking)) {
                 cancelFollowUpWindow();
                 transitionTo(transport::AgentState::SPEAKING,

@@ -289,6 +289,55 @@ tools {
 
 **In tests**, `tool_results { key: "create_booking" value: "{\"id\": \"B-42\"}" }` on a turn stands in for that tool (`{"error": ...}` fails it). `tools_called: ["create_booking"]` checks which tools were called. Without a stand-in, C++ tools run and HTTP tools are refused, because a test has no engine config to allow them.
 
+## Triggers
+
+A trigger lets the assistant speak first: when the conversation starts, when the app says so, or after a silence. It fires from its `source`. If its `condition` holds, its `action` runs when its `delivery` allows. `$trigger.payload.<field>` reads what the app sent with it, and `$trigger.name` its name.
+
+```textproto
+triggers {
+  name: "car_ready"
+  source { app_event { name: "car-ready" } }      # session->fireTrigger("car-ready", payload)
+  action { say { text: "By the way, your $trigger.payload.car is ready for pickup." } }
+  delivery { interrupt: AFTER_FLOW priority: HIGH dedupe_key: "$trigger.payload.car" expires_after_ms: 3600000 }
+}
+triggers { name: "welcome_back" source { session_start {} } condition: "$session.tier = 'gold'"
+           action { say { text: "Welcome back, $session.name." } } }
+triggers { name: "nudge" source { inactivity { after_ms: 30000 } } action { say { text: "Still there?" } } }
+proactive_policy { quiet_from: "22:00" quiet_until: "07:00" max_per_hour: 4 }
+```
+
+**Sources:**
+
+| Source | Fires |
+|---|---|
+| `session_start` | When the conversation starts. Its action replaces the start page's entry: a `say` comes before the greeting, a `goto` enters another page, a `start_flow` runs a flow and then enters the start page. |
+| `app_event` | On `Session::fireTrigger(name, payload)`. `name` is the event's; without one, it's the trigger's own name. |
+| `inactivity` | After `after_ms` without a user turn, counted from the end of the last reply, while a conversation goes on. Each fires once per silence, shortest first. |
+
+**Actions:**
+- `say`: says it, then asks the conversation's question again, unless the reply it's added to already asks one.
+- `goto`: a target, as a goto step.
+- `start_flow`: enters the flow; `END_FLOW` comes back to where the conversation was.
+
+**Delivery.** With no conversation going on (before it starts, after it ends), a trigger is said at once, from idle: the follow-up window opens after it. During a conversation, `interrupt` decides when:
+
+| `interrupt` | When |
+|---|---|
+| `AFTER_TURN` (default) | At once if nothing is playing and the user isn't speaking; else once the reply has played. |
+| `AFTER_FLOW` | Once the conversation is between tasks: no form being filled, and no flow it will come back from. A car-ready event waits for the booking to finish. |
+| `IMMEDIATE` | At once. |
+| `NEVER` | Only when no conversation is going on; otherwise dropped. |
+
+**Limits:**
+- Queued triggers go highest `priority` first (`LOW`, `NORMAL`, `HIGH`, `CRITICAL`), one per turn.
+- `expires_after_ms` drops one that waited too long.
+- `dedupe_key` (an expression) keeps one queued per value.
+- `cooldown_ms` drops one fired again too soon after it was said.
+- `proactive_policy` suppresses all but `CRITICAL` ones in its quiet hours (local time) and caps them at `max_per_hour`.
+- `ask_first { text: "I have an update on your order. Want to hear it?" }` asks, expecting yes or no. Yes runs the action; no gets "Okay." and the question again. Any other answer lets the offer go, and the words are a turn as usual.
+
+Each fired trigger is reported in a `trigger_fired` event, with its decision: `STARTED`, `QUEUED`, `DROPPED`, `EXPIRED` or `SUPPRESSED`, and why. In `vasdk_agentc chat`, `!car-ready {"car": "Golf"}` fires one.
+
 ## Stored values and conditions
 
 An agent can remember things and branch on them. Declare the values a conversation keeps:
@@ -506,7 +555,7 @@ turns { user: "I have a flat" expect { page: "service" } }
 turns { user: "my windshield is cracked" expect { matched: false said_contains: "can't help with that" } }
 ```
 
-  Expectations: `page`, `flow`, `said` (the whole reply), `choices` (the labels offered, in order), `said_contains` (case-insensitive), `matched`, `expects_reply`, `ends_session`, `session { key: "service" value: "an oil change" }` (a param as a reply would say it), `form { key: "day" value: "tuesday" }` (a slot, or `complete`/`confirmed`/`failed`; `""` when empty), `entities { key: "service" value: "oil_change" }` (`$nlu.entities`), and `event` (`no-match`, `no-input`, `max-reprompts`). A turn with `no_input: true` is silence instead of words. A case can set session params and context before the first turn: `session { fields { key: "tier" value { string_value: "gold" } } }`, `context { … }`. The same runs from C++ with `va::flow::runFlowTest`, and the example's cases run in `ctest` (`vasdk_agent_garage_menu`).
+  Expectations: `page`, `flow`, `said` (the whole reply), `choices` (the labels offered, in order), `said_contains` (case-insensitive), `matched`, `expects_reply`, `ends_session`, `session { key: "service" value: "an oil change" }` (a param as a reply would say it), `form { key: "day" value: "tuesday" }` (a slot, or `complete`/`confirmed`/`failed`; `""` when empty), `entities { key: "service" value: "oil_change" }` (`$nlu.entities`), and `event` (`no-match`, `no-input`, `max-reprompts`). A turn with `no_input: true` is silence instead of words. `fire_trigger: "car-ready"` (with `trigger_payload`) fires a trigger instead, and `trigger_decision: QUEUED` checks what became of it. `after_ms` moves the clock on before a turn, from the case's `start_time` (local, `"2026-11-09T08:00:00"`). A turn's `tool_results` stand in for tools, and `tools_called` checks which ran. A case can set session params and context before the first turn: `session { fields { key: "tier" value { string_value: "gold" } } }`, `context { … }`. The same runs from C++ with `va::flow::runFlowTest`, and the example's cases run in `ctest` (`vasdk_agent_garage_menu`).
 - **`chat`** talks to the agent by typing, showing the page (and any event) after each reply, the choices offered, and the parts that can't be interrupted. An empty line is silence (no-input). `--session tier=gold` sets a session param first.
 - **`try`** shows what a sentence matches, without running the conversation:
 
@@ -527,7 +576,7 @@ $ vasdk_agentc try agents/garage-menu/agent.txtpb --entity @sys.phone "five five
 | `flow::FlowRegistry`, `TurnContext` | Steps, page types, envelopes and tools written in C++: see [Extensions](#extensions-page-types-and-c). `TurnContext::apply(StepOutcome)` for steps written in other languages. |
 | `flow::ToolRunner` | Runs an agent's tools within an engine config's `security`; `Session` makes one. `maskValue`, `redact` mask sensitive values. |
 | `flow::runAgentTool` | `vasdk_agentc`'s commands, for an app's own copy with its registry. |
-| `flow::FlowRuntime` | One conversation's place in an agent: `start()`, `handleText(text)` and `handleNoInput()` → `Reply` (text, its segments, choices, ui, matched, intent, event, expects reply, ends session, page changes), `replyInterrupted()`, `noInputMs()`, `setSessionParam`, `setEntityValues`, `setContextSource`. Copyable, way back included. |
+| `flow::FlowRuntime` | One conversation's place in an agent: `start()`, `handleText(text)` and `handleNoInput()` → `Reply` (text, its segments, choices, ui, matched, intent, event, expects reply, ends session, page changes, tool calls, triggers), `fireTrigger(name, payload)`, `deliverQueued()`, `setClock`, `replyInterrupted()`, `noInputMs()`, `setSessionParam`, `setEntityValues`, `setContextSource`. Copyable, way back included. |
 | `flow::Expression` | `parse(text)` once, then `evaluate(lookup)` or `test(lookup)`; `renderTemplate` for replies. |
 | `flow::DialogProcessor` | The pipeline stage `Session` adds for `Options::agent`, after the turn assembler. |
 | `flow::runFlowTest` | Plays a `FlowTestCase` and returns what differed. |

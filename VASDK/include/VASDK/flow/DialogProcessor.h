@@ -4,6 +4,7 @@
 #include "../FrameProcessor.h"
 #include "FlowRuntime.h"
 
+#include <algorithm>
 #include <chrono>
 #include <condition_variable>
 #include <deque>
@@ -70,17 +71,31 @@ public:
     void setContextSource(FlowRuntime::ContextSource source);
     /** How call_tool steps reach tools (FlowRuntime::setToolCaller). Before start(). */
     void setToolCaller(ToolCaller caller);
+    /**
+     * Fires an agent trigger by its app_event name or its own (FlowRuntime::fireTrigger). It
+     * waits as its delivery says: AFTER_TURN ones until the reply playing has ended, AFTER_FLOW
+     * ones until the conversation is between tasks. Thread-safe.
+     */
+    void fireTrigger(const std::string& name, const google::protobuf::Struct& payload = {});
 
 private:
     void greetIfReady();
     void speak(const Reply& reply, bool filler = false);
     // The conversation's thread: tasks run in order, and post their replies back as frames.
     void post(std::function<void()> task);
-    void deliver(Reply reply, std::shared_ptr<transport::Frame> turn = nullptr, bool mayPassOn = false);
+    void deliver(Reply reply, std::shared_ptr<transport::Frame> turn = nullptr, bool mayPassOn = false, bool fromTrigger = false);
     void conversationLoop();
     void prepare(FlowRuntime& conversation);
-    void armNoInput(int ms);
-    void disarmNoInput();
+    // Two timers on one thread: no-input after a question, and the agent's inactivity triggers.
+    struct Timer {
+        std::optional<std::chrono::steady_clock::time_point> deadline;
+        uint64_t generation = 0;   // a fired timer is stale once this moved on
+    };
+    void arm(Timer& timer, int ms);
+    void disarm(Timer& timer);
+    void armNoInput(int ms) { arm(_noInput, ms); }
+    void disarmNoInput() { disarm(_noInput); }
+    void armInactivity();
     void noInputTimerLoop();
 
     // Used only on the conversation's thread.
@@ -108,9 +123,13 @@ private:
     std::thread _timerThread;
     std::mutex _timerMutex;
     std::condition_variable _timerChanged;
-    std::optional<std::chrono::steady_clock::time_point> _noInputDeadline;
-    uint64_t _noInputGeneration = 0;
+    Timer _noInput;
+    Timer _inactivity;
     bool _timerStop = false;
+    // The agent's inactivity triggers, shortest first; the next to fire since the user last spoke.
+    std::vector<std::pair<std::string, int>> _inactivityTriggers;
+    size_t _nextInactivity = 0;
+    bool _userSpeaking = false;
 };
 
 } // namespace flow

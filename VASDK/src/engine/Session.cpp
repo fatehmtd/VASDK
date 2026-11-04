@@ -384,6 +384,14 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
                                             const flow::Reply& reply, const flow::FlowRuntime& conversation) {
             auto dispatcher = events.lock();
             if (!dispatcher) return;
+            for (const auto& trigger : reply.triggers) {
+                vasdk::engine::Event event;
+                auto* fired = event.mutable_trigger_fired();
+                fired->set_name(trigger.name);
+                fired->set_decision(trigger.decision);
+                fired->set_reason(trigger.reason);
+                dispatcher->post(std::move(event));
+            }
             for (const auto& call : reply.toolCalls) {
                 vasdk::engine::Event event;
                 auto* tool = event.mutable_tool_call();
@@ -511,6 +519,14 @@ void Session::selectChoice(int index) {
 }
 
 void Session::interrupt() { _state->trigger->trigger(transport::TriggerType::BUTTON_PRESS); }
+
+void Session::fireTrigger(const std::string& name, const google::protobuf::Struct& payload) {
+    if (!_state->dialog) {
+        spdlog::warn("{} fireTrigger(\"{}\") ignored: no agent", _state->logTag, name);
+        return;
+    }
+    _state->dialog->fireTrigger(name, payload);
+}
 
 void Session::resetConversation() {
     interrupt();

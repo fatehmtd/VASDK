@@ -5,6 +5,7 @@ syntax = "proto3";
 package vasdk.engine;
 
 import "vasdk/flow/expectation.proto";
+import "vasdk/flow/trigger.proto";
 
 message Event {
   int64 timestamp_ms = 1;   // milliseconds since the Unix epoch
@@ -19,6 +20,7 @@ message Event {
     UserSpeech user_speech = 17;
     PageChanged page_changed = 20;
     SessionEnded session_ended = 23;
+    TriggerFired trigger_fired = 24;
   }
 }
 
@@ -53,6 +55,13 @@ message ToolCall {
   string name = 1;
   string arguments_json = 2;
   string result_json = 3;     // {"error": ...} when the tool failed or is unknown
+}
+
+// An agent's trigger fired (Session::fireTrigger, inactivity, session start), and what became of it.
+message TriggerFired {
+  string name = 1;
+  vasdk.flow.TriggerDecision decision = 2;
+  string reason = 3;          // why it was dropped, expired or suppressed
 }
 
 // The user's voice, as voice activity detection hears it: for a "you're speaking" indicator.

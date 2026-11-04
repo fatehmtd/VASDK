@@ -67,6 +67,7 @@ Processors that read the mic audio directly use `inputRingBuffer()`.
 | `injectUserText(text)` | Sends `text` as a finished user turn, as if it had been spoken. Needs an LLM or an agent. |
 | `selectChoice(index)` | With an agent: taps the last reply's choice at `index` (from 0), the same as saying its value. |
 | `interrupt()` | Stops the current reply, the same way a barge-in does. |
+| `fireTrigger(name, payload)` | With an agent: fires one of its [triggers](flows.md#triggers), e.g. `"car-ready"` with `{"car": "Golf"}`. Its delivery decides when it's said. |
 | `resetConversation()` | Starts over: cuts the reply, drops the LLM's history, and sends an agent back to its start page with its session params at their defaults. |
 | `setBackchannel(config)`, `backchannel()` | Changes, or reads, how speech over the assistant is handled (back-channels, ducking) while it runs, e.g. from a settings screen. |
 | `pushToTalk(held)` | The push-to-talk button: listens while held, and cuts a reply in progress. Released mid-sentence, the user's turn still gets its answer. |
@@ -87,6 +88,7 @@ Processors that read the mic audio directly use `inputRingBuffer()`.
 | `agent_reply` | Once per streamed piece of the reply; `text` is the whole reply so far, `is_final` marks the end, with `expects_reply`, `choices` (with `choice_values`, what each sends back), `ui_json` (an agent's `ui`) and `expect` (an agent's [expected input](flows.md#expected-input): a keypad, a yes/no). `say()` text arrives as one final piece. |
 | `agent_state` | Every state change: `IDLE`, `LISTENING`, `THINKING`, `SPEAKING`, `INTERRUPTED`, with the transition that caused it. |
 | `tool_call` | A tool the LLM or an agent's `call_tool` called, with its arguments and result, when it returns. Sensitive values are masked. |
+| `trigger_fired` | With an agent: a trigger fired, and its decision: `STARTED`, `QUEUED`, `DROPPED`, `EXPIRED` or `SUPPRESSED` (quiet hours), with the reason. |
 | `user_speech` | The user's voice as voice activity detection hears it: `STARTED`, `ONGOING` (after a pause), `ENDED`. For a "you're speaking" indicator. |
 | `error` | A processor or transport reported a failure, e.g. the LLM endpoint is unreachable. |
 | `listening_window` | The mic stays open after a reply: `OPENED` (with `closes_in_ms`), `EXTENDED` when the user starts answering, `CLOSED` when it times out. For a live mic indicator. |

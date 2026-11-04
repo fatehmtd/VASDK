@@ -5,6 +5,10 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
+#include <ctime>
+#include <iomanip>
+#include <sstream>
 
 namespace va {
 namespace flow {
@@ -49,6 +53,17 @@ FlowTestResult runFlowTest(std::shared_ptr<const CompiledAgent> agent, const vas
         }
         return result;
     });
+    // The clock triggers read: the case's start_time (local), moved on by each turn's after_ms.
+    auto clock = std::make_shared<std::chrono::system_clock::time_point>(std::chrono::system_clock::now());
+    if (!testCase.start_time().empty()) {
+        std::tm local{};
+        std::istringstream text(testCase.start_time());
+        text >> std::get_time(&local, "%Y-%m-%dT%H:%M:%S");
+        local.tm_isdst = -1;
+        if (text.fail()) result.failures.push_back("start_time " + quoted(testCase.start_time()) + " isn't YYYY-MM-DDTHH:MM:SS");
+        else *clock = std::chrono::system_clock::from_time_t(std::mktime(&local));
+    }
+    conversation.setClock([clock] { return *clock; });
     if (testCase.has_context()) {
         const auto context = testCase.context();
         conversation.setContextSource([context] { return context; });
@@ -56,12 +71,15 @@ FlowTestResult runFlowTest(std::shared_ptr<const CompiledAgent> agent, const vas
     for (int i = 0; i < testCase.turns_size(); ++i) {
         const auto& turn = testCase.turns(i);
         *mocks = turn.tool_results();
-        const Reply reply = turn.no_input()        ? conversation.handleNoInput()
+        *clock += std::chrono::milliseconds(turn.after_ms());
+        const Reply reply = !turn.fire_trigger().empty() ? conversation.fireTrigger(turn.fire_trigger(), turn.trigger_payload())
+                          : turn.no_input()        ? conversation.handleNoInput()
                           : turn.has_choice()     ? conversation.selectChoice(turn.choice())
                           : turn.user().empty()   ? conversation.start()
                                                   : conversation.handleText(turn.user());
         const std::string where = "turn " + std::to_string(i + 1) + " " +
-                                  (turn.has_choice()    ? "(choice " + std::to_string(turn.choice()) + ")"
+                                  (!turn.fire_trigger().empty() ? "(trigger " + turn.fire_trigger() + ")"
+                                   : turn.has_choice()  ? "(choice " + std::to_string(turn.choice()) + ")"
                                    : turn.user().empty() ? std::string("(start)")
                                                          : quoted(turn.user()));
         auto fail = [&](const std::string& message) { result.failures.push_back(where + ": " + message); };
@@ -113,6 +131,12 @@ FlowTestResult runFlowTest(std::shared_ptr<const CompiledAgent> agent, const vas
         for (const auto& [name, expected] : expect.entities()) {
             const std::string actual = toText(conversation.lookup({"nlu", "entities", name}));
             if (actual != expected) fail("$nlu.entities." + name + " is " + quoted(actual) + ", expected " + quoted(expected));
+        }
+        if (expect.trigger_decision() != vasdk::flow::DECISION_UNSET) {
+            const auto decision = reply.triggers.empty() ? vasdk::flow::DECISION_UNSET : reply.triggers.front().decision;
+            if (decision != expect.trigger_decision())
+                fail("the trigger was " + vasdk::flow::TriggerDecision_Name(decision) + ", expected " +
+                     vasdk::flow::TriggerDecision_Name(expect.trigger_decision()));
         }
         if (!expect.tools_called().empty()) {
             std::string called, expected;

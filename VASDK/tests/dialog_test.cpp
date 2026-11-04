@@ -451,6 +451,48 @@ int main() {
         engine->stop();
     }
 
+    {
+        // Triggers in a pipeline: one fired while a reply plays waits for it to end; silence after
+        // a reply fires the inactivity trigger.
+        auto triggerAgent = compile(R"agent(
+            start_flow: "main"
+            triggers { name: "car_ready" source { app_event {} } action { say { text: "Your car is ready." } } }
+            triggers { name: "nudge" source { inactivity { after_ms: 150 } } action { say { text: "Still there?" } } }
+            flows { name: "main" start_page: "welcome"
+                    pages { name: "welcome" on_enter { ask { say { text: "How can I help?" } } } } }
+        )agent");
+        check(triggerAgent != nullptr, "the trigger agent compiles");
+        auto dialog = std::make_shared<flow::DialogProcessor>(triggerAgent);
+        auto recorder = std::make_shared<Recorder>();
+        dialog->setDownstream(recorder);
+        recorder->initialize();
+        recorder->start();
+        dialog->initialize();
+        dialog->start();
+        auto state = [&](transport::AgentState previous, transport::AgentState current, transport::AgentStateTransition why) {
+            auto frame = std::make_shared<transport::AgentStateFrame>();
+            frame->previousState = previous;
+            frame->currentState = current;
+            frame->transition = why;
+            dialog->processFrame(frame, pipeline::FlowDirection::DOWNSTREAM);
+        };
+        using transport::AgentState;
+        using transport::AgentStateTransition;
+        state(AgentState::IDLE, AgentState::LISTENING, AgentStateTransition::PIPELINE_START);   // greets
+        recorder->settled();
+        state(AgentState::LISTENING, AgentState::SPEAKING, AgentStateTransition::SYNTHESIS_STARTED);
+        dialog->fireTrigger("car_ready");
+        check(recorder->settled().size() == 1, "fired while the greeting plays: it waits");
+        state(AgentState::SPEAKING, AgentState::LISTENING, AgentStateTransition::SYNTHESIS_COMPLETED);
+        auto texts = recorder->settled();
+        check(texts.size() == 2 && texts[1].text == "Your car is ready. How can I help?", "said once the greeting has played");
+        state(AgentState::SPEAKING, AgentState::LISTENING, AgentStateTransition::SYNTHESIS_COMPLETED);
+        std::this_thread::sleep_for(300ms);
+        texts = recorder->settled();
+        check(texts.size() == 3 && texts[2].text == "Still there? How can I help?", "silence after a reply: the inactivity trigger");
+        dialog->stop();
+        recorder->stop();
+    }
     if (failures == 0) std::printf("dialog_test: all passed\n");
     return failures == 0 ? 0 : 1;
 }

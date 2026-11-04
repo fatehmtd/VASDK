@@ -1,0 +1,15 @@
+# proto-file: vasdk/flow/test_case.proto
+# proto-message: vasdk.flow.FlowTestCase
+name: "a car-ready event waits for the booking to finish"
+turns { expect { page: "welcome" } }
+turns { user: "I'd like to bring my car in" expect { page: "booking" } }
+turns { fire_trigger: "car-ready" trigger_payload { fields { key: "car" value { string_value: "Golf" } } }
+        expect { trigger_decision: QUEUED page: "booking" } }
+turns { fire_trigger: "car-ready" trigger_payload { fields { key: "car" value { string_value: "Golf" } } }
+        expect { trigger_decision: DROPPED } }   # the same car again
+turns { user: "I have a flat" expect { said: "Which day works for you?" } }
+turns { user: "Tuesday" }
+turns { user: "the afternoon" }
+turns { user: "five five five, one two three, four five six seven" expect { said_contains: "Shall I book it?" } }
+turns { user: "yes please"
+        expect { page: "booked" said_contains: ["You're booked", "By the way, your Golf is ready for pickup."] } }

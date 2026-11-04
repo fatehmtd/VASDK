@@ -1,5 +1,7 @@
 #include "flow/AgentTool.h"
 
+#include <google/protobuf/util/json_util.h>
+
 #include "flow/CompiledAgent.h"
 #include "flow/FlowRuntime.h"
 #include "flow/FlowTestRunner.h"
@@ -25,6 +27,7 @@ int usage(const std::string& program) {
                  "usage: %s lint <agent>\n"
                  "       %s test <agent> <case>...\n"
                  "       %s chat <agent> [--session name=value]...\n"
+                 "         (an empty line is silence, #2 taps the second choice, !<trigger> {json} fires a trigger)\n"
                  "       %s try <agent> [--entity @name] <words>\n",
                  name, name, name, name);
     return 2;
@@ -174,6 +177,23 @@ int runAgentTool(int argc, char** argv, std::shared_ptr<const FlowRegistry> regi
         std::string line;
         while (std::printf("you: "), std::fflush(stdout), std::getline(std::cin, line)) {
             const bool tap = line.size() > 1 && line[0] == '#' && std::isdigit(static_cast<unsigned char>(line[1]));
+            if (line.size() > 1 && line[0] == '!') {   // "!car-ready {"car": "Golf"}": the app fires a trigger
+                const auto space = line.find(' ');
+                google::protobuf::Struct payload;
+                if (space != std::string::npos &&
+                    !google::protobuf::util::JsonStringToMessage(line.substr(space + 1), &payload).ok()) {
+                    std::printf("(the payload must be a JSON object)\n");
+                    continue;
+                }
+                const auto reply = conversation.fireTrigger(line.substr(1, space == std::string::npos ? std::string::npos : space - 1),
+                                                            payload);
+                for (const auto& trigger : reply.triggers)
+                    std::printf("(trigger %s: %s%s%s)\n", trigger.name.c_str(),
+                                vasdk::flow::TriggerDecision_Name(trigger.decision).c_str(), trigger.reason.empty() ? "" : ", ",
+                                trigger.reason.c_str());
+                if (!reply.text.empty()) print(reply, conversation);
+                continue;
+            }
             print(line.empty() ? conversation.handleNoInput()
                   : tap        ? conversation.selectChoice(std::atoi(line.c_str() + 1) - 1)
                                : conversation.handleText(line),

@@ -9,6 +9,7 @@ package vasdk.flow;
 import "google/protobuf/any.proto";
 import "google/protobuf/struct.proto";
 import "vasdk/flow/expectation.proto";
+import "vasdk/flow/trigger.proto";
 import "vasdk/goal/goal.proto";
 import "vasdk/nlu/entity.proto";
 
@@ -31,6 +32,8 @@ message Agent {
   // file: no code generation needed. Types compiled into the app are found without them.
   repeated string proto_imports = 19;
   repeated Tool tools = 20;                    // HTTP services call_tool may reach; tools in C++ come from FlowRegistry::addTool
+  repeated Trigger triggers = 21;              // what may start or interrupt a conversation (trigger.proto)
+  ProactivePolicy proactive_policy = 22;       // quiet hours and a limit for what's said unprompted
 }
 
 // A tool reached over HTTP. The engine config's security.http_allow must list its URL, or the
