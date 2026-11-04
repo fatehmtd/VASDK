@@ -153,6 +153,17 @@ public:
      */
     void setEntityValues(const std::string& name, const std::vector<vasdk::nlu::EntityValue>& values);
 
+    /**
+     * Whether the network is up, as the app sees it (Android's ConnectivityManager, a request
+     * that failed). Down: STT and TTS switch to the config's `fallback` providers between turns
+     * (loaded in the background the first time) and the LLM isn't asked, so the agent answers
+     * on its own. Up: back to the configured providers and the LLM. An STT or TTS provider
+     * error switches to its fallbacks too. Each change is a `provider_switched` event. Thread-safe.
+     */
+    void setNetworkAvailable(bool available);
+    /** True while the network is down (setNetworkAvailable) or a provider failed. */
+    bool usingFallbacks() const;
+
     const std::string& id() const;
     bool hasLLM() const;
     /** "TransportInputProcessor → TriggerProcessor → VADFrameProcessor (SileroVAD) → ..." */

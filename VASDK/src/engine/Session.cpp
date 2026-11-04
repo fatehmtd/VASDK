@@ -31,6 +31,10 @@
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
+#include <mutex>
+#include <chrono>
+#include <thread>
+#include <atomic>
 #include <map>
 #include <optional>
 #include <vector>
@@ -64,7 +68,7 @@ private:
 // on the STT result, so the buffer must keep the whole segment.
 class BargeInHandler : public FrameProcessor {
 public:
-    explicit BargeInHandler(std::shared_ptr<audio::GenericTranscriptionProvider> transcription)
+    explicit BargeInHandler(std::shared_ptr<pipeline::TranscriptionFrameProcessor> transcription)
         : _transcription(std::move(transcription)) {}
     std::string getName() const override { return "BargeInHandler"; }
     bool shouldProcess(std::shared_ptr<transport::Frame> frame) const override {
@@ -74,7 +78,7 @@ public:
         if (direction == FlowDirection::DOWNSTREAM) {
             auto agentFrame = std::dynamic_pointer_cast<transport::AgentStateFrame>(frame);
             if (agentFrame && agentFrame->transition == transport::AgentStateTransition::BARGE_IN_INTERRUPT) {
-                _transcription->clearAudioBuffer();
+                if (auto provider = _transcription->provider()) provider->clearAudioBuffer();
                 spdlog::info("[BargeInHandler] Cleared transcription buffer");
             }
         }
@@ -82,9 +86,31 @@ public:
     }
 
 private:
-    std::shared_ptr<audio::GenericTranscriptionProvider> _transcription;
+    std::shared_ptr<pipeline::TranscriptionFrameProcessor> _transcription;   // its provider changes when the network drops
 };
 
+
+// The agent's LLM, off while the network is down, and for a while after a request fails, so
+// each turn doesn't wait out the timeout of an LLM that can't be reached.
+class GatedCompletion : public llm::Completion {
+public:
+    GatedCompletion(std::shared_ptr<const llm::Completion> inner, std::shared_ptr<std::atomic<bool>> offline)
+        : _inner(std::move(inner)), _offline(std::move(offline)) {}
+    std::optional<std::string> complete(const std::vector<llm::ConversationMessage>& messages) const override {
+        using namespace std::chrono;
+        const auto now = duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
+        if (*_offline || now - _failedAt.load() < kRetryAfterMs) return std::nullopt;
+        auto reply = _inner->complete(messages);
+        if (!reply) _failedAt = now;
+        return reply;
+    }
+
+private:
+    static constexpr long long kRetryAfterMs = 30000;
+    std::shared_ptr<const llm::Completion> _inner;
+    std::shared_ptr<std::atomic<bool>> _offline;
+    mutable std::atomic<long long> _failedAt{-kRetryAfterMs};
+};
 
 // The config's turn_taking.backchannel values replace the app's, one by one.
 void applyBackchannel(const vasdk::engine::Backchannel& config, pipeline::BackchannelConfig& backchannel) {
@@ -182,6 +208,21 @@ struct Session::State {
     std::map<Slot, std::vector<std::shared_ptr<FrameProcessor>>> slots;
     std::shared_ptr<pipeline::Pipeline> pipeline;
 
+    // Network fallback: the local providers while the network is down. Guarded by fallbackMutex.
+    std::shared_ptr<std::atomic<bool>> llmOffline = std::make_shared<std::atomic<bool>>(false);
+    mutable std::mutex fallbackMutex;
+    bool offline = false;
+    bool fallbacksLoaded = false;
+    void switchProviders(bool toFallbacks, const std::string& reason);
+    void networkLost(const std::string& reason, bool dropLlm);
+    void networkBack();
+    void post(const std::string& kind, const std::string& from, const std::string& to, const std::string& reason) const;
+    // Last, so it's joined before anything it uses is destroyed.
+    struct Loader {
+        std::thread thread;
+        ~Loader() { if (thread.joinable()) thread.join(); }
+    } fallbackLoader;
+
     std::vector<std::shared_ptr<FrameProcessor>> chain() const {
         std::vector<std::shared_ptr<FrameProcessor>> processors{transportInput, trigger};
         if (wakeWord) processors.push_back(wakeWord);
@@ -204,6 +245,65 @@ struct Session::State {
         return processors;
     }
 };
+
+void Session::State::post(const std::string& kind, const std::string& from, const std::string& to,
+                          const std::string& reason) const {
+    vasdk::engine::Event event;
+    auto* switched = event.mutable_provider_switched();
+    switched->set_kind(kind);
+    switched->set_from(from);
+    switched->set_to(to);
+    switched->set_reason(reason);
+    events->post(std::move(event));
+    spdlog::warn("{} {}: {} → {} ({})", logTag, kind, from, to, reason);
+}
+
+// Under fallbackMutex, once the fallbacks are loaded.
+void Session::State::switchProviders(bool toFallbacks, const std::string& reason) {
+    const auto& set = *lease.providers;
+    if (set.sttFallback) {
+        transcription->replaceProvider(toFallbacks ? set.sttFallback : set.stt);
+        post("stt", toFallbacks ? set.sttId : set.sttFallbackId, toFallbacks ? set.sttFallbackId : set.sttId, reason);
+    }
+    if (set.ttsFallback) {
+        tts->replaceProvider(toFallbacks ? set.ttsFallback : set.tts);
+        post("tts", toFallbacks ? set.ttsId : set.ttsFallbackId, toFallbacks ? set.ttsFallbackId : set.ttsId, reason);
+    }
+}
+
+void Session::State::networkLost(const std::string& reason, bool dropLlm) {
+    std::lock_guard<std::mutex> lock(fallbackMutex);
+    if (dropLlm && !llmOffline->exchange(true)) {
+        if (dialog) dialog->setPassUnmatchedTurns(false);
+        post("llm", "on", "off", reason);
+    }
+    if (offline) return;
+    offline = true;
+    if (fallbacksLoaded) {
+        switchProviders(true, reason);
+        return;
+    }
+    if (fallbackLoader.thread.joinable()) return;   // loading: it switches when done
+    fallbackLoader.thread = std::thread([this, reason] {
+        std::string error;
+        const bool loaded = lease.runtime->loadFallbacks(*lease.providers, &error);
+        if (!loaded) spdlog::warn("{} no fallback provider to switch to: {}", logTag, error);
+        std::lock_guard<std::mutex> lock(fallbackMutex);
+        fallbacksLoaded = true;
+        if (offline) switchProviders(true, reason);
+    });
+}
+
+void Session::State::networkBack() {
+    std::lock_guard<std::mutex> lock(fallbackMutex);
+    if (llmOffline->exchange(false)) {
+        if (dialog) dialog->setPassUnmatchedTurns(llm != nullptr);
+        post("llm", "off", "on", "network up");
+    }
+    if (!offline) return;
+    offline = false;
+    if (fallbacksLoaded) switchProviders(false, "network up");
+}
 
 Session::Session(std::shared_ptr<Runtime> runtime, Options options, std::string* error)
     : _state(createState(std::move(runtime), std::move(options), error)) {}
@@ -282,7 +382,7 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
     // Batch transcription only, as the desktop app always had it; the call center (streaming)
     // never cleared the STT buffer on a barge-in.
     if (!options.backchannel.enabled && !turnTaking.streaming_transcription())
-        state->bargeInHandler = std::make_shared<BargeInHandler>(providers.stt);
+        state->bargeInHandler = std::make_shared<BargeInHandler>(state->transcription);
 
     state->tts = std::make_shared<pipeline::TTSFrameProcessor>(providers.tts);
     state->tts->setPlaybackFlush([transport = options.transport] { transport->flushOutputAudio(); });
@@ -292,6 +392,9 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
     });
     state->tts->setPendingPlayback(options.backchannel.pendingPlaybackMode, options.backchannel.duckGainDecibels,
                                    options.backchannel.duckDurationMs);
+    // A cloud provider that fails (a lost connection): its fallback takes over between turns.
+    state->transcription->setOnProviderError([raw = state.get()](const std::string& error) { raw->networkLost("stt: " + error, false); });
+    state->tts->setOnProviderError([raw = state.get()](const std::string& error) { raw->networkLost("tts: " + error, false); });
     state->agentState->setPlaybackRemainingMsProvider(
         [tts = std::weak_ptr<pipeline::TTSFrameProcessor>(state->tts)] {
             auto ttsProcessor = tts.lock();
@@ -391,6 +494,7 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
             stages.push_back(embeddings);
         }
         if (completion) {
+            completion = std::make_shared<GatedCompletion>(completion, state->llmOffline);
             stages.push_back(std::make_shared<nlu::LlmNluProvider>(completion, options.agent->definition().intents()));
             state->dialog->setLlm(completion);
         }
@@ -592,6 +696,16 @@ void Session::setEntityValues(const std::string& name, const std::vector<vasdk::
 
 const std::string& Session::id() const { return _state->options.id; }
 bool Session::hasLLM() const { return _state->llm != nullptr; }
+
+void Session::setNetworkAvailable(bool available) {
+    if (available) _state->networkBack();
+    else _state->networkLost("network down", true);
+}
+
+bool Session::usingFallbacks() const {
+    std::lock_guard<std::mutex> lock(_state->fallbackMutex);
+    return _state->offline;
+}
 
 std::string Session::describe() const {
     std::string description;

@@ -2,6 +2,8 @@ package com.vasdk.android
 
 import android.content.Context
 import android.content.ContextWrapper
+import android.net.ConnectivityManager
+import android.net.Network
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -430,8 +432,12 @@ class VasdkEngine private constructor(
             providers {
               vad { id: "silero" ${options("SileroOptions", "model_path: ${quoted(vadModelPath)}")} }
               turn { id: "smartturn-v3" ${options("SmartTurnOptions", "model_path: ${quoted(turnModelPath)}")} }
-              stt { id: ${quoted(sttProvider.id)} $stt fallback: ["parakeet"] }
-              tts { id: ${quoted(ttsProvider.id)} $tts fallback: ["pocket"] }
+              stt { id: ${quoted(sttProvider.id)} $stt fallback: ["parakeet"]
+                    fallback_options { key: "parakeet" value { [type.googleapis.com/vasdk.providers.LocalSttOptions] {
+                      model_dir: ${quoted(File(modelsDir, "parakeet").absolutePath)} idle_timeout_ms: 550 partial_interval_ms: 150 } } } }
+              tts { id: ${quoted(ttsProvider.id)} $tts fallback: ["pocket"]
+                    fallback_options { key: "pocket" value { [type.googleapis.com/vasdk.providers.LocalTtsOptions] {
+                      model_dir: ${quoted(File(modelsDir, "pocket_tts").absolutePath)} voice: "jean" steps: 4 prebuffer_ms: 500 } } } }
             }
             turn_taking {
               streaming_transcription: $streaming
@@ -445,8 +451,34 @@ class VasdkEngine private constructor(
         synchronized(VasdkEngine::class.java) {
             if (isNativeStarted) return true
             isNativeStarted = nativeStart()
+            if (isNativeStarted) watchNetwork(true)
             return isNativeStarted
         }
+    }
+
+    /**
+     * Whether the network is up. Down: speech is recognized and spoken by the on-device models
+     * (Parakeet, Pocket, when downloaded) and the cloud LLM isn't asked; up: back to the chosen
+     * providers. Called by the engine itself from the system's connectivity changes while started.
+     */
+    fun setNetworkAvailable(available: Boolean) {
+        synchronized(VasdkEngine::class.java) {
+            if (isNativeStarted) nativeSetNetworkAvailable(available)
+        }
+    }
+
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) = setNetworkAvailable(true)
+        override fun onLost(network: Network) = setNetworkAvailable(false)
+    }
+    private var watchingNetwork = false
+
+    private fun watchNetwork(watch: Boolean) {
+        val connectivity = contextWrapper.getSystemService(ConnectivityManager::class.java) ?: return
+        if (watch == watchingNetwork) return
+        watchingNetwork = watch
+        if (watch) connectivity.registerDefaultNetworkCallback(networkCallback)
+        else connectivity.unregisterNetworkCallback(networkCallback)
     }
 
     /**
@@ -568,6 +600,7 @@ class VasdkEngine private constructor(
     fun stop() {
         synchronized(VasdkEngine::class.java) {
             if (isNativeStarted) {
+                watchNetwork(false)
                 nativeStop()
                 isNativeStarted = false
             }
@@ -577,6 +610,7 @@ class VasdkEngine private constructor(
     fun release() {
         synchronized(VasdkEngine::class.java) {
             if (isNativeInitialized) {
+                watchNetwork(false)
                 nativeRelease()
                 VozRecognizer.close()
                 isNativeInitialized = false
@@ -833,6 +867,7 @@ class VasdkEngine private constructor(
     private external fun nativeTrigger()
     private external fun nativeResetConversation()
     private external fun nativeFireTrigger(name: String, payloadJson: String)
+    private external fun nativeSetNetworkAvailable(available: Boolean)
     private external fun nativeSetBackchannelConfig(enabled: Boolean, pendingPlaybackMode: Int,
                                                     historyMode: Int, tailOverlapMode: Int,
                                                     duckGainDecibels: Float, duckDurationMs: Int)

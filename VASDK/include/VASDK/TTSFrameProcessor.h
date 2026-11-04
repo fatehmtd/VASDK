@@ -32,7 +32,18 @@ public:
     ~TTSFrameProcessor();
 
     std::string getName() const override { return "TTSFrameProcessor"; }
-    std::string getProviderName() const override { return _synthesisProvider ? _synthesisProvider->getName() : std::string(); }
+    std::string getProviderName() const override {
+        std::lock_guard<std::mutex> lock(_providerMutex);
+        return _synthesisProvider ? _synthesisProvider->getName() : std::string();
+    }
+    /**
+     * Speaks with `provider` from the next reply on (a reply already playing finishes with the
+     * one before): that one is stopped, this one started. A local voice for when the network
+     * drops, and back. Thread-safe.
+     */
+    void replaceProvider(std::shared_ptr<audio::GenericVoiceSynthesisProvider> provider);
+    /** Called, on the provider's thread, when the provider reports an error (a lost connection). */
+    void setOnProviderError(std::function<void(const std::string& error)> callback) { _onProviderError = std::move(callback); }
     bool initialize() override;
     bool start() override;
     void stop() override;
@@ -118,7 +129,12 @@ private:
     void releaseDuckAfterMinimumDuration();
     void holdReleaseLoop();
 
-    std::shared_ptr<audio::GenericVoiceSynthesisProvider> _synthesisProvider;
+    void applyReplacement();
+
+    std::shared_ptr<audio::GenericVoiceSynthesisProvider> _synthesisProvider;   // written under _providerMutex, between replies
+    mutable std::mutex _providerMutex;
+    std::shared_ptr<audio::GenericVoiceSynthesisProvider> _replacement;         // under _providerMutex
+    std::function<void(const std::string&)> _onProviderError;
     // Set on interrupt, cleared only by INTERRUPT_RESOLVED: drops text and audio from the
     // cancelled reply (a provider's synchronous onSynthesisCompleted() must not clear it).
     std::atomic<bool> _cancelPending{ false };

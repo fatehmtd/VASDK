@@ -1,4 +1,6 @@
 #include "engine/Runtime.h"
+
+#include <algorithm>
 #include "nlu/EmbeddingNluProvider.h"
 
 #include "AudioRingBuffer.h"
@@ -114,9 +116,9 @@ std::shared_ptr<Runtime::ProviderSet> Runtime::createProviderSet(std::string* er
 
     set->vad = _registry.create<audio::VADProvider>(providers.vad(), input, &reason);
     if (!set->vad) return fail("VAD: " + reason);
-    set->stt = _registry.create<audio::GenericTranscriptionProvider>(providers.stt(), input, &reason);
+    set->stt = _registry.create<audio::GenericTranscriptionProvider>(providers.stt(), input, &reason, &set->sttId);
     if (!set->stt) return fail("STT: " + reason);
-    set->tts = _registry.create<audio::GenericVoiceSynthesisProvider>(providers.tts(), output, &reason);
+    set->tts = _registry.create<audio::GenericVoiceSynthesisProvider>(providers.tts(), output, &reason, &set->ttsId);
     if (!set->tts) return fail("TTS: " + reason);
     // Turn detection is optional: with no model built in, the VAD's silence ends the turn.
     if (!providers.turn().id().empty() || !_registry.ids<audio::TurnDetectionProvider>().empty()) {
@@ -130,6 +132,50 @@ std::shared_ptr<Runtime::ProviderSet> Runtime::createProviderSet(std::string* er
         if (!set->wakeWord->initialize(_options.inputAudio)) return fail("Wake word: " + set->wakeWord->getName() + " failed to start");
     }
     return set;
+}
+
+namespace {
+// The spec's fallbacks after `started`: what to try when it stops working.
+vasdk::engine::ProviderSpec fallbacksAfter(const vasdk::engine::ProviderSpec& spec, const std::string& started) {
+    vasdk::engine::ProviderSpec rest;
+    *rest.mutable_fallback_options() = spec.fallback_options();
+    const auto& fallback = spec.fallback();
+    auto next = std::find(fallback.begin(), fallback.end(), started);
+    next = next == fallback.end() ? fallback.begin() : next + 1;
+    for (; next != fallback.end(); ++next) {
+        if (*next == started) continue;
+        if (!rest.id().empty()) {
+            rest.add_fallback(*next);
+            continue;
+        }
+        rest.set_id(*next);
+        if (const auto options = spec.fallback_options().find(*next); options != spec.fallback_options().end())
+            *rest.mutable_options() = options->second;
+    }
+    return rest;
+}
+} // namespace
+
+bool Runtime::loadFallbacks(ProviderSet& set, std::string* error) const {
+    const ProviderContext input{_options.modelsDir, _options.inputAudio, _options.frameSize, set.ringBuffer};
+    const ProviderContext output{_options.modelsDir, _options.outputAudio, _options.frameSize, set.ringBuffer};
+    std::string reasons;
+    if (!set.sttFallback) {
+        const auto spec = fallbacksAfter(_config.providers().stt(), set.sttId);
+        std::string reason;
+        if (!spec.id().empty())
+            set.sttFallback = _registry.create<audio::GenericTranscriptionProvider>(spec, input, &reason, &set.sttFallbackId);
+        if (!set.sttFallback) reasons += "STT: " + (reason.empty() ? std::string("no fallback") : reason);
+    }
+    if (!set.ttsFallback) {
+        const auto spec = fallbacksAfter(_config.providers().tts(), set.ttsId);
+        std::string reason;
+        if (!spec.id().empty())
+            set.ttsFallback = _registry.create<audio::GenericVoiceSynthesisProvider>(spec, output, &reason, &set.ttsFallbackId);
+        if (!set.ttsFallback) reasons += (reasons.empty() ? "" : "; ") + ("TTS: " + (reason.empty() ? std::string("no fallback") : reason));
+    }
+    if (error) *error = reasons;
+    return set.sttFallback || set.ttsFallback;
 }
 
 std::unique_ptr<Session> Runtime::createSession(Session::Options options, std::string* error) {

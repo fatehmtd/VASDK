@@ -20,7 +20,8 @@
 > | 23 Scheduled & context triggers | ✅ committed. Android: `fireTrigger` through JNI and Kotlin; the AlarmManager/WorkManager wake-up and forwarding notifications as triggers are not wired, and nothing ran on a device |
 > | 24 On-device intent model + FAQ | ✅ committed. MiniLM on ONNX (cascade after rules: 20% → 90% on paraphrases); knowledge entries instead of a `faq` page type; no `--embed-cache` precompute; not run on Android |
 > | 25 LLM assist | ✅ committed. LLM as the last NLU stage, LLM reading of form answers (kept only through the slot's entity), `llm` step, `generative` page type, restricted moves, sensitive answers kept from it; `vasdk_agentc --llm`. The completion client is OpenAI-compatible only (no Anthropic, no local llama.cpp in-process); requests block the conversation's thread (8 s cap) |
-> | 26–32 | not started |
+> | 26 Network fallback | ✅ committed. `Session::setNetworkAvailable`, STT/TTS swapped to `fallback` providers between turns (loaded on first need, kept with the set), the agent's LLM gated (plus a 30 s rest after a failed request), `provider_switched` events, `fallback_options`; Android watches ConnectivityManager. Not done: a reply cut off by the failure isn't re-spoken; an LLM-only session (no agent) has nothing local to answer with; not run on a device |
+> | 27–32 | not started |
 
 
 *Uses Google Dialogflow CX as the reference model. Definitions are proto-schema'd and written in text proto.*

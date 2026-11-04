@@ -75,6 +75,7 @@ Processors that read the mic audio directly use `inputRingBuffer()`.
 | `setSessionParam(name, value)` | With an agent: sets a declared `$session.<name>`, e.g. the caller's tier. `Options::context` gives the agent's `$context.*` a `ContextProvider`. See [Agents](flows.md#stored-values-and-conditions). |
 | `setEntityValues(name, values)` | With an agent: replaces a `dynamic` entity's values for this conversation, e.g. the appointment times still free today. See [Entities](flows.md#entities). |
 | `registerTool(tool)` | Makes a tool available to the LLM; call it before `start()`. |
+| `setNetworkAvailable(up)`, `usingFallbacks()` | The network dropped, or came back: see [When the network drops](#when-the-network-drops). The Android app calls it from the system's connectivity changes. |
 
 `say`, `injectUserText` and `interrupt` are thread-safe: the frame is queued and flows through the pipeline like any other.
 
@@ -94,6 +95,7 @@ Processors that read the mic audio directly use `inputRingBuffer()`.
 | `listening_window` | The mic stays open after a reply: `OPENED` (with `closes_in_ms`), `EXTENDED` when the user starts answering, `CLOSED` when it times out. For a live mic indicator. |
 | `page_changed` | With an agent: the conversation moved to another page (`from_flow`/`from_page` → `to_flow`/`to_page`), with the reason: `start`, `restart`, `route:<intent>` or `goto`. |
 | `session_ended` | With an agent: an `end` step or `END_SESSION` ended the conversation; the next one starts over at the start page. |
+| `provider_switched` | STT, TTS or the LLM changed because the network dropped or came back, or a provider failed: `kind` (`stt`, `tts`, `llm`), `from` → `to`, and the reason. |
 
 ```cpp
 engine->addListener([](const vasdk::engine::Event& event) {
@@ -103,6 +105,25 @@ engine->addListener([](const vasdk::engine::Event& event) {
 ```
 
 Listeners run in order on one engine thread, never a pipeline thread, so a slow listener can't stall the audio. Keep them quick anyway: if they fall more than 1024 events behind, the oldest are dropped with a warning. A listener that throws is logged and the others still run. `removeListener(id)` takes one off; listeners can be added before or after `start()`.
+
+## When the network drops
+
+A conversation keeps going without the network when the config names local fallbacks:
+
+```textproto
+providers {
+  stt { id: "soniox" fallback: ["parakeet"] }
+  tts { id: "cartesia" fallback: ["pocket"] }
+}
+```
+
+| What happens | Network down (`setNetworkAvailable(false)`) | A cloud STT or TTS reports an error |
+|---|---|---|
+| STT, TTS | Switch to the first fallback that starts. It's loaded in the background the first time, then kept with the session's providers. The switch waits for a turn boundary: no speech being heard, no reply playing. | The same |
+| LLM | Not asked: an agent answers on its own (no LLM stage, `llm` steps run their `offline` steps), and turns it doesn't understand aren't passed on | Unchanged |
+| Back | `setNetworkAvailable(true)`: the configured providers and the LLM again | Stays on the fallback until the app says the network is up |
+
+An agent's LLM requests also rest for 30 seconds after one fails, so a turn doesn't wait out the timeout each time. `fallback_options { key: "parakeet" value { [type.googleapis.com/vasdk.providers.LocalSttOptions] { model_dir: "..." } } }` gives a fallback its own options. A reply that was cut off by the failure isn't said again.
 
 ## Flow metrics
 

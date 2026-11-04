@@ -21,7 +21,17 @@ message Event {
     PageChanged page_changed = 20;
     SessionEnded session_ended = 23;
     TriggerFired trigger_fired = 24;
+    ProviderSwitched provider_switched = 25;
   }
+}
+
+// STT, TTS or the LLM changed: the network dropped (Session::setNetworkAvailable) or a provider
+// failed, so the local fallback took over; or the network came back.
+message ProviderSwitched {
+  string kind = 1;     // "stt", "tts" or "llm"
+  string from = 2;     // provider ids; for the LLM, "on" or "off"
+  string to = 3;
+  string reason = 4;   // "network down", "network up", or the provider's error
 }
 
 // What the user said (or sent with injectUserText).

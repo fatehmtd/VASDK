@@ -11,7 +11,9 @@ import "google/protobuf/any.proto";
 message ProviderSpec {
   string id = 1;                       // empty: the first provider built into this binary
   google.protobuf.Any options = 2;     // the provider's own options message, e.g. vasdk.providers.CloudOptions
-  repeated string fallback = 3;        // ids tried in order when `id` is not built in or fails to start
+  repeated string fallback = 3;        // ids tried in order when `id` is not built in or fails to start,
+                                       // and switched to when the network drops (Session::setNetworkAvailable)
+  map<string, google.protobuf.Any> fallback_options = 4;   // a fallback's options, by its id; unset: its defaults
 }
 
 message Providers {

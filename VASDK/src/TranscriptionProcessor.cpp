@@ -273,6 +273,7 @@ namespace va {
                 return;
             }
             if (direction == FlowDirection::DOWNSTREAM) {
+                if (!_collectingAudio) applyReplacement();
                 switch (frame->getType()) {
                 case transport::FrameType::AUDIO: {
                     if (_collectingAudio) {
@@ -302,6 +303,38 @@ namespace va {
 
         void TranscriptionFrameProcessor::onTranscriptionError(const std::string& error) {
             spdlog::error("[TranscriptionFrameProcessor] Transcription error: {}", error);
+            if (_onProviderError) _onProviderError(error);
+        }
+
+        void TranscriptionFrameProcessor::replaceProvider(std::shared_ptr<audio::GenericTranscriptionProvider> provider) {
+            std::lock_guard<std::mutex> lock(_providerMutex);
+            _replacement = provider == _transcriptionProvider ? nullptr : std::move(provider);
+        }
+
+        // On the pipeline thread, between turns.
+        void TranscriptionFrameProcessor::applyReplacement() {
+            std::shared_ptr<audio::GenericTranscriptionProvider> next, previous;
+            {
+                std::lock_guard<std::mutex> lock(_providerMutex);
+                if (!_replacement) return;
+                next = std::move(_replacement);
+                _replacement.reset();
+                previous = _transcriptionProvider;
+            }
+            if (previous) previous->stopTranscriptionProvider();
+            next->setTranscriptionResultListener(this);
+            if (_metrics.config.enabled && _collector) next->setTimingObserver(this);
+            if (!next->initializeTranscriptionProvider() || !next->startTranscriptionProvider()) {
+                spdlog::error("[TranscriptionFrameProcessor] {} failed to start; keeping {}", next->getName(),
+                              previous ? previous->getName() : std::string("none"));
+                if (previous) previous->startTranscriptionProvider();
+                return;
+            }
+            {
+                std::lock_guard<std::mutex> lock(_providerMutex);
+                _transcriptionProvider = next;
+            }
+            spdlog::info("[TranscriptionFrameProcessor] now transcribing with {}", next->getName());
         }
 
         void TranscriptionFrameProcessor::onPartialTranscription(const audio::TranscriptionResult& result) {

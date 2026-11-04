@@ -459,6 +459,14 @@ Java_com_vasdk_android_VasdkEngine_nativeFireTrigger(JNIEnv *env, jobject /*thiz
     gSession->engine->fireTrigger(jstringToStdString(env, name), payload);
 }
 
+//  nativeSetNetworkAvailable: down, the local fallbacks speak and listen and the LLM rests
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_vasdk_android_VasdkEngine_nativeSetNetworkAvailable(JNIEnv * /*env*/, jobject /*thiz*/, jboolean available) {
+    std::lock_guard<std::mutex> lock(gSessionMutex);
+    if (gSession) gSession->engine->setNetworkAvailable(available == JNI_TRUE);
+}
+
 //  nativeResetConversation
 
 extern "C" JNIEXPORT void JNICALL

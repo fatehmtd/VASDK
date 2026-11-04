@@ -91,6 +91,7 @@ namespace va {
                 else if (frame->getType() == transport::FrameType::TEXT) {
                     // TranscriptionFrames are intentionally not synthesized - TTS speaks
                     // only LLM responses (TextFrames), not user transcriptions.
+                    applyReplacement();
                     synthesizeTextFrame(std::dynamic_pointer_cast<transport::TextFrame>(frame));
                 }
             }
@@ -336,8 +337,44 @@ namespace va {
             maybeStartDrain();
         }
 
+        void TTSFrameProcessor::replaceProvider(std::shared_ptr<audio::GenericVoiceSynthesisProvider> provider) {
+            std::lock_guard<std::mutex> lock(_providerMutex);
+            _replacement = provider == _synthesisProvider ? nullptr : std::move(provider);
+        }
+
+        // On the pipeline thread, before a reply's text, when no reply is in progress.
+        void TTSFrameProcessor::applyReplacement() {
+            {
+                std::lock_guard<std::mutex> turn(_turnMutex);
+                if (_turnActive || _providerBusy || !_pendingSentences.empty()) return;
+            }
+            std::shared_ptr<audio::GenericVoiceSynthesisProvider> next, previous;
+            {
+                std::lock_guard<std::mutex> lock(_providerMutex);
+                if (!_replacement) return;
+                next = std::move(_replacement);
+                _replacement.reset();
+                previous = _synthesisProvider;
+            }
+            if (previous) previous->stopVoiceSynthesisProvider();
+            next->setVoiceSynthesisResultListener(this);
+            if (!next->startVoiceSynthesisProvider()) {
+                spdlog::error("[TTSFrameProcessor] {} failed to start; keeping {}", next->getName(),
+                              previous ? previous->getName() : std::string("none"));
+                if (previous) previous->startVoiceSynthesisProvider();
+                return;
+            }
+            {   // pumpSentences reads it under _turnMutex
+                std::lock_guard<std::mutex> turn(_turnMutex);
+                std::lock_guard<std::mutex> lock(_providerMutex);
+                _synthesisProvider = next;
+            }
+            spdlog::info("[TTSFrameProcessor] now speaking with {}", next->getName());
+        }
+
         void TTSFrameProcessor::onSynthesisError(const std::string& error) {
             spdlog::error("[TTSFrameProcessor] Synthesis error: {}", error);
+            if (_onProviderError) _onProviderError(error);
             cancelDrainWait();
             {
                 std::lock_guard<std::mutex> lock(_turnMutex);

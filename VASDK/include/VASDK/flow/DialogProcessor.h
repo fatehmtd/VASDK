@@ -6,6 +6,7 @@
 #include "FlowRuntime.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <deque>
@@ -51,7 +52,7 @@ public:
     void processFrame(std::shared_ptr<transport::Frame> frame, pipeline::FlowDirection direction) override;
 
     /** With an LLM after this stage: turns no route understands go on to it instead of the
-     *  not-understood reply. Before start(). */
+     *  not-understood reply. Thread-safe. */
     void setPassUnmatchedTurns(bool pass) { _passUnmatchedTurns = pass; }
     using ReplyObserver = std::function<void(const Reply& reply, const FlowRuntime& conversation)>;
     /** Called with every reply (page changes, tool calls, the end of the conversation) and where
@@ -126,7 +127,7 @@ private:
     bool _greetingPending = true;
     transport::AgentState _agentState = transport::AgentState::IDLE;
     bool _connected = true;
-    bool _passUnmatchedTurns = false;
+    std::atomic<bool> _passUnmatchedTurns{false};   // off while the network is down
     ReplyObserver _observer;
     FlowRuntime::ContextSource _contextSource;
     bool _awaitingAnswer = false;   // the last reply asked a question

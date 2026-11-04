@@ -69,6 +69,12 @@ public:
         std::shared_ptr<audio::GenericVoiceSynthesisProvider> tts;
         std::shared_ptr<audio::TurnDetectionProvider> turn;   ///< null: the VAD's silence ends the turn
         std::shared_ptr<audio::WakeWordProvider> wakeWord;    ///< only in the WAKE_WORD and HYBRID modes
+        std::string sttId, ttsId;                             ///< the ids that started
+        /// The STT and TTS `fallback` providers after the ones that started, for when the network
+        /// drops (loadFallbacks); null until loaded, or without one. Kept with the set once loaded.
+        std::shared_ptr<audio::GenericTranscriptionProvider> sttFallback;
+        std::shared_ptr<audio::GenericVoiceSynthesisProvider> ttsFallback;
+        std::string sttFallbackId, ttsFallbackId;
     };
 
     /**
@@ -92,6 +98,12 @@ public:
     /** Provider sets loaded and waiting for a session. */
     size_t idleProviderSets() const;
 
+    /**
+     * Loads the set's STT and TTS fallbacks, if not yet: the config's `fallback` providers after
+     * the one that started (local ones, for when the network drops). Takes as long as loading
+     * models does. False, with `error` set, when neither has one that starts.
+     */
+    bool loadFallbacks(ProviderSet& providers, std::string* error = nullptr) const;
     /** For Session: a set to use until release(). */
     std::shared_ptr<ProviderSet> acquire(std::string* error);
     void release(std::shared_ptr<ProviderSet> providers);

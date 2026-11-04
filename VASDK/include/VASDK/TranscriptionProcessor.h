@@ -2,6 +2,8 @@
 
 #include "FrameProcessor.h"
 #include "GenericTranscriptionProvider.h"
+#include <functional>
+#include <mutex>
 #include "AudioRingBuffer.h"
 #include "metrics/MetricsCollector.h"
 #include "metrics/MetricHandles.h"
@@ -24,7 +26,23 @@ public:
     TranscriptionFrameProcessor(std::shared_ptr<audio::GenericTranscriptionProvider> provider);
 
     std::string getName() const override { return "TranscriptionFrameProcessor"; }
-    std::string getProviderName() const override { return _transcriptionProvider ? _transcriptionProvider->getName() : std::string(); }
+    std::string getProviderName() const override {
+        std::lock_guard<std::mutex> lock(_providerMutex);
+        return _transcriptionProvider ? _transcriptionProvider->getName() : std::string();
+    }
+    /** The provider transcribing now. Thread-safe. */
+    std::shared_ptr<audio::GenericTranscriptionProvider> provider() const {
+        std::lock_guard<std::mutex> lock(_providerMutex);
+        return _transcriptionProvider;
+    }
+    /**
+     * Transcribes with `provider` from the next moment no speech is being collected (between
+     * turns): the one before is stopped, this one started. A local recognizer for when the
+     * network drops, and back. Thread-safe.
+     */
+    void replaceProvider(std::shared_ptr<audio::GenericTranscriptionProvider> provider);
+    /** Called, on the provider's thread, when the provider reports an error (a lost connection). */
+    void setOnProviderError(std::function<void(const std::string& error)> callback) { _onProviderError = std::move(callback); }
     bool initialize() override;
     bool start() override;
     void stop() override;
@@ -100,7 +118,12 @@ private:
     // Streaming: sends ring-buffer audio from the pending speech start up to audioFrame's start.
     void flushPendingPreSpeech(const transport::AudioFrame& audioFrame);
 
-    std::shared_ptr<audio::GenericTranscriptionProvider> _transcriptionProvider;
+    void applyReplacement();
+
+    std::shared_ptr<audio::GenericTranscriptionProvider> _transcriptionProvider;   // written under _providerMutex, on the pipeline thread
+    mutable std::mutex _providerMutex;
+    std::shared_ptr<audio::GenericTranscriptionProvider> _replacement;              // under _providerMutex
+    std::function<void(const std::string&)> _onProviderError;
     bool _collectingAudio{false};
     // Streaming: lookback speech start from the STARTING frame, flushed on the next AUDIO
     // frame so the pre-speech context is contiguous with the incrementally-fed audio.

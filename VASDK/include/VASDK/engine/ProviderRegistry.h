@@ -64,12 +64,13 @@ public:
 
     /**
      * Creates `spec.id` (the first registered provider when empty), then each `spec.fallback`
-     * in order until one starts. Options apply to `spec.id` only; fallbacks get their defaults.
-     * Returns nullptr with `error` listing why each candidate was skipped.
+     * in order until one starts. `spec.options` apply to `spec.id`; a fallback gets its
+     * `fallback_options` entry, or its defaults.
+     * Returns nullptr with `error` listing why each candidate was skipped. `chosen`: the id that started.
      */
     template <class Interface>
     std::shared_ptr<Interface> create(const vasdk::engine::ProviderSpec& spec, const ProviderContext& context,
-                                      std::string* error = nullptr) const {
+                                      std::string* error = nullptr, std::string* chosen = nullptr) const {
         const auto* registered = find<Interface>();
         std::vector<std::string> candidates;
         if (!spec.id().empty()) candidates.push_back(spec.id());
@@ -84,10 +85,10 @@ public:
                 for (const auto& e : *registered) if (e.id == candidates[i]) { entry = &e; break; }
             if (!entry) {
                 reason = candidates[i] + ": not built into this binary";
-            } else if (auto provider = entry->create(i == 0 ? spec.options() : google::protobuf::Any(),
-                                                     context, reason)) {
+            } else if (auto provider = entry->create(optionsFor(spec, i, candidates[i]), context, reason)) {
                 if (i > 0) spdlog::warn("[ProviderRegistry] using fallback '{}' ({})", candidates[i], reasons);
                 else spdlog::info("[ProviderRegistry] using '{}'", candidates[i]);
+                if (chosen) *chosen = candidates[i];
                 return provider;
             } else if (reason.empty()) {
                 reason = candidates[i] + ": failed to start";
@@ -109,6 +110,12 @@ public:
     }
 
 private:
+    static google::protobuf::Any optionsFor(const vasdk::engine::ProviderSpec& spec, size_t candidate, const std::string& id) {
+        if (candidate == 0) return spec.options();
+        const auto found = spec.fallback_options().find(id);
+        return found == spec.fallback_options().end() ? google::protobuf::Any() : found->second;
+    }
+
     template <class Interface>
     struct Entry {
         std::string id;

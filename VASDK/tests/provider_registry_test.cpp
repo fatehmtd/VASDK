@@ -1,5 +1,5 @@
 // ProviderRegistry: create by id with typed options, default to the first registered, fall
-// back when a provider is missing or fails to start, reject options of the wrong type, and
+// back when a provider is missing or fails to start (with the fallback's own options), reject options of the wrong type, and
 // keep interfaces separate.
 
 #include <VASDK/engine/ProviderRegistry.h>
@@ -64,6 +64,12 @@ int main() {
 
     created = registry.create<Speech>(spec("broken", {"plain"}), context);
     check(created && created->name == "plain", "fallback when the provider fails to start");
+
+    auto withFallbackOptions = spec("missing", {"voiced"});
+    (*withFallbackOptions.mutable_fallback_options())["voiced"].PackFrom(voice);
+    std::string chosen;
+    created = registry.create<Speech>(withFallbackOptions, context, &error, &chosen);
+    check(created && created->name == "voiced:jean@models" && chosen == "voiced", "a fallback gets its fallback_options; chosen names it");
 
     check(!registry.create<Speech>(spec("missing"), context, &error), "unknown id with no fallback fails");
     check(error.find("missing: not built into this binary") != std::string::npos, "unknown id reported");
