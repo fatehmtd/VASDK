@@ -202,6 +202,7 @@ if(VASDK_ENABLE_ENGINE_CONFIG)
         ./src/flow/Tools.cpp
         ./src/nlu/NluProvider.cpp
         ./src/nlu/RuleNluProvider.cpp
+        ./src/nlu/English.cpp
         ./proto/vasdk/engine/engine_config.proto
         ./proto/vasdk/engine/events.proto
         ./proto/vasdk/nlu/entity.proto
@@ -382,6 +383,9 @@ if(VASDK_BUILD_TESTS)
         add_executable(vasdk_rule_nlu_test tests/rule_nlu_test.cpp)
         target_link_libraries(vasdk_rule_nlu_test PRIVATE VASDK)
         add_test(NAME vasdk_rule_nlu COMMAND vasdk_rule_nlu_test)
+        add_executable(vasdk_entity_extractor_test tests/entity_extractor_test.cpp)
+        target_link_libraries(vasdk_entity_extractor_test PRIVATE VASDK)
+        add_test(NAME vasdk_entity_extractor COMMAND vasdk_entity_extractor_test)
 
         add_executable(vasdk_engine_events_test tests/engine_events_test.cpp)
         target_link_libraries(vasdk_engine_events_test PRIVATE VASDK)

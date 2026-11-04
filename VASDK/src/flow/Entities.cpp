@@ -1,7 +1,9 @@
 #include "flow/Entities.h"
+#include "nlu/English.h"
 #include "nlu/NluProvider.h"
 
 #include <algorithm>
+#include <regex>
 #include <cctype>
 #include <cstdlib>
 #include <set>
@@ -103,7 +105,22 @@ std::vector<EntityMatch> numbers(const std::string& entity, const std::vector<st
             ++i;
             continue;
         }
-        found.push_back(matchOf(entity, numberValue(static_cast<double>(total + current)), words, i, last - i + 1));
+        double number = static_cast<double>(total + current);
+        if (decimals && end + 1 < words.size() && words[end] == "point") {   // "twenty three point five"
+            std::string fraction;
+            size_t after = end + 1;
+            for (; after < words.size(); ++after) {
+                const auto digit = digitOf(words[after]);
+                if (!digit) break;
+                fraction += *digit;
+            }
+            if (!fraction.empty()) {
+                number += std::stod("0." + fraction);
+                last = after - 1;
+                end = after;
+            }
+        }
+        found.push_back(matchOf(entity, numberValue(number), words, i, last - i + 1));
         i = end;
     }
     return found;
@@ -189,11 +206,24 @@ std::vector<std::string> entityWords(const std::string& text) {
     std::string word;
     for (size_t i = 0; i < text.size(); ++i) {
         const auto byte = static_cast<unsigned char>(text[i]);
+        // A written email stays one word: "john.doe@gmail.com".
+        if (word.empty() && (i == 0 || std::isspace(static_cast<unsigned char>(text[i - 1])))) {
+            static const std::regex email("^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}");
+            std::smatch found;
+            const std::string rest = text.substr(i, text.find_first_of(" \t\r\n", i) - i);
+            if (std::regex_search(rest, found, email)) {
+                std::string address = found[0].str();
+                std::transform(address.begin(), address.end(), address.begin(), [](unsigned char c) { return std::tolower(c); });
+                words.push_back(std::move(address));
+                i += found[0].length() - 1;
+                continue;
+            }
+        }
         if (std::isalnum(byte) || text[i] == '\'' || byte >= 0x80) {
             word += static_cast<char>(std::tolower(byte));
-        } else if (text[i] == '.' && !word.empty() && std::isdigit(static_cast<unsigned char>(word.back())) &&
+        } else if ((text[i] == '.' || text[i] == ':') && !word.empty() && std::isdigit(static_cast<unsigned char>(word.back())) &&
                    i + 1 < text.size() && std::isdigit(static_cast<unsigned char>(text[i + 1]))) {
-            word += '.';
+            word += text[i];   // "2.5", "3:30"
         } else if (!word.empty()) {
             words.push_back(std::move(word));
             word.clear();
@@ -295,7 +325,24 @@ int EntityCatalog::kindRank(const std::string& name) const {
 }
 
 std::vector<EntityMatch> EntityCatalog::matches(const std::string& name, const std::vector<std::string>& words,
-                                                const DynamicEntityValues& dynamic) const {
+                                                const DynamicEntityValues& dynamic, std::chrono::system_clock::time_point now) const {
+    // English values said either way: "next Tuesday", "half past three", "john dot doe at gmail dot com".
+    auto english = [&](const std::vector<nlu::english::Found>& found, bool number) {
+        std::vector<EntityMatch> converted;
+        for (const auto& value : found) {
+            auto match = matchOf(name, number ? numberValue(std::stod(value.value)) : stringValue(value.value), words, value.start,
+                                 value.length);
+            match.spoken = value.spoken;
+            converted.push_back(std::move(match));
+        }
+        return converted;
+    };
+    if (name == "sys.date") return english(nlu::english::dates(words, nlu::english::dateAt(now)), false);
+    if (name == "sys.time") return english(nlu::english::times(words), false);
+    if (name == "sys.datetime") return english(nlu::english::dateTimes(words, nlu::english::dateAt(now)), false);
+    if (name == "sys.duration") return english(nlu::english::durations(words), false);
+    if (name == "sys.email") return english(nlu::english::emails(words), false);
+    if (name == "sys.ordinal") return english(nlu::english::ordinals(words), true);
     if (name == "sys.integer") return numbers(name, words, false);
     if (name == "sys.number") return numbers(name, words, true);
     if (name == "sys.phone") return digitRuns(name, words, 7, 11);
@@ -351,7 +398,7 @@ std::vector<EntityMatch> EntityCatalog::matches(const std::string& name, const s
     } else if (entity->has_derived()) {
         const auto& derived = entity->derived();
         const auto condition = _conditions.find(name);
-        for (auto match : matches(withoutAt(derived.base()), words, dynamic)) {
+        for (auto match : matches(withoutAt(derived.base()), words, dynamic, now)) {
             if (match.value.kind_case() == Value::kNumberValue) {
                 if (derived.has_min() && match.value.number_value() < derived.min()) continue;
                 if (derived.has_max() && match.value.number_value() > derived.max()) continue;
@@ -367,19 +414,20 @@ std::vector<EntityMatch> EntityCatalog::matches(const std::string& name, const s
 }
 
 std::optional<EntityMatch> EntityCatalog::find(const std::string& name, const std::string& text,
-                                               const DynamicEntityValues& dynamic) const {
+                                               const DynamicEntityValues& dynamic, std::chrono::system_clock::time_point now) const {
     std::optional<EntityMatch> best;
-    for (auto& match : matches(name, entityWords(text), dynamic))
+    for (auto& match : matches(name, entityWords(text), dynamic, now))
         if (!best || match.length > best->length || (match.length == best->length && match.start < best->start))
             best = std::move(match);
     return best;
 }
 
-std::vector<EntityMatch> EntityCatalog::findAll(const std::string& text, const DynamicEntityValues& dynamic) const {
+std::vector<EntityMatch> EntityCatalog::findAll(const std::string& text, const DynamicEntityValues& dynamic,
+                                                std::chrono::system_clock::time_point now) const {
     const auto words = entityWords(text);
     std::vector<std::pair<size_t, EntityMatch>> candidates;   // declaration index, match
     for (size_t i = 0; i < _order.size(); ++i)
-        for (auto& match : matches(_order[i], words, dynamic)) candidates.emplace_back(i, std::move(match));
+        for (auto& match : matches(_order[i], words, dynamic, now)) candidates.emplace_back(i, std::move(match));
     std::stable_sort(candidates.begin(), candidates.end(), [this](const auto& left, const auto& right) {
         if (left.second.length != right.second.length) return left.second.length > right.second.length;
         const int leftRank = kindRank(left.second.entity), rightRank = kindRank(right.second.entity);

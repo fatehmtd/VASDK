@@ -1,6 +1,7 @@
 #include "flow/FlowRuntime.h"
 
 #include "flow/SlotExtraction.h"
+#include "nlu/English.h"
 #include "goal/GoalState.h"
 
 #include <google/protobuf/util/json_util.h>
@@ -268,7 +269,7 @@ Value FlowRuntime::resolve(const Path& path, bool spoken) const {
         return nullValue();
     }
     if (root == "nlu" && field == "entities" && path.size() > 2) {
-        const auto match = entities.find(path[2], _inputText, _dynamicEntities);
+        const auto match = entities.find(path[2], _inputText, _dynamicEntities, now());
         return match ? entityField(*match, path, 3, spoken) : nullValue();
     }
     if (root == "entity") return _entity ? entityField(*_entity, path, 1, spoken) : nullValue();
@@ -292,8 +293,23 @@ Value FlowRuntime::resolve(const Path& path, bool spoken) const {
         const Value value = slotValue(*_form->state, field);
         const auto slot = std::find_if(_form->goal->slots().begin(), _form->goal->slots().end(),
                                        [&](const auto& candidate) { return candidate.name() == field; });
-        if (slot == _form->goal->slots().end() || slot->entity().empty() || value.kind_case() == Value::kNullValue)
+        if (slot == _form->goal->slots().end() || slot->entity().empty() || value.kind_case() == Value::kNullValue) {
+            // As a reply says it: "2026-11-10" → "Tuesday, November 10th", "15:30" → "3:30 PM".
+            if (spoken && path.size() == 2 && slot != _form->goal->slots().end() && value.kind_case() == Value::kStringValue) {
+                using Slot = vasdk::goal::Slot;
+                const auto& text = value.string_value();
+                std::string said;
+                if (slot->type() == Slot::DATE) said = nlu::english::spokenDate(text);
+                else if (slot->type() == Slot::TIME) said = nlu::english::spokenTime(text);
+                else if (slot->type() == Slot::DATETIME && text.size() >= 16) {
+                    const auto day = nlu::english::spokenDate(text.substr(0, 10));
+                    const auto time = nlu::english::spokenTime(text.substr(11, 5));
+                    if (!day.empty() && !time.empty()) said = day + " at " + time;
+                }
+                if (!said.empty()) return stringValue(said);
+            }
             return valueAt(value, path, 2);
+        }
         return entityField(entities.describe(entityName(slot->entity()), value, _dynamicEntities), path, 2, spoken);
     }
     return nullValue();
@@ -328,8 +344,8 @@ bool FlowRuntime::store(const std::string& key, const Value& value, std::string*
 
 // A slot's value in an answer: by its entity, else by its type.
 std::optional<std::string> FlowRuntime::readSlot(const vasdk::goal::Slot& slot, const std::string& text) const {
-    if (slot.entity().empty()) return extractSlotValue(slot, text);
-    const auto match = _agent->entities().find(entityName(slot.entity()), text, _dynamicEntities);
+    if (slot.entity().empty()) return extractSlotValue(slot, text, now());
+    const auto match = _agent->entities().find(entityName(slot.entity()), text, _dynamicEntities, now());
     if (!match) return std::nullopt;
     return toText(match->value);
 }
@@ -598,6 +614,13 @@ std::string FlowRuntime::chosenValue(const std::string& text) const {
         if (said(choice.label()) || said(value) || std::any_of(choice.synonyms().begin(), choice.synonyms().end(), said))
             return value;
     }
+    // "the second one", "number two": the choice at that place.
+    const auto ordinal = nlu::english::ordinals(entityWords(text));
+    if (ordinal.size() == 1 && ordinal[0].length * 2 >= words.size()) {
+        const size_t index = static_cast<size_t>(std::stoi(ordinal[0].value)) - 1;
+        if (index < _questionChoices.size())
+            return _questionChoices[index].value().empty() ? _questionChoices[index].label() : _questionChoices[index].value();
+    }
     return text;
 }
 
@@ -619,7 +642,7 @@ const vasdk::flow::Route* FlowRuntime::matchRoute(const google::protobuf::Repeat
     auto entityHolds = [this](const vasdk::flow::Route& route) {
         _entity.reset();
         if (route.entity().empty()) return true;
-        _entity = _agent->entities().find(entityName(route.entity()), _inputText, _dynamicEntities);
+        _entity = _agent->entities().find(entityName(route.entity()), _inputText, _dynamicEntities, now());
         return _entity.has_value();
     };
     const auto& understood = understanding();
@@ -746,7 +769,7 @@ FlowRuntime::Outcome FlowRuntime::run(const google::protobuf::RepeatedPtrField<v
             store(step.set().key(), evaluate(step.set().value()));
             break;
         case vasdk::flow::Step::kExtract:
-            if (const auto match = _agent->entities().find(entityName(step.extract().entity()), _inputText, _dynamicEntities))
+            if (const auto match = _agent->entities().find(entityName(step.extract().entity()), _inputText, _dynamicEntities, now()))
                 store(step.extract().into(), match->value);
             break;
         case vasdk::flow::Step::kClearSlot:
@@ -843,7 +866,7 @@ const nlu::NluResult& FlowRuntime::understanding() {
         nlu::NluRequest request;
         request.text = _inputText;
         request.mentions = [this](const std::string& entity) {
-            return _agent->entities().find(entity, _inputText, _dynamicEntities).has_value();
+            return _agent->entities().find(entity, _inputText, _dynamicEntities, now()).has_value();
         };
         const std::shared_ptr<const nlu::NluProvider> provider = _nlu ? _nlu : _agent->rules();
         _understood = provider->understand(request);

@@ -463,7 +463,8 @@ you: yes                                → $form.confirmed: the first route goe
 | `INTEGER`, `NUMBER` | the first number, in digits or words ("twenty five", "a hundred and two"); `min`/`max` checked | a number |
 | `BOOLEAN` | yes or no ("yeah sure", "nope"); the first one said wins | `true`/`false` |
 | `PHONE` | the digits, written or spoken one by one ("double four" too); 7 or 10 needed | `555-123-4567` |
-| `STRING`, `EMAIL`, `DATE`, `TIME`, `DATETIME` | the whole answer; dates and times only in ISO form for now | the text |
+| `DATE`, `TIME`, `DATETIME`, `EMAIL` | as `@sys.date`, `@sys.time`, `@sys.datetime` and `@sys.email`: "next Tuesday", "half past three", "john dot doe at gmail dot com" | `2026-11-10`, `15:30`; a reply says "Tuesday, November 10th", "3:30 PM" |
+| `STRING` | the whole answer | the text |
 
 Any other empty `ENUM` slot whose value is named is filled too, so "an oil change on Tuesday" fills two. That also happens with the words that led to the page.
 
@@ -510,7 +511,27 @@ entity_types { name: "free_time"  dynamic: true list { values { value: "09:00" s
 | `pattern` | the regex (ECMAScript, ignoring case) against a run of words joined by spaces, or by nothing with `strip_spaces`. With `spelled`, words are read letter by letter first: "alpha bravo one two" → `ab12`; letters and digits as the STT writes them ("AB 12") work too | the words joined; `uppercase` stores them in upper case |
 | `derived` | what its `base` matches (`@sys.*`, a list or a pattern), within `min`/`max` and where `condition` (on `$value`) holds | the base's value |
 
-**System entities**, with nothing to declare: `@sys.integer` and `@sys.number` (digits or words: "twenty five", "a hundred and two", "2.5"; "five five" is two numbers), `@sys.phone` (7 to 11 digits in a row, written or spoken, "double four" too), `@sys.digits` (any number of digits in a row, the same way) and `@sys.yes_no`.
+**System entities.** These need no declaring. Each reads English as speech recognizers write it, in words or in digits. Dates count from the conversation's clock.
+
+| Entity | Example → value | Said in a reply |
+|---|---|---|
+| `@sys.integer`, `@sys.number` | "twenty three point five", "23.5" → `23.5`; "five five" is two numbers | the number |
+| `@sys.phone` | "five five five, one two three, double four, six seven", "555 123 4467" → `5551234467` (7 to 11 digits) | `555-123-4467` |
+| `@sys.digits` | any number of digits in a row, the same way | the digits |
+| `@sys.yes_no` | "yeah sure" → `true`, "nope" → `false` | |
+| `@sys.date` | "next Tuesday" (the Tuesday of next week), "Tuesday", "the fifth", "November 20th", "the 3rd of January", "in two weeks", "tomorrow", "2026-12-24" → `2026-11-10` | "Tuesday, November 10th" |
+| `@sys.time` | "half past three in the afternoon", "3:30 pm", "quarter to five", "nine oh five", "at noon", "at 9" → `15:30` | "3:30 PM", "noon" |
+| `@sys.datetime` | "tomorrow at noon" → `2026-11-03T12:00` | "Tuesday, November 3rd at noon" |
+| `@sys.duration` | "an hour and a half", "45 minutes", "half an hour", "two days" → `PT1H30M` | "1 hour and 30 minutes" |
+| `@sys.email` | "john dot doe at gmail dot com", "John.Doe@Gmail.com" → `john.doe@gmail.com` | the address |
+| `@sys.ordinal` | "the second one", "2nd", "number two" → `2` | the number |
+
+A bare number is neither a time nor a date ("I have 3 cars"). With choices on offer, "the second one" or "number two" picks the choice in that place.
+
+**Speaking them.** A voice that doesn't read numbers well itself is given text it can say. That is the default: `GenericVoiceSynthesisProvider::normalizesText()` is false.
+- ISO dates are said as dates.
+- 24-hour times are said with AM or PM.
+- Phone numbers are said digit by digit, in their groups: "five five five, one two three, four five six seven".
 
 **Where they're used:**
 
@@ -602,4 +623,4 @@ $ vasdk_agentc try agents/garage-menu/agent.txtpb --entity @sys.phone "five five
 
 ## Not yet
 
-These come in later milestones: expectations that tune the speech recogniser (phrase hints) and end-of-turn detection (waiting through pauses in a phone number), arithmetic and dates in expressions (`days_until`, `now`), filters in replies (`|raw`), spoken dates and times in forms ("next Tuesday"), skipping a slot ("I don't know"), sound-alike matching of names, entities built from others ("a white Toyota from 2019"), guards and before/after steps in envelopes, numbers like "the second one" for choices, a different voice or speed per part, and steps, page types and envelopes written in C, Kotlin or Python.
+These come in later milestones: expectations that tune the speech recogniser (phrase hints) and end-of-turn detection (waiting through pauses in a phone number), arithmetic and dates in expressions (`days_until`, `now`), filters in replies (`|raw`), skipping a slot ("I don't know"), sound-alike matching of names, entities built from others ("a white Toyota from 2019"), guards and before/after steps in envelopes, a different voice or speed per part, and steps, page types and envelopes written in C, Kotlin or Python.

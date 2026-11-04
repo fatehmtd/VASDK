@@ -1,6 +1,7 @@
 #include "nlu/NluProvider.h"
 
 #include <algorithm>
+#include <cctype>
 
 namespace va {
 namespace nlu {
@@ -39,6 +40,10 @@ float wordSimilarity(const std::string& a, const std::string& b) {
 float wordMatch(const std::string& heard, const std::string& expected, float minSimilarity) {
     if (heard == expected) return 1.0f;
     if (heard.size() < 4 || expected.size() < 4 || minSimilarity >= 1.0f) return 0.0f;   // short words: "book" isn't "look"
+    auto lettersOnly = [](const std::string& word) {   // "11:00" isn't "14:00", nor "2021" "2026"
+        return std::none_of(word.begin(), word.end(), [](unsigned char c) { return std::isdigit(c); });
+    };
+    if (!lettersOnly(heard) || !lettersOnly(expected)) return 0.0f;
     const float similarity = wordSimilarity(heard, expected);
     return similarity >= minSimilarity ? similarity : 0.0f;
 }

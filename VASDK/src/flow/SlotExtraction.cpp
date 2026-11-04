@@ -19,9 +19,10 @@ std::string trim(const std::string& text) {
 }
 
 // The system entities need no declarations: one empty catalog serves every slot.
-std::optional<EntityMatch> system(const char* name, const std::string& text) {
+std::optional<EntityMatch> system(const char* name, const std::string& text,
+                                  std::chrono::system_clock::time_point now = std::chrono::system_clock::now()) {
     static const EntityCatalog catalog;
-    return catalog.find(name, text);
+    return catalog.find(name, text, {}, now);
 }
 
 } // namespace
@@ -41,7 +42,8 @@ std::optional<bool> extractYesNo(const std::string& text) {
     return answer->value.bool_value();
 }
 
-std::optional<std::string> extractSlotValue(const vasdk::goal::Slot& slot, const std::string& text) {
+std::optional<std::string> extractSlotValue(const vasdk::goal::Slot& slot, const std::string& text,
+                                            std::chrono::system_clock::time_point now) {
     using Type = vasdk::goal::Slot;
     switch (slot.type()) {
     case Type::ENUM: {
@@ -74,6 +76,16 @@ std::optional<std::string> extractSlotValue(const vasdk::goal::Slot& slot, const
         const auto phone = system("sys.phone", text);
         if (!phone) return std::nullopt;
         return toText(phone->value);
+    }
+    case Type::DATE:
+    case Type::TIME:
+    case Type::DATETIME:
+    case Type::EMAIL: {   // "next Tuesday" → 2026-11-10, "half past three" → 15:30
+        const char* entity = slot.type() == Type::DATE ? "sys.date" : slot.type() == Type::TIME ? "sys.time"
+                           : slot.type() == Type::DATETIME ? "sys.datetime" : "sys.email";
+        const auto value = system(entity, text, now);
+        if (!value) return std::nullopt;
+        return toText(value->value);
     }
     default: {
         auto trimmed = trim(text);

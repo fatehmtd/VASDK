@@ -156,7 +156,7 @@ int main() {
     check(contains(lintError("synonyms: [\"tire repair\", \"flat tire\"", "synonyms: [\"tire repair\", \"lube\""),
                    "\"lube\" is a synonym of both"), "a synonym of two values");
     check(contains(lintError("[a-z]{2}[0-9]{3}", "[a-z{2"), "regex"), "a bad regex");
-    check(contains(lintError("base: \"@sys.integer\"", "base: \"@sys.date\""), "base \"@sys.date\""), "an unknown base");
+    check(contains(lintError("base: \"@sys.integer\"", "base: \"@sys.colour\""), "base \"@sys.colour\""), "an unknown base");
     check(contains(lintError("$value != 'tire_repair'", "$session.plate != 'x'"), "it can read only $value"),
           "a derived condition reads only $value");
     check(contains(lintError("name: \"code\" pattern", "name: \"code\" dynamic: true pattern"), "only list entities can be dynamic"),

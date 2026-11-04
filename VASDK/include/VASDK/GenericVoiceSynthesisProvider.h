@@ -82,6 +82,12 @@ namespace va {
              * default) TTSFrameProcessor sends plain text: the frame's text, or its SSML untagged.
              */
             virtual bool supportsSsml() const { return false; }
+            /**
+             * Whether the voice reads dates, times and phone numbers well by itself. When not
+             * (the default), TTSFrameProcessor gives it nlu::english::speakable() text: "2026-11-10"
+             * as "Tuesday, November 10th", "555-123-4567" digit by digit.
+             */
+            virtual bool normalizesText() const { return false; }
 
             /**
              * @brief startVoiceSynthesisProvider

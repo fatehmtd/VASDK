@@ -1,4 +1,5 @@
 #include "VASDK/TTSFrameProcessor.h"
+#include "VASDK/nlu/English.h"
 #include <VASDK/profiling/CTrack.h>
 #include <spdlog/spdlog.h>
 #include <algorithm>
@@ -231,7 +232,10 @@ namespace va {
                 }
                 const bool ssml = !frame->ssml.empty() && _synthesisProvider->supportsSsml();
                 if (ssml || !frame->text.empty())
-                    _pendingSentences.push_back({ssml ? frame->ssml : frame->text, frame->interruptible});
+                    _pendingSentences.push_back({ssml                                   ? frame->ssml
+                                                 : _synthesisProvider->normalizesText() ? frame->text
+                                                                                        : nlu::english::speakable(frame->text),
+                                                 frame->interruptible});
                 if (frame->isFinal) _textClosed = true;
             }
             if (mergeIntoDrainingTurn) cancelDrainWait();

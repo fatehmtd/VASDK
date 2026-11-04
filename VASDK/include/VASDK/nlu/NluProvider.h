@@ -61,8 +61,9 @@ private:
 /** How alike two words are, 0 to 1: 1 minus their edit distance (a swap counts once) over the longer one's length. */
 VASDK_EXPORT float wordSimilarity(const std::string& a, const std::string& b);
 /**
- * How well `heard` stands for `expected`: 1 when the same; their similarity when both have 4 or
- * more letters and it's at least `minSimilarity` (an STT misspelling: "tyres", "apointment"); else 0.
+ * How well `heard` stands for `expected`: 1 when the same; their similarity when both are words of
+ * 4 or more letters (no digits) and it's at least `minSimilarity` (an STT misspelling: "tyres",
+ * "apointment"); else 0.
  */
 VASDK_EXPORT float wordMatch(const std::string& heard, const std::string& expected, float minSimilarity);
 /** Where `phrase` occurs in `words`, word for word by wordMatch: each start, and the sum of its words' matches. */
