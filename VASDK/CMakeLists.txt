@@ -12,7 +12,24 @@ option(VASDK_METRICS_INFLUX     "Build InfluxDB v2 Line Protocol transport"    O
 option(VASDK_METRICS_WEBSOCKET  "Build WebSocket metrics push transport"       OFF)
 
 
-add_library(VASDK SHARED
+# Engine config files (protobuf schema, loaders, provider registry), agents and VAEngine.
+# Full protobuf on every platform, Android included (gate G1: about +2.6 MB of native code).
+option(VASDK_ENABLE_ENGINE_CONFIG "Build engine config files (protobuf) and the provider registry" ON)
+if(VASDK_ENABLE_ENGINE_CONFIG)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/VASDKProtobuf.cmake)
+endif()
+# One protobuf per binary: with a static protobuf (built from source, as on Android), VASDK is
+# static too, so it and the app's own generated code (provider options, extensions) share the one
+# copy linked into the app. Two copies would keep two registries of message types.
+set(VASDK_LIBRARY_TYPE SHARED)
+if(TARGET protobuf::libprotobuf)
+    get_target_property(_protobuf_type protobuf::libprotobuf TYPE)
+    if(_protobuf_type STREQUAL "STATIC_LIBRARY")
+        set(VASDK_LIBRARY_TYPE STATIC)
+    endif()
+endif()
+
+add_library(VASDK ${VASDK_LIBRARY_TYPE}
     # Core sources
     ./src/AudioRingBuffer.cpp
     ./src/AudioSIMD.cpp
@@ -162,11 +179,8 @@ else()
     message(STATUS "VASDK_ENABLE_HTTP_TRANSPORT=OFF - skipping libcurl, HTTP transports will stub out")
 endif()
 
-#  Engine config files (protobuf schema, loaders, provider registry), agents and VAEngine.
-# Full protobuf on every platform, Android included (gate G1: about +2.6 MB of native code).
-option(VASDK_ENABLE_ENGINE_CONFIG "Build engine config files (protobuf) and the provider registry" ON)
+#  Engine config sources (see VASDK_ENABLE_ENGINE_CONFIG above)
 if(VASDK_ENABLE_ENGINE_CONFIG)
-    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/VASDKProtobuf.cmake)
     # Generated code is compiled into VASDK only: linking it twice would register the
     # descriptors twice and abort at startup.
     target_sources(VASDK PRIVATE

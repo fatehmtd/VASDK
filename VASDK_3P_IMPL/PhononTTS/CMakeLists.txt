@@ -27,25 +27,8 @@ target_compile_definitions(ggml-base PUBLIC GGML_MAX_NAME=128)
 
 #  SentencePiece
 # Shared with PocketTTS when both are enabled.
-if(NOT TARGET sentencepiece-static)
-    set(SPM_ENABLE_SHARED   OFF CACHE BOOL "" FORCE)
-    set(SPM_BUILD_TEST      OFF CACHE BOOL "" FORCE)
-    set(SPM_BUILD_EXAMPLE   OFF CACHE BOOL "" FORCE)
-    set(SPM_ENABLE_TCMALLOC OFF CACHE BOOL "" FORCE)
-    # sentencepiece v0.2.0 has cmake_minimum_required(VERSION 2.8); allow it under CMake 4.
-    set(CMAKE_POLICY_VERSION_MINIMUM 3.5 CACHE STRING "" FORCE)
-    FetchContent_Declare(
-        sentencepiece
-        GIT_REPOSITORY https://github.com/google/sentencepiece.git
-        GIT_TAG        v0.2.0
-        GIT_SHALLOW    ON
-    )
-    FetchContent_MakeAvailable(sentencepiece)
-    if(ANDROID AND TARGET sentencepiece-static)
-        target_link_libraries(sentencepiece-static INTERFACE log)
-    endif()
-endif()
-FetchContent_GetProperties(sentencepiece)
+include(${CMAKE_CURRENT_LIST_DIR}/../cmake/FetchSentencepiece.cmake)
+
 
 #  Library
 
