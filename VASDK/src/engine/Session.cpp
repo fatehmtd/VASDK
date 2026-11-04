@@ -21,6 +21,7 @@
 #include "llm/LLMFirePolicy.h"
 #include "llm/Completion.h"
 #include "llm/LLMProcessor.h"
+#include "llm/AnthropicTransport.h"
 #include "llm/OpenAITransport.h"
 #include "llm/PromptTemplate.h"
 #include "llm/ToolDispatchProcessor.h"
@@ -435,9 +436,10 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
 
     //  LLM (optional)
     state->llmTransport = options.llmTransport;
-    if (!state->llmTransport && config.has_llm() && !config.llm().endpoint().empty()) {
+    const bool anthropic = config.llm().api() == vasdk::engine::LlmConfig::ANTHROPIC;
+    if (!state->llmTransport && config.has_llm() && (!config.llm().endpoint().empty() || anthropic)) {
         llm::LLMConfig llmConfig;
-        llmConfig.endpoint     = config.llm().endpoint();
+        llmConfig.endpoint     = config.llm().endpoint().empty() ? "https://api.anthropic.com/v1/messages" : config.llm().endpoint();
         llmConfig.apiKey       = config.llm().api_key();
         llmConfig.model        = config.llm().model();
         llmConfig.systemPrompt = options.systemPrompt;
@@ -446,7 +448,12 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
         llmConfig.nCtx         = 64000;
         llmConfig.timeoutMs    = 30000;
         llmConfig.streaming    = true;
-        state->llmTransport = std::make_shared<llm::OpenAITransport>(llmConfig);
+        if (anthropic) {
+            if (llmConfig.model.empty()) llmConfig.model = "claude-opus-5-5";
+            state->llmTransport = std::make_shared<llm::AnthropicTransport>(llmConfig);
+        } else {
+            state->llmTransport = std::make_shared<llm::OpenAITransport>(llmConfig);
+        }
         auto systemTemplate = llm::PromptTemplate::create(state->llmTransport->getPromptChatFormat());
         systemTemplate->addSystem(llmConfig.systemPrompt + "\n\n{tool_descriptions}");
         state->llmTransport->setPromptTemplate(std::move(systemTemplate));
@@ -484,7 +491,7 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
         state->dialog->setToolCaller(flow::ToolRunner::caller(std::make_shared<flow::ToolRunner>(options.agent, config.security())));
         // Understanding: the agent's examples, then paraphrases by meaning, then an LLM.
         auto completion = options.llmCompletion;
-        if (!completion && config.has_llm() && !config.llm().endpoint().empty()) {
+        if (!completion && config.has_llm() && (!config.llm().endpoint().empty() || anthropic)) {
             llm::LLMConfig completionConfig;
             completionConfig.endpoint = config.llm().endpoint();
             completionConfig.apiKey = config.llm().api_key();
@@ -492,7 +499,9 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
             completionConfig.temperature = 0.0f;
             completionConfig.maxTokens = 400;
             completionConfig.timeoutMs = 8000;   // a voice turn can't wait longer
-            completion = std::make_shared<llm::OpenAICompletion>(completionConfig);
+            completionConfig.reasoningEffort = config.llm().effort();
+            if (anthropic) completion = std::make_shared<llm::AnthropicCompletion>(completionConfig);
+            else completion = std::make_shared<llm::OpenAICompletion>(completionConfig);
         }
         std::vector<std::shared_ptr<const nlu::NluProvider>> stages{options.agent->rules()};
         std::shared_ptr<const nlu::EmbeddingNluProvider> embeddings;

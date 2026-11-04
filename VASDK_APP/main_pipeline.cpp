@@ -83,6 +83,7 @@
 
 #ifdef VASDK_HAS_LLAMACPP
 #include <VASDK/llm/ToolDispatchProcessor.h>
+#include "LlamaCpp/LlamaCppCompletion.h"
 #include "LlamaCpp/LlamaCppTransport.h"
 #endif
 
@@ -229,6 +230,7 @@ struct CliArgs {
     std::string engineConfigPath;
     std::string agentPath;
     std::string llmModelPath;
+    std::string agentLlmModelPath;   // a GGUF model for the agent's questions (llama.cpp, in-process)
     std::string llmEndpoint;
     std::string llmApiKey;
     std::string llmModel;
@@ -272,6 +274,9 @@ CliArgs parseCliArgs(int argc, char* argv[]) {
     app.add_option("--llm-model-path", args.llmModelPath,
         "Path to GGUF model file for llama.cpp local LLM inference. "
         "When provided, overrides the default OpenAI-compatible transport.");
+    app.add_option("--agent-llm-model-path", args.agentLlmModelPath,
+        "Path to a GGUF model the agent asks, in-process with llama.cpp: what its rules don't "
+        "understand, llm steps and generative pages, with no network (a small instruct model will do)");
 #endif
     app.add_option("--config", args.engineConfigPath,
         "Engine config file (.txtpb, .json or .pb): providers, models dir and LLM settings. "
@@ -752,6 +757,16 @@ int main(int argc, char* argv[]) {
 #endif
 #ifdef VASDK_HAS_LLAMACPP
     if (localLlm) options.llmTransport = createLocalLlm(args.llmModelPath, options.systemPrompt);
+    if (!args.agentLlmModelPath.empty()) {
+        va::llm::LLMConfig agentLlm;
+        agentLlm.model = args.agentLlmModelPath;
+        agentLlm.maxTokens = 400;
+        agentLlm.nCtx = 4096;
+        auto completion = std::make_shared<va::transport::LlamaCppCompletion>(agentLlm);
+        if (!completion->loaded()) return -1;
+        options.llmCompletion = completion;
+        spdlog::info("  Agent LLM:   llama.cpp local model {}", args.agentLlmModelPath);
+    }
 #endif
 
     va::engine::ProviderRegistry registry;

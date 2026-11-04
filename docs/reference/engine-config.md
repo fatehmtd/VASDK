@@ -151,6 +151,16 @@ llm {
 | `speculative_firing`, `speculative_min_words` | Start the request on the partial at a pause of at least `speculative_min_words` words (default 3); the reply is held until the final transcript matches. Needs `streaming_transcription`. |
 | `tool_filler_phrases` | Said in turn while a tool runs, so the caller doesn't hear silence. |
 | `intent_timeout_ms` | With an agent: how long a turn waits for the LLM's intent check (asked only when the rules and the on-device model aren't sure). After that the rules' guess stands. A late answer doesn't rest the LLM. Default 1500; 0 or less waits up to the LLM's own 8 s. `vasdk_agentc` always waits. |
+| `api` | `OPENAI_COMPATIBLE` (default): chat completions, as OpenAI, OpenRouter, LM Studio, vLLM, a llama.cpp server or Ollama speak it. `ANTHROPIC`: Claude through the Messages API (`anthropic-version: 2026-10-21`), for the conversation and the agent; `endpoint` defaults to `https://api.anthropic.com/v1/messages` and `model` to `claude-opus-5-5`. No sampling settings are sent on that API version. On models that have one, a request a safety classifier declines is retried on another model (`fallbacks: "default"`). |
+| `effort` | The agent's requests: reasoning effort (`low`, `medium`, `high`). Unset: `low` on current Claude models, since a voice turn wants a quick answer; the endpoint's own default otherwise. |
+
+Claude directly:
+
+```textproto
+llm { api: ANTHROPIC api_key: "${ANTHROPIC_API_KEY}" }
+```
+
+An agent can also ask a model run on the device: `VASDK_Pipeline --agent-llm-model-path qwen2.5-1.5b-instruct-q4_k_m.gguf` (or `transport::LlamaCppCompletion` in `Session::Options::llmCompletion`) answers its questions with llama.cpp in-process, with no network.
 
 These apply also when the app passes its own LLM transport in code, as VASDK_CallCenter does with `--llm-endpoint`.
 

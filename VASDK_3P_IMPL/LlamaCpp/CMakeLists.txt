@@ -1,6 +1,8 @@
 add_library(vasdk_llamacpp ${VASDK_THIRDPARTY_LIB_TYPE}
     LlamaCppTransport.h
     LlamaCppTransport.cpp
+    LlamaCppCompletion.h
+    LlamaCppCompletion.cpp
 )
 
 include(GenerateExportHeader)
@@ -30,7 +32,7 @@ install(TARGETS vasdk_llamacpp
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 
-install(FILES LlamaCppTransport.h
+install(FILES LlamaCppTransport.h LlamaCppCompletion.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/LlamaCpp
 )
 

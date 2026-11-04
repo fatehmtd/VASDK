@@ -162,6 +162,46 @@ int main() {
         check(!completion.complete({{llm::MessageRole::USER, "hi", 0}}), "an error status: no reply");
     }
 
+    // Claude through the Messages API: the request, and the reply's text blocks.
+    {
+        auto http = std::make_shared<FakeHttp>();
+        http->body = R"({"content": [{"type": "thinking", "thinking": ""}, {"type": "text", "text": "{\"intent\": "},
+                                     {"type": "text", "text": "\"book\"}"}], "stop_reason": "end_turn"})";
+        llm::LLMConfig config;
+        config.apiKey = "claude-key";
+        config.maxTokens = 400;
+        config.temperature = 0.0f;
+        llm::AnthropicCompletion claude(config, http);
+        const auto reply = claude.complete({{llm::MessageRole::SYSTEM, "classify", 0},
+                                            {llm::MessageRole::ASSISTANT, "Hi, how can I help?", 0},
+                                            {llm::MessageRole::USER, "book", 0},
+                                            {llm::MessageRole::USER, "a service", 0}});
+        check(reply && *reply == "{\"intent\": \"book\"}", "Claude: its text blocks, thinking left out");
+        check(http->sentUrl == "https://api.anthropic.com/v1/messages" && http->sentHeaders["x-api-key"] == "claude-key" &&
+                  http->sentHeaders["anthropic-version"] == "2026-10-21" &&
+                  http->sentHeaders["anthropic-beta"] == "server-side-fallback-2026-07-01",
+              "Claude: the endpoint, key, API version and fallback beta");
+        const auto sent = nlohmann::json::parse(http->sentBody);
+        check(sent["model"] == "claude-opus-5-5" && !sent.contains("temperature") && sent["max_tokens"] == 1024 &&
+                  sent["output_config"]["effort"] == "low" && sent["fallbacks"] == "default",
+              "Claude: the default model, no sampling, room to think, low effort, fallbacks: " + http->sentBody);
+        check(sent["system"] == "classify\n\nYou said first: Hi, how can I help?" && sent["messages"].size() == 1 &&
+                  sent["messages"][0]["role"] == "user" && sent["messages"][0]["content"] == "book\na service",
+              "Claude: system and leading assistant words as the system prompt, one user turn: " + http->sentBody);
+        const auto alone = nlohmann::json::parse(claude.requestBody({{llm::MessageRole::SYSTEM, "Greet the user.", 0}}));
+        check(alone["messages"].size() == 1 && alone["messages"][0]["role"] == "user", "Claude: a user turn closes the conversation");
+        config.model = "claude-haiku-4-5";
+        config.reasoningEffort = "";
+        const auto older = nlohmann::json::parse(llm::AnthropicCompletion(config, http).requestBody({{llm::MessageRole::USER, "hi", 0}}));
+        check(!older.contains("output_config") && !older.contains("fallbacks"), "Claude: no effort or fallbacks on an older model");
+        http->body = R"({"content": [], "stop_reason": "refusal", "stop_details": {"type": "refusal", "category": "cyber"}})";
+        check(!claude.complete({{llm::MessageRole::USER, "hi", 0}}), "Claude: a refusal is no reply");
+        http->status = 429;
+        check(!claude.complete({{llm::MessageRole::USER, "hi", 0}}), "Claude: an error status is no reply");
+        claude.completeWithin({{llm::MessageRole::USER, "hi", 0}}, 1500);
+        check(http->sentTimeoutMs == 1500, "Claude: within its time limit");
+    }
+
     auto agent = compile(parse());
     if (!agent) return 1;
 

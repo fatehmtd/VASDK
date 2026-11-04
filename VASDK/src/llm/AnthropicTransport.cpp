@@ -15,7 +15,7 @@ std::string AnthropicTransport::buildRequestPayload(const std::string& userMessa
     json payload;
     payload["model"] = _config.model;
     payload["max_tokens"] = _config.maxTokens;
-    payload["temperature"] = _config.temperature;
+    // No temperature: API version 2026-10-21 rejects sampling settings, and current models sample only at their defaults.
 
     // render() produces {"system":"...","messages":[...]} - unpack both fields directly
     std::string rendered = renderTemplate();
@@ -67,14 +67,12 @@ std::string AnthropicTransport::parseResponse(const std::string& response) {
             return "";
         }
 
-        if (j.contains("content") && !j["content"].empty()) {
-            auto& content = j["content"][0];
-            if (content.contains("text")) {
-                return content["text"].get<std::string>();
-            }
-        }
-
-        return "";
+        // Its text blocks, in order: current models put thinking blocks first.
+        std::string text;
+        if (j.contains("content") && j["content"].is_array())
+            for (const auto& block : j["content"])
+                if (block.value("type", std::string()) == "text") text += block.value("text", std::string());
+        return text;
 
     } catch (const std::exception& e) {
         if (onError) {

@@ -36,6 +36,12 @@ message LlmConfig {
   // An agent's LLM intent check (what its rules aren't sure of) is given up after this, and the
   // rules' guess stands: the turn waits for it. unset: 1500; 0 or less: up to the LLM's 8 s.
   optional int32 intent_timeout_ms = 8;
+  enum Api {
+    OPENAI_COMPATIBLE = 0;   // chat completions: OpenAI, OpenRouter, LM Studio, vLLM, llama.cpp server, Ollama
+    ANTHROPIC = 1;           // Claude, by the Messages API; endpoint unset: https://api.anthropic.com/v1/messages
+  }
+  Api api = 9;               // how endpoint is spoken to, by the conversation and the agent alike
+  string effort = 10;        // the agent's requests: reasoning effort (low, medium, high); unset: the API's, "low" on Claude
 }
 
 // How quickly the assistant decides the user has finished speaking.
