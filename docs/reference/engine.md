@@ -94,6 +94,7 @@ Processors that read the mic audio directly use `inputRingBuffer()`.
 | `error` | A processor or transport reported a failure, e.g. the LLM endpoint is unreachable. |
 | `listening_window` | The mic stays open after a reply: `OPENED` (with `closes_in_ms`), `EXTENDED` when the user starts answering, `CLOSED` when it times out. For a live mic indicator. |
 | `page_changed` | With an agent: the conversation moved to another page (`from_flow`/`from_page` → `to_flow`/`to_page`), with the reason: `start`, `restart`, `route:<intent>` or `goto`. |
+| `agent_turn` | With an agent: it answered (a user turn, silence, a trigger, its greeting), before the words are spoken: the route's `intent`, `matched`, the `event` it raised (`no-match`, `no-input`, `max-reprompts`, `tool-error`, `clarify`) and the `flow` and `page` it's on. For per-call metrics. |
 | `session_ended` | With an agent: an `end` step or `END_SESSION` ended the conversation; the next one starts over at the start page. |
 | `provider_switched` | STT, TTS or the LLM changed because the network dropped or came back, or a provider failed: `kind` (`stt`, `tts`, `llm`), `from` → `to`, and the reason. |
 

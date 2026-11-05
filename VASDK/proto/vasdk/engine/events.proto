@@ -23,6 +23,7 @@ message Event {
     SessionEnded session_ended = 23;
     TriggerFired trigger_fired = 24;
     ProviderSwitched provider_switched = 25;
+    AgentTurn agent_turn = 26;
   }
 }
 
@@ -117,6 +118,15 @@ message PageChanged {
   string to_flow = 3;
   string to_page = 4;
   string reason = 5;      // "start", "restart", "route:<intent>", "goto"
+}
+
+// The agent answered: a user turn, silence, a trigger, its greeting. Before its words are spoken.
+message AgentTurn {
+  string intent = 1;    // the route's intent, when one matched
+  bool matched = 2;     // false: no route understood the words
+  string event = 3;     // what the turn raised: no-match, no-input, max-reprompts, tool-error, clarify; empty if none
+  string flow = 4;      // where the conversation is after it
+  string page = 5;
 }
 
 // The agent ended the conversation (an end step or END_SESSION); the next one starts over.

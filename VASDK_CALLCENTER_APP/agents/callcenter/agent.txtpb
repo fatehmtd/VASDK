@@ -83,6 +83,8 @@ flows {
       target: "scheduled"
     }
     routes { condition: "$form.failed" steps { say { text: "Let me get someone to help you with that." } } target: "flow:handoff" }
+    # A caller who hung up here and calls back: what they gave is kept, the rest is asked (VASDK_CallCenter --persist-dir).
+    handlers { event: "resumed" steps { say { text: "Welcome back. Let's finish scheduling your callback." } } }
   }
 
   pages {

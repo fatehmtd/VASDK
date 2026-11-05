@@ -152,6 +152,18 @@ public:
      * caller disconnects. Thread-safe; needs Options::agent.
      */
     void setEntityValues(const std::string& name, const std::vector<vasdk::nlu::EntityValue>& values);
+    /**
+     * Where the agent's conversation is after its last reply (flow::FlowRuntime::snapshot): its
+     * page, the form's filled slots and the session params, sensitive ones left out. Store it
+     * when a caller hangs up mid-task, and give it to resumeConversation() when they call back.
+     * Empty without an agent, before the first reply, or once the conversation ended. Thread-safe.
+     */
+    std::string conversationSnapshot() const;
+    /**
+     * Before start(): the agent's greeting picks the conversation up where `snapshotJson` left it
+     * (flow::FlowRuntime::resume) instead of at its start page. Needs Options::agent.
+     */
+    void resumeConversation(const std::string& snapshotJson);
 
     /**
      * Whether the network is up, as the app sees it (Android's ConnectivityManager, a request

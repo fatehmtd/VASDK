@@ -218,6 +218,9 @@ struct Session::State {
     // Network fallback: the local providers while the network is down. Guarded by fallbackMutex.
     std::shared_ptr<std::atomic<bool>> llmOffline = std::make_shared<std::atomic<bool>>(false);
     mutable std::mutex fallbackMutex;
+    // The agent's conversation after its last reply (FlowRuntime::snapshot). Guarded by snapshotMutex.
+    mutable std::mutex snapshotMutex;
+    std::string snapshot;
     bool offline = false;
     bool fallbacksLoaded = false;
     void switchProviders(bool toFallbacks, const std::string& reason);
@@ -527,10 +530,25 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
                 return fields;
             });
         }
-        state->dialog->setReplyObserver([events = std::weak_ptr<EventDispatcher>(state->events)](
+        state->dialog->setReplyObserver([events = std::weak_ptr<EventDispatcher>(state->events), raw = state.get()](
                                             const flow::Reply& reply, const flow::FlowRuntime& conversation) {
+            {
+                auto saved = conversation.snapshot();
+                std::lock_guard<std::mutex> lock(raw->snapshotMutex);
+                raw->snapshot = saved.empty() ? std::string() : saved.dump();
+            }
             auto dispatcher = events.lock();
             if (!dispatcher) return;
+            {
+                vasdk::engine::Event event;
+                auto* turn = event.mutable_agent_turn();
+                turn->set_intent(reply.intent);
+                turn->set_matched(reply.matched);
+                turn->set_event(reply.event);
+                turn->set_flow(conversation.flowName());
+                turn->set_page(conversation.pageName());
+                dispatcher->post(std::move(event));
+            }
             for (const auto& trigger : reply.triggers) {
                 vasdk::engine::Event event;
                 auto* fired = event.mutable_trigger_fired();
@@ -726,6 +744,24 @@ bool Session::hasLLM() const { return _state->llm != nullptr; }
 void Session::setNetworkAvailable(bool available) {
     if (available) _state->networkBack();
     else _state->networkLost("network down", true);
+}
+
+std::string Session::conversationSnapshot() const {
+    std::lock_guard<std::mutex> lock(_state->snapshotMutex);
+    return _state->snapshot;
+}
+
+void Session::resumeConversation(const std::string& snapshotJson) {
+    if (!_state->dialog) {
+        spdlog::warn("{} resumeConversation: no agent", _state->logTag);
+        return;
+    }
+    auto snapshot = nlohmann::json::parse(snapshotJson, nullptr, false);
+    if (!snapshot.is_object()) {
+        spdlog::warn("{} resumeConversation: not a snapshot", _state->logTag);
+        return;
+    }
+    _state->dialog->setResumeFrom(std::move(snapshot));
 }
 
 bool Session::usingFallbacks() const {

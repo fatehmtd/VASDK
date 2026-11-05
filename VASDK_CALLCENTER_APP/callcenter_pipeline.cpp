@@ -25,6 +25,8 @@
 #include <VASDK/engine/Runtime.h>
 #include <VASDK/flow/CompiledAgent.h>
 #include <VASDK/flow/Expression.h>
+#include <VASDK/goal/GoalStatePersistence.h>
+#include <VASDK/metrics/CallMetrics.h>
 
 #include <VASDK/llm/Completion.h>
 #include <VASDK/llm/LLMTransport.h>
@@ -62,8 +64,10 @@
 #include <atomic>
 #include <chrono>
 #include <csignal>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -138,6 +142,8 @@ static std::string loadOrFallback(const std::string& path, const char* fallback)
 struct CliArgs {
     std::string ani;            ///< Caller phone number (simulates caller ID)
     std::string dnis;           ///< The number called: picks agents/<dnis>/agent.txtpb when there is one
+    std::string persistenceDir; ///< Where a call left mid-task is kept, by caller number, for their next call
+    std::string callLog;        ///< A file each call's record is appended to, one JSON object per line
     std::string agent;          ///< An agent file to answer with, instead of the DNIS's
     std::string llmEndpoint;
     std::string llmApiKey;
@@ -187,6 +193,10 @@ CliArgs parseCliArgs(int argc, char* argv[]) {
     app.allow_extras();
     app.add_option("--ani", args.ani, "Caller ANI (phone number): the agent looks the caller up in the CRM");
     app.add_option("--dnis", args.dnis, "The number called: answered with agents/<dnis>/agent.txtpb when there is one");
+    app.add_option("--persist-dir", args.persistenceDir,
+        "Directory where a call left mid-form is kept, by the caller's number (--ani): their next call picks it up");
+    app.add_option("--call-log", args.callLog,
+        "File each call's record is appended to as a JSON line: handle time, completed, escalated, resumed, turns, reprompts");
     app.add_option("--agent", args.agent, "An agent file to answer with (default: agents/callcenter/agent.txtpb)");
     app.add_option("--llm-endpoint", args.llmEndpoint, "OpenAI-compatible LLM endpoint URL");
     app.add_option("--llm-api-key", args.llmApiKey, "LLM API key (falls back to LLM_API_KEY / OPENROUTER_API_KEY / OPENAI_API_KEY env vars)");
@@ -239,6 +249,53 @@ CliArgs parseCliArgs(int argc, char* argv[]) {
 }
 
 //  The agent
+
+// One call's record (call metrics), and where to pick it up when the caller hangs up mid-task.
+// Events come on the session's event thread.
+struct CallTracker {
+    std::mutex mutex;
+    va::metrics::CallMetrics metrics;
+    std::string lastTask;   // the last snapshot taken in a form, outside the handoff
+    std::string lastFlow, lastPage;
+    bool agentEnded = false;
+
+    void onEvent(const vasdk::engine::Event& event, const va::engine::Session& call) {
+        std::lock_guard<std::mutex> lock(mutex);
+        if (event.has_agent_turn()) {
+            const auto& turn = event.agent_turn();
+            ++metrics.turnCount;
+            if (turn.event() == "no-match" || turn.event() == "no-input" || turn.event() == "max-reprompts") ++metrics.repromptCount;
+            if (!turn.intent().empty() && metrics.intentClassified.empty() && turn.intent() != "help")
+                metrics.intentClassified = turn.intent();
+            lastFlow = turn.flow();
+            lastPage = turn.page();
+            const auto snapshot = call.conversationSnapshot();
+            if (turn.flow() != "handoff" && snapshot.find("\"form\"") != std::string::npos) {
+                lastTask = snapshot;
+                metrics.goalName = nlohmann::json::parse(snapshot, nullptr, false).value("/form/goal"_json_pointer, std::string());
+            } else if (turn.flow() != "handoff") {
+                lastTask.clear();   // out of the form: done with it, or never in one
+            }
+        }
+        if (event.has_page_changed() && event.page_changed().to_flow() == "handoff") metrics.escalated = true;
+        if (event.has_session_ended()) agentEnded = true;
+    }
+
+    // The caller's number, all but its last 4 digits hidden.
+    static std::string masked(const std::string& number) {
+        return number.size() <= 4 ? std::string(number.size(), '*') : std::string(number.size() - 4, '*') + number.substr(number.size() - 4);
+    }
+
+    nlohmann::json record() {
+        std::lock_guard<std::mutex> lock(mutex);
+        metrics.goalCompleted = agentEnded && !metrics.escalated;
+        return {{"call_id", metrics.callId}, {"ani", masked(metrics.callerANI)}, {"dnis", metrics.calledDNIS},
+                {"handle_time_s", metrics.handleTime().count()}, {"completed", metrics.goalCompleted},
+                {"escalated", metrics.escalated}, {"resumed", metrics.resumed}, {"intent", metrics.intentClassified},
+                {"goal", metrics.goalName}, {"turns", metrics.turnCount}, {"reprompts", metrics.repromptCount},
+                {"ended_on", lastFlow + "/" + lastPage}, {"left_mid_task", !agentEnded && !lastTask.empty()}};
+    }
+};
 
 // The agent for the number called: agents/<dnis>/agent.txtpb when there is one, else the default.
 std::string agentFor(const CliArgs& args) {
@@ -453,11 +510,33 @@ int main(int argc, char* argv[]) {
         return -1;
     }
     if (!args.ani.empty()) call->setSessionParam("caller", va::flow::stringValue(args.ani));
+
+    // Resume on redial: a caller who hung up mid-form picks up where they were, by their number.
+    auto tracker = std::make_shared<CallTracker>();
+    tracker->metrics.callId = callId;
+    tracker->metrics.callerANI = args.ani;
+    tracker->metrics.calledDNIS = args.dnis;
+    tracker->metrics.callStart = std::chrono::steady_clock::now();
+    std::string callerKey;
+    for (const char c : args.ani)
+        if (std::isdigit(static_cast<unsigned char>(c))) callerKey += c;
+    std::unique_ptr<va::goal::FileGoalStatePersistence> leftCalls;
+    if (!args.persistenceDir.empty() && !callerKey.empty()) {
+        std::filesystem::create_directories(args.persistenceDir);
+        leftCalls = std::make_unique<va::goal::FileGoalStatePersistence>(args.persistenceDir);
+        if (const auto left = leftCalls->load(callerKey)) {
+            call->resumeConversation(left->dump());
+            tracker->metrics.resumed = true;
+            spdlog::info("[CallCenter] {} called back: picking up on {}", CallTracker::masked(args.ani), left->value("page", std::string()));
+        }
+    }
+
     // The agent ends the call: done, goodbye, or handed to a person.
-    call->addListener([](const vasdk::engine::Event& event) {
+    call->addListener([tracker, session = call.get()](const vasdk::engine::Event& event) {
         if (event.has_page_changed() && event.page_changed().to_flow() == "handoff")
             spdlog::info("[CallCenter] Transferring the call to a person");
         if (event.has_session_ended()) sessionDone = true;
+        tracker->onEvent(event, *session);
     });
 
     using Slot = va::engine::Session::Slot;
@@ -521,6 +600,24 @@ int main(int argc, char* argv[]) {
 
     spdlog::info("[CallCenter] Stopping pipeline…");
     call->stop();
+
+    // The call's record, and what's kept for the caller's next call.
+    tracker->metrics.callEnd = std::chrono::steady_clock::now();
+    const auto record = tracker->record();
+    spdlog::info("[CallCenter] Call {}", record.dump());
+    if (!args.callLog.empty()) {
+        std::ofstream log(args.callLog, std::ios::app);
+        log << record.dump() << "\n";
+    }
+    if (leftCalls) {
+        std::lock_guard<std::mutex> lock(tracker->mutex);
+        if (!tracker->agentEnded && !tracker->lastTask.empty()) {
+            leftCalls->save(callerKey, nlohmann::json::parse(tracker->lastTask));
+            spdlog::info("[CallCenter] Left mid-task: kept for the caller's next call");
+        } else {
+            leftCalls->clear(callerKey);
+        }
+    }
     spdlog::info("[CallCenter] Done");
     return 0;
 }

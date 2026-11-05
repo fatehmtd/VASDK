@@ -692,9 +692,9 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::build(vasdk::flow::Agent age
             const auto& handler = handlers.Get(h);
             const std::string handlerWhere = where + " handler " + std::to_string(h + 1);
             if (handler.event() != kEventNoMatch && handler.event() != kEventNoInput && handler.event() != kEventMaxReprompts &&
-                handler.event() != kEventToolError && handler.event() != kEventClarify)
+                handler.event() != kEventToolError && handler.event() != kEventClarify && handler.event() != "resumed")
                 check.error(handlerWhere, "unknown event " + quoted(handler.event()) +
-                                              " (no-match, no-input, max-reprompts, tool-error or clarify)");
+                                              " (no-match, no-input, max-reprompts, tool-error, clarify or resumed)");
             checkSteps(handler.steps(), handlerWhere);
             checkTarget(handler.target(), handlerWhere);
         }

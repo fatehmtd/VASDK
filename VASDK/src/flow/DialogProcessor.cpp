@@ -532,6 +532,17 @@ void DialogProcessor::processFrame(std::shared_ptr<transport::Frame> frame, pipe
 void DialogProcessor::greetIfReady() {
     if (!_greetingPending || !_connected || _agentState == transport::AgentState::IDLE) return;
     _greetingPending = false;
+    if (_resumeFrom.is_object() && !_resumeFrom.empty()) {
+        post([this, snapshot = std::move(_resumeFrom)] {
+            bool resumed = false;
+            auto reply = _conversation.resume(snapshot, &resumed);
+            spdlog::info("[Dialog] {} on {}/{}", resumed ? "resumed" : "started over", _conversation.flowName(),
+                         _conversation.pageName());
+            deliver(std::move(reply));
+        });
+        _resumeFrom = nullptr;
+        return;
+    }
     post([this] { deliver(_conversation.start()); });
 }
 

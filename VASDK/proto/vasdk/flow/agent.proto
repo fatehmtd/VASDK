@@ -99,6 +99,8 @@ message Envelope {
 //                  (without a handler, the first route wins)
 //   max-reprompts  more than max_reprompts no-match or no-input in a row on a page (built in:
 //                  the no-match or no-input behaviour again)
+//   resumed        the conversation picked up where an earlier one left it (FlowRuntime::resume):
+//                  its steps run before the page is entered ("Welcome back."); its target is not used
 // The steps run, then the conversation moves to target; staying on the page with nothing asked,
 // the page's question is asked again.
 message Handler {

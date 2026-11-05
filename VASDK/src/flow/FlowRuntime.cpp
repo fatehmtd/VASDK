@@ -384,6 +384,77 @@ bool FlowRuntime::holds(const std::string& condition) const {
 std::string FlowRuntime::flowName() const { return started() ? _agent->flow(_position).name() : std::string(); }
 std::string FlowRuntime::pageName() const { return started() ? _agent->page(_position).name() : std::string(); }
 
+nlohmann::json FlowRuntime::snapshot() const {
+    if (!started() || _ended) return nlohmann::json::object();
+    nlohmann::json saved{{"flow", flowName()}, {"page", pageName()}};
+    nlohmann::json session = nlohmann::json::object();
+    for (const auto& [name, value] : _session.fields()) {
+        const auto* param = _agent->sessionParam(name);
+        if (param && !param->sensitive() && value.kind_case() != Value::kNullValue && value.kind_case() != Value::KIND_NOT_SET)
+            session[name] = toJson(value);
+    }
+    saved["session"] = session;
+    if (_form) {
+        nlohmann::json slots = nlohmann::json::object();
+        for (const auto& slot : _form->goal->slots()) {
+            if (slot.sensitive()) continue;
+            const auto value = _form->state->slotValueJson(slot.name());
+            if (!value.is_null()) slots[slot.name()] = value;
+        }
+        saved["form"] = {{"goal", _form->goal->name()}, {"slots", slots}};
+    }
+    return saved;
+}
+
+Reply FlowRuntime::resume(const nlohmann::json& snapshot, bool* resumed) {
+    if (resumed) *resumed = false;
+    std::optional<CompiledAgent::PageRef> page;
+    if (snapshot.is_object() && snapshot.value("flow", std::string()) != "") {
+        const auto flowWanted = snapshot.value("flow", std::string());
+        const auto pageWanted = snapshot.value("page", std::string());
+        const auto& flows = _agent->definition().flows();
+        for (int f = 0; f < flows.size() && !page; ++f) {
+            if (flows.Get(f).name() != flowWanted) continue;
+            for (int p = 0; p < flows.Get(f).pages_size(); ++p)
+                if (flows.Get(f).pages(p).name() == pageWanted) page = CompiledAgent::PageRef{f, p};
+        }
+    }
+    if (!page) {
+        if (snapshot.is_object() && !snapshot.empty())
+            spdlog::info("[FlowRuntime] the saved conversation's page is gone: starting over");
+        return start();
+    }
+    if (snapshot.contains("session") && snapshot["session"].is_object()) {
+        for (const auto& [name, value] : snapshot["session"].items()) {
+            const auto* param = _agent->sessionParam(name);
+            if (param && !param->sensitive()) setSessionParam(name, fromJson(value), nullptr);
+        }
+    }
+    _resumedSlots.reset();
+    if (snapshot.contains("form") && snapshot["form"].is_object() && snapshot["form"].contains("slots"))
+        _resumedSlots.emplace(snapshot["form"].value("goal", std::string()), snapshot["form"]["slots"]);
+
+    Reply reply;
+    _ended = false;
+    _inputText.clear();
+    _replyCut = false;
+    _stack.clear();
+    _offer.reset();
+    _trigger.reset();
+    _form.reset();
+    _position = *page;   // where the "resumed" handler is looked for
+    if (const auto* handler = findHandler("resumed")) run(handler->steps(), reply);
+    _position = {};
+    moveTo(*page, "resume", reply);
+    _resumedSlots.reset();
+    runAfterEnvelopes(reply);
+    finish(reply);
+    _transcript.clear();
+    remember(llm::MessageRole::ASSISTANT, reply.text);
+    if (resumed) *resumed = true;
+    return reply;
+}
+
 Reply FlowRuntime::start() {
     Reply reply;
     _ended = false;
@@ -1893,6 +1964,12 @@ void FlowRuntime::moveTo(CompiledAgent::PageRef target, std::string reason, Repl
             _form.emplace();
             _form->goal = goal;
             _form->state = _agent->newGoalState(goal->name());
+            if (_resumedSlots && _resumedSlots->first == goal->name()) {   // resume(): what the caller gave last time
+                for (const auto& [name, value] : _resumedSlots->second.items())
+                    if (!_form->state->prefillSlot(name, value))
+                        spdlog::info("[FlowRuntime] the saved value of slot \"{}\" doesn't fit any more", name);
+                _resumedSlots.reset();
+            }
         }
         // The page type's steps first, then the page's own.
         const auto& extensions = _agent->extensions(_position);

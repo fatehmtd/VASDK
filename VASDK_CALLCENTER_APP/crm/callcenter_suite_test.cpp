@@ -8,7 +8,9 @@
 #include <VASDK/flow/CompiledAgent.h>
 #include <VASDK/flow/FlowTestRunner.h>
 #include <VASDK/llm/Completion.h>
+#include <VASDK/flow/FlowRuntime.h>
 #include <VASDK/nlu/LlmNluProvider.h>
+#include <nlohmann/json.hpp>
 
 #include <atomic>
 #include <cstdio>
@@ -62,6 +64,44 @@ int main(int argc, char** argv) {
             for (const auto& failure : result.failures) std::printf("    %s\n", failure.c_str());
         }
     }
+    // A caller who hangs up mid-form and calls back picks up where they were: what they gave is
+    // kept, a sensitive answer (the phone number) is asked again.
+    {
+        auto expect = [&failed](bool ok, const std::string& what) {
+            if (ok) return;
+            ++failed;
+            std::printf("FAIL (redial) %s\n", what.c_str());
+        };
+        va::flow::FlowRuntime first(agent);
+        first.start();
+        first.handleText("can you call me back about maintenance");
+        first.handleText("Carol Diaz");
+        const auto saved = first.snapshot();
+        expect(saved.value("flow", "") == "main" && saved.value("page", "") == "schedule", "saved on the schedule page: " + saved.dump());
+        const auto slots = saved["form"]["slots"];
+        expect(slots.value("customer_name", "") == "Carol Diaz" && slots.value("service_type", "") == "maintenance" &&
+                   !slots.contains("phone_number"),
+               "the name and service kept, no phone number: " + saved.dump());
+
+        va::flow::FlowRuntime again(agent);
+        bool resumed = false;
+        auto reply = again.resume(nlohmann::json::parse(saved.dump()), &resumed);
+        expect(resumed && reply.text == "Welcome back. Let's finish scheduling your callback. What's the best number to call you back on?",
+               "welcomed back, and asked what's missing: " + reply.text);
+        reply = again.handleText("five five five, two two two, three three three three");
+        expect(reply.text == "What day should we call you?", "then the next slot: " + reply.text);
+        reply = again.handleText("friday");
+        expect(reply.text.find("maintenance callback for Carol Diaz") != std::string::npos, "read back with the saved values: " + reply.text);
+
+        auto gone = saved;
+        gone["page"] = "a page the agent no longer has";
+        va::flow::FlowRuntime stale(agent);
+        reply = stale.resume(gone, &resumed);
+        expect(!resumed && stale.pageName() == "welcome", "a snapshot that doesn't fit: the call starts over");
+        stale.handleText("goodbye");
+        expect(stale.ended() && stale.snapshot().empty(), "an ended call leaves nothing to resume");
+    }
+
     if (llm->calls == 0) {
         std::printf("FAIL the LLM was never asked: the online run tested nothing\n");
         ++failed;

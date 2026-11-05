@@ -50,6 +50,8 @@ Say something like "I need to schedule a repair for my car" and let it walk you 
 | --- | --- |
 | `--ani <phone>` | Caller ANI: the agent looks the caller up in the CRM |
 | `--dnis <number>` | The number called: answered with `agents/<number>/agent.txtpb` when there is one |
+| `--persist-dir <dir>` | A caller who hangs up mid-form is kept here, by their number (`--ani`). Their next call picks up on that form: "Welcome back", with only what's missing asked. Sensitive answers, such as the callback number, aren't kept. |
+| `--call-log <file>` | Each call's record is appended as a JSON line: handle time, completed, escalated (handed to a person), resumed, the intent, turns, reprompts, where it ended, and whether it was left mid-task. The caller's number is masked. The same record is logged at the end of the call. |
 | `--agent <path>` | An agent file to answer with, instead of the DNIS's |
 | `--llm-endpoint <url>` | OpenAI-compatible LLM endpoint; unset (and no `LLM_ENDPOINT`): no LLM |
 | `--llm-api-key <key>` | LLM API key (falls back to `LLM_API_KEY`/`OPENROUTER_API_KEY`/`OPENAI_API_KEY`) |
@@ -71,4 +73,4 @@ Say something like "I need to schedule a repair for my car" and let it walk you 
 
 The CRM here is a hardcoded in-memory table, and scheduled callbacks are kept in memory: both mark the seam where your real systems plug in ([`crm/CallCenterTools.cpp`](crm/CallCenterTools.cpp)). The handoff ends the call with a `session_ended` event; a telephony app transfers it there.
 
-The earlier version of this app drove the call with the LLM goal layer (`IntentRouter` and `GoalManager`), and could resume a dropped call from saved goal state (`--persist-dir`). The agent version doesn't resume a dropped call yet. The goal layer is still in VASDK for apps built on it.
+The earlier version of this app drove the call with the LLM goal layer (`IntentRouter` and `GoalManager`), and could resume a dropped call from saved goal state (`--persist-dir`). The agent version does too, with `--persist-dir`: it keeps where the call was (`Session::conversationSnapshot()`), not the goal state. The goal layer is still in VASDK for apps built on it.

@@ -74,6 +74,8 @@ public:
     /** Starts the conversation over at the start page, params at their defaults; the greeting
      *  comes on the next activation. Thread-safe. */
     void restart();
+    /** Before start(): the greeting resumes the conversation from `snapshot` (FlowRuntime::resume), once. */
+    void setResumeFrom(nlohmann::json snapshot) { _resumeFrom = std::move(snapshot); }
     /** The user tapped the last reply's choice at `index`, from 0 (FlowRuntime::selectChoice). Thread-safe. */
     void selectChoice(int index);
     /** What $context.* reads; called on the conversation's thread, so it must be thread-safe. Before start(). */
@@ -128,6 +130,7 @@ private:
     int _noInputMs = 0;             // the page's no-input wait after the last reply
     bool _privateAnswer = false;    // the last question's answer is private
     bool _greetingPending = true;
+    nlohmann::json _resumeFrom;     // the first greeting resumes from it, when set
     transport::AgentState _agentState = transport::AgentState::IDLE;
     bool _connected = true;
     std::atomic<bool> _passUnmatchedTurns{false};   // off while the network is down

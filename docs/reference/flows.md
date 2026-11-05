@@ -221,6 +221,9 @@ flows { name: "booking" envelopes: ["booking"] … }   # a flow's pages; pages t
 | `no-match` | No route understood the user | "Sorry, I can't help with that here." and the question again |
 | `no-input` | Silence for `no_input_ms` after a question has played | The question again |
 | `max-reprompts` | More than `max_reprompts` (default 2) no-match or no-input in a row on a page | The no-match or no-input behaviour again |
+| `resumed` | The conversation picked up where an earlier one left it (below): its steps run before the page is entered, its `target` isn't used | Nothing: the page is entered |
+
+**Picking up a conversation later.** `FlowRuntime::snapshot()` says where a conversation is, as JSON: its flow and page, the form's filled slots and the session params. Sensitive slots and params are left out, so it can be stored. `FlowRuntime::resume(snapshot)` starts there instead of at the start page: the params are set, the page is entered with the form's saved slots already filled, so only the rest are asked, and the page's `resumed` handler speaks first ("Welcome back."). A snapshot whose page the agent no longer has starts over. A `Session` gives the last snapshot with `conversationSnapshot()`, and `resumeConversation(json)` before `start()` makes its greeting resume. VASDK_CallCenter uses them for callers who hang up mid-form (`--persist-dir`).
 
 The handler's steps run, then it moves to its `target`. If it stays on the page and asked nothing, the page's question is asked again (on a form page, the form's). The no-input timer runs only when a `no-input` handler or `no_input_ms` applies to the page; it starts once the question has finished playing and stops when the user starts speaking. On a form page, answers that don't fit are re-asked by the form, and `max-reprompts` runs once the form fails and no `$form.failed` route takes it. `Reply::event` says which one ran; test cases check it and `vasdk_agentc chat` shows it.
 

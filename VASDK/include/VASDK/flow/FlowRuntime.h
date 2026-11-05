@@ -95,6 +95,20 @@ public:
     /** Enters the start page and returns its greeting. Also starts over after an end. */
     Reply start();
     /**
+     * Where the conversation is, to pick it up later (a caller who hangs up mid-form and calls
+     * back): its flow and page, the form's filled slots and the session params, as JSON. Sensitive
+     * slots and params are left out, so it can be stored. Empty when not started, or ended.
+     */
+    nlohmann::json snapshot() const;
+    /**
+     * Starts the conversation where a snapshot left it, instead of start(): its session params
+     * set, and its page entered with the form's saved slots already filled, so only the rest are
+     * asked (and read back). The steps of a "resumed" handler on that page or an envelope run
+     * first ("Welcome back."). A snapshot that doesn't fit the agent (a page it no longer has):
+     * start(), and `resumed` false.
+     */
+    Reply resume(const nlohmann::json& snapshot, bool* resumed = nullptr);
+    /**
      * Routes the user's words on the current page: the matched route's steps run, then the
      * conversation moves to its target. Not understood: "Sorry, I can't help with that here." and the
      * page's last question again. On a form page the words answer the form first (Page.form).
@@ -355,6 +369,7 @@ private:
     DynamicEntityValues _dynamicEntities;
     ContextSource _context;
     std::optional<Form> _form;              // set on a page with a form
+    std::optional<std::pair<std::string, nlohmann::json>> _resumedSlots;   // resume(): a goal's saved slots, filled when its form opens
     // Where to return to on END_FLOW: the page that entered a flow, as it was.
     struct Frame {
         CompiledAgent::PageRef page;
