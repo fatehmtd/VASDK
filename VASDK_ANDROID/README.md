@@ -72,6 +72,24 @@ sequenceDiagram
 
 Register tools and steps, and set `agentAsset`, before `init()`. They run on a native thread and may block.
 
+## Triggers while the app is in the background
+
+The agent's triggers work while the app isn't in front. The code is in [`TriggerBridge.kt`](app/src/main/kotlin/com/vasdk/android/services/TriggerBridge.kt).
+
+- **Schedule triggers.** While the engine runs, it checks schedule triggers every second.
+  - Every minute and on `stop()`, the engine saves its trigger state. It also sets an AlarmManager alarm for the next due time: an exact alarm if the user allowed "Alarms & reminders", otherwise within Doze's window. A reboot sets the alarm again.
+  - If the engine is running when the alarm rings, it says the reminder itself.
+  - If it isn't, a notification asks the user to open the app, because Android 14+ doesn't let an app in the background start the microphone. The restarted engine restores the saved state and says the reminder at its first check, once.
+- **Notifications.** With notification access granted, every notification another app posts, except ongoing ones, fires the agent's `notification` app event. `$trigger.payload` holds `{"package", "title", "text", "category"}`:
+
+  ```
+  triggers { name: "message" source { app_event { name: "notification" } }
+             condition: "$trigger.payload.package == 'com.whatsapp'"
+             action { say { text: "A message from $trigger.payload.title." } } }
+  ```
+
+Apps that keep their own state can call `Session::nextScheduledTrigger()`, `triggerState()` and `restoreTriggerState()` directly; the JNI uses the same calls.
+
 ## Tools and tool confirmation
 
 Tool calls cross the JNI boundary too: when the LLM requests a tool, the native side calls `VasdkEngine.onToolCall` synchronously from a native worker thread, which dispatches into [`tools/`](app/src/main/kotlin/com/vasdk/android/tools/) against real Android APIs. This is the piece that turns the assistant from a chatbot into something that can act on the device.
@@ -181,3 +199,23 @@ For the cloud STT/TTS providers (Soniox, Deepgram, Gladia) selectable from the i
 - `local.properties` (`soniox.apiKey`, `deepgram.apiKey`, `gladia.apiKey`).
 
 All of these are optional at build time - the providers are compiled in regardless, and a missing key only matters if that provider is actually selected at runtime. `.env.local` wins when both are present. Neither file is committed.
+
+### Tests on a device
+
+The native suite, the same `ctest` cases as on the desktop, runs on a device or emulator through adb:
+
+1. Build the tests for the device's ABI with the NDK, then run them:
+
+   ```bash
+   cmake -S VASDK_ANDROID -B build/android-x86_64 -G Ninja \
+     -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK/build/cmake/android.toolchain.cmake \
+     -DANDROID_ABI=x86_64 -DANDROID_PLATFORM=android-33 -DCMAKE_BUILD_TYPE=Release -DVASDK_BUILD_TESTS=ON
+   cmake --build build/android-x86_64
+   ANDROID_NDK=... sh VASDK_ANDROID/run-tests-on-device.sh build/android-x86_64 build/VASDK_3P_IMPL/models
+   ```
+
+2. [`run-tests-on-device.sh`](run-tests-on-device.sh) does the rest:
+   - It pushes each test and runs it as ctest would. Golden files, entity packs and test commands keep the paths they had at build time.
+   - With a models folder, the offline spoken conversation runs. It uses Silero, SmartTurn, Pocket and Phonon, with Whistle for STT where its engine is built (arm64), or Parakeet otherwise.
+   - It deletes each binary once its test has run: they're statically linked, and an emulator fills up.
+   - On an x86_64 emulator (API 33, 6 GB), all 52 cases pass or skip. The skips are tests whose models weren't pushed: MOSS, a GGUF.

@@ -4,6 +4,8 @@ import android.content.ComponentName
 import android.media.session.MediaController
 import android.media.session.MediaSessionManager
 import android.service.notification.NotificationListenerService
+import android.service.notification.StatusBarNotification
+import com.vasdk.android.services.TriggerBridge
 
 class VasdkNotificationListener : NotificationListenerService() {
 
@@ -18,6 +20,11 @@ class VasdkNotificationListener : NotificationListenerService() {
 
     override fun onListenerDisconnected() {
         instance = null
+    }
+
+    // Another app's notification: the agent's `notification` app event (TriggerBridge).
+    override fun onNotificationPosted(notification: StatusBarNotification) {
+        TriggerBridge.onNotification(this, notification)
     }
 
     fun getActiveSessions(): List<MediaController> {

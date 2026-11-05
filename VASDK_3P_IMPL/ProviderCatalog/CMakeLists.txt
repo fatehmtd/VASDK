@@ -61,16 +61,5 @@ if(VASDK_BUILD_TESTS AND TARGET vasdk_silero_vad AND TARGET vasdk_whistle_stt AN
     add_test(NAME vasdk_offline_conversation
              COMMAND vasdk_offline_conversation_test ${CMAKE_CURRENT_BINARY_DIR}/../models)
     set_tests_properties(vasdk_offline_conversation PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 600)
-    if(WIN32)   # the DLLs it loads, beside it
-        get_target_property(_vasdk_type VASDK TYPE)
-        if(_vasdk_type STREQUAL "SHARED_LIBRARY")
-            add_custom_command(TARGET vasdk_offline_conversation_test POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:VASDK> $<TARGET_FILE_DIR:vasdk_offline_conversation_test>)
-        endif()
-        if(DEFINED onnxruntime_SOURCE_DIR AND EXISTS "${onnxruntime_SOURCE_DIR}/lib/onnxruntime.dll")
-            add_custom_command(TARGET vasdk_offline_conversation_test POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different "${onnxruntime_SOURCE_DIR}/lib/onnxruntime.dll"
-                        $<TARGET_FILE_DIR:vasdk_offline_conversation_test>)
-        endif()
-    endif()
+    vasdk_test_dlls(vasdk_offline_conversation_test)
 endif()

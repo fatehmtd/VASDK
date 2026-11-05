@@ -8,6 +8,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import androidx.annotation.Keep
+import com.vasdk.android.services.TriggerBridge
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -510,7 +511,13 @@ class VasdkEngine private constructor(
         synchronized(VasdkEngine::class.java) {
             if (isNativeStarted) return true
             isNativeStarted = nativeStart()
-            if (isNativeStarted) watchNetwork(true)
+            if (isNativeStarted) {
+                watchNetwork(true)
+                // Schedule triggers: picked up where the last run left them (one due meanwhile is
+                // said at the first check), and kept each minute for the alarm (TriggerBridge).
+                nativeRestoreTriggerState(TriggerBridge.savedState(contextWrapper))
+                keepTriggers.postDelayed(keepTriggersTick, KEEP_TRIGGERS_MS)
+            }
             return isNativeStarted
         }
     }
@@ -548,6 +555,22 @@ class VasdkEngine private constructor(
     fun fireTrigger(name: String, payloadJson: String = "{}") {
         synchronized(VasdkEngine::class.java) {
             if (isNativeStarted) nativeFireTrigger(name, payloadJson)
+        }
+    }
+
+    /** Keeps the schedule triggers' state and sets the alarm for the next one (TriggerBridge). */
+    private fun keepTriggerState() {
+        keepTriggers.removeCallbacks(keepTriggersTick)
+        TriggerBridge.keep(contextWrapper, nativeTriggerState(), nativeNextScheduledTriggerMs())
+    }
+    private val keepTriggers = Handler(Looper.getMainLooper())
+    private val keepTriggersTick = object : Runnable {
+        override fun run() {
+            synchronized(VasdkEngine::class.java) {
+                if (!isNativeStarted) return
+                TriggerBridge.keep(contextWrapper, nativeTriggerState(), nativeNextScheduledTriggerMs())
+            }
+            keepTriggers.postDelayed(this, KEEP_TRIGGERS_MS)
         }
     }
 
@@ -660,6 +683,7 @@ class VasdkEngine private constructor(
         synchronized(VasdkEngine::class.java) {
             if (isNativeStarted) {
                 watchNetwork(false)
+                keepTriggerState()
                 nativeStop()
                 isNativeStarted = false
             }
@@ -949,6 +973,9 @@ class VasdkEngine private constructor(
     private external fun nativeTrigger()
     private external fun nativeResetConversation()
     private external fun nativeFireTrigger(name: String, payloadJson: String)
+    private external fun nativeNextScheduledTriggerMs(): Long
+    private external fun nativeTriggerState(): String
+    private external fun nativeRestoreTriggerState(state: String)
     private external fun nativeSetNetworkAvailable(available: Boolean)
     private external fun nativeSetEntityValues(name: String, valuesJson: String): Boolean
     private external fun nativeSetBackchannelConfig(enabled: Boolean, pendingPlaybackMode: Int,
@@ -959,6 +986,7 @@ class VasdkEngine private constructor(
     companion object {
         val TAG = VasdkEngine::class.java.name
         private const val SPEAKER_MODEL_FILE = "wespeaker_en_voxceleb_resnet34_LM.onnx"
+        private const val KEEP_TRIGGERS_MS = 60_000L
         private var instance: VasdkEngine? = null
         // Written from the init/download worker threads, read from the main thread
         @Volatile private var isNativeInitialized = false

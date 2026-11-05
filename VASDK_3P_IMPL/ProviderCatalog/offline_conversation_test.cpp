@@ -1,12 +1,14 @@
-// A spoken conversation with no network: Silero VAD, Whistle STT and Pocket TTS, on this machine.
+// A spoken conversation with no network: Silero VAD, Whistle STT (Parakeet where Whistle isn't
+// built, as on the x86_64 Android emulator) and Pocket TTS, on this machine.
 // The user's lines are spoken by a second voice (Phonon) and pushed in as audio, a 100 ms frame
 // every 100 ms (a microphone's pace), through a C API session (vasdk_session), so the whole path
 // runs: VAD, STT, the agent's turn, its spoken reply. The assistant's speech isn't fed back
 // (headphones). Exits 77 (skipped) when the models aren't there.
-//   offline_conversation_test <models dir>
+//   offline_conversation_test <models dir> [assistant voice: pocket] [stt: whistle, else parakeet]
 
 #include "ProviderCatalog.h"
 
+#include <VASDK/GenericTranscriptionProvider.h>
 #include <VASDK/GenericVoiceSynthesisProvider.h>
 #include <VASDK/c/vasdk.h>
 #include <VASDK/c/vasdk_cpp.h>
@@ -14,6 +16,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -194,9 +197,21 @@ int main(int argc, char** argv) {
         return 2;
     }
     const std::filesystem::path models = std::filesystem::absolute(argv[1]);
-    for (const char* needed : {"silero_vad.onnx", "whistle/whistle.cact", "pocket_tts/voices.bin", "phonon_tts"}) {
+    vasdk_providers* providers = vasdk_providers_create();
+    vasdk_providers_add_all(providers);
+    // The recognizer: as asked, else Whistle when this binary has it, else Parakeet.
+    const auto recognizers = vasdk_providers_registry(providers).ids<va::audio::GenericTranscriptionProvider>();
+    auto built = [&](const std::string& id) { return std::find(recognizers.begin(), recognizers.end(), id) != recognizers.end(); };
+    const std::string stt = argc > 3 ? argv[3] : built("whistle") ? "whistle" : "parakeet";
+    if (!built(stt)) {
+        std::printf("skipped: no %s recognizer in this binary\n", stt.c_str());
+        return 77;
+    }
+    const std::string sttModel = stt == "whistle" ? "whistle/whistle.cact" : stt + "/vocab.txt";
+    for (const std::string& needed : {std::string("silero_vad.onnx"), sttModel, std::string("pocket_tts/voices.bin"),
+                                      std::string("phonon_tts")}) {
         if (!std::filesystem::exists(models / needed)) {
-            std::printf("skipped: %s isn't in %s\n", needed, models.string().c_str());
+            std::printf("skipped: %s isn't in %s\n", needed.c_str(), models.string().c_str());
             return 77;
         }
     }
@@ -205,10 +220,9 @@ int main(int argc, char** argv) {
     const auto configPath = (dir / "engine.txtpb").string();
     const std::string assistantVoice = argc > 2 ? argv[2] : "pocket";   // offline_conversation_test <models> phonon
     std::ofstream(configPath) << "models_dir: \"" << models.generic_string() << "\"\n"
-                              << "providers { vad { id: \"silero\" } stt { id: \"whistle\" } tts { id: \"" << assistantVoice << "\" } }\n";
-
-    vasdk_providers* providers = vasdk_providers_create();
-    vasdk_providers_add_all(providers);
+                              << "providers { vad { id: \"silero\" } stt { id: \"" << stt << "\" } tts { id: \"" << assistantVoice
+                              << "\" } }\n";
+    std::printf("STT: %s, the assistant's voice: %s\n", stt.c_str(), assistantVoice.c_str());
     char* error = nullptr;
     vasdk_agent* agent = vasdk_agent_parse(kAgent, std::strlen(kAgent), VASDK_FORMAT_TEXT, nullptr, &error);
     check(agent != nullptr, std::string("the agent parses ") + (error ? error : ""));

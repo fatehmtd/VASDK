@@ -543,6 +543,30 @@ Java_com_vasdk_android_VasdkEngine_nativeFireTrigger(JNIEnv *env, jobject /*thiz
     gSession->engine->fireTrigger(jstringToStdString(env, name), payload);
 }
 
+//  Schedule triggers while the app is closed: the next due time (epoch ms, -1 for none) for an
+//  alarm, and the triggers' state, kept across restarts (TriggerBridge.kt)
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_com_vasdk_android_VasdkEngine_nativeNextScheduledTriggerMs(JNIEnv * /*env*/, jobject /*thiz*/) {
+    std::lock_guard<std::mutex> lock(gSessionMutex);
+    if (!gSession) return -1;
+    const auto next = gSession->engine->nextScheduledTrigger();
+    if (!next) return -1;
+    return static_cast<jlong>(std::chrono::duration_cast<std::chrono::milliseconds>(next->time_since_epoch()).count());
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_vasdk_android_VasdkEngine_nativeTriggerState(JNIEnv *env, jobject /*thiz*/) {
+    std::lock_guard<std::mutex> lock(gSessionMutex);
+    return env->NewStringUTF(gSession ? gSession->engine->triggerState().c_str() : "");
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_vasdk_android_VasdkEngine_nativeRestoreTriggerState(JNIEnv *env, jobject /*thiz*/, jstring state) {
+    std::lock_guard<std::mutex> lock(gSessionMutex);
+    if (gSession) gSession->engine->restoreTriggerState(jstringToStdString(env, state));
+}
+
 //  nativeSetEntityValues: a dynamic entity's values (the phone book), a JSON array of vasdk.nlu.EntityValue
 
 extern "C" JNIEXPORT jboolean JNICALL

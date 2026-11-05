@@ -93,8 +93,9 @@ void rtpPayloadTests() {
 
 std::vector<int16_t> tone(size_t samples, size_t offset) {
     std::vector<int16_t> v(samples);
+    const double pi = std::acos(-1.0);   // M_PI isn't standard (MSVC needs _USE_MATH_DEFINES)
     for (size_t i = 0; i < samples; ++i)
-        v[i] = static_cast<int16_t>(8000 * std::sin(2 * M_PI * 440 * double(offset + i) / 16000));
+        v[i] = static_cast<int16_t>(8000 * std::sin(2 * pi * 440 * double(offset + i) / 16000));
     return v;
 }
 

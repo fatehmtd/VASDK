@@ -146,7 +146,13 @@ if(VASDK_ENABLE_HTTP_TRANSPORT)
     endif()
 endif()
 
-#  VASDK core library 
+#  Tests: -DVASDK_BUILD_TESTS=ON builds core's and 3P's test executables for the ABI, to run on a
+#  device or emulator over adb (see README, "Tests on a device")
+if(VASDK_BUILD_TESTS)
+    enable_testing()
+endif()
+
+#  VASDK core library
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../VASDK vasdk_core)
 
 #  VASDK 3rd party implementation

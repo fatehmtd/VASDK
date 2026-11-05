@@ -58,6 +58,7 @@ if(VASDK_BUILD_TESTS)
     # End-to-end synthesis smoke test; reports "skipped" when the models have not been downloaded.
     add_executable(moss_tts_synth_test tests/synth_test.cpp)
     target_link_libraries(moss_tts_synth_test PRIVATE vasdk_moss_tts)
+    vasdk_test_dlls(moss_tts_synth_test)
     add_test(NAME moss_tts_synth
              COMMAND moss_tts_synth_test ${MOSS_TTS_MODEL_DIR} ${CMAKE_CURRENT_BINARY_DIR}/moss_tts_test.wav)
     set_tests_properties(moss_tts_synth PROPERTIES SKIP_RETURN_CODE 77)

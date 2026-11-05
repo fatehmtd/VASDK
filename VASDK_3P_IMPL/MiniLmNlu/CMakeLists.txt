@@ -7,6 +7,7 @@ target_compile_features(vasdk_minilm_nlu PUBLIC cxx_std_17)
 if(VASDK_BUILD_TESTS AND NOT ANDROID)
     add_executable(vasdk_minilm_nlu_test minilm_nlu_test.cpp)
     target_link_libraries(vasdk_minilm_nlu_test PRIVATE vasdk_minilm_nlu)
+    vasdk_test_dlls(vasdk_minilm_nlu_test)
     add_test(NAME vasdk_minilm_nlu COMMAND vasdk_minilm_nlu_test ${MINILM_MODEL_DIR})
     set_tests_properties(vasdk_minilm_nlu PROPERTIES SKIP_RETURN_CODE 77)   # without the model
 endif()

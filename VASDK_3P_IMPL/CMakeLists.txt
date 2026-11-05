@@ -5,6 +5,25 @@ if(POLICY CMP0169)
     cmake_policy(SET CMP0169 OLD)
 endif()
 
+# A test executable's DLLs beside it on Windows (no rpath there): a shared VASDK and ONNX Runtime.
+function(vasdk_test_dlls target)
+    if(NOT WIN32)
+        return()
+    endif()
+    get_target_property(_vasdk_type VASDK TYPE)
+    if(_vasdk_type STREQUAL "SHARED_LIBRARY")   # VASDK.dll and what it loads (protobuf, curl, OpenSSL, zlib)
+        add_custom_command(TARGET ${target} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:VASDK> $<TARGET_RUNTIME_DLLS:VASDK>
+                    $<TARGET_FILE_DIR:${target}>
+            COMMAND_EXPAND_LISTS)
+    endif()
+    if(DEFINED onnxruntime_SOURCE_DIR AND EXISTS "${onnxruntime_SOURCE_DIR}/lib/onnxruntime.dll")
+        add_custom_command(TARGET ${target} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${onnxruntime_SOURCE_DIR}/lib/onnxruntime.dll"
+                    $<TARGET_FILE_DIR:${target}>)
+    endif()
+endfunction()
+
 # Audio 
 option(VASDK_BUILD_FFMPEG_AUDIO "Build FFmpeg audio file provider" OFF)
 option(VASDK_BUILD_MINIAUDIO "Build MiniAudio audio I/O provider" ON)
