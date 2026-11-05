@@ -284,6 +284,7 @@ namespace va {
                     if (!_sentInTurn) {
                         _sentInTurn = true;
                         _synthesisStartTime = now;
+                        _lastReplyText.clear();
                     }
                     if (isProtected) {
                         _protectedSending = true;
@@ -369,6 +370,14 @@ namespace va {
             }
             pumpSentences();
             maybeStartDrain();
+        }
+
+        std::string TTSFrameProcessor::currentReplyText() {
+            std::lock_guard<std::mutex> lock(_turnMutex);
+            std::string text;
+            for (const auto& part : _sentParts) text += (text.empty() ? "" : " ") + part.sentence.text;
+            for (const auto& sentence : _pendingSentences) text += (text.empty() ? "" : " ") + sentence.text;
+            return text.empty() ? _lastReplyText : text;
         }
 
         void TTSFrameProcessor::replaceProvider(std::shared_ptr<audio::GenericVoiceSynthesisProvider> provider) {
@@ -514,6 +523,8 @@ namespace va {
             {
                 std::lock_guard<std::mutex> lock(_turnMutex);
                 _turnActive = _textClosed = _sentInTurn = _draining = false;
+                _lastReplyText.clear();
+                for (const auto& part : _sentParts) _lastReplyText += (_lastReplyText.empty() ? "" : " ") + part.sentence.text;
                 _sentParts.clear();
             }
             spdlog::info("[TTSFrameProcessor] Audio drained - emitting COMPLETED");

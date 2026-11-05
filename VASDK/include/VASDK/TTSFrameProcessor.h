@@ -46,6 +46,8 @@ public:
      * another reply came). Thread-safe.
      */
     void replaceProvider(std::shared_ptr<audio::GenericVoiceSynthesisProvider> provider);
+    /** The words of the reply being spoken, or of the one just finished: what echo from the speakers would be. Thread-safe. */
+    std::string currentReplyText();
     /** Called, on the provider's thread, when the provider reports an error (a lost connection). */
     void setOnProviderError(std::function<void(const std::string& error)> callback) { _onProviderError = std::move(callback); }
     bool initialize() override;
@@ -161,6 +163,7 @@ private:
         std::chrono::steady_clock::time_point endsAt;
     };
     std::vector<SentPart>   _sentParts;
+    std::string             _lastReplyText;     // the reply that finished last, until the next one starts
     std::deque<Sentence>    _cutOff;            // to speak again with the next provider
     bool                    _cutOffClosed{ false };   // the cut-off reply had all its text
     std::shared_ptr<audio::GenericVoiceSynthesisProvider> _cutOffBy;   // the provider that failed

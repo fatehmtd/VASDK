@@ -148,6 +148,9 @@ void applyBackchannel(const vasdk::engine::Backchannel& config, pipeline::Backch
     if (config.phrases_size() > 0) backchannel.backchannelPhrases.assign(config.phrases().begin(), config.phrases().end());
     if (config.interrupt_words_size() > 0)
         backchannel.interruptWords.assign(config.interrupt_words().begin(), config.interrupt_words().end());
+    if (config.has_reject_echo()) backchannel.rejectEcho = config.reject_echo();
+    if (config.has_echo_min_share()) backchannel.echoMinShare = config.echo_min_share();
+    if (config.has_echo_words_wait_ms()) backchannel.echoWordsWaitMs = static_cast<uint32_t>(std::max(0, config.echo_words_wait_ms()));
 }
 
 // The preset's VAD timings, then any turn_taking.voice_activity value set in the config.
@@ -412,6 +415,10 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
             auto ttsProcessor = tts.lock();
             return ttsProcessor ? ttsProcessor->getRemainingReplyPlaybackMs() : -1;
         });
+    state->agentState->setSpokenTextProvider([tts = std::weak_ptr<pipeline::TTSFrameProcessor>(state->tts)] {
+        auto ttsProcessor = tts.lock();
+        return ttsProcessor ? ttsProcessor->currentReplyText() : std::string();
+    });
     state->agentState->setProtectedPlaybackMsProvider(
         [tts = std::weak_ptr<pipeline::TTSFrameProcessor>(state->tts)] {
             auto ttsProcessor = tts.lock();

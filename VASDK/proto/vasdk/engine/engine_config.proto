@@ -106,6 +106,13 @@ message Backchannel {
   optional int32 low_confidence_max_words = 12; // default 2
   repeated string phrases = 13;                 // replace the built-in back-channel phrases when set
   repeated string interrupt_words = 14;         // replace the built-in words that always interrupt ("stop", "wait", ...)
+  // Speech over the assistant that is only its own words (its voice from the speakers, with no
+  // echo cancellation) doesn't interrupt it; default true. echo_min_share: the share of what's heard
+  // that must be the reply's words; default 0.8. echo_words_wait_ms: long speech with no words
+  // yet waits this much longer for them (600 for open speakers whose STT is slow with words: every interruption then waits as long); default 0.
+  optional bool reject_echo = 15;
+  optional float echo_min_share = 16;
+  optional int32 echo_words_wait_ms = 17;
 }
 
 // Raw PCM between the transport and the providers. The providers resample from their own rates.

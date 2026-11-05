@@ -66,6 +66,15 @@ namespace va {
             /// Any of these words makes the speech a real interruption at once ("okay stop", "what?": not heard).
             std::vector<std::string> interruptWords{ "stop", "wait", "no", "hold", "hang", "actually", "but",
                 "sorry", "excuse", "what", "pardon" };
+            /// Speech over the agent that is only its own words (speakers heard by the mic, with no echo
+            /// cancellation) doesn't interrupt it. Needs the words being spoken (setSpokenTextProvider).
+            bool rejectEcho = true;
+            /// The share of the words heard that must be the reply's for them to be its echo (2 words or more).
+            float echoMinShare = 0.8f;
+            /// Speech past commitAfterPendingMs with no words yet waits this much longer for them, echo or not.
+            /// 0: it interrupts then, as without rejectEcho. Raise it (600) for speakers with no echo
+            /// cancellation and an STT whose words come late; every interruption then waits as long.
+            uint32_t echoWordsWaitMs = 0;
         };
 
         /**
@@ -76,6 +85,13 @@ namespace va {
         VASDK_EXPORT BackchannelVerdict classifyBackchannel(const std::string& text, bool isFinal,
                                                             const BackchannelConfig& backchannelConfig,
                                                             float confidence = 1.0f);
+
+        /**
+         * @brief Whether `heard` is the agent's own `spoken` words coming back through the mic: 2
+         *        words or more, at least echoMinShare of them in the reply, and no interrupt word
+         *        ("wait, the second one" interrupts even when the reply said "second one").
+         */
+        VASDK_EXPORT bool isEcho(const std::string& heard, const std::string& spoken, const BackchannelConfig& backchannelConfig);
 
         /**
          * @brief Agent state processor - central state machine for the voice pipeline.
@@ -154,6 +170,14 @@ namespace va {
              */
             void setPlaybackRemainingMsProvider(std::function<int()> playbackRemainingMsProvider) {
                 _playbackRemainingMsProvider = std::move(playbackRemainingMsProvider);
+            }
+
+            /**
+             * @brief The words of the reply being spoken, or the one just finished
+             *        (TTSFrameProcessor::currentReplyText): speech that is only them is echo (rejectEcho).
+             */
+            void setSpokenTextProvider(std::function<std::string()> spokenTextProvider) {
+                _spokenTextProvider = std::move(spokenTextProvider);
             }
 
             /**
@@ -258,6 +282,8 @@ namespace va {
 
             BackchannelConfig    _backchannelConfig;
             std::function<int()> _playbackRemainingMsProvider;
+            std::function<std::string()> _spokenTextProvider;
+            bool echoes(const std::string& heard) const;
             std::function<int()> _protectedPlaybackMsProvider;
             bool playbackProtected() const { return _protectedPlaybackMsProvider && _protectedPlaybackMsProvider() > 0; }
             // Guards the overlap fields below: the interrupt-timeout thread also resolves interrupts.

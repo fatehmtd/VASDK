@@ -33,7 +33,7 @@
 >
 > 1. ~~**Intent check time limit.**~~ Done: `llm.intent_timeout_ms` (default 1500) through `Completion::completeWithin`. Past it, the cascade keeps the rules' guess. A late answer doesn't start the LLM's 30 s rest; a fast failure still does. `vasdk_agentc` waits with no limit. Spoken replies (`llm` steps, generative pages) keep 8 s.
 > 2. ~~**Entity routes in a chat.**~~ Done: mid-chat, an entity-only route needs its entity to be the same share of the words intents need (`FlowRuntime::_chatMinShare`).
-> 3. **Speaker echo.** Echo through speakers can pause the agent. Try it with headphones off, and tune `commit_after_ms` / `min_interrupt_confidence`.
+> 3. **Speaker echo.** Speech over the agent that is mostly its own words is now echo, not an interruption (`backchannel.reject_echo`, default on; `echo_min_share`, `echo_words_wait_ms`). Still to do: try it live with headphones off, and tune `commit_after_ms`, `min_interrupt_confidence` and `echo_words_wait_ms` on what the mic hears.
 > 4. **Thresholds: measure on real speech.** They're settings now (engine config `understanding`), `vasdk_agentc eval --sweep` measures them, and `VASDK_Pipeline --record-turns` builds a set from real turns. On the garage set's 6 mid-chat cases, 0.5 missed short commands ("when do you close") and 0.15–0.25 got all, so the default is 0.25. Still to do: a set of recorded turns, to check it and `keyword_words`.
 > 5. **Still open from above.** Milestone 22's audio loopback test and on-device run, every "not run on a device" item, and gate G4 (28).
 

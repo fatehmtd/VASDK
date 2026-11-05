@@ -121,6 +121,8 @@ turn_taking {
 
 `backchannel` decides whether speech over the assistant is a back-channel ("yeah", "mm-hmm") or an interruption. Each field replaces the same value in `Session::Options::backchannel` (`pipeline::BackchannelConfig`), so a value set in the file wins over the app's: `enabled`, `pending_playback` (`DUCK`, `PAUSE`, `CONTINUE`), `history` (`DROP`, `APPEND_TO_HISTORY`), `tail_overlap` (`TREAT_AS_TURN`, `CLASSIFY`), `duck_gain_db`, `duck_ms`, `commit_after_ms`, `final_transcription_wait_ms`, `tail_overlap_ms`, `max_backchannel_words`, `min_interrupt_confidence`, `low_confidence_max_words`, `phrases` and `interrupt_words`. The two lists replace the built-in ones when set.
 
+**Echo from speakers.** Without echo cancellation (a laptop's own mic and speakers; browsers over WebRTC cancel it themselves), the mic hears the assistant, and that can pause or cut its reply. With `reject_echo` (the default), speech over the assistant that is mostly its own words (2 or more, `echo_min_share` of them, default 0.8, and no interrupt word) is treated as echo: the reply goes on, and the words aren't a user turn. It needs words: by default, speech longer than `commit_after_ms` still interrupts before any arrive. `echo_words_wait_ms: 600` waits that much longer for them, so echo is caught with an STT whose words come late, but every real interruption then waits as long too.
+
 `interrupt_timeout_ms` is how long the assistant waits in `INTERRUPTED` for the TTS to confirm it stopped before listening anyway (default 500).
 
 ## Audio

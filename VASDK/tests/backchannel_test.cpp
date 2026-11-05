@@ -478,8 +478,60 @@ void envelopeRamps() {
 
 } // namespace
 
+// Echo from open speakers: the agent's own words heard back don't interrupt it.
+void echoIsNotAnInterruption() {
+    const char* scenario = "E echo";
+    const pipeline::BackchannelConfig defaults;
+    const std::string reply = "Your car will be ready at five, and the total is ninety dollars.";
+    check(pipeline::isEcho("your car will be ready", reply, defaults), scenario, "its own words are echo");
+    check(pipeline::isEcho("car will be ready at fire", reply, defaults), scenario, "a word misheard still is (5 of 6)");
+    check(!pipeline::isEcho("can you make it six instead", reply, defaults), scenario, "other words aren't");
+    check(!pipeline::isEcho("wait ready at five", reply, defaults), scenario, "an interrupt word always interrupts");
+    check(!pipeline::isEcho("ready", reply, defaults), scenario, "one word isn't enough to tell");
+    pipeline::BackchannelConfig off;
+    off.rejectEcho = true;
+    check(!pipeline::isEcho("your car", "", off), scenario, "nothing being said: no echo");
+
+    {
+        Rig rig;
+        rig.agentState->setSpokenTextProvider([&reply] { return reply; });
+        rig.userStarts();
+        rig.transcript("your car will be ready", false);
+        rig.audio(800);
+        check(sameTransitions(rig.transitions(), {Transition::BARGE_IN_PENDING}), scenario,
+              "long speech that is the reply's words: still pending");
+        rig.userStops();
+        rig.transcript("Your car will be ready at five.", true);
+        rig.audio(400);
+        check(sameTransitions(rig.transitions(), {Transition::BARGE_IN_PENDING, Transition::BACKCHANNEL}), scenario,
+              "dismissed as echo: the agent keeps speaking");
+        check(rig.recorder->finals().empty(), scenario, "and it isn't a user turn");
+    }
+    {
+        Rig rig;
+        rig.agentState->setSpokenTextProvider([&reply] { return reply; });
+        rig.userStarts();
+        rig.transcript("can you make it six", false);
+        check(sameTransitions(rig.transitions(), {Transition::BARGE_IN_PENDING, Transition::BARGE_IN_INTERRUPT}), scenario,
+              "the user's own words interrupt");
+    }
+    {
+        pipeline::BackchannelConfig waiting;
+        waiting.echoWordsWaitMs = 600;
+        Rig rig(waiting);
+        rig.agentState->setSpokenTextProvider([&reply] { return reply; });
+        rig.userStarts();
+        rig.audio(700);
+        check(sameTransitions(rig.transitions(), {Transition::BARGE_IN_PENDING}), scenario, "no words yet: it waits for them");
+        rig.audio(600);
+        check(sameTransitions(rig.transitions(), {Transition::BARGE_IN_PENDING, Transition::BARGE_IN_INTERRUPT}), scenario,
+              "and interrupts once echoWordsWaitMs has passed without any");
+    }
+}
+
 int main() {
     classifierTable();
+    echoIsNotAnInterruption();
     backchannelDismissed();
     backchannelAppendedToHistory();
     interruptWordCommits();

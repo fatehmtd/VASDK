@@ -88,6 +88,30 @@ namespace va {
             return isFinal ? BackchannelVerdict::Backchannel : BackchannelVerdict::Undecided;
         }
 
+        bool isEcho(const std::string& heard, const std::string& spoken, const BackchannelConfig& backchannelConfig)
+        {
+            const auto words = normalizedWords(heard);
+            if (words.size() < 2) return false;
+            std::vector<std::string> interruptWords;
+            for (const auto& interruptWord : backchannelConfig.interruptWords)
+                for (auto& word : normalizedWords(interruptWord)) interruptWords.push_back(std::move(word));
+            const auto said = normalizedWords(spoken);
+            size_t own = 0;
+            for (const auto& word : words) {
+                if (std::find(interruptWords.begin(), interruptWords.end(), word) != interruptWords.end()) return false;
+                if (std::find(said.begin(), said.end(), word) != said.end()) ++own;
+            }
+            return static_cast<float>(own) >= backchannelConfig.echoMinShare * static_cast<float>(words.size());
+        }
+
+        bool AgentStateProcessor::echoes(const std::string& heard) const
+        {
+            if (!_backchannelConfig.rejectEcho || !_spokenTextProvider || heard.empty()) return false;
+            const bool echo = isEcho(heard, _spokenTextProvider(), _backchannelConfig);
+            if (echo) spdlog::info("[AgentStateProcessor] \"{}\" is the reply's own words (echo): not an interruption", heard);
+            return echo;
+        }
+
         AgentStateProcessor::AgentStateProcessor() = default;
 
         AgentStateProcessor::~AgentStateProcessor() {
@@ -687,16 +711,25 @@ namespace va {
             const uint32_t durationMs = static_cast<uint32_t>(
                 static_cast<uint64_t>(audioFrame.numSamples) * 1000 / audioFrame.sampleRate);
             bool commitNow = false, decideNow = false;
+            std::string heardSoFar;
+            uint32_t pendingMs = 0;
             {
                 std::lock_guard<std::mutex> lock(_backchannelMutex);
                 if (_overlapKind != OverlapKind::PendingBargeIn) return;
                 if (!_userSpeechEnded) {
                     _pendingSpeechDurationMs += durationMs;
                     commitNow = _pendingSpeechDurationMs > _backchannelConfig.commitAfterPendingMs;
+                    heardSoFar = overlapTextLocked();
+                    pendingMs = _pendingSpeechDurationMs;
                 } else {
                     _audioDurationSinceSpeechEndMs += durationMs;
                     decideNow = _audioDurationSinceSpeechEndMs > _backchannelConfig.finalTranscriptionWaitMs;
                 }
+            }
+            if (commitNow && _backchannelConfig.rejectEcho && _spokenTextProvider) {
+                // Long speech over the agent may be its own voice from the speakers: decide by the words.
+                if (heardSoFar.empty()) commitNow = pendingMs > _backchannelConfig.commitAfterPendingMs + _backchannelConfig.echoWordsWaitMs;
+                else if (echoes(heardSoFar)) commitNow = false;
             }
             if (commitNow) commitBargeIn(false, "speech too long for a back-channel");
             else if (decideNow) decideOverlap();
@@ -740,7 +773,7 @@ namespace va {
                 decideOverlap();
                 return;
             }
-            if (classifyBackchannel(overlapText, false, _backchannelConfig) == BackchannelVerdict::Interrupt)
+            if (classifyBackchannel(overlapText, false, _backchannelConfig) == BackchannelVerdict::Interrupt && !echoes(overlapText))
                 commitBargeIn(userSpeechEnded, "words");
         }
 
@@ -757,7 +790,8 @@ namespace va {
                 // Deciding on a partial (no final arrived): no STT confidence to go on.
                 confidence = _overlapFinalText.empty() ? 1.0f : _overlapFinalConfidence;
             }
-            if (classifyBackchannel(overlapText, true, _backchannelConfig, confidence) == BackchannelVerdict::Backchannel)
+            if (classifyBackchannel(overlapText, true, _backchannelConfig, confidence) == BackchannelVerdict::Backchannel ||
+                echoes(overlapText))
                 dismissBackchannel();
             else
                 commitBargeIn(userSpeechEnded, "words after the user stopped");
@@ -836,8 +870,10 @@ namespace va {
                         _finalAfterSpeakingMode = _overlapKind == OverlapKind::TailTurn
                             ? FinalAfterSpeakingMode::ReplayAsTurn : FinalAfterSpeakingMode::ClassifyThenReplay;
                     } else if (_overlapKind == OverlapKind::TailTurn ||
-                               classifyBackchannel(overlapTextLocked(), true, _backchannelConfig) != BackchannelVerdict::Backchannel) {
-                        replay = takeOverlapTranscriptionLocked(true);
+                               (classifyBackchannel(overlapTextLocked(), true, _backchannelConfig) != BackchannelVerdict::Backchannel &&
+                                !(_backchannelConfig.rejectEcho && _spokenTextProvider &&
+                                  isEcho(overlapTextLocked(), _spokenTextProvider(), _backchannelConfig)))) {
+                        replay = takeOverlapTranscriptionLocked(true);   // the reply's own echo isn't the user's turn
                     }
                     clearOverlapLocked();
                 }
