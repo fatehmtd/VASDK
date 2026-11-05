@@ -44,6 +44,16 @@ public:
     /** The closest of `texts` to `sentence`: its index and cosine; -1 when none reaches `minSimilarity`. */
     std::pair<int, float> closest(const std::string& sentence, const std::vector<std::string>& texts, float minSimilarity) const;
 
+    /** Encodes every example now, and `more` (an agent's knowledge questions): what isn't encoded yet. How many were. */
+    size_t precompute(const std::vector<std::string>& more = {}) const;
+    /**
+     * Saves what's encoded to `path`, for this encoder (its name and vector size), so a later start
+     * reads it instead of encoding again (an app's first start on a phone). False, with `error`.
+     */
+    bool saveCache(const std::string& path, std::string* error = nullptr) const;
+    /** Reads what saveCache wrote with the same encoder: how many texts. 0 for a missing file or another encoder's. */
+    size_t loadCache(const std::string& path) const;
+
 private:
     const std::vector<float>& encoded(const std::string& text) const;
 

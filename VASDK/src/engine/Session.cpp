@@ -33,6 +33,7 @@
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
+#include <filesystem>
 #include <mutex>
 #include <chrono>
 #include <thread>
@@ -511,6 +512,19 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
         if (auto encoder = runtime->sentenceEncoder()) {
             embeddings = std::make_shared<nlu::EmbeddingNluProvider>(encoder, options.agent->definition().intents());
             stages.push_back(embeddings);
+            if (const auto& cacheFile = config.providers().sentence_encoder_cache(); !cacheFile.empty()) {
+                std::filesystem::path cachePath(cacheFile);
+                if (cachePath.is_relative() && !runtime->options().modelsDir.empty()) cachePath = std::filesystem::path(runtime->options().modelsDir) / cachePath;
+                std::vector<std::string> questions;
+                for (const auto& entry : options.agent->definition().knowledge())
+                    questions.insert(questions.end(), entry.questions().begin(), entry.questions().end());
+                const size_t loaded = embeddings->loadCache(cachePath.string());
+                const size_t encodedNow = embeddings->precompute(questions);
+                std::string cacheError;
+                if (encodedNow > 0 && !embeddings->saveCache(cachePath.string(), &cacheError))
+                    spdlog::warn("{} embedding cache: {}", state->logTag, cacheError);
+                spdlog::info("{} embeddings: {} read from {}, {} encoded now", state->logTag, loaded, cachePath.string(), encodedNow);
+            }
         }
         if (completion) {
             completion = std::make_shared<GatedCompletion>(completion, state->llmOffline);

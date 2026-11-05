@@ -23,6 +23,10 @@ message Providers {
   ProviderSpec turn = 4;               // end-of-turn model; none built in: VAD silence decides
   ProviderSpec wake_word = 5;          // used by the WAKE_WORD and HYBRID activation modes
   ProviderSpec sentence_encoder = 6;   // an agent understands paraphrases its examples miss (MiniLM), after its rules
+  // A file the sentence encoder's vectors of the agent's examples and knowledge questions are
+  // kept in, relative to models_dir: read when a session starts, and written when anything had to
+  // be encoded, so later starts (a phone app's) don't encode again. Unset: encoded as needed.
+  string sentence_encoder_cache = 7;
 }
 
 message LlmConfig {

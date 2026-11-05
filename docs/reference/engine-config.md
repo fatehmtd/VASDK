@@ -76,6 +76,8 @@ No wake-word provider ships yet (milestone 28), so `WAKE_WORD` and `HYBRID` need
 
 `providers { sentence_encoder { id: "minilm" options { [type.googleapis.com/vasdk.providers.MiniLmOptions] { model_dir: "models/minilm" } } } }` lets agents understand paraphrases after their rules, and answer knowledge questions by meaning (see [Understanding](flows.md#understanding)). Without it, agents understand by their examples alone.
 
+`sentence_encoder_cache: "garage.embeddings"` (in `providers`, relative to `models_dir`) keeps the encoder's vectors of the agent's examples and knowledge questions in a file. A session reads it when it starts, encodes only what isn't in it, and writes the file again when it encoded anything. So only the first start encodes, and later starts (a phone app's) read the file; an app can also ship one made on a desktop. A file made by another encoder is ignored.
+
 ## Turn-taking
 
 ```textproto
