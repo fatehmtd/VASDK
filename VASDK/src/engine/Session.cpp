@@ -468,6 +468,7 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
         llmConfig.nCtx         = 64000;
         llmConfig.timeoutMs    = 30000;
         llmConfig.streaming    = true;
+        llmConfig.reasoningEffort = config.llm().effort();   // "none": a thinking model answers at once
         if (anthropic) {
             if (llmConfig.model.empty()) llmConfig.model = "claude-opus-5-5";
             state->llmTransport = std::make_shared<llm::AnthropicTransport>(llmConfig);

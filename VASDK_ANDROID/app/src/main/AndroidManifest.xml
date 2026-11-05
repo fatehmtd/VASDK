@@ -122,6 +122,13 @@
             </intent-filter>
         </service>
 
+        <!-- Testing without a microphone: a user turn as if spoken, from adb only (its shell holds
+             DUMP). The command is in TestInputReceiver.kt. -->
+        <receiver
+            android:name=".services.TestInputReceiver"
+            android:exported="true"
+            android:permission="android.permission.DUMP" />
+
         <!-- Schedule triggers while the app is closed: the alarm TriggerBridge sets, set again after a reboot -->
         <receiver
             android:name=".services.TriggerBridge$AlarmReceiver"

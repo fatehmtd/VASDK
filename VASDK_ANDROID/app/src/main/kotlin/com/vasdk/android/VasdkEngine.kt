@@ -484,7 +484,7 @@ class VasdkEngine private constructor(
         val streaming = sttStreaming || sttProvider == SttProvider.GLADIA
         val llm = if (useLocalLLM) "llm { history: 40 }" else
             "llm { endpoint: ${quoted(BuildConfig.LLM_ENDPOINT)} model: ${quoted(BuildConfig.LLM_MODEL)} " +
-                "api_key: ${quoted(BuildConfig.LLM_API_KEY)} history: 100 }"
+                "api_key: ${quoted(BuildConfig.LLM_API_KEY)} effort: ${quoted(BuildConfig.LLM_REASONING_EFFORT)} history: 100 }"
         return """
             models_dir: ${quoted(modelsDir)}
             audio { input { sample_rate: 16000 } output { sample_rate: 24000 } frame_ms: 125 }
@@ -571,6 +571,13 @@ class VasdkEngine private constructor(
                 TriggerBridge.keep(contextWrapper, nativeTriggerState(), nativeNextScheduledTriggerMs())
             }
             keepTriggers.postDelayed(this, KEEP_TRIGGERS_MS)
+        }
+    }
+
+    /** A user turn as if spoken: typed input, or a test on an emulator without a microphone. */
+    fun injectText(text: String) {
+        synchronized(VasdkEngine::class.java) {
+            if (isNativeStarted) nativeInjectText(text)
         }
     }
 
@@ -863,10 +870,16 @@ class VasdkEngine private constructor(
                         var bytesRead: Int
                         var currentSize = resumeFrom
                         var lastLoggedProgress = 0L
+                        // A read is a few KB: reporting each one queued tens of thousands of
+                        // notification updates on the main thread (Android sheds them at ~5 a
+                        // second), and the download's end waited behind them for hours.
+                        var lastReportedAt = 0L
                         while (input.read(buffer).also { bytesRead = it } != -1) {
                             output.write(buffer, 0, bytesRead)
                             currentSize += bytesRead
-                            if (totalSize > 0) {
+                            val now = android.os.SystemClock.elapsedRealtime()
+                            if (totalSize > 0 && (now - lastReportedAt >= 250 || currentSize >= totalSize)) {
+                                lastReportedAt = now
                                 onProgress(currentSize.toFloat() / totalSize)
                                 if (currentSize - lastLoggedProgress > 5 * 1024 * 1024) {
                                     Log.v(TAG, "Progress for ${destination.name}: $currentSize / $totalSize")
@@ -973,6 +986,7 @@ class VasdkEngine private constructor(
     private external fun nativeTrigger()
     private external fun nativeResetConversation()
     private external fun nativeFireTrigger(name: String, payloadJson: String)
+    private external fun nativeInjectText(text: String)
     private external fun nativeNextScheduledTriggerMs(): Long
     private external fun nativeTriggerState(): String
     private external fun nativeRestoreTriggerState(state: String)

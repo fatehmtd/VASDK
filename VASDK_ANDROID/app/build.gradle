@@ -26,6 +26,7 @@ if (envLocalFile.exists()) {
 def llmApiKey   = envLocalProps.getProperty('LLM_API_KEY',  localProps.getProperty('llm.apiKey',  ''))
 def llmEndpoint = envLocalProps.getProperty('LLM_ENDPOINT', localProps.getProperty('llm.endpoint', ''))
 def llmModel    = envLocalProps.getProperty('LLM_MODEL',    localProps.getProperty('llm.model',   ''))
+def llmEffort   = envLocalProps.getProperty('LLM_REASONING_EFFORT', localProps.getProperty('llm.reasoningEffort', ''))
 def sonioxApiKey = envLocalProps.getProperty('SONIOX_API_KEY', localProps.getProperty('soniox.apiKey', ''))
 def deepgramApiKey = envLocalProps.getProperty('DEEPGRAM_API_KEY', localProps.getProperty('deepgram.apiKey', ''))
 def gladiaApiKey = envLocalProps.getProperty('GLADIA_API_KEY', localProps.getProperty('gladia.apiKey', ''))
@@ -51,6 +52,7 @@ android {
         buildConfigField "String", "LLM_API_KEY",  "\"${llmApiKey}\""
         buildConfigField "String", "LLM_ENDPOINT", "\"${llmEndpoint}\""
         buildConfigField "String", "LLM_MODEL",    "\"${llmModel}\""
+        buildConfigField "String", "LLM_REASONING_EFFORT", "\"${llmEffort}\""
         buildConfigField "String", "SONIOX_API_KEY", "\"${sonioxApiKey}\""
         buildConfigField "String", "DEEPGRAM_API_KEY", "\"${deepgramApiKey}\""
         buildConfigField "String", "GLADIA_API_KEY", "\"${gladiaApiKey}\""

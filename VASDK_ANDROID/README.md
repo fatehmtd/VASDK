@@ -193,6 +193,28 @@ For a cloud LLM instead of (or alongside) the local one, provide credentials at 
 - `.env.local` at the repository root (`LLM_API_KEY`, `LLM_ENDPOINT`, `LLM_MODEL`), or
 - `local.properties` in `VASDK_ANDROID/` (`llm.apiKey`, `llm.endpoint`, `llm.model`).
 
+`LLM_REASONING_EFFORT` (or `llm.reasoningEffort`) becomes the config's `llm.effort`. Set it to `none` so a thinking model answers at once.
+
+To use the cloud LLM, turn **On-device** off under Language model in Settings.
+
+**An LLM server on the development machine**, such as LM Studio at `LLM_ENDPOINT=http://127.0.0.1:1234/v1/chat/completions`: on the device, 127.0.0.1 is the device itself. Tunnel the port, on an emulator or a USB phone:
+
+```bash
+adb reverse tcp:1234 tcp:1234
+```
+
+Run it again after the emulator or adb restarts.
+
+**Typing instead of talking**, for testing: [`TestInputReceiver`](app/src/main/kotlin/com/vasdk/android/services/TestInputReceiver.kt) takes a user turn from adb, as if it was spoken. The reply is spoken and logged:
+
+```bash
+adb shell am broadcast -a com.vasdk.android.SAY --es text "what's the capital of France" \
+  -n com.vasdk.android/.services.TestInputReceiver
+adb logcat | grep -E "LLMProcessor|Synthesizing"
+```
+
+Only adb can send it: the receiver requires `android.permission.DUMP`, which apps can't hold.
+
 For the cloud STT/TTS providers (Soniox, Deepgram, Gladia) selectable from the in-app Settings overlay, add their keys the same way:
 
 - `.env.local` (`SONIOX_API_KEY`, `DEEPGRAM_API_KEY`, `GLADIA_API_KEY`), or

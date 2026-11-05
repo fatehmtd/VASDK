@@ -543,6 +543,14 @@ Java_com_vasdk_android_VasdkEngine_nativeFireTrigger(JNIEnv *env, jobject /*thiz
     gSession->engine->fireTrigger(jstringToStdString(env, name), payload);
 }
 
+//  nativeInjectText: a user turn as if spoken (typed input; testing without a microphone)
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_vasdk_android_VasdkEngine_nativeInjectText(JNIEnv *env, jobject /*thiz*/, jstring text) {
+    std::lock_guard<std::mutex> lock(gSessionMutex);
+    if (gSession) gSession->engine->injectUserText(jstringToStdString(env, text));
+}
+
 //  Schedule triggers while the app is closed: the next due time (epoch ms, -1 for none) for an
 //  alarm, and the triggers' state, kept across restarts (TriggerBridge.kt)
 

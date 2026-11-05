@@ -45,7 +45,8 @@ message LlmConfig {
     ANTHROPIC = 1;           // Claude, by the Messages API; endpoint unset: https://api.anthropic.com/v1/messages
   }
   Api api = 9;               // how endpoint is spoken to, by the conversation and the agent alike
-  string effort = 10;        // the agent's requests: reasoning effort (low, medium, high); unset: the API's, "low" on Claude
+  string effort = 10;        // reasoning effort (none, low, medium, high): the agent's requests, and the conversation's on
+                             // OpenAI-compatible endpoints; unset: the API's, "low" for the agent on Claude
   // Said, in turn, for a turn that would go to this LLM while the network is down
   // (Session::setNetworkAvailable) and its endpoint isn't on this machine; an agent answers what
   // it can first. unset: "I can't reach the internet right now, so I can't answer that. Please
