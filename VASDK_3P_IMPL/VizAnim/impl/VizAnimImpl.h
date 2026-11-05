@@ -38,7 +38,7 @@ static float Dot(const float* HWY_RESTRICT a,
     auto acc = hn::Zero(d);
     int i = 0;
     for (; i + lanes <= n; i += lanes)
-        acc = hn::MulAdd(hn::Load(d, a + i), hn::Load(d, b + i), acc);
+        acc = hn::MulAdd(hn::LoadU(d, a + i), hn::LoadU(d, b + i), acc);
     float result = hn::ReduceSum(d, acc);
     for (; i < n; ++i) result += a[i] * b[i];
     return result;
@@ -51,7 +51,7 @@ static float SumSq(const float* HWY_RESTRICT x, int n)
     auto acc = hn::Zero(d);
     int i = 0;
     for (; i + lanes <= n; i += lanes) {
-        auto v = hn::Load(d, x + i);
+        auto v = hn::LoadU(d, x + i);
         acc = hn::MulAdd(v, v, acc);
     }
     float result = hn::ReduceSum(d, acc);
@@ -67,7 +67,7 @@ static float SqDiffSum(const float* HWY_RESTRICT a,
     auto acc = hn::Zero(d);
     int i = 0;
     for (; i + lanes <= n; i += lanes) {
-        auto diff = hn::Sub(hn::Load(d, a + i), hn::Load(d, b + i));
+        auto diff = hn::Sub(hn::LoadU(d, a + i), hn::LoadU(d, b + i));
         acc = hn::MulAdd(diff, diff, acc);
     }
     float result = hn::ReduceSum(d, acc);
@@ -84,7 +84,7 @@ static void Mac(float* HWY_RESTRICT out,
     auto vs = hn::Set(d, scale);
     int i = 0;
     for (; i + lanes <= n; i += lanes)
-        hn::Store(hn::MulAdd(hn::Load(d, in + i), vs, hn::Load(d, out + i)),
+        hn::StoreU(hn::MulAdd(hn::LoadU(d, in + i), vs, hn::LoadU(d, out + i)),
                   d, out + i);
     for (; i < n; ++i) out[i] += scale * in[i];
 }

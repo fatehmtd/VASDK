@@ -203,8 +203,9 @@ int main(int argc, char** argv) {
     const auto dir = std::filesystem::temp_directory_path() / "vasdk_offline_conversation";
     std::filesystem::create_directories(dir);
     const auto configPath = (dir / "engine.txtpb").string();
+    const std::string assistantVoice = argc > 2 ? argv[2] : "pocket";   // offline_conversation_test <models> phonon
     std::ofstream(configPath) << "models_dir: \"" << models.generic_string() << "\"\n"
-                              << "providers { vad { id: \"silero\" } stt { id: \"whistle\" } tts { id: \"pocket\" } }\n";
+                              << "providers { vad { id: \"silero\" } stt { id: \"whistle\" } tts { id: \"" << assistantVoice << "\" } }\n";
 
     vasdk_providers* providers = vasdk_providers_create();
     vasdk_providers_add_all(providers);
