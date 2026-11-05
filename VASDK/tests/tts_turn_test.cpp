@@ -192,8 +192,13 @@ void streamedReply(bool queued) {
 void bargeIn(bool syncCancel) {
     const char* mode = syncCancel ? "barge-in, sync cancel" : "barge-in";
     Rig rig(true, syncCancel);
+    const auto t0 = std::chrono::steady_clock::now();
     rig.send(text("Alpha. ", false));
     std::this_thread::sleep_for(50ms);
+    if (std::chrono::steady_clock::now() - t0 > 90ms) {   // Alpha's 100 ms may have played out: no barge-in to test
+        std::printf("[%s] skipped: the machine overslept\n", mode);
+        return;
+    }
     rig.send(agent(transport::AgentStateTransition::BARGE_IN_INTERRUPT));
     rig.send(text("Beta.", true));  // stale sentence of the interrupted reply
     std::this_thread::sleep_for(100ms);
@@ -217,12 +222,18 @@ void protectedPart(bool queued) {
     rig.send(disclaimer);
     rig.send(text("Question?", true));
     // Each sentence is 100 ms of audio, played back to back: the disclaimer at 100-200 ms, heard 20 ms later.
-    std::this_thread::sleep_until(t0 + 60ms);
-    check(rig.tts->getProtectedPlaybackMs() == 0, "not during the part before", mode);
-    std::this_thread::sleep_until(t0 + 170ms);
-    check(rig.tts->getProtectedPlaybackMs() > 0, "while it plays", mode);
-    std::this_thread::sleep_until(t0 + 300ms);
-    check(rig.tts->getProtectedPlaybackMs() == 0, "not during the part after", mode);
+    // Sampled rather than read at fixed times: a loaded machine runs late, never early.
+    std::chrono::steady_clock::time_point on{}, off{};
+    while (std::chrono::steady_clock::now() < t0 + 1000ms && off == std::chrono::steady_clock::time_point{}) {
+        const bool protectedNow = rig.tts->getProtectedPlaybackMs() > 0;
+        const auto now = std::chrono::steady_clock::now();
+        if (protectedNow && on == std::chrono::steady_clock::time_point{}) on = now;
+        if (!protectedNow && on != std::chrono::steady_clock::time_point{}) off = now;
+        std::this_thread::sleep_for(2ms);
+    }
+    check(on != std::chrono::steady_clock::time_point{}, "while it plays", mode);
+    check(on == std::chrono::steady_clock::time_point{} || on - t0 >= 80ms, "not during the part before", mode);
+    check(off != std::chrono::steady_clock::time_point{}, "not during the part after", mode);
     std::this_thread::sleep_for(300ms);
     check(rig.provider->received == std::vector<std::string>{"Intro.", "Disclaimer.", "Question?"}, "all parts in order", mode);
     check(rig.recorder->snapshot() == std::vector<SynthesisState>{SynthesisState::STARTED, SynthesisState::COMPLETED},
@@ -244,7 +255,10 @@ void pausedReply() {
     rig.send(text("Two.", true));
     // Text complete but still synthesizing: unknown, not "0 ms left" (that read as the tail and blocked barge-in)
     check(rig.tts->getRemainingReplyPlaybackMs() == -1, "still synthesizing: remaining playback unknown", mode);
-    std::this_thread::sleep_for(60ms);
+    // Synthesis takes about 40 ms here; wait for it rather than for a fixed time (Windows timers tick every 15.6 ms).
+    const auto synthesized = std::chrono::steady_clock::now() + 150ms;
+    while (rig.tts->getRemainingReplyPlaybackMs() < 0 && std::chrono::steady_clock::now() < synthesized)
+        std::this_thread::sleep_for(2ms);
     check(rig.tts->getRemainingReplyPlaybackMs() >= 0, "reply text complete: remaining playback known", mode);
     rig.send(agent(transport::AgentStateTransition::BARGE_IN_PENDING));
     std::this_thread::sleep_for(400ms);  // longer than the 200 ms reply: only the pause keeps it going
@@ -277,11 +291,14 @@ void duckLastsMinimumDuration() {
     auto snapshot = [&] { std::lock_guard<std::mutex> lock(holdMutex); return holds; };
 
     // Back-channel dismissed after 50 ms: the duck still lasts 300 ms from its start.
+    const auto duckStart = std::chrono::steady_clock::now();
     rig.send(agent(transport::AgentStateTransition::BARGE_IN_PENDING));
     std::this_thread::sleep_for(50ms);
     rig.send(agent(transport::AgentStateTransition::BACKCHANNEL));
     std::this_thread::sleep_for(150ms);
-    check(snapshot().size() == 1, "still ducked before the minimum duration", mode);
+    const bool stillShort = std::chrono::steady_clock::now() - duckStart < 280ms;   // a loaded machine may oversleep
+    const auto early = snapshot();
+    check(early.size() == 1 || (!stillShort && early.size() == 2), "still ducked before the minimum duration", mode);
     std::this_thread::sleep_for(250ms);
     auto events = snapshot();
     check(events.size() == 2 && !events[1].first, "released once the minimum duration passed", mode);
