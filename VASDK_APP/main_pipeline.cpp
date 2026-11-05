@@ -39,6 +39,9 @@
 #include <atomic>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
+#include <google/protobuf/text_format.h>
+#include "vasdk/flow/test_case.pb.h"
 #include <functional>
 #include <optional>
 #include <thread>
@@ -160,6 +163,34 @@ class TimeTool : public va::llm::Tool {
 
 
 // A live console of the conversation, from the engine's events.
+// Each user turn the agent answered, as a case of an NLU eval set: what STT heard, the intent
+// the agent took (a guess to check), and whether it was mid-chat with the LLM.
+void addTurnRecorder(va::VAEngine& engine, const std::string& path) {
+    auto heard = std::make_shared<std::string>();
+    auto mutex = std::make_shared<std::mutex>();
+    engine.addListener([path, heard, mutex](const vasdk::engine::Event& event) {
+        std::lock_guard<std::mutex> lock(*mutex);
+        if (event.has_transcript() && event.transcript().is_final() && !event.transcript().is_backchannel()) {
+            *heard += (heard->empty() ? "" : " ") + event.transcript().text();
+            return;
+        }
+        if (!event.has_agent_turn() || heard->empty()) return;
+        const auto& turn = event.agent_turn();
+        vasdk::flow::NluEvalCase item;
+        item.set_text(*heard);
+        item.set_intent(turn.intent());
+        item.set_mid_chat(turn.mid_chat());
+        heard->clear();
+        std::string line;
+        google::protobuf::TextFormat::Printer printer;
+        printer.SetSingleLineMode(true);
+        printer.PrintToString(item, &line);
+        std::ofstream file(path, std::ios::app);
+        file << "cases { " << line << "}  # the agent's guess" << (turn.matched() ? "" : ": not understood") << '\n';
+    });
+    spdlog::info("  Recording:   user turns to {} (an NLU eval set)", path);
+}
+
 void addConsoleListener(va::VAEngine& engine) {
     engine.addListener([](const vasdk::engine::Event& event) {
         switch (event.kind_case()) {
@@ -244,6 +275,7 @@ struct CliArgs {
     double      llmTtftAlertMs = 0.0;
     double      ttsAlertMs     = 0.0;
     std::string sessionOutputDir;
+    std::string recordTurnsPath;   // each user turn appended as an NLU eval case, the agent's guess its intent
     std::string statsdHost;
     uint16_t    statsdPort        = 8125;
     bool        prometheusEnabled = false;
@@ -302,6 +334,9 @@ CliArgs parseCliArgs(int argc, char* argv[]) {
         "LLM time-to-first-token alert threshold in ms (0 = disabled)");
     app.add_option("--tts-alert-ms", args.ttsAlertMs,
         "TTS time-to-first-audio alert threshold in ms (0 = disabled)");
+    app.add_option("--record-turns", args.recordTurnsPath,
+        "Append each user turn, as heard, to this NLU eval set (vasdk.flow.NluEvalSet text proto) with the "
+        "agent's intent: correct the intents, then measure with vasdk_agentc eval --sweep");
     app.add_option("--session-dir", args.sessionOutputDir,
         "Directory for session recording output (omit to disable recording)");
     app.add_option("--system-prompt", args.systemPromptFile,
@@ -781,6 +816,7 @@ int main(int argc, char* argv[]) {
     engine->registerTool(TimeTool{});
     AppProcessors app = addAppProcessors(*engine, args, io, modelsPath, options.inputAudio, options.outputAudio);
     addConsoleListener(*engine);
+    if (!args.recordTurnsPath.empty()) addTurnRecorder(*engine, args.recordTurnsPath);
     if (!engine->start(&error)) return -1;
 
 #ifdef VASDK_HAS_LIBDATACHANNEL_WEBRTC

@@ -54,14 +54,20 @@ public:
  */
 class VASDK_EXPORT CascadeNluProvider : public NluProvider {
 public:
-    CascadeNluProvider(std::vector<std::shared_ptr<const NluProvider>> stages, float minConfidence = 0.55f)
-        : _stages(std::move(stages)), _minConfidence(minConfidence) {}
+    /**
+     * A stage's answer is sure at `minConfidence`, weighed by how much of the words it explains: a
+     * match may stand for a sentence of up to `keywordWords` words a matched word ("let me talk to
+     * a person" for "person"); in a longer one it counts for less, and the next stage is asked.
+     */
+    CascadeNluProvider(std::vector<std::shared_ptr<const NluProvider>> stages, float minConfidence = 0.55f, float keywordWords = 6.0f)
+        : _stages(std::move(stages)), _minConfidence(minConfidence), _keywordWords(keywordWords) {}
     std::string name() const override { return "cascade"; }
     NluResult understand(const NluRequest& request) const override;
 
 private:
     std::vector<std::shared_ptr<const NluProvider>> _stages;
     float _minConfidence;
+    float _keywordWords;
 };
 
 /** How alike two words are, 0 to 1: 1 minus their edit distance (a swap counts once) over the longer one's length. */

@@ -76,6 +76,8 @@ No wake-word provider ships yet (milestone 28), so `WAKE_WORD` and `HYBRID` need
 
 `providers { sentence_encoder { id: "minilm" options { [type.googleapis.com/vasdk.providers.MiniLmOptions] { model_dir: "models/minilm" } } } }` lets agents understand paraphrases after their rules, and answer knowledge questions by meaning (see [Understanding](flows.md#understanding)). Without it, agents understand by their examples alone.
 
+`understanding { min_confidence: 0.55 keyword_words: 6 chat_min_share: 0.25 }` (the defaults) sets how sure an agent's understanding must be. A stage's answer is taken from `min_confidence`. A matched word stands for a sentence of up to `keyword_words` words; in a longer one it counts for less, and the next stage (an LLM) is asked. Mid-chat with the LLM, a route takes the turn back only when it explains `chat_min_share` of the words. Measure them on what your users say with `vasdk_agentc eval --sweep` ([flows](flows.md)).
+
 `sentence_encoder_cache: "garage.embeddings"` (in `providers`, relative to `models_dir`) keeps the encoder's vectors of the agent's examples and knowledge questions in a file. A session reads it when it starts, encodes only what isn't in it, and writes the file again when it encoded anything. So only the first start encodes, and later starts (a phone app's) read the file; an app can also ship one made on a desktop. A file made by another encoder is ignored.
 
 ## Turn-taking

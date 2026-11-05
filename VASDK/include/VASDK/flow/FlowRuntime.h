@@ -67,6 +67,7 @@ struct Reply {
     std::optional<int> followUpListenMs;    // how long the mic stays open after it, by the agent; unset: the engine's setting
     bool endsSession = false;      // the conversation ended with this reply
     bool givenUp = false;          // the turn was given up while the LLM thought (setInterrupted): say nothing
+    bool midChat = false;          // answered mid-chat with the LLM (setLlmHasConversation): the stricter rules applied
     std::vector<PageChange> pageChanges;
     std::vector<ReplyToolCall> toolCalls;
     std::vector<ReplyTrigger> triggers;
@@ -212,11 +213,14 @@ public:
      * entities and negation). A CascadeNluProvider adds stages: an on-device model, an LLM.
      */
     void setNlu(std::shared_ptr<const nlu::NluProvider> provider) { _nlu = std::move(provider); }
-    /** The LLM answered the last turn: an intent takes the next one only when it is most of the words
+    /** The LLM answered the last turn: an intent takes the next one only when it is enough of the words
      *  ("book a tire repair", not "help" in "I'm hard of hearing, help me out"); rules only, no LLM asked.
      *  So does an entity route's entity ("tire repair", not "tire repair" in a story about last year's).
      *  And a reply that would ask the page's question again ("You're welcome.", "Are you still there?") doesn't. */
     void setLlmHasConversation(bool has) { _llmHasConversation = has; }
+    /** Mid-chat, the share of the words an intent or an entity route's entity must account for. Default 0.25. */
+    void setChatMinShare(float share) { _chatMinShare = share; }
+    float chatMinShare() const { return _chatMinShare; }
     /** Answers knowledge questions by meaning with it, instead of by their words. */
     void setEmbeddings(std::shared_ptr<const nlu::EmbeddingNluProvider> embeddings) { _embeddings = std::move(embeddings); }
     /**
@@ -402,7 +406,7 @@ private:
     std::shared_ptr<const nlu::NluProvider> _nlu;
     std::shared_ptr<const nlu::EmbeddingNluProvider> _embeddings;
     bool _llmHasConversation = false;
-    float _chatMinShare = 0.5f;   // mid-chat, the share of the words an intent or a route's entity must account for
+    float _chatMinShare = 0.25f;  // mid-chat, the share of the words an intent or a route's entity must account for
     std::optional<nlu::NluResult> _understood;   // this turn's, worked out when a route first needs it
     std::vector<std::string> _alternatives;      // intents tied for the best route this turn
     std::function<void(const Reply&)> _fillerSink;

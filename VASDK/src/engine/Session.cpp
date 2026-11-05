@@ -532,7 +532,13 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
             stages.push_back(std::make_shared<nlu::LlmNluProvider>(completion, options.agent->definition().intents(), intentTimeoutMs));
             state->dialog->setLlm(completion);
         }
-        if (stages.size() > 1) state->dialog->setNlu(std::make_shared<nlu::CascadeNluProvider>(std::move(stages)), embeddings);
+        const auto& understanding = config.understanding();
+        if (understanding.has_chat_min_share()) state->dialog->setChatMinShare(understanding.chat_min_share());
+        if (stages.size() > 1)
+            state->dialog->setNlu(std::make_shared<nlu::CascadeNluProvider>(
+                                      std::move(stages), understanding.has_min_confidence() ? understanding.min_confidence() : 0.55f,
+                                      understanding.has_keyword_words() ? understanding.keyword_words() : 6.0f),
+                                  embeddings);
         if (options.context) {
             state->dialog->setContextSource([context = options.context] {
                 google::protobuf::Struct fields;
@@ -561,6 +567,7 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
                 turn->set_event(reply.event);
                 turn->set_flow(conversation.flowName());
                 turn->set_page(conversation.pageName());
+                turn->set_mid_chat(reply.midChat);
                 dispatcher->post(std::move(event));
             }
             for (const auto& trigger : reply.triggers) {

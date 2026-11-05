@@ -500,6 +500,7 @@ Reply FlowRuntime::start() {
 
 Reply FlowRuntime::handleText(const std::string& text) {
     Reply reply;
+    reply.midChat = _llmHasConversation;
     // An answer to a sensitive slot isn't kept as said: its words may not match the value masked later.
     remember(llm::MessageRole::USER, privateTurn() ? "(a private answer)" : text);
     if (!_offer || !answerOffer(text, reply)) takeTurn(text, reply);

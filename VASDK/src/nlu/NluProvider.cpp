@@ -16,8 +16,8 @@ NluResult CascadeNluProvider::understand(const NluRequest& request) const {
         if (result.stage.empty()) result.stage = stage->name();
         // Sure, and of enough of the words: a keyword may stand for a short sentence ("let me talk to a person",
         // up to 6 words a matched word), but a keyword in a long question goes on to the next stage.
-        auto sureness = [](const NluResult& of) {
-            return of.intents.empty() ? 0.0f : of.intents.front().confidence * std::min(1.0f, 6.0f * of.intents.front().explains);
+        auto sureness = [this](const NluResult& of) {
+            return of.intents.empty() ? 0.0f : of.intents.front().confidence * std::min(1.0f, _keywordWords * of.intents.front().explains);
         };
         if (sureness(result) >= _minConfidence) return result;
         if (result.noneMeant) return result;   // "none of them" beats an earlier stage's weak guess

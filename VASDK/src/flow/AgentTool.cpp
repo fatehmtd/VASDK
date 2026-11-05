@@ -5,8 +5,11 @@
 #include "nlu/RuleNluProvider.h"
 
 #include <google/protobuf/util/json_util.h>
-#include <map>
+#include <algorithm>
 #include <array>
+#include <map>
+#include <optional>
+#include <sstream>
 
 #include "flow/CompiledAgent.h"
 #include "flow/FlowRuntime.h"
@@ -36,6 +39,8 @@ int usage(const std::string& program) {
                  "         (an empty line is silence, #2 taps the second choice, !<trigger> {json} fires a trigger)\n"
                  "       %s try <agent> [--entity @name] <words>\n"
                  "       %s eval <agent> <set.txtpb> [--min-accuracy 0.8]   (intent accuracy, entity F1)\n"
+                 "         [--sweep chat_min_share=0.15,0.25,0.5] [--sweep keyword_words=4,6,8] [--sweep min_confidence=...]\n"
+                 "         (accuracy at each combination of the engine config's `understanding` values)\n"
                  "  with an LLM after the rules (test, chat, try, eval):\n"
                  "    --llm                   the endpoint, model and key from LLM_ENDPOINT, LLM_MODEL, LLM_API_KEY\n"
                  "                            (or OPENROUTER_API_KEY, OPENAI_API_KEY)\n"
@@ -199,7 +204,7 @@ int runAgentTool(int argc, char** argv, std::shared_ptr<const FlowRegistry> regi
         std::printf("%d of %d passed\n", argc - 3 - failed, argc - 3);
         return failed == 0 ? 0 : 1;
     }
-    if (command == "eval") {   // eval <agent> <set.txtpb> [--min-accuracy 0.8]
+    if (command == "eval") {   // eval <agent> <set.txtpb> [--min-accuracy 0.8] [--sweep name=v1,v2]...
         if (argc < 4) return usage();
         auto agent = load(agentPath, false);
         if (!agent) return 1;
@@ -210,20 +215,88 @@ int runAgentTool(int argc, char** argv, std::shared_ptr<const FlowRegistry> regi
             return 1;
         }
         double minAccuracy = 0;
-        if (argc >= 6 && std::string(argv[4]) == "--min-accuracy") minAccuracy = std::atof(argv[5]);
-        int right = 0;
+        // The understanding settings (engine config `understanding`), and the values each is tried at.
+        std::vector<std::pair<std::string, std::vector<float>>> settings{
+            {"min_confidence", {0.55f}}, {"keyword_words", {6.0f}}, {"chat_min_share", {0.25f}}};
+        bool swept = false;
+        for (int i = 4; i + 1 < argc; i += 2) {
+            const std::string flag = argv[i];
+            if (flag == "--min-accuracy") {
+                minAccuracy = std::atof(argv[i + 1]);
+                continue;
+            }
+            if (flag != "--sweep") return usage();
+            const std::string sweep = argv[i + 1];
+            const auto equals = sweep.find('=');
+            const std::string name = sweep.substr(0, equals);
+            auto setting = std::find_if(settings.begin(), settings.end(), [&](const auto& known) { return known.first == name; });
+            if (equals == std::string::npos || setting == settings.end()) {
+                std::fprintf(stderr, "--sweep %s: min_confidence, keyword_words or chat_min_share=<value>,<value>...\n", sweep.c_str());
+                return 2;
+            }
+            setting->second.clear();
+            std::stringstream values(sweep.substr(equals + 1));
+            for (std::string value; std::getline(values, value, ',');) setting->second.push_back(static_cast<float>(std::atof(value.c_str())));
+            swept = true;
+        }
+        // An LLM is asked once per sentence, whatever the settings: its answers are kept.
+        std::shared_ptr<const llm::Completion> remembered;
+        if (completion) {
+            struct Remembered : llm::Completion {
+                std::shared_ptr<const llm::Completion> inner;
+                mutable std::map<std::string, std::optional<std::string>> answers;
+                std::optional<std::string> complete(const std::vector<llm::ConversationMessage>& messages) const override {
+                    std::string key;
+                    for (const auto& message : messages) key += message.content + "\n";
+                    const auto found = answers.find(key);
+                    if (found != answers.end()) return found->second;
+                    return answers[key] = inner->complete(messages);
+                }
+            };
+            auto memo = std::make_shared<Remembered>();
+            memo->inner = completion;
+            remembered = memo;
+        }
+        struct Run {
+            float minConfidence = 0, keywordWords = 0, chatMinShare = 0;
+            int right = 0;
+            std::vector<std::string> misses;
+        };
+        auto evaluate = [&](float minConfidence, float keywordWords, float chatMinShare) {
+            Run run{minConfidence, keywordWords, chatMinShare};
+            std::shared_ptr<const nlu::NluProvider> nlu = agent->rules();
+            if (remembered)
+                nlu = std::make_shared<nlu::CascadeNluProvider>(
+                    std::vector<std::shared_ptr<const nlu::NluProvider>>{
+                        agent->rules(), std::make_shared<nlu::LlmNluProvider>(remembered, agent->definition().intents(), 0)},
+                    minConfidence, keywordWords);
+            for (const auto& item : set.cases()) {
+                va::nlu::NluRequest request;
+                request.text = item.text();
+                request.mentions = [&](const std::string& name) { return agent->entities().find(name, item.text()).has_value(); };
+                // Mid-chat, as FlowRuntime has it: the rules only, and only intents that explain most of the words.
+                auto understood = item.mid_chat() ? agent->rules()->understand(request) : nlu->understand(request);
+                if (item.mid_chat())
+                    understood.intents.erase(std::remove_if(understood.intents.begin(), understood.intents.end(),
+                                                            [&](const nlu::IntentMatch& match) { return match.explains < chatMinShare; }),
+                                             understood.intents.end());
+                const std::string intent = understood.intents.empty() ? std::string() : understood.intents.front().intent;
+                if (intent == item.intent()) ++run.right;
+                else run.misses.push_back("\"" + item.text() + "\"" + (item.mid_chat() ? " (mid-chat)" : "") + ": " +
+                                          (intent.empty() ? "(none)" : intent) + ", expected " + (item.intent().empty() ? "(none)" : item.intent()));
+            }
+            return run;
+        };
+        const int total = set.cases_size();
+        auto accuracyOf = [total](const Run& run) { return total ? static_cast<double>(run.right) / total : 1.0; };
+        std::vector<Run> runs;
+        for (const float minConfidence : settings[0].second)
+            for (const float keywordWords : settings[1].second)
+                for (const float chatMinShare : settings[2].second) runs.push_back(evaluate(minConfidence, keywordWords, chatMinShare));
+        const auto best = std::max_element(runs.begin(), runs.end(), [](const Run& a, const Run& b) { return a.right < b.right; });
+
         std::map<std::string, std::array<int, 3>> counts;   // entity → right, found, expected
-        std::vector<std::string> misses;
-        const auto nlu = understander(agent);
         for (const auto& item : set.cases()) {
-            va::nlu::NluRequest request;
-            request.text = item.text();
-            request.mentions = [&](const std::string& name) { return agent->entities().find(name, item.text()).has_value(); };
-            const auto understood = nlu->understand(request);
-            const std::string intent = understood.intents.empty() ? std::string() : understood.intents.front().intent;
-            if (intent == item.intent()) ++right;
-            else misses.push_back("\"" + item.text() + "\": " + (intent.empty() ? "(none)" : intent) + ", expected " +
-                                  (item.intent().empty() ? "(none)" : item.intent()));
             std::map<std::string, std::string> found;
             for (const auto& match : agent->entities().findAll(item.text())) found.emplace(match.entity, toText(match.value));
             for (const auto& [name, value] : found) {
@@ -233,18 +306,23 @@ int runAgentTool(int argc, char** argv, std::shared_ptr<const FlowRegistry> regi
             }
             for (const auto& [name, value] : item.entities()) ++counts[name][2];
         }
-        const int total = set.cases_size();
-        const double accuracy = total ? static_cast<double>(right) / total : 1.0;
-        std::printf("%s: %d utterances, stages %s\nintent accuracy: %.1f%% (%d of %d)\n", agentPath.c_str(), total,
-                    completion ? "rules, llm" : "rules", accuracy * 100, right, total);
+        std::printf("%s: %d utterances, stages %s\n", agentPath.c_str(), total, completion ? "rules, llm" : "rules");
+        if (swept) {
+            if (!completion && (settings[0].second.size() > 1 || settings[1].second.size() > 1))
+                std::printf("(min_confidence and keyword_words only matter with a stage after the rules: --llm)\n");
+            for (const auto& run : runs)
+                std::printf("min_confidence %.2f  keyword_words %.1f  chat_min_share %.2f: %.1f%% (%d of %d)%s\n", run.minConfidence,
+                            run.keywordWords, run.chatMinShare, accuracyOf(run) * 100, run.right, total, &run == &*best ? "  best" : "");
+        }
+        std::printf("intent accuracy: %.1f%% (%d of %d)%s\n", accuracyOf(*best) * 100, best->right, total, swept ? " at the best settings" : "");
         for (const auto& [name, count] : counts) {
             const double precision = count[1] ? static_cast<double>(count[0]) / count[1] : 1.0;
             const double recall = count[2] ? static_cast<double>(count[0]) / count[2] : 1.0;
             const double f1 = precision + recall > 0 ? 2 * precision * recall / (precision + recall) : 0.0;
             std::printf("@%s  precision %.2f  recall %.2f  F1 %.2f\n", name.c_str(), precision, recall, f1);
         }
-        for (const auto& miss : misses) std::printf("  miss %s\n", miss.c_str());
-        return accuracy + 1e-9 >= minAccuracy ? 0 : 1;
+        for (const auto& miss : best->misses) std::printf("  miss %s\n", miss.c_str());
+        return accuracyOf(*best) + 1e-9 >= minAccuracy ? 0 : 1;
     }
     if (command == "try") {
         std::string entity, words;

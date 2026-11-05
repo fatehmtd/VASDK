@@ -127,6 +127,7 @@ message AgentTurn {
   string event = 3;     // what the turn raised: no-match, no-input, max-reprompts, tool-error, clarify; empty if none
   string flow = 4;      // where the conversation is after it
   string page = 5;
+  bool mid_chat = 6;    // answered mid-chat with the LLM: only routes that explain most of the words counted
 }
 
 // The agent ended the conversation (an end step or END_SESSION); the next one starts over.

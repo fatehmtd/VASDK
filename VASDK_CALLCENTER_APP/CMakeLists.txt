@@ -25,6 +25,17 @@ if(VASDK_ENABLE_ENGINE_CONFIG AND TARGET VASDK)
         # The same calls with an LLM after the rules: nothing the agent understands changes
         add_executable(callcenter_suite_test crm/callcenter_suite_test.cpp)
         target_link_libraries(callcenter_suite_test PRIVATE callcenter_tools)
+        if(WIN32)   # a VASDK.dll beside them is loaded first: keep it the current one
+            get_target_property(_vasdk_type VASDK TYPE)
+            if(_vasdk_type STREQUAL "SHARED_LIBRARY")
+                foreach(_tool callcenter_suite_test callcenter_agentc)
+                    if(TARGET ${_tool})
+                        add_custom_command(TARGET ${_tool} POST_BUILD
+                            COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:VASDK> $<TARGET_FILE_DIR:${_tool}>)
+                    endif()
+                endforeach()
+            endif()
+        endif()
         add_test(NAME vasdk_agent_callcenter_with_llm COMMAND callcenter_suite_test ${CALLCENTER_AGENT_DIR})
     endif()
 endif()

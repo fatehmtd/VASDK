@@ -22,6 +22,13 @@ if(VASDK_ENABLE_ENGINE_CONFIG AND TARGET VASDK)
 
     add_executable(garage_agentc ${GARAGE_DIR}/extensions/garage_agentc.cpp)
     target_link_libraries(garage_agentc PRIVATE garage_extensions)
+    if(WIN32 AND TARGET VASDK)   # a VASDK.dll beside it is loaded first: keep it the current one
+        get_target_property(_vasdk_type VASDK TYPE)
+        if(_vasdk_type STREQUAL "SHARED_LIBRARY")
+            add_custom_command(TARGET garage_agentc POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:VASDK> $<TARGET_FILE_DIR:garage_agentc>)
+        endif()
+    endif()
 
     if(VASDK_BUILD_TESTS)
         file(GLOB GARAGE_MENU_TESTS ${GARAGE_DIR}/tests/*.txtpb)

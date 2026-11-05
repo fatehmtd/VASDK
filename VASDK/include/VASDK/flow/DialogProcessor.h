@@ -74,6 +74,8 @@ public:
     /** Starts the conversation over at the start page, params at their defaults; the greeting
      *  comes on the next activation. Thread-safe. */
     void restart();
+    /** Mid-chat, the share of the words a route must account for (FlowRuntime::setChatMinShare). Before start(). */
+    void setChatMinShare(float share);
     /** Before start(): the greeting resumes the conversation from `snapshot` (FlowRuntime::resume), once. */
     void setResumeFrom(nlohmann::json snapshot) { _resumeFrom = std::move(snapshot); }
     /** The user tapped the last reply's choice at `index`, from 0 (FlowRuntime::selectChoice). Thread-safe. */
@@ -131,6 +133,7 @@ private:
     bool _privateAnswer = false;    // the last question's answer is private
     bool _greetingPending = true;
     nlohmann::json _resumeFrom;     // the first greeting resumes from it, when set
+    float _chatMinShare = 0.25f;
     transport::AgentState _agentState = transport::AgentState::IDLE;
     bool _connected = true;
     std::atomic<bool> _passUnmatchedTurns{false};   // off while the network is down

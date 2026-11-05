@@ -66,4 +66,5 @@ message NluEvalCase {
   string text = 1;
   string intent = 2;                 // empty: no intent should match
   map<string, string> entities = 3;  // entity name (without @) → its value
+  bool mid_chat = 4;                 // said mid-chat with the LLM: judged as the agent does then (rules, most of the words)
 }

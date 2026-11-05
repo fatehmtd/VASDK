@@ -162,6 +162,15 @@ message EngineConfig {
   Audio audio = 6;
   Security security = 7;
   RemoteControl remote_control = 8;
+  Understanding understanding = 9;
+}
+
+// How sure an agent's understanding must be: judgement calls, to measure on what users say
+// (vasdk_agentc eval --sweep). Each unset value is the default.
+message Understanding {
+  optional float min_confidence = 1;   // a stage's answer is taken from this confidence; unset: 0.55
+  optional float keyword_words = 2;    // a matched word may stand for a sentence this many words long; unset: 6
+  optional float chat_min_share = 3;   // mid-chat with the LLM, the share of the words a route must explain; unset: 0.25
 }
 
 // Watch, and with CONTROL drive, a running session from a browser or a script, over HTTP:

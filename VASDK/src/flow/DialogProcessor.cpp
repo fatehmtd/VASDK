@@ -116,7 +116,14 @@ DialogProcessor::DialogProcessor(std::shared_ptr<const CompiledAgent> agent)
         _timedTriggers = _timedTriggers || trigger.source().has_schedule() || trigger.source().has_context_change();
 }
 
+void DialogProcessor::setChatMinShare(float share) {
+    _chatMinShare = share;
+    prepare(_conversation);
+    prepare(_beforeLastTurn);
+}
+
 void DialogProcessor::prepare(FlowRuntime& conversation) {
+    conversation.setChatMinShare(_chatMinShare);
     conversation.setContextSource(_contextSource);
     if (_toolCaller) conversation.setToolCaller(_toolCaller);
     if (_nlu) conversation.setNlu(_nlu);
