@@ -152,6 +152,11 @@ const LLMConfig& LLMProcessor::getConfig() const {
     return _transport->getConfig();
 }
 
+void LLMProcessor::setProfiles(std::map<std::string, LLMConfig> profiles) {
+    _profiles = std::move(profiles);
+    if (_transport && !_profiles.empty()) _defaultConfig = _transport->getConfig();
+}
+
 void LLMProcessor::setHistoryEnabled(bool enabled) {
     if (_transport) {
         _transport->setHistoryEnabled(enabled);
@@ -471,6 +476,13 @@ void LLMProcessor::processDownstream(std::shared_ptr<transport::Frame> frame) {
             spdlog::info("[LLMProcessor] Offline: not asked; \"{}\"", reply);
             pushSpeech(reply, true);
             return;
+        }
+        if (_defaultConfig) {   // with profiles: the one the turn names, else the default
+            const auto named = turn->llmProfile.empty() ? _profiles.end() : _profiles.find(turn->llmProfile);
+            if (!turn->llmProfile.empty() && named == _profiles.end())
+                spdlog::warn("[LLMProcessor] no LLM profile \"{}\": the default answers", turn->llmProfile);
+            _turnConfig = named != _profiles.end() ? named->second : *_defaultConfig;
+            if (named != _profiles.end()) spdlog::info("[LLMProcessor] answered by profile \"{}\" ({})", named->first, named->second.model);
         }
         dispatchLLMRequest(turn->text, turn->confidence, turn->replacesPrevious);
         return;
@@ -871,7 +883,22 @@ std::string LLMProcessor::dispatchRequestNow(const std::string& text, float conf
     frame->transcriptionResult.confidence = confidence;
     frame->timestamp = transport::Frame::getCurrentTimestamp();
     frame->sourceId = getName();
-    enqueueRequest([this, frame] { _transport->sendFrame(frame); });
+    enqueueRequest([this, frame, config = _turnConfig] {
+        if (config) {   // a profile's turn, or back to the default: switched before its request, on this thread
+            const auto& now = _transport->getConfig();
+            if (now.endpoint != config->endpoint || now.model != config->model || now.apiKey != config->apiKey ||
+                now.reasoningEffort != config->reasoningEffort)
+                _transport->setConfig(*config);
+        }
+        const bool answered = _transport->sendFrame(frame);
+        // Failed or timed out with nothing said, and not cut off by the user: say so.
+        if (!answered && !_speechOpen && !_awaitingToolFollowUp && !_failureReplies.empty() &&
+            _runningGeneration.load() == _currentGeneration.load()) {
+            const auto& reply = _failureReplies[_nextFailureReply++ % _failureReplies.size()];
+            spdlog::warn("[LLMProcessor] no answer from the LLM: \"{}\"", reply);
+            pushSpeech(reply, true);
+        }
+    });
     return requestText;
 }
 

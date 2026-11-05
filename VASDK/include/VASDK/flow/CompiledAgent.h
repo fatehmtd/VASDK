@@ -130,6 +130,9 @@ VASDK_EXPORT bool fitsType(vasdk::flow::SessionParam::Type type, const Value& va
 inline constexpr const char* kTargetEndSession = "END_SESSION";
 inline constexpr const char* kTargetCurrentPage = "CURRENT_PAGE";
 inline constexpr const char* kTargetEndFlow = "END_FLOW";
+/** A route's: the session's LLM conversation answers the turn (Reply::toLlm); the route's steps are
+ *  the answer without one, and the conversation stays on the page. */
+inline constexpr const char* kTargetLlm = "LLM";
 
 /** Handler events. */
 inline constexpr const char* kEventNoMatch = "no-match";

@@ -216,28 +216,72 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::load(const std::string& path
     vasdk::flow::Agent agent;
     // No ${ENV} expansion: secrets belong in the engine config, never in an agent.
     if (!engine::loadProtoFile(path, agent, error, false, imports ? &imports->pool : nullptr)) return nullptr;
-    for (const auto& file : agent.goal_files()) {
-        vasdk::goal::GoalDefinition goal;
-        std::string goalError;
-        if (!engine::loadProtoFile((directory / file).string(), goal, &goalError)) {
-            if (error) *error = "goal_files " + quoted(file) + ": " + goalError;
-            return nullptr;
+    const auto* pool = imports ? &imports->pool : nullptr;
+
+    // A file's goal and entity files, relative to it; then the files it includes, merged in.
+    std::vector<std::filesystem::path> including{std::filesystem::absolute(path).lexically_normal()};
+    std::function<bool(vasdk::flow::Agent&, const std::filesystem::path&, const std::string&)> expand;
+    expand = [&](vasdk::flow::Agent& part, const std::filesystem::path& dir, const std::string& where) {
+        for (const auto& file : part.goal_files()) {
+            vasdk::goal::GoalDefinition goal;
+            std::string goalError;
+            if (!engine::loadProtoFile((dir / file).string(), goal, &goalError)) {
+                if (error) *error = where + "goal_files " + quoted(file) + ": " + goalError;
+                return false;
+            }
+            *part.add_goals() = std::move(goal);
         }
-        *agent.add_goals() = std::move(goal);
-    }
-    for (const auto& file : agent.entity_files()) {
-        vasdk::nlu::EntityPack pack;
-        std::string packError;
-        if (!engine::loadProtoFile((directory / file).string(), pack, &packError)) {
-            if (error) *error = "entity_files " + quoted(file) + ": " + packError;
-            return nullptr;
+        part.clear_goal_files();
+        for (const auto& file : part.entity_files()) {
+            vasdk::nlu::EntityPack pack;
+            std::string packError;
+            if (!engine::loadProtoFile((dir / file).string(), pack, &packError)) {
+                if (error) *error = where + "entity_files " + quoted(file) + ": " + packError;
+                return false;
+            }
+            for (auto& type : *pack.mutable_entity_types()) {
+                const bool own = std::any_of(part.entity_types().begin(), part.entity_types().end(),
+                                             [&type](const vasdk::nlu::EntityType& declared) { return declared.name() == type.name(); });
+                if (!own) *part.add_entity_types() = std::move(type);
+            }
         }
-        for (auto& type : *pack.mutable_entity_types()) {
-            const bool own = std::any_of(agent.entity_types().begin(), agent.entity_types().end(),
-                                         [&type](const vasdk::nlu::EntityType& declared) { return declared.name() == type.name(); });
-            if (!own) *agent.add_entity_types() = std::move(type);
+        part.clear_entity_files();
+        const auto files = part.include_files();
+        part.clear_include_files();
+        for (const auto& file : files) {
+            const auto included = std::filesystem::absolute(dir / file).lexically_normal();
+            const auto label = "include_files " + quoted(file) + ": ";
+            if (std::find(including.begin(), including.end(), included) != including.end()) {
+                if (error) *error = where + label + "includes itself";
+                return false;
+            }
+            vasdk::flow::Agent more;
+            std::string moreError;
+            if (!engine::loadProtoFile(included.string(), more, &moreError, false, pool)) {
+                if (error) *error = where + label + moreError;
+                return false;
+            }
+            std::vector<std::string> owned;   // what only the main file sets
+            if (more.schema_version() != 0) owned.push_back("schema_version");
+            if (!more.name().empty()) owned.push_back("name");
+            if (!more.locale().empty()) owned.push_back("locale");
+            if (!more.start_flow().empty()) owned.push_back("start_flow");
+            if (more.has_proactive_policy()) owned.push_back("proactive_policy");
+            if (more.proto_imports_size() > 0) owned.push_back("proto_imports");
+            if (!owned.empty()) {
+                std::string list;
+                for (const auto& field : owned) list += (list.empty() ? "" : ", ") + field;
+                if (error) *error = where + label + list + ": only the main agent file sets these";
+                return false;
+            }
+            including.push_back(included);
+            if (!expand(more, included.parent_path(), where + label)) return false;
+            including.pop_back();
+            part.MergeFrom(more);   // repeated fields are appended: its intents, flows, envelopes...
         }
-    }
+        return true;
+    };
+    if (!expand(agent, directory, "")) return nullptr;
     return build(std::move(agent), std::move(imports), std::move(registry), error, warnings);
 }
 
@@ -709,7 +753,9 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::build(vasdk::flow::Agent age
             usedIntents.insert(route.intent());
             checkSteps(route.steps(), routeWhere);
             routeEntity.clear();
-            checkTarget(route.target(), routeWhere);
+            if (route.target() != kTargetLlm) checkTarget(route.target(), routeWhere);
+            if (!route.llm_profile().empty() && route.target() != kTargetLlm)
+                check.error(routeWhere, "llm_profile " + quoted(route.llm_profile()) + " without target LLM: no LLM answers this route");
         }
     };
     auto checkHandlers = [&](const google::protobuf::RepeatedPtrField<vasdk::flow::Handler>& handlers, const std::string& where) {

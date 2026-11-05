@@ -38,6 +38,12 @@ message Agent {
   // Entity packs: files of entity types (vasdk.nlu.EntityPack) shared between agents, relative to
   // this file, e.g. VASDK's own entities/country.txtpb. A type the agent declares itself wins.
   repeated string entity_files = 24;
+  // More of this agent, from files of their own (each a vasdk.flow.Agent), relative to this file:
+  // an app's verticals (climate, media, navigation), each with its intents, entities, envelopes,
+  // flows, triggers, knowledge and goals. They are merged in, in order, after this file's own;
+  // their goal_files, entity_files and include_files are relative to them. Only the main file
+  // sets schema_version, name, locale, start_flow, proactive_policy and proto_imports.
+  repeated string include_files = 25;
 }
 
 // An answer to questions people ask: when no route understands the words and they ask one of
@@ -191,8 +197,12 @@ message Route {
   // A page of this flow, "flow:<name>" (its start page, remembering where it came from),
   // "END_FLOW" (back to where this flow was entered from; ends the conversation in the start
   // flow), "CURRENT_PAGE" (enter this page again) or "END_SESSION". Empty: stay on the page
-  // without entering it again.
+  // without entering it again. "LLM": the session's LLM conversation answers the turn; the
+  // steps are the answer without one, and the conversation stays on the page.
   string target = 3;
+  // With target LLM: the engine config's llm_profiles entry that answers this turn ("smart" for a
+  // story, the default for chat). Unset: the config's `llm`.
+  string llm_profile = 6;
 }
 
 message Step {
@@ -307,6 +317,7 @@ message Llm {
   repeated string allowed_targets = 2;   // as Route.target
   repeated Step offline = 3;
   repeated string filler = 4;          // said, in turn, when the LLM takes more than a second ("Let me think.")
+  string profile = 5;                  // the engine config's llm_profiles entry; unset: understanding.llm_profile, else `llm`
 }
 
 // Empties one of the page's form slots, so the form asks for it again (and confirms again).

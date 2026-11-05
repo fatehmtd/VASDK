@@ -129,6 +129,7 @@ void DialogProcessor::prepare(FlowRuntime& conversation) {
     if (_nlu) conversation.setNlu(_nlu);
     if (_embeddings) conversation.setEmbeddings(_embeddings);
     if (_llm) conversation.setLlm(_llm);
+    conversation.setLlmProfiles(_llmProfiles);
     conversation.setInterrupted([this] { return _givenUpBefore.load() > _answering; });
     conversation.setFillerSink([this](const Reply& sofar) {
         auto frame = std::make_shared<ReplyFrame>();
@@ -361,6 +362,12 @@ void DialogProcessor::setLlm(std::shared_ptr<const llm::Completion> completion) 
     prepare(_beforeLastTurn);
 }
 
+void DialogProcessor::setLlmProfiles(std::map<std::string, std::shared_ptr<const llm::Completion>> profiles) {
+    _llmProfiles = std::move(profiles);
+    prepare(_conversation);
+    prepare(_beforeLastTurn);
+}
+
 void DialogProcessor::setToolCaller(ToolCaller caller) {
     _toolCaller = std::move(caller);
     _conversation.setToolCaller(_toolCaller);
@@ -389,6 +396,8 @@ void DialogProcessor::processFrame(std::shared_ptr<transport::Frame> frame, pipe
         _noInputMs = ready.noInputMs;
         if (ready.mayPassOn && _passUnmatchedTurns) {
             _flowMetrics.passedToLlm.increment();
+            // The LLM a route named answers it (llm_profile); otherwise the conversation's own.
+            if (auto turn = std::dynamic_pointer_cast<transport::UserTurnFrame>(ready.turn)) turn->llmProfile = ready.reply.llmProfile;
             pushDownstream(ready.turn);
             return;
         }
@@ -433,11 +442,18 @@ void DialogProcessor::processFrame(std::shared_ptr<transport::Frame> frame, pipe
             _flowMetrics.turns.increment();
             _flowMetrics.turnMs.observe(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
             spdlog::info("[Dialog] \"{}\" → {} on {}/{}", privateAnswer ? maskValue(turn.text) : redact(turn.text, reply.sensitiveValues),
-                         reply.matched ? "route " + reply.intent : "not understood", _conversation.flowName(), _conversation.pageName());
-            const bool mayPassOn = !reply.matched && !privateAnswer;   // a private answer never goes to an LLM
+                         reply.matched ? "route " + reply.intent + (reply.toLlm ? " → LLM" : "") : "not understood",
+                         _conversation.flowName(), _conversation.pageName());
+            // Not understood, or a route that hands the turn to the LLM (target LLM); a private answer never goes to one.
+            const bool mayPassOn = (!reply.matched || reply.toLlm) && !privateAnswer;
             // The LLM takes the turn: the agent's miss (its count, a no-match or max-reprompts handler) never happened.
             const bool passOn = mayPassOn && _passUnmatchedTurns;
             if (passOn) _conversation = _beforeLastTurn;
+            // A route's llm_profile keeps the conversation with that LLM: a quiz's answers, nothing
+            // understood, go to the profile that asked the question, until a route answers a turn.
+            if (passOn && reply.toLlm) _llmProfile = reply.llmProfile;
+            else if (!passOn && !reply.intent.empty()) _llmProfile.clear();
+            if (passOn) reply.llmProfile = _llmProfile;
             // The LLM keeps the conversation until the agent takes a route ("You're welcome." doesn't).
             if (passOn || !reply.intent.empty()) _llmTookLastTurn = passOn;
             deliver(std::move(reply), frame, mayPassOn);

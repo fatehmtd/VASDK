@@ -350,6 +350,34 @@ int main() {
         check(reply.text.find("Which service") != std::string::npos, "and the slot is asked again: " + reply.text);
     }
 
+    // On a generative page the page's LLM has the conversation: the words are its own unless a rule
+    // explains enough of them. The intent check isn't asked, so its guess can't take them ("Paris" in a
+    // quiz isn't a booking), and a rule matching a small part of them doesn't either.
+    {
+        auto llm = std::make_shared<ScriptedLlm>();
+        int intentChecks = 0;
+        llm->answer = [&intentChecks](const auto& messages) {
+            if (asksForIntent(messages)) {
+                ++intentChecks;
+                return std::string(R"({"intent": "book"})");
+            }
+            return std::string(R"({"say": "Paris it is: right!"})");
+        };
+        FlowRuntime conversation(agent);
+        assist(conversation, agent, llm);
+        conversation.start();
+        conversation.handleText("let's chat");
+        intentChecks = 0;
+        auto reply = conversation.handleText("Paris");
+        check(conversation.pageName() == "advice" && reply.text == "Paris it is: right!" && intentChecks == 0,
+              "the page's LLM answers, not the intent check's guess: " + reply.text);
+        reply = conversation.handleText("I read that the hours of a day on Venus are longer than its year");
+        check(conversation.pageName() == "advice" && reply.text == "Paris it is: right!",
+              "nor a rule for a small part of the words (hours): " + reply.text);
+        reply = conversation.handleText("when are you open");
+        check(reply.text.rfind("We're open 8 to 6.", 0) == 0, "a rule that explains them still answers: " + reply.text);
+    }
+
     // A generative page: its routes first, then the LLM; it moves only to allowed targets.
     {
         auto llm = std::make_shared<ScriptedLlm>();
@@ -459,6 +487,52 @@ int main() {
         for (const auto& message : llm->lastMessages) sent += message.content + "\n";
         check(llm->calls > 0 && sent.find("555 123 4567") == std::string::npos && sent.find("5551234567") == std::string::npos,
               "the phone number is masked: " + sent);
+    }
+
+    // LLM profiles: an llm step or a generative page that names one asks it, the rest ask the default;
+    // an unknown name, the default. A route that hands its turn on says which profile answers it.
+    {
+        vasdk::flow::Agent definition;
+        const bool parsed = google::protobuf::TextFormat::ParseFromString(R"(
+          start_flow: "main"
+          intents { name: "story" examples: ["tell me a story"] }
+          intents { name: "hello" examples: ["hello"] }
+          intents { name: "odd" examples: ["something odd"] }
+          intents { name: "chat" examples: ["let's chat"] }
+          intents { name: "trivia" examples: ["trivia"] }
+          flows { name: "main" start_page: "welcome"
+            pages { name: "welcome"
+              routes { intent: "story" steps { llm { instructions: "Tell a story." profile: "smart" } } }
+              routes { intent: "hello" steps { llm { instructions: "Say hello." } } }
+              routes { intent: "odd" steps { llm { instructions: "Say hello." profile: "nope" } } }
+              routes { intent: "trivia" target: "LLM" llm_profile: "smart" }
+              routes { intent: "chat" target: "advice" } }
+            pages { name: "advice" type: "generative"
+              params { [type.googleapis.com/vasdk.flow.GenerativeParams] { instructions: "Advise." profile: "smart" } } } }
+        )", &definition);
+        check(parsed, "the profiles agent parses");
+        auto agent = compile(definition);
+        auto fast = std::make_shared<ScriptedLlm>();
+        auto smart = std::make_shared<ScriptedLlm>();
+        fast->answer = [](const auto&) { return std::string(R"({"say": "Fast."})"); };
+        smart->answer = [](const auto&) { return std::string(R"({"say": "Smart."})"); };
+        FlowRuntime conversation(agent);
+        conversation.setLlm(fast);
+        conversation.setLlmProfiles({{"smart", smart}});
+        conversation.setLlmFillerAfterMs(60000);
+        conversation.start();
+        check(conversation.handleText("tell me a story").text == "Smart.", "an llm step's profile answers it");
+        check(conversation.handleText("hello").text == "Fast.", "a step that names none: the default");
+        check(conversation.handleText("something odd").text == "Fast.", "an unknown profile: the default");
+        const auto handed = conversation.handleText("trivia");
+        check(handed.toLlm && handed.llmProfile == "smart", "a route that hands its turn on names its profile");
+        conversation.handleText("let's chat");
+        check(conversation.handleText("how often should I change my oil").text == "Smart.", "a generative page's profile answers on it");
+
+        definition.mutable_flows(0)->mutable_pages(0)->mutable_routes(1)->set_llm_profile("smart");
+        std::string error;
+        check(!CompiledAgent::compile(definition, &error) && error.find("without target LLM") != std::string::npos,
+              "llm_profile on a route that doesn't hand its turn on fails the load: " + error);
     }
 
     if (failures == 0) std::printf("llm_assist_test: all passed\n");

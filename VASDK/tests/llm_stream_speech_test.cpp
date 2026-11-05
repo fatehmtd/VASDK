@@ -51,16 +51,24 @@ public:
     std::vector<std::string> replies;  // one per request when set (tool round trips)
     std::atomic<int> requests{0};
     bool anthropic = false;
-    std::string lastBody;
+    bool timesOut = false;   // every request fails, as a timeout does
+    std::string lastBody, lastUrl;
     std::atomic<bool> cancelled{false};
     std::atomic<int> generation{0};  // like CurlHttpProvider: a cancel hits requests started before it
     Clock::time_point cancelTime, returnTime;
 
-    network::HttpResponse post(const std::string&, const std::map<std::string, std::string>&, const std::string& body,
+    network::HttpResponse post(const std::string& url, const std::map<std::string, std::string>&, const std::string& body,
                                int, std::function<void(const std::string&)> onChunk) override {
         cancelled = false;
         const int gen = generation.load();
         lastBody = body;
+        lastUrl = url;
+        if (timesOut) {
+            ++requests;
+            network::HttpResponse failed;
+            failed.error = {network::NetworkErrorCode::Timeout, "Timeout was reached"};
+            return failed;
+        }
         const int n = requests++;
         const std::string reply =
             replies.empty() ? this->reply : replies[std::min<size_t>(n, replies.size() - 1)];
@@ -364,6 +372,43 @@ void extraPayloadMergedIntoRequests() {
     }
 }
 
+// A turn that names an LLM profile (a route's llm_profile) is answered by it; the next turn that
+// names none by the default. One conversation, one history, whichever model answers.
+void profileAnswersTheTurnsThatNameIt() {
+    Rig rig(R"({"text": "Sure."})");
+    llm::LLMConfig smart = rig.transport->getConfig();
+    smart.model = "smart-model";
+    smart.endpoint = "http://localhost:2/v1/chat/completions";
+    rig.llm->setProfiles({{"smart", smart}});
+    auto turn = [&rig](const std::string& text, const std::string& profile) {
+        auto frame = std::make_shared<transport::UserTurnFrame>();
+        frame->text = text;
+        frame->confidence = 1.0f;
+        frame->llmProfile = profile;
+        rig.llm->processFrame(frame, pipeline::FlowDirection::DOWNSTREAM);
+        std::this_thread::sleep_for(600ms);
+        return nlohmann::json::parse(rig.http->lastBody).value("model", std::string());
+    };
+    check(turn("Tell me a story.", "smart") == "smart-model" && rig.http->lastUrl == smart.endpoint,
+          "[profiles] the turn that names one is answered by it, at its endpoint");
+    check(turn("Thanks.", "") == "fake" && rig.http->lastUrl == "http://localhost:1/v1/chat/completions",
+          "[profiles] the next turn by the default");
+    check(turn("Again.", "nope") == "fake", "[profiles] an unknown one: the default");
+    check(rig.userTurnsInHistory().size() == 3, "[profiles] one history across them");
+}
+
+// A request that fails with nothing said: the user hears that, not silence.
+void failedRequestIsSaid() {
+    Rig rig(R"({"text": "Sure."})");
+    rig.llm->setFailureReplies({"Sorry, that took too long."});
+    rig.http->timesOut = true;
+    rig.userSays("Tell me a long story.");
+    std::this_thread::sleep_for(600ms);
+    const auto frames = rig.recorder->snapshot();
+    check(!frames.empty() && frames.back().text == "Sorry, that took too long." && frames.back().isFinal,
+          "[failure] a failed request is said, not left in silence");
+}
+
 void backchannelGoesWithTheNextMessage() {
     Rig rig(R"({"text": "Sure."})");
     auto backchannel = std::make_shared<transport::TranscriptionFrame>();
@@ -434,6 +479,8 @@ int main() {
     speculationCancelledWhenUserResumes();
     speculativeToolCallNeverRuns();
     extraPayloadMergedIntoRequests();
+    profileAnswersTheTurnsThatNameIt();
+    failedRequestIsSaid();
     backchannelGoesWithTheNextMessage();
     followUpMergedWithInterruptedTurn();
     followUpKeepsStagedUnsentFinal();

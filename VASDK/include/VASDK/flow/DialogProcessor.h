@@ -99,6 +99,8 @@ public:
     void setNlu(std::shared_ptr<const nlu::NluProvider> provider, std::shared_ptr<const nlu::EmbeddingNluProvider> embeddings = nullptr);
     /** What `llm` steps, generative pages and unread form answers ask (FlowRuntime::setLlm). Before start(). */
     void setLlm(std::shared_ptr<const llm::Completion> completion);
+    /** The engine config's llm_profiles, for `llm` steps and generative pages that name one (FlowRuntime::setLlmProfiles). Before start(). */
+    void setLlmProfiles(std::map<std::string, std::shared_ptr<const llm::Completion>> profiles);
     /** How call_tool steps reach tools (FlowRuntime::setToolCaller). Before start(). */
     void setToolCaller(ToolCaller caller);
     /**
@@ -136,6 +138,7 @@ private:
     std::shared_ptr<const nlu::NluProvider> _nlu;
     std::shared_ptr<const nlu::EmbeddingNluProvider> _embeddings;
     std::shared_ptr<const llm::Completion> _llm;
+    std::map<std::string, std::shared_ptr<const llm::Completion>> _llmProfiles;
     std::thread _conversationThread;
     std::mutex _tasksMutex;
     std::condition_variable _tasksChanged;
@@ -151,6 +154,7 @@ private:
     bool _connected = true;
     std::atomic<bool> _passUnmatchedTurns{false};   // off while the network is down
     bool _llmTookLastTurn = false;                   // on the conversation's thread
+    std::string _llmProfile;                         // the profile the LLM conversation is with: a route's llm_profile, until a route answers
     // Turns are numbered as they come; those below _givenUpBefore stop waiting for the LLM.
     std::atomic<uint64_t> _turnsSeen{0};
     std::atomic<uint64_t> _givenUpBefore{0};

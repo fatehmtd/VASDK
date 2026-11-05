@@ -102,6 +102,28 @@ private:
 };
 
 
+// An llm_profiles entry as an LLMConfig: `base` (llm's) with what the profile sets. A profile of
+// another API than llm's starts from that API's defaults, not from llm's endpoint and model.
+llm::LLMConfig profileConfig(const vasdk::engine::LlmConfig& llm, const vasdk::engine::LlmProfile& profile, llm::LLMConfig base) {
+    const auto api = profile.has_api() ? profile.api() : llm.api();
+    if (api != llm.api()) {
+        const bool anthropic = api == vasdk::engine::LlmConfig::ANTHROPIC;
+        base.endpoint = anthropic ? "https://api.anthropic.com/v1/messages" : "";
+        base.model = anthropic ? "claude-opus-5-5" : "";
+        base.apiKey.clear();
+        base.reasoningEffort.clear();
+    }
+    if (!profile.endpoint().empty()) base.endpoint = profile.endpoint();
+    if (!profile.model().empty()) base.model = profile.model();
+    if (!profile.api_key().empty()) base.apiKey = profile.api_key();
+    if (!profile.effort().empty()) base.reasoningEffort = profile.effort();
+    return base;
+}
+
+bool profileIsAnthropic(const vasdk::engine::LlmConfig& llm, const vasdk::engine::LlmProfile& profile) {
+    return (profile.has_api() ? profile.api() : llm.api()) == vasdk::engine::LlmConfig::ANTHROPIC;
+}
+
 // The agent's LLM, off while the network is down, and for a while after a request fails, so
 // each turn doesn't wait out the timeout of an LLM that can't be reached.
 class GatedCompletion : public llm::Completion {
@@ -485,6 +507,12 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
     if (state->llmTransport) {
         if (!options.responseFormatInstruction.empty())
             state->llmTransport->setResponseFormatInstruction(options.responseFormatInstruction);
+        // {context} in the system prompt: the app's context as it is when each request is sent
+        // (the car's speed, where it's going), not as it was when the session started.
+        if (options.context)
+            state->llmTransport->registerTemplateVar("context", [context = options.context](llm::ChatFormat) {
+                return context->getContext().dump();
+            });
         state->llmTransport->onError = [tag = state->logTag](int code, const std::string& message) {
             spdlog::error("{} LLM error [{}]: {}", tag, code, message);
         };
@@ -497,6 +525,20 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
                                                        ? llmSettings.speculative_min_words() : 3);
         state->llm->setToolFillerPhrases({llmSettings.tool_filler_phrases().begin(),
                                           llmSettings.tool_filler_phrases().end()});
+        // The profiles the conversation may switch to, turn by turn: those of its API
+        std::map<std::string, llm::LLMConfig> conversationProfiles;
+        for (const auto& profile : config.llm_profiles()) {
+            if (profile.name().empty()) continue;
+            if (profileIsAnthropic(config.llm(), profile) != anthropic) {
+                spdlog::info("{} LLM profile \"{}\": for the agent only (another API than llm's)", state->logTag, profile.name());
+                continue;
+            }
+            conversationProfiles[profile.name()] = profileConfig(config.llm(), profile, state->llmTransport->getConfig());
+        }
+        if (!conversationProfiles.empty()) state->llm->setProfiles(std::move(conversationProfiles));
+        std::vector<std::string> failureReplies{llmSettings.failure_replies().begin(), llmSettings.failure_replies().end()};
+        if (failureReplies.empty()) failureReplies = {"Sorry, I couldn't get an answer just now. Could you ask me again?"};
+        state->llm->setFailureReplies(std::move(failureReplies));
         // The network down and the LLM elsewhere: the user is told, rather than left waiting for
         // a request that fails. An app's own transport (llama.cpp) and a server on this machine answer.
         if (!options.llmTransport && !onThisMachine(state->llmTransport->getConfig().endpoint)) {
@@ -520,17 +562,32 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
         state->dialog->setToolCaller(flow::ToolRunner::caller(std::make_shared<flow::ToolRunner>(options.agent, config.security())));
         // Understanding: the agent's examples, then paraphrases by meaning, then an LLM.
         auto completion = options.llmCompletion;
-        if (!completion && config.has_llm() && (!config.llm().endpoint().empty() || anthropic)) {
-            llm::LLMConfig completionConfig;
-            completionConfig.endpoint = config.llm().endpoint();
-            completionConfig.apiKey = config.llm().api_key();
-            completionConfig.model = config.llm().model();
-            completionConfig.temperature = 0.0f;
-            completionConfig.maxTokens = 400;
-            completionConfig.timeoutMs = 8000;   // a voice turn can't wait longer
-            completionConfig.reasoningEffort = config.llm().effort();
-            if (anthropic) completion = std::make_shared<llm::AnthropicCompletion>(completionConfig);
-            else completion = std::make_shared<llm::OpenAICompletion>(completionConfig);
+        llm::LLMConfig completionConfig;
+        completionConfig.endpoint = config.llm().endpoint();
+        completionConfig.apiKey = config.llm().api_key();
+        completionConfig.model = config.llm().model();
+        completionConfig.temperature = 0.0f;
+        completionConfig.maxTokens = 400;
+        completionConfig.timeoutMs = 8000;   // a voice turn can't wait longer
+        completionConfig.reasoningEffort = config.llm().effort();
+        auto completionOf = [](const llm::LLMConfig& given, bool claude) -> std::shared_ptr<const llm::Completion> {
+            if (claude) return std::make_shared<llm::AnthropicCompletion>(given);
+            return std::make_shared<llm::OpenAICompletion>(given);
+        };
+        if (!completion && config.has_llm() && (!config.llm().endpoint().empty() || anthropic))
+            completion = completionOf(completionConfig, anthropic);
+        // The profiles, for the agent: what llm steps and generative pages name, and understanding's
+        std::map<std::string, std::shared_ptr<const llm::Completion>> agentProfiles;
+        for (const auto& profile : config.llm_profiles()) {
+            if (profile.name().empty()) continue;
+            const auto given = profileConfig(config.llm(), profile, completionConfig);
+            if (given.endpoint.empty() && !profileIsAnthropic(config.llm(), profile)) {
+                spdlog::warn("{} LLM profile \"{}\" has no endpoint: not used", state->logTag, profile.name());
+                continue;
+            }
+            agentProfiles[profile.name()] = std::make_shared<GatedCompletion>(completionOf(given, profileIsAnthropic(config.llm(), profile)),
+                                                                             state->llmOffline);
+            spdlog::info("{} LLM profile \"{}\": {} ({})", state->logTag, profile.name(), given.endpoint, given.model);
         }
         std::vector<std::shared_ptr<const nlu::NluProvider>> stages{options.agent->rules()};
         std::shared_ptr<const nlu::EmbeddingNluProvider> embeddings;
@@ -551,8 +608,14 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
                 spdlog::info("{} embeddings: {} read from {}, {} encoded now", state->logTag, loaded, cachePath.string(), encodedNow);
             }
         }
+        if (completion) completion = std::make_shared<GatedCompletion>(completion, state->llmOffline);
+        // What the agent asks at speed (the intent check, form answers): understanding's profile
+        if (const auto& name = config.understanding().llm_profile(); !name.empty()) {
+            if (const auto found = agentProfiles.find(name); found != agentProfiles.end()) completion = found->second;
+            else spdlog::warn("{} understanding.llm_profile \"{}\" isn't in llm_profiles: llm is asked", state->logTag, name);
+        }
+        state->dialog->setLlmProfiles(agentProfiles);
         if (completion) {
-            completion = std::make_shared<GatedCompletion>(completion, state->llmOffline);
             const int intentTimeoutMs = config.llm().has_intent_timeout_ms() ? config.llm().intent_timeout_ms() : 1500;
             stages.push_back(std::make_shared<nlu::LlmNluProvider>(completion, options.agent->definition().intents(), intentTimeoutMs));
             state->dialog->setLlm(completion);

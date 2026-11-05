@@ -470,6 +470,7 @@ namespace va {
                 cloned->confidence = confidence;
                 cloned->replacesPrevious = replacesPrevious;
                 cloned->turnId = turnId;
+                cloned->llmProfile = llmProfile;
                 return cloned;
             }
 
@@ -478,6 +479,7 @@ namespace va {
             bool replacesPrevious = false;  // the user resumed the previous turn: `text` starts with it,
                                             // so the previous exchange must be undone before answering
             uint64_t turnId = 0;            // increases with every turn
+            std::string llmProfile;         // the engine config's llm_profiles entry to answer it; "": llm
         };
 
         /**

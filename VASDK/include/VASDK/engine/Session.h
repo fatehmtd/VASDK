@@ -59,6 +59,8 @@ public:
         std::shared_ptr<transport::AudioTransport> transport;
         /** Names the session in logs and in every event's session_id, e.g. a call id. */
         std::string id;
+        /** The LLM's instructions. `{context}` in them is replaced, on every request, by `context`
+         *  as JSON as it is then. */
         std::string systemPrompt = "You are a helpful voice assistant. Keep responses brief and conversational.";
         /** Appended to every LLM request: how the reply must be formatted. */
         std::string responseFormatInstruction;

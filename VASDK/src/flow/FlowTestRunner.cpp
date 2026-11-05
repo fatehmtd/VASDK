@@ -103,6 +103,10 @@ FlowTestResult runFlowTest(std::shared_ptr<const CompiledAgent> agent, const vas
         if (expect.has_expects_reply() && reply.expectsReply != expect.expects_reply())
             fail(std::string("expects_reply is ") + yesNo(reply.expectsReply) + ", expected " +
                  yesNo(expect.expects_reply()));
+        if (expect.has_llm_profile() && reply.llmProfile != expect.llm_profile())
+            fail("llm_profile is " + quoted(reply.llmProfile) + ", expected " + quoted(expect.llm_profile()));
+        if (expect.has_to_llm() && reply.toLlm != expect.to_llm())
+            fail(std::string("to_llm is ") + yesNo(reply.toLlm) + ", expected " + yesNo(expect.to_llm()));
         if (expect.has_ends_session() && reply.endsSession != expect.ends_session())
             fail(std::string("ends_session is ") + yesNo(reply.endsSession) + ", expected " +
                  yesNo(expect.ends_session()));

@@ -75,7 +75,10 @@ public:
     void processFrame(std::shared_ptr<transport::Frame> frame, pipeline::FlowDirection) override {
         std::lock_guard<std::mutex> lock(mutex);
         if (auto text = std::dynamic_pointer_cast<transport::TextFrame>(frame)) texts.push_back(*text);
-        if (frame->getType() == transport::FrameType::USER_TURN) ++turns;
+        if (frame->getType() == transport::FrameType::USER_TURN) {
+            ++turns;
+            profiles.push_back(static_cast<const transport::UserTurnFrame&>(*frame).llmProfile);
+        }
     }
     std::vector<transport::TextFrame> settled() {
         std::this_thread::sleep_for(50ms);
@@ -84,6 +87,7 @@ public:
     }
     std::mutex mutex;
     std::vector<transport::TextFrame> texts;
+    std::vector<std::string> profiles;   // each passed turn's llmProfile
     int turns = 0;
 };
 
@@ -433,6 +437,98 @@ int main() {
         const auto texts = recorder->settled();
         check(recorder->turns == 5 && texts.size() == 1 && texts[0].text == "Booking.",
               "five turns to the LLM (\"book\" in a sentence to it stays with it), then \"book\" brings the agent back");
+        dialog->stop();
+        recorder->stop();
+    }
+
+    // Envelopes compete: the best match wins, not the first envelope with any. "stop navigation" is
+    // the navigation's though music's envelope comes first and its "stop" is in the words; on a tie
+    // the first envelope's.
+    {
+        auto competing = compile(R"(
+          start_flow: "main"
+          intents { name: "pause" examples: ["stop", "pause"] }
+          intents { name: "stop_navigation" examples: ["stop navigation", "stop the directions"] }
+          intents { name: "help" examples: ["help"] }
+          envelopes: ["music", "navigation"]
+          envelope_defs { name: "music" routes { intent: "pause" steps { say { text: "Paused." } } }
+                                        routes { intent: "help" steps { say { text: "Music help." } } } }
+          envelope_defs { name: "navigation" routes { intent: "stop_navigation" steps { say { text: "Directions off." } } }
+                                             routes { intent: "help" steps { say { text: "Navigation help." } } } }
+          flows { name: "main" start_page: "welcome"
+            pages { name: "welcome" } }
+        )");
+        flow::FlowRuntime conversation(competing);
+        conversation.start();
+        check(conversation.handleText("stop navigation").text == "Directions off.", "the longer match, in the later envelope");
+        check(conversation.handleText("stop").text == "Paused.", "the only match");
+        check(conversation.handleText("help").text == "Music help.", "a tie: the first envelope's");
+    }
+
+    // A route with target LLM: the agent understood the words, and hands them to the LLM. With one, the
+    // turn goes on to it and the route's steps aren't said; without one, they're the answer. The
+    // conversation stays on the page either way.
+    {
+        auto handing = compile(R"(
+          start_flow: "main"
+          intents { name: "story" examples: ["tell me a story"] }
+          intents { name: "book" examples: ["book"] }
+          flows { name: "main" start_page: "welcome"
+            pages { name: "welcome"
+                    routes { intent: "story" steps { say { text: "Stories need the internet." } } target: "LLM" }
+                    routes { intent: "book" steps { say { text: "Booking." } } } } }
+        )");
+        flow::FlowRuntime offline(handing);
+        offline.start();
+        const auto reply = offline.handleText("tell me a story");
+        check(reply.toLlm && reply.matched && reply.text == "Stories need the internet." && offline.pageName() == "welcome",
+              ("without an LLM, the route's steps answer: " + reply.text).c_str());
+
+        auto dialog = std::make_shared<flow::DialogProcessor>(handing);
+        auto recorder = std::make_shared<Recorder>();
+        dialog->setPassUnmatchedTurns(true);
+        dialog->setDownstream(recorder);
+        recorder->initialize();
+        recorder->start();
+        dialog->initialize();
+        dialog->start();
+        dialog->processFrame(userTurn("tell me a story"), pipeline::FlowDirection::DOWNSTREAM);
+        check(recorder->settled().empty() && recorder->turns == 1, "with an LLM, the turn goes on to it, and nothing is said here");
+        dialog->processFrame(userTurn("book"), pipeline::FlowDirection::DOWNSTREAM);
+        const auto texts = recorder->settled();
+        check(texts.size() == 1 && texts[0].text == "Booking.", "and the agent's own routes still answer");
+        dialog->stop();
+        recorder->stop();
+    }
+
+    // A route's llm_profile goes with the turn to the LLM, and stays with the turns nothing understood
+    // (a quiz's answers) until a route answers one.
+    {
+        auto tiers = compile(R"(
+          start_flow: "main"
+          intents { name: "trivia" examples: ["quiz me"] }
+          intents { name: "joke" examples: ["tell me a joke"] }
+          intents { name: "book" examples: ["book"] }
+          flows { name: "main" start_page: "welcome"
+            pages { name: "welcome"
+                    routes { intent: "trivia" target: "LLM" llm_profile: "smart" }
+                    routes { intent: "joke" target: "LLM" }
+                    routes { intent: "book" steps { say { text: "Booking." } } } } }
+        )");
+        auto dialog = std::make_shared<flow::DialogProcessor>(tiers);
+        auto recorder = std::make_shared<Recorder>();
+        dialog->setPassUnmatchedTurns(true);
+        dialog->setDownstream(recorder);
+        recorder->initialize();
+        recorder->start();
+        dialog->initialize();
+        dialog->start();
+        for (const char* words : {"quiz me", "Paris", "Jupiter", "book", "what's the weather", "quiz me", "tell me a joke", "ha ha"})
+            dialog->processFrame(userTurn(words), pipeline::FlowDirection::DOWNSTREAM);
+        recorder->settled();
+        const std::vector<std::string> expected{"smart", "smart", "smart", "", "smart", "", ""};
+        check(recorder->profiles == expected,
+              "the quiz's profile answers its answers; a route the agent answers ends it; a route without one is the default's");
         dialog->stop();
         recorder->stop();
     }

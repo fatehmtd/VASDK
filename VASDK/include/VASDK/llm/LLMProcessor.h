@@ -7,8 +7,10 @@
 #include <VASDK/metrics/MetricsCollector.h>
 #include <VASDK/metrics/MetricHandles.h>
 #include <VASDK/metrics/MetricsConfig.h>
+#include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 #include <utility>
@@ -49,6 +51,16 @@ public:
 
     void setConfig(const LLMConfig& config);
     const LLMConfig& getConfig() const;
+    /**
+     * The engine config's llm_profiles the conversation may switch to, by name: a turn that names
+     * one (UserTurnFrame::llmProfile, a route's llm_profile) is answered by it, tool round trips
+     * included, and the next turn that names none by the config this had when profiles were set.
+     * The history is the same whichever answers. An unknown name: the default, logged.
+     */
+    void setProfiles(std::map<std::string, LLMConfig> profiles);
+    /** Said, in turn, when a turn's request fails or times out before anything was said (not when
+     *  the user cut it off). Empty: silence, as before. */
+    void setFailureReplies(std::vector<std::string> replies) { _failureReplies = std::move(replies); }
 
     void setHistoryEnabled(bool enabled);
     void clearHistory();
@@ -140,6 +152,11 @@ private:
     void dispatchLLMRequest(const std::string& text, float confidence, bool replacesPrevious = false);
     // Returns the user message as written to history (with any back-channel note).
     std::string dispatchRequestNow(const std::string& text, float confidence);
+    std::map<std::string, LLMConfig> _profiles;   // setProfiles
+    std::optional<LLMConfig> _defaultConfig;      // the config when they were set
+    std::optional<LLMConfig> _turnConfig;         // what the current turn is answered with; unset: no profiles
+    std::vector<std::string> _failureReplies;     // setFailureReplies
+    size_t _nextFailureReply = 0;
 
     // The last confirmed turn as written to history: rolled back when the user resumes it.
     std::mutex  _lastTurnMutex;

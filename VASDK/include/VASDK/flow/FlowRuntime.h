@@ -68,6 +68,8 @@ struct Reply {
     bool endsSession = false;      // the conversation ended with this reply
     bool givenUp = false;          // the turn was given up while the LLM thought (setInterrupted): say nothing
     bool midChat = false;          // answered mid-chat with the LLM (setLlmHasConversation): the stricter rules applied
+    bool toLlm = false;            // a route with target LLM: the session's LLM answers; text is the answer without one
+    std::string llmProfile;        // with toLlm: the route's llm_profile, the LLM that answers ("": the config's llm)
     bool cutsIn = false;           // an IMMEDIATE trigger's: said over the reply playing, which is cut off
     std::vector<PageChange> pageChanges;
     std::vector<ReplyToolCall> toolCalls;
@@ -219,6 +221,7 @@ public:
      *  So does an entity route's entity ("tire repair", not "tire repair" in a story about last year's).
      *  And a reply that would ask the page's question again ("You're welcome.", "Are you still there?") doesn't. */
     void setLlmHasConversation(bool has) { _llmHasConversation = has; }
+    /* On a generative page the same holds: the page's LLM has the conversation. */
     /** Mid-chat, the share of the words an intent or an entity route's entity must account for. Default 0.25. */
     void setChatMinShare(float share) { _chatMinShare = share; }
     float chatMinShare() const { return _chatMinShare; }
@@ -232,6 +235,9 @@ public:
      */
     void setLlm(std::shared_ptr<const llm::Completion> completion) { _llm = std::move(completion); }
     bool hasLlm() const { return _llm != nullptr; }
+    /** The engine config's llm_profiles, by name: an `llm` step or a generative page that names a
+     *  profile asks that one; an unknown name asks setLlm's, logged. */
+    void setLlmProfiles(std::map<std::string, std::shared_ptr<const llm::Completion>> profiles) { _llmProfiles = std::move(profiles); }
     /** The current values of the sensitive slots and session params, as stored and as said. */
     std::vector<std::string> sensitiveValues() const;
     /** The value a reference resolves to now ($session.tier, $form.day, $nlu.entities.service, ...). */
@@ -296,11 +302,13 @@ private:
         bool said = false;
     };
     std::optional<LlmTurn> askLlm(const std::string& instructions, const Texts* allowedTargets, bool speaks, Reply& reply,
-                                  const Texts* filler = nullptr, const void* fillerKey = nullptr);
-    std::optional<std::string> waitForLlm(std::vector<llm::ConversationMessage> messages, const Texts* filler,
-                                          const void* fillerKey, Reply& reply);
+                                  const Texts* filler = nullptr, const void* fillerKey = nullptr, const std::string& profile = {});
+    std::optional<std::string> waitForLlm(std::shared_ptr<const llm::Completion> llm, std::vector<llm::ConversationMessage> messages,
+                                          const Texts* filler, const void* fillerKey, Reply& reply);
+    std::shared_ptr<const llm::Completion> completionFor(const std::string& profile) const;
     const vasdk::flow::GenerativeParams* generativePage() const;
     bool privateTurn() const;
+    bool chatting() const;   // mid-chat with an LLM: the session's (setLlmHasConversation), or on a generative page
     void remember(llm::MessageRole role, const std::string& text);
     const nlu::NluResult& understanding();
     void listenFor(Reply& reply) const;
@@ -418,6 +426,7 @@ private:
     std::function<bool()> _interrupted;
     int _llmFillerAfterMs = 1000;
     std::shared_ptr<const llm::Completion> _llm;
+    std::map<std::string, std::shared_ptr<const llm::Completion>> _llmProfiles;   // setLlmProfiles
     std::deque<llm::ConversationMessage> _transcript;   // the last turns, for the LLM
     static constexpr size_t kTranscriptSize = 12;
 };

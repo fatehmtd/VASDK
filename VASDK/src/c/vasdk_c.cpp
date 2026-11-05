@@ -79,6 +79,7 @@ nlohmann::json parsedOr(const std::string& json, nlohmann::json fallback) {
 char* replyJson(const va::flow::Reply& reply, const va::flow::FlowRuntime& runtime) {
     nlohmann::json out{{"text", reply.text}, {"matched", reply.matched}, {"intent", reply.intent}, {"event", reply.event},
                        {"expects_reply", reply.expectsReply}, {"ends_session", reply.endsSession},
+                       {"to_llm", reply.toLlm}, {"llm_profile", reply.llmProfile},
                        {"flow", runtime.flowName()}, {"page", runtime.pageName()}};
     auto& segments = out["segments"] = nlohmann::json::array();
     for (const auto& segment : reply.segments) segments.push_back({{"text", segment.text}, {"interruptible", segment.interruptible}});

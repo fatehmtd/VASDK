@@ -52,6 +52,10 @@ message LlmConfig {
   // it can first. unset: "I can't reach the internet right now, so I can't answer that. Please
   // try again in a moment."
   repeated string offline_replies = 11;
+  // Said, in turn, when a request for a user's turn fails or times out with nothing said yet, so
+  // the user isn't left in silence. unset: "Sorry, I couldn't get an answer just now. Could you
+  // ask me again?"
+  repeated string failure_replies = 12;
 }
 
 // How quickly the assistant decides the user has finished speaking.
@@ -176,6 +180,22 @@ message EngineConfig {
   Security security = 7;
   RemoteControl remote_control = 8;
   Understanding understanding = 9;
+  // More LLMs, by name, for the tasks that name one: a small, fast model for the intent check
+  // (understanding.llm_profile), a capable one for the hard turns (a route's llm_profile, an llm
+  // step's or a generative page's profile). What else isn't named uses `llm`.
+  repeated LlmProfile llm_profiles = 10;
+}
+
+// One more LLM. Each field left unset is `llm`'s, so a profile may be only another model on the
+// same endpoint: llm_profiles { name: "smart" model: "claude-opus-5-5" }. The conversation (a route's
+// llm_profile) can switch only between profiles of `llm`'s api: one conversation, one API.
+message LlmProfile {
+  string name = 1;
+  string endpoint = 2;
+  string model = 3;
+  string api_key = 4;
+  optional LlmConfig.Api api = 5;
+  string effort = 6;          // reasoning effort, as llm.effort
 }
 
 // How sure an agent's understanding must be: judgement calls, to measure on what users say
@@ -184,6 +204,9 @@ message Understanding {
   optional float min_confidence = 1;   // a stage's answer is taken from this confidence; unset: 0.55
   optional float keyword_words = 2;    // a matched word may stand for a sentence this many words long; unset: 6
   optional float chat_min_share = 3;   // mid-chat with the LLM, the share of the words a route must explain; unset: 0.25
+  // The llm_profiles entry the agent asks what its rules aren't sure of (the intent check, form
+  // answers) and runs llm steps and generative pages with, unless they name their own. Unset: `llm`.
+  string llm_profile = 4;
 }
 
 // Watch, and with CONTROL drive, a running session from a browser or a script, over HTTP:

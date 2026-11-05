@@ -637,7 +637,7 @@ void FlowRuntime::takeTurn(const std::string& text, Reply& reply) {
             // An answer the slots can't read: the LLM may find their values in it.
             static const std::string kReadForm = "The user is filling in a form and said something its rules can't read.";
             const auto turn = generative ? askLlm(generative->instructions(), &generative->allowed_targets(), true, reply,
-                                                  &generative->filler(), generative)
+                                                  &generative->filler(), generative, generative->profile())
                                          : askLlm(kReadForm, nullptr, false, reply);
             if (turn && (turn->filled > 0 || turn->said || turn->outcome.moves())) {
                 _misses = 0;
@@ -650,7 +650,7 @@ void FlowRuntime::takeTurn(const std::string& text, Reply& reply) {
         if (answerFromKnowledge(0.6f, reply)) return;   // a question the agent knows the answer to
         if (generative) {   // what the page's routes don't answer, the LLM does
             if (const auto turn = askLlm(generative->instructions(), &generative->allowed_targets(), true, reply,
-                                              &generative->filler(), generative);
+                                              &generative->filler(), generative, generative->profile());
                 turn && (turn->said || turn->outcome.moves())) {
                 _misses = 0;
                 follow(answered(turn->outcome, reply), reply);
@@ -787,16 +787,54 @@ std::string FlowRuntime::chosenValue(const std::string& text) const {
     return text;
 }
 
-// The question's expect narrows what's matched: only its intents on the page, and no envelope
-// routes without allow_global.
+// The page's own routes first, however short their example. Then the envelopes' (the page's, the
+// flow's, the agent's): their intent routes compete, and the best score wins, so "some chill music"
+// is the music's even when a climate envelope comes first and its "chilly" matches a word. On a
+// tie, the first layer's. Only when no envelope has an intent match is the first entity or
+// condition route taken. The question's expect narrows what's matched: only its intents on the
+// page, and no envelope routes without allow_global.
 const vasdk::flow::Route* FlowRuntime::matchRoute() {
     const bool global = !_expectation.has_allow_global() || _expectation.allow_global();
+    const auto& understood = understanding();
+    auto scoreOf = [&understood](const std::string& intent) {
+        for (const auto& match : understood.intents)
+            if (match.intent == intent) return match.score;
+        return 0.0f;
+    };
+    const vasdk::flow::Route* best = nullptr;
+    float bestScore = 0;
+    std::optional<EntityMatch> bestEntity;
+    std::vector<std::string> bestAlternatives;
+    const vasdk::flow::Route* fallback = nullptr;   // the first envelope's entity or condition route
+    std::optional<EntityMatch> fallbackEntity;
     for (const auto& layer : _agent->layers(_position)) {
         const bool own = layer.settings == nullptr;
         if (!own && !global) continue;
-        if (const auto* route = matchRoute(*layer.routes, own ? &_expectation.intents() : nullptr)) return route;
+        const auto* route = matchRoute(*layer.routes, own ? &_expectation.intents() : nullptr);
+        if (!route) continue;
+        if (own) return route;
+        if (route->intent().empty()) {
+            if (!fallback) {
+                fallback = route;
+                fallbackEntity = _entity;
+            }
+            continue;
+        }
+        if (const float score = scoreOf(route->intent()); score > bestScore) {
+            best = route;
+            bestScore = score;
+            bestEntity = _entity;
+            bestAlternatives = _alternatives;
+        }
     }
-    return nullptr;
+    if (best) {
+        _entity = std::move(bestEntity);
+        _alternatives = std::move(bestAlternatives);
+        return best;
+    }
+    _entity = std::move(fallbackEntity);
+    _alternatives.clear();
+    return fallback;
 }
 
 bool FlowRuntime::asksFreeText() const {
@@ -867,7 +905,7 @@ const vasdk::flow::Route* FlowRuntime::matchRoute(const google::protobuf::Repeat
     // not a service named in a story about last year's.
     std::optional<size_t> wordCount;
     auto entityIsTheAnswer = [&] {
-        if (!_llmHasConversation) return true;
+        if (!chatting()) return true;
         if (!wordCount) wordCount = entityWords(_inputText).size();
         return *wordCount == 0 || static_cast<float>(_entity->length) >= _chatMinShare * static_cast<float>(*wordCount);
     };
@@ -899,6 +937,11 @@ FlowRuntime::Outcome FlowRuntime::takeRoute(const vasdk::flow::Route& route, Rep
     reply.intent = _intent = route.intent();
     auto outcome = run(route.steps(), reply);
     if (outcome.moves()) return outcome;
+    if (route.target() == kTargetLlm) {   // the LLM's to answer; offline, the steps were the answer
+        reply.toLlm = true;
+        reply.llmProfile = route.llm_profile();
+        return outcome;
+    }
     return toTarget(route.target(), "route:" + route.intent());
 }
 
@@ -1007,7 +1050,8 @@ FlowRuntime::Outcome FlowRuntime::run(const google::protobuf::RepeatedPtrField<v
             break;
         case vasdk::flow::Step::kLlm: {
             const auto& llmStep = step.llm();
-            const auto turn = askLlm(llmStep.instructions(), &llmStep.allowed_targets(), true, reply, &llmStep.filler(), &llmStep);
+            const auto turn = askLlm(llmStep.instructions(), &llmStep.allowed_targets(), true, reply, &llmStep.filler(), &llmStep,
+                                     llmStep.profile());
             if (turn && (turn->said || turn->outcome.moves())) {
                 if (turn->outcome.moves()) return turn->outcome;
                 break;
@@ -1080,9 +1124,10 @@ const nlu::NluResult& FlowRuntime::understanding() {
             return _agent->entities().find(entity, _inputText, _dynamicEntities, now()).has_value();
         };
         request.sensitive = privateTurn();
-        const std::shared_ptr<const nlu::NluProvider> provider = _nlu && !_llmHasConversation ? _nlu : _agent->rules();
+        const bool chat = chatting();
+        const std::shared_ptr<const nlu::NluProvider> provider = _nlu && !chat ? _nlu : _agent->rules();
         _understood = provider->understand(request);
-        if (_llmHasConversation) {
+        if (chat) {
             auto& intents = _understood->intents;
             intents.erase(std::remove_if(intents.begin(), intents.end(),
                                          [this](const nlu::IntentMatch& match) { return match.explains < _chatMinShare; }),
@@ -1106,6 +1151,11 @@ bool FlowRuntime::privateTurn() const {
     return slot && slot->sensitive();
 }
 
+// Mid-chat with an LLM: the session's took the last turn, or this page's LLM answers what its
+// routes don't (a story, a game). Then the words are the chat's unless a command is enough of them:
+// "Paris" in a quiz isn't "navigate", by the LLM's guess or a sentence encoder's.
+bool FlowRuntime::chatting() const { return _llmHasConversation || generativePage() != nullptr; }
+
 const vasdk::flow::GenerativeParams* FlowRuntime::generativePage() const {
     if (!started() || _agent->page(_position).type() != "generative") return nullptr;
     const auto& extensions = _agent->extensions(_position);
@@ -1118,9 +1168,19 @@ const vasdk::flow::GenerativeParams* FlowRuntime::generativePage() const {
 // Asks the LLM about the turn: it may say a reply (`speaks`), move to one of allowedTargets and
 // fill the form's slots, each only with what the slot reads in the words it gives. nullopt
 // without an LLM, on a private turn, or when it fails.
+// The LLM a step or a page names (llm_profiles), else setLlm's.
+std::shared_ptr<const llm::Completion> FlowRuntime::completionFor(const std::string& profile) const {
+    if (profile.empty()) return _llm;
+    if (const auto found = _llmProfiles.find(profile); found != _llmProfiles.end()) return found->second;
+    spdlog::warn("[FlowRuntime] no LLM profile \"{}\" in the engine config: the default LLM answers", profile);
+    return _llm;
+}
+
 std::optional<FlowRuntime::LlmTurn> FlowRuntime::askLlm(const std::string& instructions, const Texts* allowedTargets,
-                                                        bool speaks, Reply& reply, const Texts* filler, const void* fillerKey) {
-    if (!_llm || privateTurn()) return std::nullopt;
+                                                        bool speaks, Reply& reply, const Texts* filler, const void* fillerKey,
+                                                        const std::string& profile) {
+    const auto llm = completionFor(profile);
+    if (!llm || privateTurn()) return std::nullopt;
     const bool form = formActive();
     std::string system = render(instructions);
     if (!_agent->definition().name().empty()) system += "\nYou speak for the voice assistant \"" + _agent->definition().name() + "\".";
@@ -1149,7 +1209,7 @@ std::optional<FlowRuntime::LlmTurn> FlowRuntime::askLlm(const std::string& instr
     if (allowedTargets)
         for (const auto& target : *allowedTargets) targets += (targets.empty() ? "" : ", ") + target;
     system += "\nReply with only a JSON object:\n{";
-    if (speaks) system += "\"say\": \"<your reply: short, spoken, no lists or markup>\"";
+    if (speaks) system += "\"say\": \"<your reply, spoken: no lists or markup; short unless the instructions say otherwise>\"";
     if (!targets.empty()) system += std::string(speaks ? ", " : "") + "\"goto\": \"<" + targets + ", or empty to stay>\"";
     if (!slots.empty())
         system += std::string(speaks || !targets.empty() ? ", " : "") +
@@ -1163,7 +1223,7 @@ std::optional<FlowRuntime::LlmTurn> FlowRuntime::askLlm(const std::string& instr
         message.content = redact(message.content, masked);
         messages.push_back(std::move(message));
     }
-    const auto answer = waitForLlm(std::move(messages), speaks ? filler : nullptr, fillerKey, reply);
+    const auto answer = waitForLlm(llm, std::move(messages), speaks ? filler : nullptr, fillerKey, reply);
     if (!answer) return std::nullopt;
 
     LlmTurn turn;
@@ -1219,7 +1279,8 @@ std::optional<FlowRuntime::LlmTurn> FlowRuntime::askLlm(const std::string& instr
 // what the turn has said so far and a filler phrase go to the filler sink, to be heard meanwhile.
 // When the turn is given up (_interrupted), it stops waiting: nullopt, and the reply is givenUp.
 // The request runs to its own timeout; its answer is then dropped.
-std::optional<std::string> FlowRuntime::waitForLlm(std::vector<llm::ConversationMessage> messages, const Texts* filler,
+std::optional<std::string> FlowRuntime::waitForLlm(std::shared_ptr<const llm::Completion> llm,
+                                                   std::vector<llm::ConversationMessage> messages, const Texts* filler,
                                                    const void* fillerKey, Reply& reply) {
     struct Pending {
         std::mutex mutex;
@@ -1228,7 +1289,7 @@ std::optional<std::string> FlowRuntime::waitForLlm(std::vector<llm::Conversation
         std::optional<std::string> answer;
     };
     auto pending = std::make_shared<Pending>();
-    std::thread([pending, llm = _llm, messages = std::move(messages)] {
+    std::thread([pending, llm = std::move(llm), messages = std::move(messages)] {
         auto answer = llm->complete(messages);
         std::lock_guard<std::mutex> lock(pending->mutex);
         pending->answer = std::move(answer);
@@ -1817,10 +1878,11 @@ bool FlowRuntime::formActive() const {
 bool FlowRuntime::fillNamedValues(const std::string& text, bool overwrite) {
     bool filled = false;
     for (const auto& slot : _form->goal->slots()) {
-        // Only values that can't be mistaken: a list value, or a list or pattern entity.
+        // Only values that can't be mistaken: a list value, or a list, pattern or code entity (the
+        // app's own values: "text Sam" names a contact).
         const auto* entity = _agent->entities().type(entityName(slot.entity()));
         const bool named = slot.entity().empty() ? slot.type() == vasdk::goal::Slot::ENUM
-                                                 : entity && (entity->has_list() || entity->has_pattern());
+                                                 : entity && (entity->has_list() || entity->has_pattern() || entity->has_code());
         if (!named || slot.name() == _form->asking) continue;
         if (!overwrite && !_form->state->slotValueJson(slot.name()).is_null()) continue;
         const auto value = readSlot(slot, text);

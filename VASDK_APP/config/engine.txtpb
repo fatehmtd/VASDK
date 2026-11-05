@@ -42,4 +42,10 @@ turn_taking {
 llm {
   endpoint: "${LLM_ENDPOINT:-}"
   model: "${LLM_MODEL:-}"
+  # failure_replies: ["Sorry, I lost my train of thought. Could you say that again?"]   # said when a request fails
 }
+# More LLMs, by name, for the tasks that name one (docs/reference/engine-config.md, "Different LLMs for
+# different tasks"). Each field left unset is llm's:
+# llm_profiles { name: "fast"  model: "liquid/lfm2.5-1.2b" }        # a small model on the same endpoint
+# llm_profiles { name: "smart" api: ANTHROPIC api_key: "${ANTHROPIC_API_KEY:-}" }
+# understanding { llm_profile: "fast" }                             # the agent's intent check

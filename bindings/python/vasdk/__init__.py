@@ -294,8 +294,9 @@ class Agent:
 
 class Conversation:
     """One conversation's place in an agent, by text. Each turn returns the reply as a dict:
-    text, segments, choices, matched, intent, event, expects_reply, ends_session, flow, page,
-    tool_calls, triggers."""
+    text, segments, choices, matched, intent, event, expects_reply, ends_session, to_llm,
+    llm_profile, flow, page, tool_calls, triggers. With to_llm, a route handed the turn to an LLM:
+    answer it with yours (llm_profile says which); text is the answer without one."""
 
     def __init__(self, agent):
         self._agent = agent

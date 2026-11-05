@@ -41,4 +41,5 @@ message GenerativeParams {
   string instructions = 1;
   repeated string allowed_targets = 2;   // as Route.target
   repeated string filler = 3;            // as Llm.filler
+  string profile = 4;                    // as Llm.profile
 }

@@ -52,6 +52,8 @@ message TurnExpectation {
   Expectation.Mode expect_mode = 13;   // what the reply expects the user to say
   Expectation.Keyboard keyboard = 14;
   optional int32 follow_up_listen_ms = 15;
+  optional bool to_llm = 18;           // a route handed the turn to the session's LLM (target LLM)
+  optional string llm_profile = 19;    // and the llm_profiles entry it named ("" for the config's llm)
   repeated string tools_called = 16;
   TriggerDecision trigger_decision = 17;   // what became of fire_trigger   // the tools call_tool called this turn, in order   // how long the mic stays open after the reply, by the agent's settings
 }
