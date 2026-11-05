@@ -76,7 +76,7 @@ No wake-word provider ships yet (milestone 28), so `WAKE_WORD` and `HYBRID` need
 
 `providers { sentence_encoder { id: "minilm" options { [type.googleapis.com/vasdk.providers.MiniLmOptions] { model_dir: "models/minilm" } } } }` lets agents understand paraphrases after their rules, and answer knowledge questions by meaning (see [Understanding](flows.md#understanding)). Without it, agents understand by their examples alone.
 
-`understanding { min_confidence: 0.55 keyword_words: 6 chat_min_share: 0.25 }` (the defaults) sets how sure an agent's understanding must be. A stage's answer is taken from `min_confidence`. A matched word stands for a sentence of up to `keyword_words` words; in a longer one it counts for less, and the next stage (an LLM) is asked. Mid-chat with the LLM, a route takes the turn back only when it explains `chat_min_share` of the words. Measure them on what your users say with `vasdk_agentc eval --sweep` ([flows](flows.md)).
+`understanding { min_confidence: 0.55 keyword_words: 6 chat_min_share: 0.25 }` (the defaults) sets how sure an agent's understanding must be. `llm_profile: "fast"` has a small model do the intent check ([Different LLMs for different tasks](#different-llms-for-different-tasks)). A stage's answer is taken from `min_confidence`. A matched word stands for a sentence of up to `keyword_words` words; in a longer one it counts for less, and the next stage (an LLM) is asked. Mid-chat with the LLM, a route takes the turn back only when it explains `chat_min_share` of the words. Measure them on what your users say with `vasdk_agentc eval --sweep` ([flows](flows.md)).
 
 `sentence_encoder_cache: "garage.embeddings"` (in `providers`, relative to `models_dir`) keeps the encoder's vectors of the agent's examples and knowledge questions in a file. A session reads it when it starts, encodes only what isn't in it, and writes the file again when it encoded anything. So only the first start encodes, and later starts (a phone app's) read the file; an app can also ship one made on a desktop. A file made by another encoder is ignored.
 
@@ -159,6 +159,7 @@ llm {
 | `intent_timeout_ms` | With an agent: how long a turn waits for the LLM's intent check (asked only when the rules and the on-device model aren't sure). After that the rules' guess stands. A late answer doesn't rest the LLM. Default 1500; 0 or less waits up to the LLM's own 8 s. `vasdk_agentc` always waits. |
 | `api` | `OPENAI_COMPATIBLE` (default): chat completions, as OpenAI, OpenRouter, LM Studio, vLLM, a llama.cpp server or Ollama speak it. `ANTHROPIC`: Claude through the Messages API (`anthropic-version: 2026-10-21`), for the conversation and the agent; `endpoint` defaults to `https://api.anthropic.com/v1/messages` and `model` to `claude-opus-5-5`. No sampling settings are sent on that API version. On models that have one, a request a safety classifier declines is retried on another model (`fallbacks: "default"`). |
 | `effort` | Reasoning effort (`none`, `low`, `medium`, `high`) for the agent's requests, and for the conversation's on OpenAI-compatible endpoints (sent as `reasoning_effort`). `none` makes a thinking model (in LM Studio, say) answer at once, as a voice turn needs. Unset: `low` for the agent on current Claude models; the endpoint's own default otherwise. |
+| `failure_replies` | Said in turn when a request for a user's turn fails or times out before anything was said, so the user doesn't wait in silence. Not when the user cut it off. Default: "Sorry, I couldn't get an answer just now. Could you ask me again?" |
 | `offline_replies` | Said in turn for a turn that would go to the LLM while the network is down (`Session::setNetworkAvailable(false)`), so the user hears why there's no answer. Only for an endpoint elsewhere: one on this machine (`localhost`, `127.x`) or an app's own transport (llama.cpp) still answers. With an agent, it answers what it can first. Default: "I can't reach the internet right now, so I can't answer that. Please try again in a moment." |
 
 Claude directly:
@@ -170,6 +171,29 @@ llm { api: ANTHROPIC api_key: "${ANTHROPIC_API_KEY}" }
 An agent can also ask a model run on the device: `VASDK_Pipeline --agent-llm-model-path qwen2.5-1.5b-instruct-q4_k_m.gguf` (or `transport::LlamaCppCompletion` in `Session::Options::llmCompletion`) answers its questions with llama.cpp in-process, with no network.
 
 These apply also when the app passes its own LLM transport in code, as VASDK_CallCenter does with `--llm-endpoint`.
+
+### Different LLMs for different tasks
+
+A car command or a menu choice is a rule and asks no LLM. For the rest, `llm_profiles` names more LLMs, and each task can say which one answers it:
+
+```textproto
+llm { endpoint: "${LLM_ENDPOINT}" model: "${LLM_MODEL}" api_key: "${LLM_API_KEY}" }   # chat, tools: the default
+llm_profiles { name: "fast"  model: "liquid/lfm2.5-1.2b" }                            # same endpoint, a small model
+llm_profiles { name: "smart" api: ANTHROPIC api_key: "${ANTHROPIC_API_KEY}" }         # Claude
+understanding { llm_profile: "fast" }
+```
+
+| Task | Answered by |
+| --- | --- |
+| The intent check (what the rules aren't sure of), form answers the slots can't read | `understanding.llm_profile`, else `llm` |
+| An `llm` step, a generative page | its `profile`, else `understanding.llm_profile`, else `llm` |
+| A turn a route hands to the LLM (`target: "LLM"`) | the route's `llm_profile`, and the turns after it that nothing understood (a quiz's answers), until a route answers one |
+| Any other turn the agent doesn't understand, or with no agent | `llm` |
+
+- **A profile only says what differs.** Each field left unset is `llm`'s, so `llm_profiles { name: "fast" model: "..." }` is another model on the same endpoint. A profile of another `api` starts from that API's defaults.
+- **The conversation is one, whichever model answers.** It keeps a single history, and a tool round trip is answered by the turn's model. It can switch only between profiles of `llm`'s `api`; a profile of another API is the agent's only, as the session logs at start.
+- **An unknown name** in an agent is answered by the default, with a warning.
+- **On one machine,** each tier must stay loaded. LM Studio, for one, unloads a model to load another, and a request that arrives meanwhile fails (`failure_replies` is said).
 
 `models_dir` sets the base directory for local model files. When it is unset, VASDK_Pipeline uses the `models/` folder it finds next to the executable. A relative path is resolved from the current directory.
 

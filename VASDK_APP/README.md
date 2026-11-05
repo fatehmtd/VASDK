@@ -1,69 +1,19 @@
-# VASDK_Pipeline: the general-purpose voice assistant showcase
+# VASDK_Pipeline
 
-`VASDK_Pipeline` is the reference application for the SDK: a complete, push-to-talk-free voice assistant that captures microphone audio, detects speech, transcribes it, runs an LLM turn with tool calling, synthesizes the reply, and plays it back. The pipeline itself is built by [`VAEngine`](../docs/reference/engine.md); [`main_pipeline.cpp`](main_pipeline.cpp) adds the app's own parts: audio I/O, demo tools, recording, visualisers and the terminal UI.
+The general-purpose voice assistant: mic to speaker with barge-in, turn detection, tool calling, metrics, a terminal UI and browser calls over WebRTC. With `--agent`, an agent file answers what it understands before the LLM.
 
-## Pipeline shape
-
-```mermaid
-flowchart LR
-    TIn["Transport In<br/>(mic)"] --> VAD["VAD<br/>(Silero)"] --> Turn["Turn Detection<br/>(SmartTurn v3)"] --> STT --> Agent["Agent State"] --> LLM["LLM + Tool Dispatch"] --> TTS --> TOut["Transport Out<br/>(spkr)"]
-    TOut -.->|"upstream: ErrorFrame, INTERRUPT, SynthesisStateFrame"| TIn
-```
-
-(The exact order is printed at startup as `[VAEngine] Started: ...`, including the debug and animation processors elided here; [`addAppProcessors()`](main_pipeline.cpp) shows where the app adds them. Agent state sits *before* the LLM, where it gates stale transcriptions.)
-
-VAD, STT, TTS and turn detection are chosen at run time: `--config` names a provider id per stage (see [Engine config files](../docs/reference/engine-config.md)), and without it the first provider built in wins. Audio I/O is chosen at build time (MiniAudio is preferred over SDL), and a local GGUF model via llama.cpp replaces the OpenAI-compatible HTTP transport when `--llm-model-path` is set.
-
-## What it demonstrates
-
-- **Barge-in, not back-channels**: talk over the assistant and `AgentStateProcessor` cancels the in-flight TTS. A short "mm-hmm" or "yeah" only ducks it for a moment, and the assistant keeps going without answering it ([back-channels](../docs/reference/processors.md#back-channels-speech-over-the-agent-that-isnt-an-interruption)).
-- **Turn detection**: SmartTurn v3 (when built) decides whether you're done talking, rather than a fixed silence timeout. It scores each pause as it happens, so a clearly finished sentence ends the turn about 0.1 s into the pause; an unfinished one waits for the VAD's silence timers. A noise blip shorter than 250 ms never counts as you starting to speak, so it can't cut the assistant off.
-- **Browser calls**: `--webrtc-port` swaps the local mic and speaker for a WebRTC peer and serves a demo page with live state, VizAnim visuals, speaker tags and per-turn latency.
-- **Tool calling**: two demo tools, `get_weather` and `get_time`, registered on a `ToolDispatchProcessor`. The LLM calls them mid-conversation and speaks the result.
-- **Prompts as files**: the system prompt and response-format instruction live in [`prompts/`](prompts/) and can be overridden per run with `--system-prompt` and `--format-instruction`.
-- **Session recording**: `--session-dir` writes per-session recordings for later analysis.
-- **Metrics everywhere**: console reporting by default, plus Prometheus/StatsD/InfluxDB/WebSocket exporters when built in, and per-stage latency alert thresholds.
-- **Terminal UI**: build with `-DVASDK_BUILD_TUI=ON` for an FTXUI dashboard showing live audio features (RMS, band energies, pitch, chroma from VizAnim), agent state, and the transcript.
-
-## Running
+**The full guide: [docs/apps/pipeline.md](../docs/apps/pipeline.md).**
 
 ```bash
-# Cloud LLM: put a key in .env (LLM_API_KEY / OPENROUTER_API_KEY / OPENAI_API_KEY)
-./build/VASDK_APP/VASDK_Pipeline
-
-# Fully local LLM
-./build/VASDK_APP/VASDK_Pipeline --llm-model-path build/VASDK_3P_IMPL/models/<model>.gguf
+./build/VASDK_APP/VASDK_Pipeline                                                     # cloud LLM from .env
+./build/VASDK_APP/VASDK_Pipeline --llm-model-path build/VASDK_3P_IMPL/models/<model>.gguf   # fully local
+./build/VASDK_APP/VASDK_Pipeline --config VASDK_APP/config/engine.txtpb \
+  --agent VASDK_APP/agents/garage-menu/agent.txtpb --env-file .env --webrtc-port 8080   # an agent, in the browser
 ```
 
-Model files are found automatically: the app searches for a `VASDK_3P_IMPL/models` directory upward from the executable, which matches where the CMake configure step downloads them.
-
-## CLI flags
-
-`--help` prints the authoritative list; flags guarded by a build option only appear when that option was compiled in.
-
-| Flag | Purpose |
+| Path | |
 | --- | --- |
-| `--config <path>` | Engine config (`.txtpb`, `.json` or `.pb`): VAD/STT/TTS provider ids and options, models dir, LLM endpoint/model/key. `--llm-*` flags override it. See [Engine config files](../docs/reference/engine-config.md) and the example in [`config/engine.txtpb`](config/engine.txtpb) |
-| `--agent <path>` | Agent file: its pages answer each turn before any LLM, e.g. [`agents/garage-menu/agent.txtpb`](agents/garage-menu/agent.txtpb). See [Agents](../docs/reference/flows.md) |
-| `--llm-model-path <path>` | GGUF model for llama.cpp local inference (only with `VASDK_HAS_LLAMACPP`); overrides the OpenAI-compatible transport when set |
-| `--llm-endpoint <url>` | OpenAI-compatible endpoint (falls back to `LLM_ENDPOINT`/`OPENAI_BASE_URL`) |
-| `--llm-api-key <key>` | LLM API key (falls back to `LLM_API_KEY`/`OPENROUTER_API_KEY`/`OPENAI_API_KEY`) |
-| `--llm-model <name>` | LLM model name (falls back to `LLM_MODEL`) |
-| `--metrics` / `--no-metrics` | Toggle all metrics collection (default: on) |
-| `--metrics-interval <sec>` | Console metrics report interval (default: 10) |
-| `--metrics-config <path>` | JSON file with full metrics configuration, overrides the flags above |
-| `--vad-alert-ms`, `--llm-ttft-alert-ms`, `--tts-alert-ms` | Latency alert thresholds in ms (0 disables each) |
-| `--session-dir <path>` | Write session recordings here; omit to disable recording |
-| `--system-prompt <path>` | Text file with the LLM system prompt, overrides the built-in default |
-| `--format-instruction <path>` | Text file with the response format instruction, overrides the built-in default |
-| `--env-file <path>` | `.env`-style file to load (default: `.env`) |
-| `--no-backchannel` | Back-channel handling off: any speech over the assistant interrupts it (default: on, "mm-hmm" and "yeah" don't interrupt) |
-| `--backchannel-playback <mode>` | Playback while speech over the assistant is classified: `duck` (default, −12 dB), `pause` (resume in place) or `continue` |
-| `--duck-gain-db <dB>` | Assistant level while ducked, −60 to 0 (default −12) |
-| `--duck-duration-ms <ms>` | Minimum time the assistant stays ducked once speech over it starts (default 2500) |
-| `--backchannel-history <mode>` | Dismissed back-channels: `drop` (default) or `append` them to the front of the user's next message |
-| `--tail-overlap <mode>` | Speech over the last ~0.7 s of a reply: `turn` (default, answered after the reply) or `classify` (back-channels dismissed) |
-| `--webrtc-port <port>` | Talk from a browser over WebRTC instead of the local mic/speaker: serves signaling and the demo page on `http://127.0.0.1:<port>` (only with `VASDK_BUILD_LIBDATACHANNEL_WEBRTC`) |
-| `--webrtc-page <path>` | Page served at `/` in WebRTC mode (default: [`assets/webrtc/index.html`](../assets/webrtc/index.html)) |
-| `--statsd-host`, `--statsd-port` | StatsD UDP target (only with `VASDK_METRICS_STATSD`) |
-| `--prometheus` / `--no-prometheus`, `--prometheus-port` | Prometheus HTTP exporter toggle and port (only with `VASDK_METRICS_PROMETHEUS`) |
+| [`main_pipeline.cpp`](main_pipeline.cpp) | The app: audio I/O, demo tools, recording, visualisers, the terminal UI around `VAEngine` |
+| [`config/engine.txtpb`](config/engine.txtpb) | Providers, turn-taking, the LLM (and commented LLM profiles) |
+| [`agents/garage-menu/`](agents/garage-menu/) | The example agent, its C++ extensions and its tests |
+| [`prompts/`](prompts/) | The system prompt and response format |

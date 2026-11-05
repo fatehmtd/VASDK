@@ -79,7 +79,7 @@ Two enums deserve special attention because processors key their behavior off th
 
 **`VADState`** (acoustic, emitted by `VADFrameProcessor`): `QUIET → STARTING → ONGOING → PAUSED ⇄ RESUMING → ENDING → ENDED`. Distinguishes a hesitation (`PAUSED`) from the end of an utterance (`ENDED`).
 
-**`AgentState`** (conversational, emitted by `AgentStateProcessor`): `IDLE → LISTENING → THINKING → SPEAKING → INTERRUPTED`. See [processors.md](processors.md#agentstateprocessor--the-conversation-state-machine) for the full transition diagram.
+**`AgentState`** (conversational, emitted by `AgentStateProcessor`): `IDLE → LISTENING → THINKING → SPEAKING → INTERRUPTED`. See [processors.md](processors.md#agentstateprocessor---the-conversation-state-machine) for the full transition diagram.
 
 ## Adding a new frame type
 

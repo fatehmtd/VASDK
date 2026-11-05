@@ -201,7 +201,7 @@ The policy is chosen when building the pipeline:
 
 ### LLMProcessor
 
-([`llm/LLMProcessor.h`](../../VASDK/include/VASDK/llm/LLMProcessor.h)) Bridges the pipeline to an [`LLMTransport`](llm.md#llmtransport). Answers each `UserTurnFrame` from the `TurnAssemblerProcessor` before it, parses the model's structured response into speech text + tool calls, and coordinates the tool round-trip with `ToolDispatchProcessor` (bounded at 5 nested tool batches, with self-imitation-loop detection). Agent-state transitions cancel replies in flight. Details of parsing, reasoning tags, speculative firing and streaming: [llm.md](llm.md).
+([`llm/LLMProcessor.h`](../../VASDK/include/VASDK/llm/LLMProcessor.h)) Bridges the pipeline to an [`LLMTransport`](llm.md#llmtransport). Answers each `UserTurnFrame` from the `TurnAssemblerProcessor` before it, parses the model's structured response into speech text + tool calls, and coordinates the tool round-trip with `ToolDispatchProcessor` (bounded at 5 nested tool batches, with self-imitation-loop detection). Agent-state transitions cancel replies in flight. A turn can name the LLM profile that answers it (`UserTurnFrame::llmProfile`, set by an agent route), and a failed request is answered with a failure reply. Details of parsing, reasoning tags, speculative firing, streaming, profiles and failure replies: [llm.md](llm.md#llmprocessor).
 
 ### ToolDispatchProcessor
 

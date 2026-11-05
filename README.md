@@ -74,7 +74,7 @@ cp .env.example .env   # fill in LLM_API_KEY (or OPENROUTER_API_KEY / OPENAI_API
 
 Two values in `.env` matter, not just the key: `LLM_MODEL` is required too - the default `LLM_ENDPOINT` is OpenRouter, which expects its `provider/model` naming (`openai/gpt-4o`, `anthropic/claude-sonnet-4-5`, `qwen/qwen3-30b-a3b-instruct`, …; see the comments in `.env.example`). Leaving `LLM_MODEL` unset doesn't fail fast - the app starts, logs the model as `(not set)`, and only errors once the first LLM request goes out - so set it up front. If you point `LLM_ENDPOINT` at OpenAI or Anthropic directly instead, use that provider's own model names.
 
-That's a full voice loop: mic in, VAD, speaker tracking, transcription, LLM turn with tool calling, synthesis, speaker out. Talk to it. If you'd rather stay fully offline, configure with `-DVASDK_BUILD_LLAMACPP=ON -DVASDK_DOWNLOAD_LLAMACPP_MODEL=ON` (this downloads the default GGUF into `build/VASDK_3P_IMPL/models/`), skip the `.env`, and pass `--llm-model-path` pointing at a GGUF file. The [VASDK_Pipeline guide](VASDK_APP/README.md) covers every flag and feature.
+That's a full voice loop: mic in, VAD, speaker tracking, transcription, LLM turn with tool calling, synthesis, speaker out. Talk to it. If you'd rather stay fully offline, configure with `-DVASDK_BUILD_LLAMACPP=ON -DVASDK_DOWNLOAD_LLAMACPP_MODEL=ON` (this downloads the default GGUF into `build/VASDK_3P_IMPL/models/`), skip the `.env`, and pass `--llm-model-path` pointing at a GGUF file. The [VASDK_Pipeline guide](docs/apps/pipeline.md) covers every flag and feature.
 
 The second showcase app is the call center:
 
@@ -82,9 +82,17 @@ The second showcase app is the call center:
 ./build/VASDK_CALLCENTER_APP/VASDK_CallCenter
 ```
 
-Its call flow is an [agent file](VASDK_CALLCENTER_APP/agents/callcenter/agent.txtpb): it looks the caller up by their number, asks what they need, fills a form over several turns, reads it back before acting, and hands off to a person on request or after too many misunderstandings. It runs with no LLM; with one (the same `.env` as `VASDK_Pipeline`), it also understands what its examples miss. It's the closest thing in this repo to an IVR replacement. The [VASDK_CallCenter guide](VASDK_CALLCENTER_APP/README.md) walks through the call flow, its tests, and the CRM integration seams.
+Its call flow is an [agent file](VASDK_CALLCENTER_APP/agents/callcenter/agent.txtpb): it looks the caller up by their number, asks what they need, fills a form over several turns, reads it back before acting, and hands off to a person on request or after too many misunderstandings. It runs with no LLM; with one (the same `.env` as `VASDK_Pipeline`), it also understands what its examples miss. It's the closest thing in this repo to an IVR replacement. The [VASDK_CallCenter guide](docs/apps/callcenter.md) walks through the call flow, its tests, and the CRM integration seams.
 
-With multi-config generators (Visual Studio, Xcode) the binaries land one level deeper, under a `Release/` subdirectory (e.g. `./build/VASDK_APP/Release/VASDK_Pipeline`). Both apps print an error and exit if they can't find the models directory or a required provider wasn't built; check the CMake configure output, which lists exactly which providers were enabled.
+The third is an in-car assistant:
+
+```bash
+./build/VASDK_CAR_APP/VASDK_Car
+```
+
+It's built from self-contained verticals: drive, climate, media, phone, messages, navigation, driver profiles, the owner's manual, a companion for stories and games, and general knowledge. Each vertical's folder holds its code, its part of the [agent](VASDK_CAR_APP/agents/car/agent.txtpb) (merged with `include_files`), its tests and its panel on a live dashboard (http://127.0.0.1:8090, with a Talk button over WebRTC). The car speaks first when a call or a text comes in, when the cabin is hot, when fuel runs low or won't last the trip, and when a driver gets in. With an LLM, what no vertical covers goes to the LLM, which knows the car's state and calls the same tools. It also tells stories, plays trivia and answers questions about anything, while the car's commands keep working mid-story. See the [VASDK_Car guide](docs/apps/car.md).
+
+With multi-config generators (Visual Studio, Xcode) the binaries land one level deeper, under a `Release/` subdirectory (e.g. `./build/VASDK_APP/Release/VASDK_Pipeline`). The apps print an error and exit if they can't find the models directory or a required provider wasn't built; check the CMake configure output, which lists exactly which providers were enabled.
 
 ## Core architecture
 
@@ -249,12 +257,14 @@ VASDK/                Core shared library: the pipeline runtime, all interfaces
 VASDK_3P_IMPL/         Provider implementations, one CMake target each (see table below)
 VASDK_APP/             General-purpose voice assistant showcase (VASDK_Pipeline)
 VASDK_CALLCENTER_APP/  Goal-oriented call center showcase (VASDK_CallCenter)
+VASDK_CAR_APP/         In-car assistant showcase with a live dashboard (VASDK_Car)
 VASDK_ANDROID/         Android app + JNI bindings around the core library
+docs/apps/             The example apps' guides
 docs/examples/         Worked examples (pipelines, tools, goals, testing)
 prometheus/, grafana/  docker-compose stack for local metrics visualization
 ```
 
-Each application directory has its own guide: [VASDK_APP](VASDK_APP/README.md), [VASDK_CALLCENTER_APP](VASDK_CALLCENTER_APP/README.md), [VASDK_ANDROID](VASDK_ANDROID/README.md).
+Each application directory has its own guide: [VASDK_APP](docs/apps/pipeline.md), [VASDK_CALLCENTER_APP](docs/apps/callcenter.md), [VASDK_CAR_APP](docs/apps/car.md), [VASDK_ANDROID](docs/apps/android.md).
 
 ### The rest of the core library
 
@@ -403,7 +413,7 @@ For air-gapped builds, turn the downloads off and place the files in `build/VASD
 
 ### Runtime flags
 
-Each app documents its own flag set (`--help` is always authoritative): the [VASDK_Pipeline flags](VASDK_APP/README.md#cli-flags) cover LLM selection, prompt overrides, session recording, and metrics tuning; the [VASDK_CallCenter flags](VASDK_CALLCENTER_APP/README.md#cli-flags) add `--ani` and `--persist-dir` for the CRM prefill and resume-on-redial features. Both take `--webrtc-port <port>` to talk from a browser instead of the local mic and speaker (with `VASDK_BUILD_LIBDATACHANNEL_WEBRTC`). Both load LLM credentials from `.env` (`--env-file` to point elsewhere), with CLI flags taking precedence over the environment. VASDK_Pipeline also takes `--config <engine.txtpb>` to choose its VAD, STT and TTS providers and LLM settings from a file instead of the build: see [Engine config files](docs/reference/engine-config.md).
+Each app documents its own flag set (`--help` is always authoritative): the [VASDK_Pipeline flags](docs/apps/pipeline.md#cli-flags) cover LLM selection, prompt overrides, session recording, and metrics tuning; the [VASDK_CallCenter flags](docs/apps/callcenter.md#cli-flags) add `--ani` and `--persist-dir` for the CRM prefill and resume-on-redial features. Both take `--webrtc-port <port>` to talk from a browser instead of the local mic and speaker (with `VASDK_BUILD_LIBDATACHANNEL_WEBRTC`). Both load LLM credentials from `.env` (`--env-file` to point elsewhere), with CLI flags taking precedence over the environment. VASDK_Pipeline also takes `--config <engine.txtpb>` to choose its VAD, STT and TTS providers and LLM settings from a file instead of the build: see [Engine config files](docs/reference/engine-config.md).
 
 ### Metrics
 
@@ -425,11 +435,11 @@ docker compose up -d
 
 ## Android
 
-`VASDK_ANDROID/` wraps the core library and provider set behind a JNI boundary for a Kotlin app built with Jetpack Compose: same CMake tree, cross-compiled per ABI, with on-device GGUF inference through llama.cpp and a set of Android-native tools (camera, location, notifications, and more) the LLM can call. On first launch, a setup wizard asks you to pick the STT, TTS and language-model providers, then downloads their models. On-device options include Parakeet or Whistle for STT and PocketTTS, Phonon or MOSS-TTS-Nano for TTS, and pyannote speaker tracking is always on. The [Android guide](VASDK_ANDROID/README.md) covers the layering, the `VasdkEngine` API, model downloading, and build setup.
+`VASDK_ANDROID/` wraps the core library and provider set behind a JNI boundary for a Kotlin app built with Jetpack Compose: same CMake tree, cross-compiled per ABI, with on-device GGUF inference through llama.cpp and a set of Android-native tools (camera, location, notifications, and more) the LLM can call. On first launch, a setup wizard asks you to pick the STT, TTS and language-model providers, then downloads their models. On-device options include Parakeet or Whistle for STT and PocketTTS, Phonon or MOSS-TTS-Nano for TTS, and pyannote speaker tracking is always on. The [Android guide](docs/apps/android.md) covers the layering, the `VasdkEngine` API, model downloading, and build setup.
 
 ## Documentation
 
-Everything beyond this README lives under [`docs/`](docs/README.md), organized by audience - a [plain-language overview](docs/overview.md) for product/project people evaluating VASDK, and a [reference section](docs/README.md#core-concepts-reference) documenting every core interface and abstract class (frames, processors, pipeline, providers, transports, the LLM stack, the goal layer) with diagrams, contracts, and extension guides. The [docs index](docs/README.md) routes you to the right starting point.
+Everything beyond this README lives under [`docs/`](docs/README.md), organized by audience. The [example apps' guides](docs/apps/README.md) walk through the four apps in this repository, with what each shows and how it's built. There's also a [plain-language overview](docs/overview.md) for product and project people evaluating VASDK, and a [reference section](docs/README.md#core-concepts-reference) documenting every core interface and abstract class (frames, processors, pipeline, providers, transports, the LLM stack, the goal layer) with diagrams, contracts, and extension guides. The [docs index](docs/README.md) routes you to the right starting point.
 
 ## Examples
 
@@ -440,7 +450,10 @@ Each example is a worked, self-contained document under [`docs/examples/`](docs/
 - [Defining a goal in JSON](docs/examples/goal-definitions.md): drive multi-turn slot filling from a JSON file, with the full slot type table, conditional slots, and validation behavior.
 - [Testing without a microphone](docs/examples/testing-with-mock-transport.md): inject frames through `MockTransport`, assert on what the pipeline sent, and script whole conversations with `GoalConversationSimulator`.
 
-Beyond those, [`VASDK_APP/main_pipeline.cpp`](VASDK_APP/main_pipeline.cpp) and [`VASDK_CALLCENTER_APP/callcenter_pipeline.cpp`](VASDK_CALLCENTER_APP/callcenter_pipeline.cpp) are the two real-world references for wiring everything together. The call center one in particular shows how `GoalManager`, `IntentRouter`, and `RecoveryProcessor` attach to an otherwise ordinary pipeline via a handful of `attachToLLMTransport`/`attachToToolDispatcher` calls, without the processor chain itself needing to know goals exist.
+Beyond those, the [example apps](docs/apps/README.md) are the real-world references for wiring everything together:
+- [`VASDK_APP/main_pipeline.cpp`](VASDK_APP/main_pipeline.cpp) adds audio I/O, tools, recording and a terminal UI around `VAEngine`.
+- [`VASDK_CALLCENTER_APP/callcenter_pipeline.cpp`](VASDK_CALLCENTER_APP/callcenter_pipeline.cpp) runs one engine session per call, from agent files.
+- [`VASDK_CAR_APP/car_pipeline.cpp`](VASDK_CAR_APP/car_pipeline.cpp) feeds the car's state to the agent and the LLM, and serves a dashboard.
 
 ## Adding a provider
 

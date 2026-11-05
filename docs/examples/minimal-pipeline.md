@@ -66,4 +66,4 @@ target_link_libraries(my_app
 
 ## Full reference
 
-[`VASDK_APP/main_pipeline.cpp`](../../VASDK_APP/main_pipeline.cpp) is the complete, working version of this example, including audio device setup, turn detection, agent state management, tool dispatch, and metrics. See the [VASDK_APP guide](../../VASDK_APP/README.md).
+[`VASDK_APP/main_pipeline.cpp`](../../VASDK_APP/main_pipeline.cpp) is the complete, working version of this example, including audio device setup, turn detection, agent state management, tool dispatch, and metrics. See the [VASDK_APP guide](../apps/pipeline.md).

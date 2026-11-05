@@ -41,7 +41,7 @@ input → trigger → [wake word] → [AfterInput] → VAD → turn → STT → 
 [VAEngine] Started: TransportInputProcessor (LocalTransport) → TriggerProcessor → VADFrameProcessor (SileroVAD) → TurnDetectionProcessor (SmartTurnV3Provider) → TranscriptionFrameProcessor (WhistleTranscriptionProvider) → AgentStateProcessor → TurnAssembler → UserTextInput → LLMProcessor (OpenAITransport) → ToolDispatchProcessor → SpeechInput → EventTap → TTSFrameProcessor (PocketVoiceSynthesisProvider) → TransportOutputProcessor (LocalTransport)
 ```
 
-- **Agent.** The dialog stage is there when `Options::agent` is set: an agent file's pages answer each turn with no LLM, and a turn no route understands goes on to the LLM when there is one. See [Agents](flows.md).
+- **Agent.** The dialog stage is there when `Options::agent` is set: an agent file's pages answer each turn with no LLM, and a turn no route understands goes on to the LLM when there is one. A route can also hand a turn it understood to the LLM (`target: "LLM"`), and name which of the config's LLMs answers it (`llm_profile`). See [Agents](flows.md#with-an-llm) and [Different LLMs for different tasks](engine-config.md#different-llms-for-different-tasks).
 - **LLM.** The LLM and tool stages are there when the config has an `llm` endpoint, or when `Options::llmTransport` is set (for example a llama.cpp model). With neither an agent nor an LLM, the assistant still listens and speaks `say()` text, but nothing answers the user.
 - **Turn detection.** When no turn model is built in, the VAD's silence ends the turn.
 - **Defaults.** VAD timing, STT settings and LLM sampling use the values VASDK_Pipeline has always used. Back-channel handling comes from `Options::backchannel`.
@@ -72,7 +72,7 @@ Processors that read the mic audio directly use `inputRingBuffer()`.
 | `setBackchannel(config)`, `backchannel()` | Changes, or reads, how speech over the assistant is handled (back-channels, ducking) while it runs, e.g. from a settings screen. |
 | `pushToTalk(held)` | The push-to-talk button: listens while held, and cuts a reply in progress. Released mid-sentence, the user's turn still gets its answer. |
 | `setFollowUpListenMs(ms)` | How long the mic stays open after each reply; overrides the config's [`activation.follow_up`](engine-config.md#activation). An agent's own settings come first: see [Expected input](flows.md#expected-input). |
-| `setSessionParam(name, value)` | With an agent: sets a declared `$session.<name>`, e.g. the caller's tier. `Options::context` gives the agent's `$context.*` a `ContextProvider`. See [Agents](flows.md#stored-values-and-conditions). |
+| `setSessionParam(name, value)` | With an agent: sets a declared `$session.<name>`, e.g. the caller's tier. `Options::context` gives the agent's `$context.*` a `ContextProvider`; `{context}` in `Options::systemPrompt` is replaced by it, as JSON, on every LLM request. See [Agents](flows.md#stored-values-and-conditions). |
 | `setEntityValues(name, values)` | With an agent: replaces a `dynamic` entity's values for this conversation, e.g. the appointment times still free today. See [Entities](flows.md#entities). |
 | `registerTool(tool)` | Makes a tool available to the LLM; call it before `start()`. |
 | `setNetworkAvailable(up)`, `usingFallbacks()` | The network dropped, or came back: see [When the network drops](#when-the-network-drops). The Android app calls it from the system's connectivity changes. |

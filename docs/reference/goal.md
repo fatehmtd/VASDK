@@ -2,7 +2,7 @@
 
 *Reference for everything under `va::goal`. Headers in [`VASDK/include/VASDK/goal/`](../../VASDK/include/VASDK/goal/) are the source of truth if this page and the code ever disagree.*
 
-The goal layer turns a conversational assistant into a **task completer**: instead of chatting open-endedly, the agent works toward a defined objective - collect these five pieces of information, validate them, confirm, then fire an action against your systems. It's the layer behind the [call center showcase](../../VASDK_CALLCENTER_APP/README.md), and the newest, fastest-moving part of the SDK.
+The goal layer turns a conversational assistant into a **task completer**: instead of chatting open-endedly, the agent works toward a defined objective - collect these five pieces of information, validate them, confirm, then fire an action against your systems. It's the layer behind the [call center showcase](../apps/callcenter.md), and the newest, fastest-moving part of the SDK.
 
 The mechanism is worth understanding before the classes: **the goal layer doesn't process frames at all.** It plugs into the LLM stack from the side - live prompt variables tell the model what's still missing, and registered tools let the model submit values, which are validated in C++ and rejected back to the model to re-ask. Deterministic validation, probabilistic conversation.
 

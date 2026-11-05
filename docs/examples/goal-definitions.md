@@ -55,4 +55,4 @@ Slots can also be conditional: a `condition` (a lambda in C++, or the condition 
 
 ## Full reference
 
-[`VASDK_CALLCENTER_APP/callcenter_pipeline.cpp`](../../VASDK_CALLCENTER_APP/callcenter_pipeline.cpp) builds two complete goals in C++ (including an OBJECT slot with a schema and a conditional requirement) and wires them through `IntentRouter`. See the [call center app guide](../../VASDK_CALLCENTER_APP/README.md).
+[`VASDK_CALLCENTER_APP/callcenter_pipeline.cpp`](../../VASDK_CALLCENTER_APP/callcenter_pipeline.cpp) builds two complete goals in C++ (including an OBJECT slot with a schema and a conditional requirement) and wires them through `IntentRouter`. See the [call center app guide](../apps/callcenter.md).

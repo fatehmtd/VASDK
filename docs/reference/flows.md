@@ -121,6 +121,10 @@ Once the LLM has answered a turn, it keeps the conversation until a route the us
 - An answer from an envelope route doesn't ask the page's question again ("We're open 8 to 6." with no "How can I help?").
 - A reply with no intent ("You're welcome.") leaves the conversation with the LLM.
 
+On a generative page the same rules apply to every turn, since the page's LLM has the conversation: in a quiz, "Paris" is an answer, not a guess by the intent check that the user wants directions. A page route still takes the words it explains ("what happens next" on a story page, before a music command's "next").
+
+**Handing words to the LLM.** A route with `target: "LLM"` says the words are the LLM conversation's, though the agent understood them: `routes { intent: "story" steps { say { text: "Stories need the internet." } } target: "LLM" }`. With an LLM the turn goes on to it, as if not understood, and the route's steps aren't said; without one, they're the answer. The conversation stays on the page either way, and `Reply::toLlm` is set (test cases check it with `to_llm`). It's how an agent keeps a topic from its commands without answering it itself: "let's play trivia" isn't the music's "play" ([VASDK_Car's companion](../../VASDK_CAR_APP/verticals/companion/companion.txtpb)). Keep the steps to what's said: with an LLM, they run and are undone. `llm_profile: "smart"` on the route has the engine config's profile of that name answer, and the turns after it that nothing understood, until a route answers one ([Different LLMs for different tasks](engine-config.md#different-llms-for-different-tasks)). An `llm` step and a generative page take `profile` too.
+
 `Session::Options::llmCompletion` replaces the config's endpoint (`llm::Completion`: one request, its reply). Turns the agent doesn't understand on a plain page still go to the session's LLM conversation (`LLMProcessor`), as before.
 
 ## Rich replies
@@ -212,7 +216,7 @@ envelope_defs { name: "booking" extends: "standard" settings { max_reprompts: 1 
 flows { name: "booking" envelopes: ["booking"] … }   # a flow's pages; pages take `envelopes` too
 ```
 
-**Layering.** For each turn, the page's own routes come first, then the page's envelopes, the flow's and the agent's, in the order listed, each followed by the envelope it `extends`. The first layer with a match wins. Handlers and settings are found the same way, so an inner one replaces an outer one. An envelope's targets can't name a page (it would be a different page wherever it's used): `flow:<name>`, `END_FLOW`, `END_SESSION` or `CURRENT_PAGE`.
+**Layering.** For each turn, the page's own routes come first, then the page's envelopes, the flow's and the agent's, in the order listed, each followed by the envelope it `extends`. A page route that matches wins. Otherwise the envelopes' intent routes compete, as a page's do: the best score wins, wherever it is, so "stop navigation" is the navigation envelope's even when a music envelope listed first has "stop". On a tie, the first layer's, so an inner envelope's route for the same intent replaces an outer one's. With no intent match, the first layer's entity or condition route is taken. Handlers and settings are found in layer order: the first layer that has one wins, so an inner one replaces an outer one. An envelope's targets can't name a page (it would be a different page wherever it's used): `flow:<name>`, `END_FLOW`, `END_SESSION` or `CURRENT_PAGE`.
 
 **Handlers** replace the built-in behaviour for an event. Pages take `handlers` too:
 
@@ -314,7 +318,7 @@ A tool that fails (it's unknown, refused, too slow, its reply is too long, or th
 
 **Where tools come from:**
 - **Written in C++:** `registry->addTool(va::llm::Tool("save_booking", "...").onCall([](const nlohmann::json& args) { ...; return result; }))`. It runs on a thread of its own and may block. An exception, or a result of `{"error": "..."}`, fails the call.
-- **Provided by the app, in any language** ([C](c-api.md), [Kotlin](../../VASDK_ANDROID/README.md#an-agent-before-the-llm)): declare it with its name only, `tools { name: "place_call" description: "Calls a number" }`, so `lint` and test cases (with `tool_results`) know it. The app registers it at runtime; without one, calling it fails.
+- **Provided by the app, in any language** ([C](c-api.md), [Kotlin](../apps/android.md#an-agent-before-the-llm)): declare it with its name only, `tools { name: "place_call" description: "Calls a number" }`, so `lint` and test cases (with `tool_results`) know it. The app registers it at runtime; without one, calling it fails.
 - **Over HTTP**, declared in the agent:
 
 ```textproto
@@ -571,6 +575,8 @@ entity_types { name: "free_time"  dynamic: true list { values { value: "09:00" s
 | `composite` | one of its `templates` in order: `"@color:color @make:make from @sys.integer:year"`. Each part is a match of that entity starting right there; the words between them are said as they are. The longest template found wins, and a composite beats its parts | a struct, a field per part: `{color: "white", make: "toyota", year: 2019}`; replies say the parts as said ("white Toyota from 2019"). A form slot can take one (`entity: "@vehicle"`): `$form.vehicle.value.make`, and `$form.vehicle` said as the caller said it |
 | `code` | what the app's code finds: `code { extractor: "plates_db" }`, registered with `FlowRegistry::addEntityExtractor("plates_db", ...)`. It gets the words, returns where each value was said (`start`, `length`), and its `value`, `spoken` form and `attributes`: a database lookup, the phone's contacts. An extractor that isn't registered fails the agent's load | its `value`; replies say `spoken` |
 
+**An agent in several files.** `include_files: ["climate/climate.txtpb", "media/media.txtpb"]` merges in more of the agent, relative to this file. Each file is a `vasdk.flow.Agent` with its own intents, entities, envelopes, flows, triggers, knowledge and goals, so a feature's part of the conversation can live next to its code. Files are merged in order, after the main file's own content. Each file's `goal_files`, `entity_files` and `include_files` are relative to that file. Only the main file sets `name`, `locale`, `start_flow`, `schema_version`, `proactive_policy` and `proto_imports`. A file that includes itself, a missing file, and the same names declared twice fail the load. Parts' envelopes compete on how well they match, and their order breaks ties. See [VASDK_Car](../apps/car.md), built from ten such parts.
+
 **Entity packs.** `entity_files: ["../shared/cars.txtpb"]` imports entity types from files of their own (`vasdk.nlu.EntityPack`), relative to the agent, so agents can share them. A type the agent declares itself wins over a pack's. VASDK ships three in [`VASDK/entities`](../../VASDK/entities/): `@country` (197 countries, with `iso2` and `iso3` attributes), `@us_state` (the states and DC, with their postal `code`) and `@currency` (32, with their ISO `code`). Their values are snake_case names (`united_kingdom`, `new_york`, `us_dollar`), never codes, because many codes are also words ("in", "or", "try").
 
 **System entities.** These need no declaring. Each reads English as speech recognizers write it, in words or in digits. Dates count from the conversation's clock.
@@ -601,7 +607,7 @@ A bare number is neither a time nor a date ("I have 3 cars"). With choices on of
 |---|---|
 | Routes | `routes { entity: "@service" condition: "$entity = 'tire_repair'" target: "tires" }`. With an intent too, both must match; with no intent, entity routes are tried after the intent routes and before the condition-only ones. |
 | `$entity` | In that route's condition and steps: `"$entity takes $entity.minutes minutes."` |
-| Form slots | `slots { name: "service" entity: "@service" }`: read as the entity, stored as its value. List and pattern entities named in passing fill their slots too. |
+| Form slots | `slots { name: "service" entity: "@service" }`: read as the entity, stored as its value. List, pattern and code entities named in passing fill their slots too ("text Sam" fills the contact). |
 | `$nlu.entities.<entity>` | Found in this turn's words, on any page: `exists($nlu.entities.plate)`. |
 | `extract` | `extract { entity: "@plate" into: "$session.plate" }` stores this turn's match, if any. |
 | `$entities.<entity>` | Every value of a list entity, spoken: "We have $entities.free_time free." → "We have 9 AM, 11 AM and 2 PM free." |

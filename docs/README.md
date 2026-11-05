@@ -8,7 +8,7 @@ Start here and pick your path.
 | --- | --- |
 | **Evaluating VASDK** (PM, project lead, architect doing a first pass) | [Plain-language overview](overview.md) - what it is, what you can build, maturity, licensing. No code. |
 | **New to the codebase** (any level, including junior) | Root [README](../README.md) for the quick start, then [Core concepts](#core-concepts-reference) below in order: frames → processors → pipeline. The [minimal pipeline example](examples/minimal-pipeline.md) is the fastest way to a mental model. |
-| **Building an app on VASDK** | The showcase app guides: [VASDK_Pipeline](../VASDK_APP/README.md) (general assistant), [VASDK_CallCenter](../VASDK_CALLCENTER_APP/README.md) (goal-oriented), [Android](../VASDK_ANDROID/README.md). Then the [examples](#worked-examples). |
+| **Building an app on VASDK** | The [example apps](apps/README.md) and which to start from: [VASDK_Pipeline](apps/pipeline.md) (general assistant), [VASDK_CallCenter](apps/callcenter.md) (goal-oriented, no LLM needed), [VASDK_Car](apps/car.md) (an agent in verticals, rules and an LLM together, a model per task), [Android](apps/android.md). Then the [examples](#worked-examples). |
 | **Implementing a provider** (new STT/TTS/VAD/LLM backend) | [Provider interfaces](reference/providers.md), especially the checklist at the end. |
 | **Extending the core** (new processor, transport, frame type) | [Processors](reference/processors.md), [Transports](reference/transports.md), [Frames](reference/frames.md) - each ends with an extension guide. |
 | **Doing compliance / legal review** | [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md). |
@@ -28,10 +28,19 @@ Built on top of those:
 - **[The LLM stack](reference/llm.md)** - `LLMTransport`, prompt templates and chat formats, tools and dispatch, fire policies, streaming, cancellation.
 - **[The goal layer](reference/goal.md)** - goal-oriented conversations: slots and validation, `GoalManager`, intent routing, persistence/resume, the conversation simulator.
 - **[VAEngine](reference/engine.md)** - a complete assistant from an engine config: the standard pipeline, slots for your own processors, `say` / `injectUserText` / `interrupt`, events for transcripts, replies, state changes, tool calls and errors, and many conversations at once over shared models.
-- **[Agents](reference/flows.md)** - scripted conversations with no LLM: pages, keyword intents, routes, conditions, stored values, forms, entities, shared commands and digressions in an agent file, checked and tested with `vasdk_agentc`.
+- **[Agents](reference/flows.md)** - scripted conversations with no LLM: pages, keyword intents, routes, conditions, stored values, forms, entities, shared commands and digressions in an agent file, checked and tested with `vasdk_agentc`. An agent can be split into parts (`include_files`), and with an LLM it hands what it doesn't answer itself to the LLM (`target: "LLM"`).
 - **[The C API](reference/c-api.md)** - agents from any language: load one, talk to it by text, write its steps, tools and envelopes in C, and run its test cases.
-- **[Engine config files](reference/engine-config.md)** - choosing VAD/STT/TTS providers and LLM settings in a text-proto file instead of code: formats, `${ENV}` secrets, provider ids and options, fallbacks.
+- **[Engine config files](reference/engine-config.md)** - choosing VAD/STT/TTS providers and LLM settings in a text-proto file instead of code: formats, `${ENV}` secrets, provider ids and options, fallbacks, and [a different LLM for each task](reference/engine-config.md#different-llms-for-different-tasks).
 - **[Context and metrics](reference/context-and-metrics.md)** - feeding situational context into prompts; instrumenting and exporting pipeline metrics.
+
+## Example apps
+
+Full guides to the four apps in the repository, with what each shows and how it's built: **[docs/apps](apps/README.md)**.
+
+- [VASDK_Pipeline](apps/pipeline.md): the desktop voice loop, tools, metrics, browser calls, an agent before the LLM.
+- [VASDK_CallCenter](apps/callcenter.md): a phone call answered by agent files: routing, forms, CRM tools, a handoff.
+- [VASDK_Car](apps/car.md): ten verticals, each with its code, agent part, tests and panel; triggers from the car's sensors; stories, games and questions handed to the LLM; a model per task.
+- [Android](apps/android.md): the full stack on a phone, device tools, background triggers.
 
 ## Worked examples
 

@@ -41,7 +41,7 @@ What gets measured out of the box: every processor's processing latency, queue w
 
 Two higher-level observers matter for the call center use case:
 
-- **`CallMetrics`** (`CallMetrics.h`) - per-call KPIs, including per-slot collection tracking when attached to a [`GoalManager`](goal.md#goalmanager--the-wiring-hub) via `setMetrics()`.
+- **`CallMetrics`** (`CallMetrics.h`) - per-call KPIs, including per-slot collection tracking when attached to a [`GoalManager`](goal.md#goalmanager---the-wiring-hub) via `setMetrics()`.
 - **`UtteranceObserverInterface`** (`UtteranceObserver.h`) - end-to-end per-utterance timing, attached to `AgentStateProcessor::setUtteranceObserver()`.
 
-Runtime flags for all of this (`--metrics`, `--metrics-interval`, `--prometheus`, `--statsd-host`, alert thresholds, or a full JSON config via `--metrics-config`): see the [VASDK_Pipeline flags](../../VASDK_APP/README.md#cli-flags). A ready-made Prometheus + Grafana stack ships in the repo's `docker-compose` setup ([root README, Metrics](../../README.md#metrics)).
+Runtime flags for all of this (`--metrics`, `--metrics-interval`, `--prometheus`, `--statsd-host`, alert thresholds, or a full JSON config via `--metrics-config`): see the [VASDK_Pipeline flags](../apps/pipeline.md#cli-flags). A ready-made Prometheus + Grafana stack ships in the repo's `docker-compose` setup ([root README, Metrics](../../README.md#metrics)).
