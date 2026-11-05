@@ -1,5 +1,6 @@
 #pragma once
 
+#include <VASDK/c/vasdk.h>
 #include <VASDK/engine/ProviderRegistry.h>
 
 namespace va {
@@ -16,3 +17,6 @@ void registerAllProviders(engine::ProviderRegistry& registry);
 
 } // namespace thirdparty
 } // namespace va
+
+/** For C code (VASDK/c/vasdk.h): adds the providers registerAllProviders() registers. */
+extern "C" void vasdk_providers_add_all(vasdk_providers* providers);

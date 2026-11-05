@@ -1,6 +1,7 @@
 // The C API (VASDK/c/vasdk.h) over FlowRegistry, CompiledAgent, FlowRuntime and FlowTestRunner.
 
 #include "c/vasdk.h"
+#include "c/vasdk_cpp.h"
 
 #include "engine/ProtoFileLoader.h"
 #include "flow/CompiledAgent.h"
@@ -280,3 +281,7 @@ int vasdk_run_test_file(const vasdk_agent* agent, const char* path, char** repor
 }
 
 } // extern "C"
+
+std::shared_ptr<const va::flow::CompiledAgent> vasdk_agent_compiled(const vasdk_agent* agent) {
+    return agent ? agent->agent : nullptr;
+}

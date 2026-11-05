@@ -33,6 +33,35 @@ vasdk_registry_free(registry);
 
 Text VASDK returns as `char*` is the caller's: free it with `vasdk_free`. On failure a function sets its `char** error` (also freed with `vasdk_free`) and returns `NULL` or 0. Callbacks and their `user` pointer must outlive the agents loaded with the registry. A conversation is used from one thread at a time; registries and agents can be shared. [`vasdk_c_test.c`](../../VASDK/tests/vasdk_c_test.c) uses all of it from C, in `ctest`.
 
+## Spoken sessions
+
+A `vasdk_session` is a spoken conversation: the speech providers an [engine config](engine-config.md) names (VAD, STT, TTS, an LLM) and, optionally, an agent. The app brings the audio. It pushes the user's 16-bit mono PCM in with `vasdk_session_push_audio`, in pieces of any size, and gets the assistant's speech through its audio callback. That fits a phone line, a file, or the app's own audio device.
+
+```c
+vasdk_providers* providers = vasdk_providers_create();
+vasdk_providers_add_all(providers);               /* ProviderCatalog: every provider built in */
+vasdk_session* session = vasdk_session_create("engine.txtpb", providers, agent, "{\"id\": \"call-1\"}", &error);
+vasdk_session_on_event(session, on_event, NULL);  /* each vasdk.engine.Event, as JSON */
+vasdk_session_on_audio(session, play, NULL);      /* the assistant's speech, at vasdk_session_output_rate */
+vasdk_session_start(session, &error);
+vasdk_session_push_audio(session, pcm, samples);  /* as the user's audio comes in */
+...
+vasdk_session_free(session);
+vasdk_providers_free(providers);
+```
+
+| Function | What it does |
+|---|---|
+| `vasdk_providers_create`, `vasdk_providers_add_all` | The providers a config can name. `vasdk_providers_add_all` is in ProviderCatalog (`VASDK_3P_IMPL`), so link `vasdk_provider_catalog` too. C++ code adds its own through `vasdk_providers_registry` (`VASDK/c/vasdk_cpp.h`). |
+| `vasdk_session_create(config_path, providers, agent, options_json, &error)` | The config file (`${ENV}` expanded) and an agent, or `NULL` for the LLM alone. Options: `id`, `models_dir`, `system_prompt`. The config's audio must be 16-bit mono (the default). |
+| `vasdk_session_on_event`, `vasdk_session_on_audio` | Set before `vasdk_session_start`. Events come on the session's event thread (`{"agentReply": {"text": ..., "isFinal": true}}`, `pageChanged`, `agentTurn`, ...), speech on a pipeline thread. |
+| `vasdk_session_push_audio`, `vasdk_session_inject_text`, `vasdk_session_say` | The user's audio, a user turn by text, words the assistant says. Thread-safe. |
+| `vasdk_session_set_param`, `vasdk_session_set_network_available` | A declared agent session param (a JSON value); the network going down or back, which switches to the config's fallbacks. |
+| `vasdk_session_snapshot`, `vasdk_session_resume` | Where the agent's conversation is, sensitive values left out, and, before `start` on a later session, picking it up there ([flows](flows.md)). |
+| `vasdk_session_input_rate`, `vasdk_session_output_rate` | Sample rates in Hz: the config's `audio`, 16000 by default. |
+
+[`c_session_test.cpp`](../../VASDK/tests/c_session_test.cpp) drives a session through these calls, in `ctest`.
+
 ## From Python
 
 [`bindings/python/vasdk`](../../bindings/python/vasdk/__init__.py) wraps the C API with `ctypes`, so it needs no compiler: point `VASDK_LIBRARY` at a shared build of VASDK (`build/VASDK/libVASDK.dylib`), and add `bindings/python` to `PYTHONPATH`.

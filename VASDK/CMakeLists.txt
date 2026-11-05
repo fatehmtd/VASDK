@@ -207,6 +207,7 @@ if(VASDK_ENABLE_ENGINE_CONFIG)
         ./src/nlu/EmbeddingNluProvider.cpp
         ./src/nlu/LlmNluProvider.cpp
         ./src/c/vasdk_c.cpp
+        ./src/c/vasdk_c_session.cpp
         ./src/engine/RemoteControl.cpp
         ./proto/vasdk/engine/engine_config.proto
         ./proto/vasdk/engine/events.proto
@@ -412,6 +413,9 @@ if(VASDK_BUILD_TESTS)
         add_executable(vasdk_c_test tests/vasdk_c_test.c)   # the C API, from C
         target_link_libraries(vasdk_c_test PRIVATE VASDK)
         add_test(NAME vasdk_c COMMAND vasdk_c_test WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+        add_executable(vasdk_c_session_test tests/c_session_test.cpp)   # spoken sessions through the C API
+        target_link_libraries(vasdk_c_session_test PRIVATE VASDK nlohmann_json::nlohmann_json)
+        add_test(NAME vasdk_c_session COMMAND vasdk_c_session_test)
         add_executable(vasdk_network_fallback_test tests/network_fallback_test.cpp)
         target_link_libraries(vasdk_network_fallback_test PRIVATE VASDK)
         add_test(NAME vasdk_network_fallback COMMAND vasdk_network_fallback_test)

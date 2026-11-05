@@ -1,3 +1,4 @@
+#include <VASDK/c/vasdk_cpp.h>
 #include "ProviderCatalog.h"
 
 #include <algorithm>
@@ -328,3 +329,7 @@ void registerAllProviders(engine::ProviderRegistry& registry) {
 
 } // namespace thirdparty
 } // namespace va
+
+extern "C" void vasdk_providers_add_all(vasdk_providers* providers) {
+    if (providers) va::thirdparty::registerAllProviders(vasdk_providers_registry(providers));
+}

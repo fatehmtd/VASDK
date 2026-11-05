@@ -113,6 +113,62 @@ VASDK_EXPORT char* vasdk_conversation_lookup(vasdk_conversation* conversation, c
  *      gets what differed, one line each. ---- */
 VASDK_EXPORT int vasdk_run_test_file(const vasdk_agent* agent, const char* path, char** report);
 
+/* ---- Sessions: a spoken conversation, with the speech providers an engine config names
+ *      (VAD, STT, TTS, an LLM) and an agent. The app brings the audio: it pushes the user's
+ *      16-bit mono PCM in, and gets the assistant's speech through a callback (a phone line,
+ *      a file, its own audio device).
+ *
+ *   vasdk_providers* providers = vasdk_providers_create();
+ *   vasdk_providers_add_all(providers);                 // ProviderCatalog: every provider built in
+ *   vasdk_session* session = vasdk_session_create("engine.txtpb", providers, agent, NULL, &error);
+ *   vasdk_session_on_event(session, on_event, NULL);    // {"agentReply": {"text": ...}}, ...
+ *   vasdk_session_on_audio(session, play, NULL);
+ *   vasdk_session_start(session, &error);
+ *   vasdk_session_push_audio(session, pcm, samples);    // as the audio comes in
+ *   ...
+ *   vasdk_session_free(session); vasdk_providers_free(providers);
+ * ---- */
+
+typedef struct vasdk_providers vasdk_providers;   /* the providers a config can name, by id */
+typedef struct vasdk_session vasdk_session;
+
+/* Empty; vasdk_providers_add_all (ProviderCatalog) adds every provider built into the binary. */
+VASDK_EXPORT vasdk_providers* vasdk_providers_create(void);
+VASDK_EXPORT void vasdk_providers_free(vasdk_providers* providers);
+
+/* Each event, a vasdk.engine.Event as JSON (vasdk/engine/events.proto), on the session's event thread. */
+typedef void (*vasdk_event_fn)(const char* event_json, void* user);
+/* The assistant's speech: `samples` 16-bit mono samples at vasdk_session_output_rate, on a pipeline thread. */
+typedef void (*vasdk_audio_fn)(const short* pcm, size_t samples, void* user);
+
+/* An engine config file (.txtpb, .json or .pb; ${ENV} expanded) and an agent (NULL: the LLM only).
+ * options_json may be NULL: {"id": "call-1", "models_dir": "models", "system_prompt": "..."}.
+ * The config's audio must be 16-bit PCM (the default). providers and agent must outlive it. */
+VASDK_EXPORT vasdk_session* vasdk_session_create(const char* config_path, const vasdk_providers* providers,
+                                                 const vasdk_agent* agent, const char* options_json, char** error);
+VASDK_EXPORT void vasdk_session_free(vasdk_session* session);   /* stops it first */
+/* Before vasdk_session_start. */
+VASDK_EXPORT void vasdk_session_on_event(vasdk_session* session, vasdk_event_fn on_event, void* user);
+VASDK_EXPORT void vasdk_session_on_audio(vasdk_session* session, vasdk_audio_fn on_audio, void* user);
+/* The agent's greeting picks up where a vasdk_session_snapshot left it. */
+VASDK_EXPORT void vasdk_session_resume(vasdk_session* session, const char* snapshot_json);
+VASDK_EXPORT int vasdk_session_start(vasdk_session* session, char** error);
+VASDK_EXPORT void vasdk_session_stop(vasdk_session* session);
+/* Sample rates, in Hz, of the audio pushed in and given out (the config's audio, default 16000). */
+VASDK_EXPORT int vasdk_session_input_rate(const vasdk_session* session);
+VASDK_EXPORT int vasdk_session_output_rate(const vasdk_session* session);
+/* The user's audio, as it comes: any number of samples. Thread-safe. */
+VASDK_EXPORT void vasdk_session_push_audio(vasdk_session* session, const short* pcm, size_t samples);
+/* A user turn, as if spoken; words the assistant says. Thread-safe. */
+VASDK_EXPORT void vasdk_session_inject_text(vasdk_session* session, const char* text);
+VASDK_EXPORT void vasdk_session_say(vasdk_session* session, const char* text);
+/* Sets a declared agent session param from a JSON value. Thread-safe. */
+VASDK_EXPORT int vasdk_session_set_param(vasdk_session* session, const char* name, const char* value_json, char** error);
+/* Nonzero: the network is up. Down: local fallbacks speak and listen, and the LLM rests. Thread-safe. */
+VASDK_EXPORT void vasdk_session_set_network_available(vasdk_session* session, int available);
+/* Where the agent's conversation is, to resume it later ("" when there's nothing to resume). */
+VASDK_EXPORT char* vasdk_session_snapshot(vasdk_session* session);
+
 #ifdef __cplusplus
 }
 #endif
