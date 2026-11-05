@@ -1,0 +1,8 @@
+# proto-file: vasdk/flow/test_case.proto
+# proto-message: vasdk.flow.FlowTestCase
+name: "what every part shares: help, thanks, never mind, and what the car can't do"
+turns { expect { page: "ready" expects_reply: false } }
+turns { user: "what can you do" expect { said_contains: "play music" } }
+turns { user: "book me a flight to Paris" expect { matched: false event: "no-match" } }
+turns { user: "thank you" expect { matched: true follow_up_listen_ms: 0 } }
+turns { user: "never mind" expect { said: "Okay." follow_up_listen_ms: 0 } }

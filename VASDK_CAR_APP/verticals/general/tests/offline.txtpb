@@ -1,0 +1,14 @@
+# proto-file: vasdk/flow/test_case.proto
+# proto-message: vasdk.flow.FlowTestCase
+name: "questions about the world are general knowledge's, after every vertical's own; offline, it says it can't"
+turns { user: "why is the sky blue" expect { to_llm: true said_contains: "internet" page: "ready" } }
+turns { user: "who invented the car" expect { to_llm: true } }
+turns { user: "what's the capital of Peru" expect { said_contains: "internet" } }
+# The verticals' own questions come first
+turns { user: "how do I pair my phone" expect { said_contains: "Pair new device" } }
+turns { user: "who is driving" expect { said_contains: "Guest" } }
+turns { user: "how much fuel do I have" expect { said_contains: "fuel" } }
+# Mid-directions, a question is answered and "Where to?" isn't lost
+turns { user: "take me somewhere" expect { page: "where" } }
+turns { user: "how far is the moon" expect { to_llm: true said_contains: "internet" page: "where" } }
+turns { user: "the airport" expect { page: "routes" } }

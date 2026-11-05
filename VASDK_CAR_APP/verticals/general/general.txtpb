@@ -1,0 +1,31 @@
+# proto-file: vasdk/flow/agent.proto
+# proto-message: vasdk.flow.Agent
+#
+# General knowledge: what's outside every other vertical. "Why is the sky blue", "who invented the
+# car", "how far is the moon": a question about the world, handed to the session's LLM (target LLM),
+# which answers it as prompt.txt says, with the conversation so far, on whatever page the
+# conversation is on (mid-directions, the destination is still asked for). Offline, the steps say so.
+#
+# Why an intent of its own, when the session's LLM gets what nothing understands anyway: the LLM
+# that checks intents is shown every vertical's. Without this one, an outside question had to be
+# the nearest car command or none: "Paris" became "navigate". Now it can be "general".
+#
+# Included after every other vertical and before shared.txtpb: its examples are the most general,
+# so a vertical's own command or question ("who is driving", "how do I pair my phone") comes first.
+# prompt.txt is its part of the session LLM's instructions.
+# A vertical with no code. Part of ../../agents/car/agent.txtpb (include_files).
+
+envelopes: ["general"]
+
+intents { name: "general_question" examples: [
+  "why is the", "why do", "why does", "why are", "who was", "who invented", "who wrote", "who discovered", "who painted",
+  "what is the capital of", "what's the capital of", "how far is", "how big is", "how tall is", "how old is", "how many people",
+  "when was", "when did", "what year", "what's the difference between", "explain", "teach me", "fun fact", "a fact about",
+  "what does the word", "what's the meaning of", "tell me about the history of", "how does a", "how do planes", "is it true that"] }
+
+envelope_defs {
+  name: "general"
+  routes { intent: "general_question"
+           steps { say { text: "I need the internet to answer that. I can still do the climate, the music, calls and directions." } }
+           target: "LLM" llm_profile: "smart" }
+}

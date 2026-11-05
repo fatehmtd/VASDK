@@ -1,0 +1,73 @@
+# proto-file: vasdk/flow/agent.proto
+# proto-message: vasdk.flow.Agent
+#
+# Driver profiles: a key fob says who is driving (the app sets $session.driver and fires
+# driver-changed), and their temperature, music and seat heating are applied with the climate's
+# and media's tools: this part needs theirs (../climate, ../media). "Remember this temperature"
+# keeps the current one in the profile. Its tool, `profile`, is Profiles.cpp.
+# Part of ../../agents/car/agent.txtpb (include_files).
+envelopes: ["profiles"]
+
+session_params { name: "driver" type: STRUCT }   # set by the app: {"name", "guest", "temperature", "genre", "volume", "seat_heat"}
+
+intents { name: "who_is_driving" examples: ["who's driving", "who is driving", "whose profile is this", "which profile", "who am i"] }
+intents { name: "remember_temperature" examples: ["remember this temperature", "save this temperature", "remember my temperature",
+                                                  "make this my temperature", "keep this temperature"] }
+intents { name: "my_temperature" examples: ["my usual temperature", "my temperature", "the way i like it", "my settings", "my preferences"] }
+
+envelope_defs {
+  name: "profiles"
+  routes {
+    intent: "who_is_driving"
+    steps { call_tool { name: "profile" args { key: "action" value: "'current'" } into: "$session.driver" } }
+    steps { branch { if: "$session.driver.guest" then { say { text: "You're driving as a guest." } }
+                     else { say { text: "This is ${session.driver.name}'s profile." } } } }
+  }
+  routes {
+    intent: "remember_temperature"
+    steps { call_tool { name: "profile" args { key: "action" value: "'current'" } into: "$session.driver" } }
+    steps { branch {
+      if: "$session.driver.guest"
+      then { say { text: "Guests don't have a profile to keep that in." } }
+      else { call_tool { name: "climate" args { key: "action" value: "'status'" } into: "$session.climate" } }
+      else { call_tool { name: "profile" args { key: "action" value: "'remember'" } args { key: "key" value: "'temperature'" }
+                         args { key: "value" value: "$session.climate.driver_temp" } into: "$session.driver" } }
+      else { say { text: "I'll remember ${session.driver.temperature} degrees for you, ${session.driver.name}." } } } }
+  }
+  routes {
+    intent: "my_temperature"
+    steps { call_tool { name: "profile" args { key: "action" value: "'current'" } into: "$session.driver" } }
+    steps { call_tool { name: "climate" args { key: "action" value: "'set_temperature'" } args { key: "value" value: "$session.driver.temperature" }
+                        into: "$session.climate" } }
+    steps { say { text: "Your usual ${session.driver.temperature} degrees." } }
+  }
+}
+
+# A driver gets in: their settings, once nothing else is going on.
+triggers {
+  name: "driver_changed"
+  source { app_event { name: "driver-changed" } }
+  action { start_flow: "welcome_driver" }
+  delivery { interrupt: AFTER_FLOW priority: HIGH dedupe_key: "$trigger.payload.driver" }
+}
+
+flows {
+  name: "welcome_driver"
+  start_page: "apply"
+  pages {
+    name: "apply"
+    on_enter { branch { if: "$session.driver.guest"
+                        then { say { text: "Hi! You're driving as a guest." } }
+                        then { goto { target: "END_FLOW" } } } }
+    on_enter { call_tool { name: "climate" args { key: "action" value: "'set_temperature'" } args { key: "value" value: "$session.driver.temperature" }
+                           into: "$session.climate" } }
+    on_enter { call_tool { name: "climate" args { key: "action" value: "'seat_heat'" } args { key: "value" value: "$session.driver.seat_heat" }
+                           into: "$session.climate" } }
+    on_enter { call_tool { name: "media" args { key: "action" value: "'genre'" } args { key: "value" value: "$session.driver.genre" }
+                           into: "$session.media" } }
+    on_enter { call_tool { name: "media" args { key: "action" value: "'volume'" } args { key: "value" value: "$session.driver.volume" }
+                           into: "$session.media" } }
+    on_enter { say { text: "Welcome back, ${session.driver.name}. ${session.driver.temperature} degrees, and some ${session.driver.genre}." } }
+    on_enter { goto { target: "END_FLOW" } }
+  }
+}

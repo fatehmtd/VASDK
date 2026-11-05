@@ -1,0 +1,8 @@
+# proto-file: vasdk/flow/test_case.proto
+# proto-message: vasdk.flow.FlowTestCase
+name: "the manual answers questions about the car, offline, on any page"
+turns { user: "how do I pair my phone" expect { said_contains: "Pair new device" } }
+turns { user: "the check engine light is on" expect { said_contains: "orange engine light" } }
+turns { user: "what should my tire pressure be" expect { said_contains: "2.4 bar" } }
+turns { user: "take me to the airport" expect { page: "routes" } }
+turns { user: "how do I open the fuel door" expect { said_contains: ["Press the fuel door", "Take it?"] page: "routes" } }

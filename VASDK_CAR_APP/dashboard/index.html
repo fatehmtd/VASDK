@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VASDK Car</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<!-- The shell: app.js fills the columns with each vertical's panel (verticals/<name>/panel.js). -->
+<div class="app">
+  <header id="header">
+    <div class="clock" id="clock">--:--</div>
+    <span id="headerSlot" class="row" style="gap: 22px"></span>
+    <span class="offline" id="offline">dashboard disconnected, retrying…</span>
+    <div class="grow"></div>
+    <span class="dim" id="talkStatus"></span>
+    <button id="talk" title="Talk to the car from this browser's mic and speaker (WebRTC)">🎙 Talk</button>
+    <audio id="carVoice" autoplay></audio>
+    <div class="assistant-state"><span class="orb" id="orb"></span><span id="agentState">assistant</span></div>
+  </header>
+  <main>
+    <div class="column" id="left"></div>
+    <div class="column" id="center"></div>
+    <div class="column" id="right">
+      <section class="panel">
+        <h2>Assistant</h2>
+        <div class="convo" id="convo"></div>
+        <div class="hearing" id="hearing"></div>
+        <div class="chips" id="choices"></div>
+        <form class="say" id="sayForm">
+          <input type="text" id="sayText" placeholder="Type instead of talking: “I'm cold”, “take me home”" autocomplete="off">
+          <button type="submit">Send</button>
+          <button type="button" id="stopReply" title="Stop the reply">■</button>
+        </form>
+      </section>
+      <section class="panel">
+        <h2>Simulator</h2>
+        <div class="sim" id="simulator"></div>
+      </section>
+    </div>
+  </main>
+</div>
+<script type="module" src="/app.js"></script>
+</body>
+</html>

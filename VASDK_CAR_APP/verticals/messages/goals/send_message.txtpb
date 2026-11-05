@@ -1,0 +1,10 @@
+# proto-file: vasdk/goal/goal.proto
+# proto-message: vasdk.goal.GoalDefinition
+#
+# A text message: who it's for (a contact) and what it says, read back before it's sent.
+name: "send_message"
+require_confirmation: true
+confirm: "To $form.contact: $form.body. Send it?"
+change: "Who it's for, or what it says?"
+slots { name: "contact" entity: "@contact" prompt: "Who's it for?" reprompt: "Who's it for? Say a name from your contacts." }
+slots { name: "body" type: STRING prompt: "What's the message?" }

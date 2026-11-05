@@ -1,0 +1,18 @@
+# proto-file: vasdk/flow/test_case.proto
+# proto-message: vasdk.flow.FlowTestCase
+name: "the fan, defrost, recirculation and the seats"
+turns { user: "fan to 2" expect { said: "Fan at 2." } }
+turns { user: "fan down" expect { said: "Fan at 1." } }
+turns { user: "less air" expect { said: "The fan is at its lowest." } }
+turns { user: "turn the fan up to 5" expect { said: "Fan at 5." } }
+turns { user: "fan to 9" expect { said: "The fan goes from 1 to 7." } }
+turns { user: "the windshield is fogged up" expect { said: "Defrosting the windshield." } }
+turns { user: "turn off the defrost" expect { said: "Defrost off." } }
+turns { user: "recirculate the air" expect { said: "Recirculating the air inside." } }
+turns { user: "fresh air please" expect { said: "Bringing in fresh air." } }
+turns { user: "heat my seat" expect { said: "Heating your seat, level 2." } }
+turns { user: "seat heating to 3 for the passenger" expect { said: "Heating the passenger seat, level 3." } }
+turns { user: "turn on the heated seats for everyone" expect { said: "Heating both seats, level 2." } }
+turns { user: "turn off my seat heater" expect { said: "Seat heating off." } }
+turns { user: "climate on auto" expect { said_contains: "Climate on auto" } }
+turns { user: "turn off the climate" expect { said: "Climate off." } }

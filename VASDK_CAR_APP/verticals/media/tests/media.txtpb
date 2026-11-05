@@ -1,0 +1,28 @@
+# proto-file: vasdk/flow/test_case.proto
+# proto-message: vasdk.flow.FlowTestCase
+name: "music: genres, artists, stations, sources, volume, and what's playing"
+turns { user: "play some jazz" expect { said_contains: "jazz" tools_called: ["media"] } }
+turns { user: "play something by lila monroe" expect { said: "Playing Neon Summer by Lila Monroe." } }
+turns { user: "put on some relaxing music" expect { said_contains: "chill music" } }
+turns { user: "play velvet jazz" expect { said: "Here's Velvet Jazz on 88.3." } }   # the station, not the genre
+turns { user: "tune to 104.7" expect { said: "Here's Highway Rock on 104.7." } }
+turns { user: "next station" expect { said: "Here's Velvet Jazz on 88.3." } }
+turns { user: "what's playing" expect { said: "You're listening to Velvet Jazz on 88.3." } }
+turns { user: "play from my phone" expect { said_contains: "Switching to Bluetooth" } }
+turns { user: "listen to the radio" expect { said: "Switching to the radio: Velvet Jazz on 88.3." } }
+turns { user: "volume to 10" expect { said: "Volume 10." } }
+turns { user: "louder" expect { said: "Volume 13." } }
+turns { user: "too loud" expect { said: "Volume 10." } }
+turns { user: "volume 30" }
+turns { user: "turn it up" expect { said: "That's as loud as it goes." } }
+turns { user: "volume to 50" expect { said: "The volume goes from 0 to 30." } }
+turns { user: "mute" expect { said: "Muted." } }
+turns { user: "unmute" expect { said: "Sound's back on." } }
+turns { user: "pause" expect { said_contains: "aus" } }
+turns { user: "what's playing" expect { said: "Nothing's playing right now." } }
+turns { user: "resume" expect { said: "Playing Velvet Jazz on 88.3." } }
+# Said in a sentence: the best match across the verticals wins, not the first vertical with any match
+turns { user: "I'm in the mood for some chill music" expect { said_contains: "chill" } }    # not climate's "chilly"
+turns { user: "let's play some classic music" expect { said_contains: "classical" } }
+turns { user: "play something upbeat" expect { said_contains: "pop" } }                  # a mood is a genre too
+turns { user: "something relaxing please" expect { said_contains: "chill" } }

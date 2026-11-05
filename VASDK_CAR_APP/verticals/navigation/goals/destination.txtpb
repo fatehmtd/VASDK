@@ -1,0 +1,6 @@
+# proto-file: vasdk/goal/goal.proto
+# proto-message: vasdk.goal.GoalDefinition
+#
+# Where to drive: one place, from the map's places (@place).
+name: "destination"
+slots { name: "place" entity: "@place" prompt: "Where to?" reprompt: "Where to? For example, home, work or the airport." }
