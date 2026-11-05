@@ -10,7 +10,12 @@
 
 #include <google/protobuf/text_format.h>
 
+#include <VASDK/flow/FlowRegistry.h>
+#include <VASDK/nlu/NluProvider.h>
+
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <string>
 
 using namespace va::flow;
@@ -238,6 +243,99 @@ int main() {
         check(contains(lintError("entity_types {", "entity_types { name: \"bad\" composite { templates: [\"@nothing:x\"] } }\nentity_types {"),
                        "@nothing must be"),
               "a composite's part must be an entity");
+    }
+
+    // Double Metaphone: a primary code, and an alternate for spellings with two common sounds.
+    {
+        check(va::nlu::doubleMetaphone("Smith") == std::make_pair(std::string("SM0"), std::string("XMT")), "Smith: SM0, XMT");
+        check(va::nlu::doubleMetaphone("Schmidt") == std::make_pair(std::string("XMT"), std::string("SMT")), "Schmidt: XMT, SMT");
+        check(va::nlu::doubleMetaphone("Thompson").first == "TMPS", "Thompson: TMPS (th as t)");
+        check(va::nlu::doubleMetaphone("knight").first == "NT", "knight: the k and gh are silent");
+        check(va::nlu::doubleMetaphone("Philip").first == va::nlu::doubleMetaphone("Filip").first, "ph sounds like f");
+        check(va::nlu::soundsAlike("Smith", "Schmidt") && va::nlu::soundsAlike("Jon", "John") &&
+                  va::nlu::soundsAlike("Catherine", "Kathryn") && !va::nlu::soundsAlike("Kevin", "Katherine"),
+              "sounds alike by either code");
+        std::string error;
+        auto people = compileText(R"agent(
+            start_flow: "main"
+            entity_types { name: "person" list { values { value: "smith" spoken: "Ms Smith" } values { value: "al" spoken: "Al" } }
+                           matching { phonetic: true } }
+            flows { name: "main" start_page: "p" pages { name: "p" on_enter { end {} } } }
+        )agent", &error);
+        check(people && people->entities().find("person", "put me through to schmidt")->value.string_value() == "smith",
+              "a name spelled another way is found by sound");
+        check(people && !people->entities().find("person", "is that all"), "short words aren't matched by sound");
+    }
+
+    // Code-backed entities: the app's extractor finds the values.
+    {
+        auto registry = std::make_shared<FlowRegistry>();
+        registry->addEntityExtractor("plates_db", [](const FlowRegistry::EntityRequest& request) {
+            std::vector<FlowRegistry::EntityFound> found;
+            for (size_t i = 0; i < request.words.size(); ++i) {
+                if (request.words[i] != "golf") continue;
+                FlowRegistry::EntityFound car;
+                car.start = i;
+                car.value = stringValue("AB123CD");
+                car.spoken = "your Golf";
+                (*car.attributes.mutable_fields())["model"] = stringValue("Golf");
+                found.push_back(car);
+                FlowRegistry::EntityFound outside;   // past the words: dropped
+                outside.start = request.words.size();
+                outside.value = stringValue("nowhere");
+                found.push_back(outside);
+            }
+            return found;
+        });
+        vasdk::flow::Agent definition;
+        google::protobuf::TextFormat::ParseFromString(R"agent(
+            start_flow: "main"
+            entity_types { name: "my_car" code { extractor: "plates_db" } }
+            flows { name: "main" start_page: "p" pages { name: "p" on_enter { end {} } } }
+        )agent", &definition);
+        std::string error;
+        auto agent = CompiledAgent::compile(definition, &error, nullptr, registry);
+        check(agent != nullptr, "a code entity compiles with its extractor registered");
+        if (agent) {
+            const auto car = agent->entities().find("my_car", "the golf needs a wash");
+            check(car && car->value.string_value() == "AB123CD" && car->spoken == "your Golf" &&
+                      car->attributes.fields().at("model").string_value() == "Golf" && car->raw == "golf",
+                  "found by the extractor, with its spoken form and attributes");
+            check(!agent->entities().find("my_car", "the polo needs a wash"), "nothing found, no match");
+        }
+        check(!CompiledAgent::compile(definition, &error) && contains(error, "plates_db"),
+              "an extractor that isn't registered fails to load");
+    }
+
+    // Entity packs: shared files of entity types, and VASDK's own (country, us_state, currency).
+    {
+        const auto dir = std::filesystem::temp_directory_path() / "vasdk_entity_packs";
+        std::filesystem::create_directories(dir);
+        const auto packs = std::filesystem::absolute(std::filesystem::path(__FILE__).parent_path().parent_path() / "entities");
+        std::ofstream(dir / "agent.txtpb") << "start_flow: \"main\"\n"
+                                           << "entity_files: [\"" << (packs / "country.txtpb").generic_string() << "\", \""
+                                           << (packs / "us_state.txtpb").generic_string() << "\", \""
+                                           << (packs / "currency.txtpb").generic_string() << "\"]\n"
+                                           << "entity_types { name: \"currency\" list { values { value: \"coins\" } } }\n"
+                                           << "flows { name: \"main\" start_page: \"p\" pages { name: \"p\" on_enter { end {} } } }\n";
+        std::string error;
+        auto agent = CompiledAgent::load((dir / "agent.txtpb").string(), &error);
+        check(agent != nullptr, "an agent with entity packs loads");
+        if (agent) {
+            const auto country = agent->entities().find("country", "I'm flying to the netherlands next week");
+            check(country && country->value.string_value() == "netherlands" && country->attributes.fields().at("iso2").string_value() == "NL",
+                  "a country, with its ISO code");
+            const auto state = agent->entities().find("us_state", "we moved to new york");
+            check(state && state->value.string_value() == "new_york" && state->attributes.fields().at("code").string_value() == "NY",
+                  "a state, with its postal code");
+            check(!agent->entities().find("us_state", "or maybe in a week"), "postal codes that are words aren't states");
+            check(agent->entities().find("currency", "a few coins") && !agent->entities().find("currency", "ten euros"),
+                  "a type the agent declares itself wins over the pack's");
+        }
+        std::ofstream(dir / "broken.txtpb") << "start_flow: \"main\" entity_files: [\"missing.txtpb\"]\n";
+        check(!CompiledAgent::load((dir / "broken.txtpb").string(), &error) && contains(error, "missing.txtpb"),
+              "a missing pack fails to load, naming it");
+        std::filesystem::remove_all(dir);
     }
 
     if (failures == 0) std::printf("entity_test: all passed\n");

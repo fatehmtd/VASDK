@@ -170,5 +170,14 @@ const llm::Tool* FlowRegistry::tool(const std::string& name) const {
     return found == _tools.end() ? nullptr : &found->second;
 }
 
+void FlowRegistry::addEntityExtractor(const std::string& name, EntityExtractor extractor) {
+    _entityExtractors[name] = std::move(extractor);
+}
+
+const FlowRegistry::EntityExtractor* FlowRegistry::entityExtractor(const std::string& name) const {
+    const auto found = _entityExtractors.find(name);
+    return found == _entityExtractors.end() ? nullptr : &found->second;
+}
+
 } // namespace flow
 } // namespace va

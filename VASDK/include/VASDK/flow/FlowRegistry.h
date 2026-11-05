@@ -144,10 +144,32 @@ public:
      */
     void addTool(llm::Tool tool);
 
+    /** What an entity extractor is given: the user's words as entities read them (entityWords), and the text. */
+    struct EntityRequest {
+        const std::vector<std::string>& words;
+        const std::string& text;
+    };
+    /** A value it found: the words it was said in (indexes into words), what's stored and compared, how replies say it. */
+    struct EntityFound {
+        size_t start = 0;
+        size_t length = 1;
+        google::protobuf::Value value;
+        std::string spoken;                    // empty: the value as text
+        google::protobuf::Struct attributes;   // $form.<slot>.<attribute>
+    };
+    using EntityExtractor = std::function<std::vector<EntityFound>(const EntityRequest& request)>;
+    /**
+     * Finds the values of `code { extractor: "<name>" }` entities in the user's words: a lookup in
+     * a database, the phone's contacts. Called on the conversation's thread, each time the entity
+     * is looked for; it should be quick. A value outside the words is dropped.
+     */
+    void addEntityExtractor(const std::string& name, EntityExtractor extractor);
+
     const Step* step(const std::string& paramsType) const;
     const PageType* pageType(const std::string& name) const;
     const Envelope* envelope(const std::string& name) const;
     const llm::Tool* tool(const std::string& name) const;
+    const EntityExtractor* entityExtractor(const std::string& name) const;
 
     /** Calls `use` with `params` as a Params: as it is when it's one, else converted (a type loaded with proto_imports). */
     template <class Params, class Use>
@@ -166,6 +188,7 @@ private:
     std::map<std::string, PageType> _pageTypes;
     std::map<std::string, Envelope> _envelopes;
     std::map<std::string, llm::Tool> _tools;
+    std::map<std::string, EntityExtractor> _entityExtractors;
 };
 
 } // namespace flow

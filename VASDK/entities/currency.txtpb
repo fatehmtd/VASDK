@@ -1,0 +1,45 @@
+# proto-file: vasdk/nlu/entity.proto
+# proto-message: vasdk.nlu.EntityPack
+#
+# Currencies, as people name them: values in snake_case, the ISO 4217 code as an attribute
+# ($form.currency.code). Codes that are words ("try") aren't synonyms.
+name: "currency"
+description: "a currency"
+entity_types {
+  name: "currency"
+  description: "a currency"
+  list {
+      values { value: "us_dollar" spoken: "US dollar" synonyms: ["dollar", "dollars", "us dollars", "usd", "bucks"] attributes { fields { key: "code" value { string_value: "USD" } } } }
+      values { value: "euro" spoken: "euro" synonyms: ["euros"] attributes { fields { key: "code" value { string_value: "EUR" } } } }
+      values { value: "british_pound" spoken: "British pound" synonyms: ["pound", "pounds", "pound sterling", "sterling", "gbp", "quid"] attributes { fields { key: "code" value { string_value: "GBP" } } } }
+      values { value: "japanese_yen" spoken: "Japanese yen" synonyms: ["yen"] attributes { fields { key: "code" value { string_value: "JPY" } } } }
+      values { value: "chinese_yuan" spoken: "Chinese yuan" synonyms: ["yuan", "renminbi", "rmb"] attributes { fields { key: "code" value { string_value: "CNY" } } } }
+      values { value: "swiss_franc" spoken: "Swiss franc" synonyms: ["swiss francs"] attributes { fields { key: "code" value { string_value: "CHF" } } } }
+      values { value: "canadian_dollar" spoken: "Canadian dollar" synonyms: ["canadian dollars"] attributes { fields { key: "code" value { string_value: "CAD" } } } }
+      values { value: "australian_dollar" spoken: "Australian dollar" synonyms: ["australian dollars", "aussie dollar"] attributes { fields { key: "code" value { string_value: "AUD" } } } }
+      values { value: "new_zealand_dollar" spoken: "New Zealand dollar" synonyms: ["new zealand dollars", "kiwi dollar"] attributes { fields { key: "code" value { string_value: "NZD" } } } }
+      values { value: "indian_rupee" spoken: "Indian rupee" synonyms: ["rupee", "rupees", "indian rupees"] attributes { fields { key: "code" value { string_value: "INR" } } } }
+      values { value: "mexican_peso" spoken: "Mexican peso" synonyms: ["mexican pesos"] attributes { fields { key: "code" value { string_value: "MXN" } } } }
+      values { value: "brazilian_real" spoken: "Brazilian real" synonyms: ["reais", "brazilian reais"] attributes { fields { key: "code" value { string_value: "BRL" } } } }
+      values { value: "south_african_rand" spoken: "South African rand" synonyms: ["rand"] attributes { fields { key: "code" value { string_value: "ZAR" } } } }
+      values { value: "russian_ruble" spoken: "Russian ruble" synonyms: ["ruble", "rubles", "rouble", "roubles"] attributes { fields { key: "code" value { string_value: "RUB" } } } }
+      values { value: "south_korean_won" spoken: "South Korean won" synonyms: ["won", "korean won"] attributes { fields { key: "code" value { string_value: "KRW" } } } }
+      values { value: "singapore_dollar" spoken: "Singapore dollar" synonyms: ["singapore dollars"] attributes { fields { key: "code" value { string_value: "SGD" } } } }
+      values { value: "hong_kong_dollar" spoken: "Hong Kong dollar" synonyms: ["hong kong dollars"] attributes { fields { key: "code" value { string_value: "HKD" } } } }
+      values { value: "swedish_krona" spoken: "Swedish krona" synonyms: ["swedish kronor"] attributes { fields { key: "code" value { string_value: "SEK" } } } }
+      values { value: "norwegian_krone" spoken: "Norwegian krone" synonyms: ["norwegian kroner"] attributes { fields { key: "code" value { string_value: "NOK" } } } }
+      values { value: "danish_krone" spoken: "Danish krone" synonyms: ["danish kroner"] attributes { fields { key: "code" value { string_value: "DKK" } } } }
+      values { value: "polish_zloty" spoken: "Polish zloty" synonyms: ["zloty", "zlotys"] attributes { fields { key: "code" value { string_value: "PLN" } } } }
+      values { value: "turkish_lira" spoken: "Turkish lira" synonyms: ["lira", "turkish liras"] attributes { fields { key: "code" value { string_value: "TRY" } } } }
+      values { value: "uae_dirham" spoken: "UAE dirham" synonyms: ["dirham", "dirhams", "emirati dirham"] attributes { fields { key: "code" value { string_value: "AED" } } } }
+      values { value: "saudi_riyal" spoken: "Saudi riyal" synonyms: ["riyal", "riyals"] attributes { fields { key: "code" value { string_value: "SAR" } } } }
+      values { value: "israeli_shekel" spoken: "Israeli shekel" synonyms: ["shekel", "shekels"] attributes { fields { key: "code" value { string_value: "ILS" } } } }
+      values { value: "thai_baht" spoken: "Thai baht" synonyms: ["baht"] attributes { fields { key: "code" value { string_value: "THB" } } } }
+      values { value: "indonesian_rupiah" spoken: "Indonesian rupiah" synonyms: ["rupiah"] attributes { fields { key: "code" value { string_value: "IDR" } } } }
+      values { value: "philippine_peso" spoken: "Philippine peso" synonyms: ["philippine pesos"] attributes { fields { key: "code" value { string_value: "PHP" } } } }
+      values { value: "malaysian_ringgit" spoken: "Malaysian ringgit" synonyms: ["ringgit"] attributes { fields { key: "code" value { string_value: "MYR" } } } }
+      values { value: "nigerian_naira" spoken: "Nigerian naira" synonyms: ["naira"] attributes { fields { key: "code" value { string_value: "NGN" } } } }
+      values { value: "egyptian_pound" spoken: "Egyptian pound" synonyms: ["egyptian pounds"] attributes { fields { key: "code" value { string_value: "EGP" } } } }
+      values { value: "bitcoin" spoken: "Bitcoin" synonyms: ["btc"] attributes { fields { key: "code" value { string_value: "BTC" } } } }
+  }
+}

@@ -5,6 +5,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace va {
@@ -72,11 +73,15 @@ VASDK_EXPORT float wordSimilarity(const std::string& a, const std::string& b);
  */
 VASDK_EXPORT float wordMatch(const std::string& heard, const std::string& expected, float minSimilarity);
 /**
- * How a word sounds, roughly, for names a speech recognizer spells its own way: "catherine" and
- * "katherine" → "k0rn", "stephen" and "steven" → "stfn". Letters only; vowels after the first
- * letter and repeats are dropped.
+ * How a word sounds, by Double Metaphone, for names a speech recognizer spells its own way: a
+ * primary code and an alternate, for spellings with two common sounds, up to 4 sounds each.
+ * "Catherine" and "Katherine" → K0RN (alternate KTRN); "Schmidt" → XMT, SMT; "Smith" → SM0, XMT.
  */
+VASDK_EXPORT std::pair<std::string, std::string> doubleMetaphone(const std::string& word);
+/** doubleMetaphone's primary code. */
 VASDK_EXPORT std::string phoneticKey(const std::string& word);
+/** Two words that sound alike: one's primary or alternate code is one of the other's ("Smith", "Schmidt"). */
+VASDK_EXPORT bool soundsAlike(const std::string& a, const std::string& b);
 /** Where `phrase` occurs in `words`, word for word by wordMatch: each start, and the sum of its words' matches. */
 VASDK_EXPORT std::vector<std::pair<size_t, float>> findPhrase(const std::vector<std::string>& words,
                                                               const std::vector<std::string>& phrase, float minSimilarity);

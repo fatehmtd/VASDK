@@ -565,10 +565,13 @@ entity_types { name: "free_time"  dynamic: true list { values { value: "09:00" s
 
 | Kind | Matches | Its value |
 |---|---|---|
-| `list` | the `value`, `spoken` form or any synonym, as whole words, ignoring case and punctuation. Misspellings match too (see [Understanding](#understanding)); `matching { phonetic: true }` also matches words that sound alike, for names ("Catherine" for `katherine`, "Steven" for `stephen`) | `value`; replies say `spoken` |
+| `list` | the `value`, `spoken` form or any synonym, as whole words, ignoring case and punctuation. Misspellings match too (see [Understanding](#understanding)); `matching { phonetic: true }` also matches words of 3 letters or more that sound alike (Double Metaphone, either of a word's codes), for names ("Catherine" for `katherine`, "Steven" for `stephen`, "Schmidt" for `smith`) | `value`; replies say `spoken` |
 | `pattern` | the regex (ECMAScript, ignoring case) against a run of words joined by spaces, or by nothing with `strip_spaces`. With `spelled`, words are read letter by letter first: "alpha bravo one two" → `ab12`; letters and digits as the STT writes them ("AB 12") work too | the words joined; `uppercase` stores them in upper case |
 | `derived` | what its `base` matches (`@sys.*`, a list or a pattern), within `min`/`max` and where `condition` (on `$value`) holds | the base's value |
 | `composite` | one of its `templates` in order: `"@color:color @make:make from @sys.integer:year"`. Each part is a match of that entity starting right there; the words between them are said as they are. The longest template found wins, and a composite beats its parts | a struct, a field per part: `{color: "white", make: "toyota", year: 2019}`; replies say the parts as said ("white Toyota from 2019") |
+| `code` | what the app's code finds: `code { extractor: "plates_db" }`, registered with `FlowRegistry::addEntityExtractor("plates_db", ...)`. It gets the words, returns where each value was said (`start`, `length`), and its `value`, `spoken` form and `attributes`: a database lookup, the phone's contacts. An extractor that isn't registered fails the agent's load | its `value`; replies say `spoken` |
+
+**Entity packs.** `entity_files: ["../shared/cars.txtpb"]` imports entity types from files of their own (`vasdk.nlu.EntityPack`), relative to the agent, so agents can share them. A type the agent declares itself wins over a pack's. VASDK ships three in [`VASDK/entities`](../../VASDK/entities/): `@country` (197 countries, with `iso2` and `iso3` attributes), `@us_state` (the states and DC, with their postal `code`) and `@currency` (32, with their ISO `code`). Their values are snake_case names (`united_kingdom`, `new_york`, `us_dollar`), never codes, because many codes are also words ("in", "or", "try").
 
 **System entities.** These need no declaring. Each reads English as speech recognizers write it, in words or in digits. Dates count from the conversation's clock.
 

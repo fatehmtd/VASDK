@@ -219,6 +219,19 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::load(const std::string& path
         }
         *agent.add_goals() = std::move(goal);
     }
+    for (const auto& file : agent.entity_files()) {
+        vasdk::nlu::EntityPack pack;
+        std::string packError;
+        if (!engine::loadProtoFile((directory / file).string(), pack, &packError)) {
+            if (error) *error = "entity_files " + quoted(file) + ": " + packError;
+            return nullptr;
+        }
+        for (auto& type : *pack.mutable_entity_types()) {
+            const bool own = std::any_of(agent.entity_types().begin(), agent.entity_types().end(),
+                                         [&type](const vasdk::nlu::EntityType& declared) { return declared.name() == type.name(); });
+            if (!own) *agent.add_entity_types() = std::move(type);
+        }
+    }
     return build(std::move(agent), std::move(imports), std::move(registry), error, warnings);
 }
 
@@ -338,7 +351,7 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::build(vasdk::flow::Agent age
 
     {
         std::vector<std::string> entityErrors;
-        compiled->_entities.build(definition.entity_types(), entityErrors);
+        compiled->_entities.build(definition.entity_types(), entityErrors, compiled->_registry);
         check.errors.insert(check.errors.end(), entityErrors.begin(), entityErrors.end());
     }
     auto checkEntity = [&](const std::string& reference, const std::string& where) {

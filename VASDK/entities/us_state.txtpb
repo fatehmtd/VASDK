@@ -1,0 +1,64 @@
+# proto-file: vasdk/nlu/entity.proto
+# proto-message: vasdk.nlu.EntityPack
+#
+# US states and DC: values in snake_case, the postal code as an attribute ($form.state.code).
+# Postal codes aren't synonyms: many are words ("in", "or", "me", "ok").
+name: "us_state"
+description: "a US state"
+entity_types {
+  name: "us_state"
+  description: "a US state"
+  list {
+      values { value: "alabama" spoken: "Alabama" attributes { fields { key: "code" value { string_value: "AL" } } } }
+      values { value: "alaska" spoken: "Alaska" attributes { fields { key: "code" value { string_value: "AK" } } } }
+      values { value: "arizona" spoken: "Arizona" attributes { fields { key: "code" value { string_value: "AZ" } } } }
+      values { value: "arkansas" spoken: "Arkansas" attributes { fields { key: "code" value { string_value: "AR" } } } }
+      values { value: "california" spoken: "California" attributes { fields { key: "code" value { string_value: "CA" } } } }
+      values { value: "colorado" spoken: "Colorado" attributes { fields { key: "code" value { string_value: "CO" } } } }
+      values { value: "connecticut" spoken: "Connecticut" attributes { fields { key: "code" value { string_value: "CT" } } } }
+      values { value: "delaware" spoken: "Delaware" attributes { fields { key: "code" value { string_value: "DE" } } } }
+      values { value: "florida" spoken: "Florida" attributes { fields { key: "code" value { string_value: "FL" } } } }
+      values { value: "georgia" spoken: "Georgia" attributes { fields { key: "code" value { string_value: "GA" } } } }
+      values { value: "hawaii" spoken: "Hawaii" attributes { fields { key: "code" value { string_value: "HI" } } } }
+      values { value: "idaho" spoken: "Idaho" attributes { fields { key: "code" value { string_value: "ID" } } } }
+      values { value: "illinois" spoken: "Illinois" attributes { fields { key: "code" value { string_value: "IL" } } } }
+      values { value: "indiana" spoken: "Indiana" attributes { fields { key: "code" value { string_value: "IN" } } } }
+      values { value: "iowa" spoken: "Iowa" attributes { fields { key: "code" value { string_value: "IA" } } } }
+      values { value: "kansas" spoken: "Kansas" attributes { fields { key: "code" value { string_value: "KS" } } } }
+      values { value: "kentucky" spoken: "Kentucky" attributes { fields { key: "code" value { string_value: "KY" } } } }
+      values { value: "louisiana" spoken: "Louisiana" attributes { fields { key: "code" value { string_value: "LA" } } } }
+      values { value: "maine" spoken: "Maine" attributes { fields { key: "code" value { string_value: "ME" } } } }
+      values { value: "maryland" spoken: "Maryland" attributes { fields { key: "code" value { string_value: "MD" } } } }
+      values { value: "massachusetts" spoken: "Massachusetts" attributes { fields { key: "code" value { string_value: "MA" } } } }
+      values { value: "michigan" spoken: "Michigan" attributes { fields { key: "code" value { string_value: "MI" } } } }
+      values { value: "minnesota" spoken: "Minnesota" attributes { fields { key: "code" value { string_value: "MN" } } } }
+      values { value: "mississippi" spoken: "Mississippi" attributes { fields { key: "code" value { string_value: "MS" } } } }
+      values { value: "missouri" spoken: "Missouri" attributes { fields { key: "code" value { string_value: "MO" } } } }
+      values { value: "montana" spoken: "Montana" attributes { fields { key: "code" value { string_value: "MT" } } } }
+      values { value: "nebraska" spoken: "Nebraska" attributes { fields { key: "code" value { string_value: "NE" } } } }
+      values { value: "nevada" spoken: "Nevada" attributes { fields { key: "code" value { string_value: "NV" } } } }
+      values { value: "new_hampshire" spoken: "New Hampshire" attributes { fields { key: "code" value { string_value: "NH" } } } }
+      values { value: "new_jersey" spoken: "New Jersey" attributes { fields { key: "code" value { string_value: "NJ" } } } }
+      values { value: "new_mexico" spoken: "New Mexico" attributes { fields { key: "code" value { string_value: "NM" } } } }
+      values { value: "new_york" spoken: "New York" attributes { fields { key: "code" value { string_value: "NY" } } } }
+      values { value: "north_carolina" spoken: "North Carolina" attributes { fields { key: "code" value { string_value: "NC" } } } }
+      values { value: "north_dakota" spoken: "North Dakota" attributes { fields { key: "code" value { string_value: "ND" } } } }
+      values { value: "ohio" spoken: "Ohio" attributes { fields { key: "code" value { string_value: "OH" } } } }
+      values { value: "oklahoma" spoken: "Oklahoma" attributes { fields { key: "code" value { string_value: "OK" } } } }
+      values { value: "oregon" spoken: "Oregon" attributes { fields { key: "code" value { string_value: "OR" } } } }
+      values { value: "pennsylvania" spoken: "Pennsylvania" attributes { fields { key: "code" value { string_value: "PA" } } } }
+      values { value: "rhode_island" spoken: "Rhode Island" attributes { fields { key: "code" value { string_value: "RI" } } } }
+      values { value: "south_carolina" spoken: "South Carolina" attributes { fields { key: "code" value { string_value: "SC" } } } }
+      values { value: "south_dakota" spoken: "South Dakota" attributes { fields { key: "code" value { string_value: "SD" } } } }
+      values { value: "tennessee" spoken: "Tennessee" attributes { fields { key: "code" value { string_value: "TN" } } } }
+      values { value: "texas" spoken: "Texas" attributes { fields { key: "code" value { string_value: "TX" } } } }
+      values { value: "utah" spoken: "Utah" attributes { fields { key: "code" value { string_value: "UT" } } } }
+      values { value: "vermont" spoken: "Vermont" attributes { fields { key: "code" value { string_value: "VT" } } } }
+      values { value: "virginia" spoken: "Virginia" attributes { fields { key: "code" value { string_value: "VA" } } } }
+      values { value: "washington" spoken: "Washington" synonyms: ["washington state"] attributes { fields { key: "code" value { string_value: "WA" } } } }
+      values { value: "west_virginia" spoken: "West Virginia" attributes { fields { key: "code" value { string_value: "WV" } } } }
+      values { value: "wisconsin" spoken: "Wisconsin" attributes { fields { key: "code" value { string_value: "WI" } } } }
+      values { value: "wyoming" spoken: "Wyoming" attributes { fields { key: "code" value { string_value: "WY" } } } }
+      values { value: "district_of_columbia" spoken: "the District of Columbia" synonyms: ["district of columbia", "washington dc", "dc"] attributes { fields { key: "code" value { string_value: "DC" } } } }
+  }
+}

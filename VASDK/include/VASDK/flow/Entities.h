@@ -15,6 +15,8 @@
 namespace va {
 namespace flow {
 
+class FlowRegistry;
+
 /** One entity found in what the user said. */
 struct EntityMatch {
     std::string entity;                    // "service", "sys.integer"
@@ -42,9 +44,10 @@ inline constexpr const char* kSystemEntities[] = {"sys.integer", "sys.number",  
  */
 class VASDK_EXPORT EntityCatalog {
 public:
-    /** Checks and indexes `types`; each problem goes to `errors` ("entity \"plate\": ..."). */
+    /** Checks and indexes `types`; each problem goes to `errors` ("entity \"plate\": ..."). Code
+     *  entities find their values with `registry`'s extractors. */
     void build(const google::protobuf::RepeatedPtrField<vasdk::nlu::EntityType>& types,
-               std::vector<std::string>& errors);
+               std::vector<std::string>& errors, std::shared_ptr<const FlowRegistry> registry = nullptr);
 
     /** A declared entity ("service") or a system one ("sys.integer"), without the @. */
     bool knows(const std::string& name) const;
@@ -77,6 +80,7 @@ private:
     std::map<std::string, vasdk::nlu::EntityType> _types;
     std::map<std::string, std::shared_ptr<std::regex>> _patterns;
     std::map<std::string, std::shared_ptr<const Expression>> _conditions;   // derived entities
+    std::shared_ptr<const FlowRegistry> _registry;                          // code entities' extractors
 };
 
 /** "Hi, I'm 25." → {"hi", "i'm", "25"}: lower case; a decimal point between digits is kept ("2.5"). */

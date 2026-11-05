@@ -1,4 +1,5 @@
 #include "flow/Entities.h"
+#include "flow/FlowRegistry.h"
 #include "nlu/English.h"
 #include "nlu/NluProvider.h"
 
@@ -8,6 +9,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <set>
+#include <spdlog/spdlog.h>
 
 namespace va {
 namespace flow {
@@ -235,7 +237,8 @@ std::vector<std::string> entityWords(const std::string& text) {
 }
 
 void EntityCatalog::build(const google::protobuf::RepeatedPtrField<vasdk::nlu::EntityType>& types,
-                          std::vector<std::string>& errors) {
+                          std::vector<std::string>& errors, std::shared_ptr<const FlowRegistry> registry) {
+    _registry = registry;
     for (int i = 0; i < types.size(); ++i) {
         const auto& type = types.Get(i);
         const std::string where = "entity " + (type.name().empty() ? std::to_string(i + 1) : inQuotes(type.name()));
@@ -275,8 +278,13 @@ void EntityCatalog::build(const google::protobuf::RepeatedPtrField<vasdk::nlu::E
         case vasdk::nlu::EntityType::kDerived:
         case vasdk::nlu::EntityType::kComposite:
             break;   // checked below, once every name is known
+        case vasdk::nlu::EntityType::kCode:
+            if (type.code().extractor().empty()) error("code needs an extractor");
+            else if (!registry || !registry->entityExtractor(type.code().extractor()))
+                error("extractor " + inQuotes(type.code().extractor()) + " isn't registered (FlowRegistry::addEntityExtractor)");
+            break;
         case vasdk::nlu::EntityType::KIND_NOT_SET:
-            error("needs a list, pattern, derived or composite kind");
+            error("needs a list, pattern, derived, composite or code kind");
             break;
         }
     }
@@ -348,7 +356,7 @@ const std::vector<vasdk::nlu::EntityValue>* EntityCatalog::listValues(const std:
 int EntityCatalog::kindRank(const std::string& name) const {
     const auto* entity = type(name);
     if (!entity) return 4;
-    return entity->has_pattern() ? 0 : entity->has_list() ? 1 : entity->has_derived() ? 2 : 3;
+    return entity->has_pattern() ? 0 : entity->has_list() || entity->has_code() ? 1 : entity->has_derived() ? 2 : 3;
 }
 
 std::vector<EntityMatch> EntityCatalog::matches(const std::string& name, const std::vector<std::string>& words,
@@ -384,12 +392,20 @@ std::vector<EntityMatch> EntityCatalog::matches(const std::string& name, const s
         const float minSimilarity = matching.has_fuzzy() && !matching.fuzzy() ? 1.0f
                                   : matching.has_min_similarity()           ? matching.min_similarity()
                                                                             : 0.8f;
-        auto phoneticPhrase = [](const std::vector<std::string>& phrase) {
-            std::vector<std::string> keys;
-            for (const auto& word : phrase) keys.push_back(nlu::phoneticKey(word));
-            return keys;
+        // Where `phrase` is said word for word by sound (Double Metaphone), for names STT spells its own way.
+        auto soundsAt = [&words](const std::vector<std::string>& phrase) {
+            std::vector<std::pair<size_t, float>> spots;
+            for (size_t start = 0; start + phrase.size() <= words.size(); ++start) {
+                size_t i = 0;
+                while (i < phrase.size() && (words[start + i] == phrase[i] ||
+                                             // 3 letters or more: "all" isn't the name "Al"
+                                             (words[start + i].size() >= 3 && phrase[i].size() >= 3 &&
+                                              nlu::soundsAlike(words[start + i], phrase[i]))))
+                    ++i;
+                if (i == phrase.size()) spots.emplace_back(start, static_cast<float>(phrase.size()));
+            }
+            return spots;
         };
-        const auto phoneticWords = matching.phonetic() ? phoneticPhrase(words) : std::vector<std::string>();
         std::vector<vasdk::nlu::EntityValue> declared;
         for (const auto& value : *listValues(name, dynamic, declared)) {
             std::vector<std::string> said(value.synonyms().begin(), value.synonyms().end());
@@ -399,8 +415,8 @@ std::vector<EntityMatch> EntityCatalog::matches(const std::string& name, const s
                 const auto phraseWords = entityWords(phrase);
                 if (phraseWords.empty()) continue;
                 auto spots = nlu::findPhrase(words, phraseWords, minSimilarity);
-                if (matching.phonetic()) {   // "Catherine" for "Katherine"
-                    for (const auto& spot : nlu::findPhrase(phoneticWords, phoneticPhrase(phraseWords), 1.0f))
+                if (matching.phonetic()) {   // "Catherine" for "Katherine", "Schmidt" for "Smith"
+                    for (const auto& spot : soundsAt(phraseWords))
                         if (std::none_of(spots.begin(), spots.end(), [&](const auto& found) { return found.first == spot.first; }))
                             spots.push_back(spot);
                 }
@@ -433,6 +449,24 @@ std::vector<EntityMatch> EntityCatalog::matches(const std::string& name, const s
                     longest = matchOf(name, stringValue(pattern.uppercase() ? upper(candidate) : candidate), words, start, length);
             }
             if (longest) found.push_back(std::move(*longest));
+        }
+    } else if (entity->has_code()) {
+        const auto* extractor = _registry ? _registry->entityExtractor(entity->code().extractor()) : nullptr;
+        if (!extractor) return {};
+        std::string text;
+        for (const auto& word : words) text += (text.empty() ? "" : " ") + word;
+        std::vector<FlowRegistry::EntityFound> values;
+        try {
+            values = (*extractor)(FlowRegistry::EntityRequest{words, text});
+        } catch (const std::exception& failure) {
+            spdlog::warn("[Entities] extractor \"{}\" failed: {}", entity->code().extractor(), failure.what());
+        }
+        for (auto& value : values) {
+            if (value.length == 0 || value.start + value.length > words.size()) continue;   // outside the words
+            auto match = matchOf(name, value.value, words, value.start, value.length);
+            match.spoken = value.spoken.empty() ? toText(value.value) : value.spoken;
+            match.attributes = std::move(value.attributes);
+            found.push_back(std::move(match));
         }
     } else if (entity->has_composite()) {
         // Each template in order from each word: its words said as they are, each part a match

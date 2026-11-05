@@ -35,6 +35,9 @@ message Agent {
   repeated Trigger triggers = 21;              // what may start or interrupt a conversation (trigger.proto)
   ProactivePolicy proactive_policy = 22;       // quiet hours and a limit for what's said unprompted
   repeated Knowledge knowledge = 23;           // questions answered on any page when no route understands the words
+  // Entity packs: files of entity types (vasdk.nlu.EntityPack) shared between agents, relative to
+  // this file, e.g. VASDK's own entities/country.txtpb. A type the agent declares itself wins.
+  repeated string entity_files = 24;
 }
 
 // An answer to questions people ask: when no route understands the words and they ask one of
