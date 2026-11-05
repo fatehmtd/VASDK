@@ -573,6 +573,19 @@ EntityMatch EntityCatalog::describe(const std::string& name, const Value& value,
     std::vector<vasdk::nlu::EntityValue> declared;
     const auto* entity = type(name);
     const std::string base = entity && entity->has_derived() ? withoutAt(entity->derived().base()) : name;
+    // A system value as a reply says it: "Tuesday, November 10th", not 2026-11-10.
+    if (value.kind_case() == Value::kStringValue) {
+        const auto& text = value.string_value();
+        if (base == "sys.date") match.spoken = nlu::english::spokenDate(text);
+        else if (base == "sys.time") match.spoken = nlu::english::spokenTime(text);
+        else if (base == "sys.duration") match.spoken = nlu::english::spokenDuration(text);
+        else if (base == "sys.datetime" && text.find('T') != std::string::npos) {
+            const auto day = nlu::english::spokenDate(text.substr(0, text.find('T')));
+            const auto time = nlu::english::spokenTime(text.substr(text.find('T') + 1));
+            if (!day.empty() && !time.empty()) match.spoken = day + " at " + time;
+        }
+        if (match.spoken.empty()) match.spoken = text;
+    }
     if (const auto* values = listValues(base, dynamic, declared)) {
         for (const auto& candidate : *values) {
             if (candidate.value() != toText(value)) continue;

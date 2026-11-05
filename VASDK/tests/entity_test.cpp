@@ -245,6 +245,18 @@ int main() {
               "a composite's part must be an entity");
     }
 
+    // System values as replies say them: a form's read-back says the day, not 2026-11-10.
+    {
+        EntityCatalog catalog;
+        std::vector<std::string> errors;
+        catalog.build({}, errors);
+        check(catalog.describe("sys.date", stringValue("2026-11-10")).spoken == "Tuesday, November 10th", "a date, said");
+        check(catalog.describe("sys.time", stringValue("15:30")).spoken == "3:30 PM", "a time, said");
+        check(catalog.describe("sys.datetime", stringValue("2026-11-03T12:00")).spoken == "Tuesday, November 3rd at noon",
+              "a date and time, said");
+        check(catalog.describe("sys.date", stringValue("someday")).spoken == "someday", "what isn't a date stays as it is");
+    }
+
     // Double Metaphone: a primary code, and an alternate for spellings with two common sounds.
     {
         check(va::nlu::doubleMetaphone("Smith") == std::make_pair(std::string("SM0"), std::string("XMT")), "Smith: SM0, XMT");

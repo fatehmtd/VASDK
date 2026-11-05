@@ -53,3 +53,24 @@ foreach(_index RANGE 0 ${_last} 2)
         target_compile_definitions(vasdk_provider_catalog PRIVATE VASDK_HAS_${_define})
     endif()
 endforeach()
+
+# A spoken conversation with no network, through the C API: VAD, STT and TTS on this machine.
+if(VASDK_BUILD_TESTS AND TARGET vasdk_silero_vad AND TARGET vasdk_whistle_stt AND TARGET vasdk_pocket_tts AND TARGET vasdk_phonon_tts)
+    add_executable(vasdk_offline_conversation_test offline_conversation_test.cpp)
+    target_link_libraries(vasdk_offline_conversation_test PRIVATE vasdk_provider_catalog nlohmann_json::nlohmann_json)
+    add_test(NAME vasdk_offline_conversation
+             COMMAND vasdk_offline_conversation_test ${CMAKE_CURRENT_BINARY_DIR}/../models)
+    set_tests_properties(vasdk_offline_conversation PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 600)
+    if(WIN32)   # the DLLs it loads, beside it
+        get_target_property(_vasdk_type VASDK TYPE)
+        if(_vasdk_type STREQUAL "SHARED_LIBRARY")
+            add_custom_command(TARGET vasdk_offline_conversation_test POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:VASDK> $<TARGET_FILE_DIR:vasdk_offline_conversation_test>)
+        endif()
+        if(DEFINED onnxruntime_SOURCE_DIR AND EXISTS "${onnxruntime_SOURCE_DIR}/lib/onnxruntime.dll")
+            add_custom_command(TARGET vasdk_offline_conversation_test POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different "${onnxruntime_SOURCE_DIR}/lib/onnxruntime.dll"
+                        $<TARGET_FILE_DIR:vasdk_offline_conversation_test>)
+        endif()
+    endif()
+endif()
