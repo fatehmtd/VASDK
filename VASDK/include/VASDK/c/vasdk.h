@@ -35,7 +35,7 @@ typedef enum vasdk_format {
     VASDK_FORMAT_BINARY = 2   /* serialized proto */
 } vasdk_format;
 
-typedef struct vasdk_registry vasdk_registry;          /* steps, tools and envelopes written in C */
+typedef struct vasdk_registry vasdk_registry;          /* steps, tools, envelopes, page types and entity extractors written in C */
 typedef struct vasdk_agent vasdk_agent;                /* an agent, checked and compiled */
 typedef struct vasdk_conversation vasdk_conversation;  /* one conversation's place in an agent */
 typedef struct vasdk_turn vasdk_turn;                  /* the turn a step or envelope runs in */
@@ -69,6 +69,26 @@ typedef int (*vasdk_envelope_before_fn)(vasdk_turn* turn, void* user);
 typedef void (*vasdk_envelope_after_fn)(vasdk_turn* turn, void* user);
 VASDK_EXPORT int vasdk_registry_add_envelope(vasdk_registry* registry, const char* name, vasdk_envelope_before_fn before,
                                              vasdk_envelope_after_fn after, void* user);
+
+/* A page type for pages with `type: "<name>"`, their params (`params { [type.googleapis.com/<params_type>]
+ * { ... } }`) as JSON. `on_enter` runs when the page is entered; `on_turn` gets each turn on the page and
+ * returns nonzero when it answered it (zero: the page's routes get it). params_type may be NULL (the type
+ * takes no params: "{}"), and either callback may be NULL. Replaces a page type of the same name.
+ * Targets a C page type goes to aren't checked when the agent loads. */
+typedef void (*vasdk_page_enter_fn)(const char* params_json, vasdk_turn* turn, void* user);
+typedef int (*vasdk_page_turn_fn)(const char* params_json, vasdk_turn* turn, void* user);
+VASDK_EXPORT int vasdk_registry_add_page_type(vasdk_registry* registry, const char* name, const char* params_type,
+                                              vasdk_page_enter_fn on_enter, vasdk_page_turn_fn on_turn, void* user);
+
+/* Finds the values of `code { extractor: "<name>" }` entities in the user's words (a database, the
+ * phone's contacts). Gets {"words": ["the", "user's", "words"], "text": "..."} and sets, with
+ * vasdk_result_set, an array of what it found:
+ *   [{"start": 2, "length": 1, "value": "mom-mobile", "spoken": "Mom", "attributes": {"label": "mobile"}}]
+ * start and length index the words; spoken and attributes may be left out. Called on the
+ * conversation's thread each time the entity is looked for: it should be quick. */
+typedef void (*vasdk_entity_extractor_fn)(const char* request_json, vasdk_result* result, void* user);
+VASDK_EXPORT int vasdk_registry_add_entity_extractor(vasdk_registry* registry, const char* name,
+                                                     vasdk_entity_extractor_fn extractor, void* user);
 
 /* ---- Turn: only inside a step's or envelope's callback. ---- */
 

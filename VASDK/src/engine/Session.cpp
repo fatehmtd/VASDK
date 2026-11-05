@@ -50,6 +50,15 @@ namespace {
 using pipeline::FlowDirection;
 using pipeline::FrameProcessor;
 
+// An endpoint reached without the network: localhost, 127.x, ::1 (LM Studio, a llama.cpp server).
+bool onThisMachine(const std::string& endpoint) {
+    const auto start = endpoint.find("://");
+    const auto host = endpoint.substr(start == std::string::npos ? 0 : start + 3);
+    for (const char* local : {"localhost", "127.", "[::1]"})
+        if (host.rfind(local, 0) == 0) return true;
+    return false;
+}
+
 // Entry point for frames that come from the app rather than the mic: say(), injectUserText().
 class FrameInjector : public FrameProcessor {
 public:
@@ -487,6 +496,14 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
                                                        ? llmSettings.speculative_min_words() : 3);
         state->llm->setToolFillerPhrases({llmSettings.tool_filler_phrases().begin(),
                                           llmSettings.tool_filler_phrases().end()});
+        // The network down and the LLM elsewhere: the user is told, rather than left waiting for
+        // a request that fails. An app's own transport (llama.cpp) and a server on this machine answer.
+        if (!options.llmTransport && !onThisMachine(state->llmTransport->getConfig().endpoint)) {
+            std::vector<std::string> replies(llmSettings.offline_replies().begin(), llmSettings.offline_replies().end());
+            if (replies.empty())
+                replies.push_back("I can't reach the internet right now, so I can't answer that. Please try again in a moment.");
+            state->llm->setOfflineReplies([offline = state->llmOffline] { return offline->load(); }, std::move(replies));
+        }
         state->llm->setProcessPartialTranscriptions(false);
         state->llm->setConfidenceThreshold(0.07f);
         state->llm->setStreamSpeech(true);  // speak each sentence as the LLM streams it
@@ -557,6 +574,10 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
                 return fields;
             });
         }
+        // An IMMEDIATE trigger cuts off the reply playing, as the cancel button does.
+        state->dialog->setInterrupter([raw = state.get()] {
+            if (raw->trigger) raw->trigger->trigger(transport::TriggerType::BUTTON_PRESS);
+        });
         state->dialog->setReplyObserver([events = std::weak_ptr<EventDispatcher>(state->events), raw = state.get()](
                                             const flow::Reply& reply, const flow::FlowRuntime& conversation) {
             {
@@ -790,6 +811,16 @@ void Session::resumeConversation(const std::string& snapshotJson) {
         return;
     }
     _state->dialog->setResumeFrom(std::move(snapshot));
+}
+
+std::optional<std::chrono::system_clock::time_point> Session::nextScheduledTrigger() const {
+    return _state->dialog ? _state->dialog->nextScheduledTrigger() : std::nullopt;
+}
+
+std::string Session::triggerState() const { return _state->dialog ? _state->dialog->triggerState() : std::string(); }
+
+void Session::restoreTriggerState(const std::string& json) {
+    if (_state->dialog && !json.empty()) _state->dialog->restoreTriggerState(json);
 }
 
 bool Session::usingFallbacks() const {

@@ -1,6 +1,6 @@
 # The C API
 
-[`VASDK/c/vasdk.h`](../../VASDK/include/VASDK/c/vasdk.h) gives any language that can call C what C++ apps have for [agents](flows.md): load an agent, talk to it by text, write its steps, tools and envelopes, and run its test cases. Data crosses as JSON or serialized protos ([`vasdk/flow/*.proto`](../../VASDK/proto/vasdk/flow/)), never as C++ types, so bindings (Python, Rust, Go, Swift) stay thin.
+[`VASDK/c/vasdk.h`](../../VASDK/include/VASDK/c/vasdk.h) gives any language that can call C what C++ apps have for [agents](flows.md): load an agent, talk to it by text, write its steps, tools, envelopes, page types and entity extractors, and run its test cases. Data crosses as JSON or serialized protos ([`vasdk/flow/*.proto`](../../VASDK/proto/vasdk/flow/)), never as C++ types, so bindings (Python, Rust, Go, Swift) stay thin.
 
 ```c
 #include <VASDK/c/vasdk.h>
@@ -25,7 +25,7 @@ vasdk_registry_free(registry);
 
 | Part | Functions |
 |---|---|
-| Registry | `vasdk_registry_add_step` (for `custom` steps, by their params type; params arrive as JSON), `vasdk_registry_add_tool` (for `call_tool`; set or fail its `vasdk_result`), `vasdk_registry_add_envelope` (`before` returns nonzero when it answered the turn, `after` runs on the reply). |
+| Registry | `vasdk_registry_add_step` (for `custom` steps, by their params type; params arrive as JSON), `vasdk_registry_add_tool` (for `call_tool`; set or fail its `vasdk_result`), `vasdk_registry_add_envelope` (`before` returns nonzero when it answered the turn, `after` runs on the reply), `vasdk_registry_add_page_type` (for pages with `type: "<name>"`: `on_enter`, and `on_turn` returning nonzero when it answered; params as JSON), `vasdk_registry_add_entity_extractor` (for `code { extractor }` entities: gets `{"words", "text"}`, sets an array of `{"start", "length", "value", "spoken", "attributes"}`). |
 | Turn, inside a callback | `vasdk_turn_text`, `vasdk_turn_lookup("$session.tier")` (JSON), `vasdk_turn_say`, `vasdk_turn_goto`, and `vasdk_turn_apply` with a [`StepOutcome`](../../VASDK/proto/vasdk/flow/step_outcome.proto): values to set and unset, texts to say, a target. A key it may not write (anything but `$session.<declared>`, `$page.locals.<name>`, `$form.<slot>`) fails it, and nothing applies. |
 | Agents | `vasdk_agent_load(path)`, or `vasdk_agent_parse(data, length, format)` from text proto, JSON or binary. |
 | Conversations | `vasdk_conversation_start`, `_say`, `_no_input`, `_select_choice`, `_fire_trigger`, `_set_param` (a JSON value), `_lookup`. Each turn returns the reply as JSON: `text`, `segments`, `choices`, `matched`, `intent`, `event`, `expects_reply`, `ends_session`, `flow`, `page`, `tool_calls`, `triggers`. |
@@ -81,6 +81,15 @@ def booking_reference(params, turn):
 
 registry.envelope("thanks", before=lambda turn: turn.text == "thanks" and (turn.say("You're welcome.") or True))
 
+# type: "quiz" pages: asks on entering, answers a right guess itself (else the page's routes get the turn)
+registry.page_type("quiz", "google.protobuf.Struct",
+                   on_enter=lambda params, turn: turn.say(params["question"]),
+                   on_turn=lambda params, turn: turn.text == params["answer"] and (turn.say("Right!") or True))
+
+@registry.entity_extractor("contacts")   # code { extractor: "contacts" }
+def contacts(words, text):
+    return [{"start": i, "value": "+15550100", "spoken": "Mom"} for i, word in enumerate(words) if word == "mom"]
+
 agent = vasdk.Agent.load("VASDK_APP/agents/garage-menu/agent.txtpb", registry)
 conversation = agent.conversation()
 conversation.start()["text"]                       # "Hi, this is Acme Garage. ..."
@@ -88,6 +97,6 @@ conversation.say("book a tire repair")["page"]     # "booking"
 passed, report = vasdk.run_test_file(agent, "VASDK_APP/agents/garage-menu/tests/book_service.txtpb")
 ```
 
-Errors raise `vasdk.VasdkError` with VASDK's message. The garage agent's whole suite runs from Python in `ctest` (`vasdk_python_garage`, [`test_garage.py`](../../bindings/python/tests/test_garage.py)), with its C++ step, envelope and tool written again in Python.
+Errors raise `vasdk.VasdkError` with VASDK's message. The garage agent's whole suite runs from Python in `ctest` (`vasdk_python_garage`, [`test_garage.py`](../../bindings/python/tests/test_garage.py)), with its C++ step, envelope and tool written again in Python; a page type and an entity extractor in Python run in `vasdk_python_extensions`.
 
-Not in the C API yet: audio sessions (`Session`, `VAEngine`) and their events. Those need providers, which come from the provider catalog, outside core.
+**A wheel.** `python bindings/python/bundle.py build/VASDK/Release` copies the shared library and the libraries beside it into the package, and `pip wheel bindings/python` makes `vasdk-1.0.0-py3-none-<platform>.whl`: any Python 3 on that platform, no `VASDK_LIBRARY` needed once installed ([bindings/python/README.md](../../bindings/python/README.md)).

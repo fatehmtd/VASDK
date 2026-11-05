@@ -3,6 +3,9 @@
 #include "engine/ProtoFileLoader.h"
 #include "flow/FlowRuntime.h"
 
+#include <google/protobuf/util/json_util.h>
+#include <nlohmann/json.hpp>
+
 #include <algorithm>
 #include <cctype>
 #include <chrono>
@@ -147,8 +150,18 @@ FlowTestResult runFlowTest(std::shared_ptr<const CompiledAgent> agent, const vas
             if (called != expected) fail("tools called are [" + called + "], expected [" + expected + "]");
         }
         for (const auto& [name, expected] : expect.form()) {
-            const std::string actual = toText(conversation.lookup({"form", name}));
-            if (actual != expected) fail("$form." + name + " is " + quoted(actual) + ", expected " + quoted(expected));
+            // A composite's struct as JSON: form { key: "vehicle" value: '{"make":"toyota",...}' }
+            const auto value = conversation.lookup({"form", name});
+            const std::string actual = [&] {
+                std::string text = toText(value);
+                if (value.kind_case() == Value::kStructValue)
+                    (void)google::protobuf::util::MessageToJsonString(value.struct_value(), &text);
+                return text;
+            }();
+            const bool same = value.kind_case() == Value::kStructValue   // field order aside
+                                  ? nlohmann::json::parse(actual, nullptr, false) == nlohmann::json::parse(expected, nullptr, false)
+                                  : actual == expected;
+            if (!same) fail("$form." + name + " is " + quoted(actual) + ", expected " + quoted(expected));
         }
     }
     return result;

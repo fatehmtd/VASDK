@@ -61,6 +61,10 @@ public:
     /** Called with every reply (page changes, tool calls, the end of the conversation) and where
      *  the conversation is after it, on the conversation's thread: keep it quick. Before start(). */
     void setReplyObserver(ReplyObserver observer) { _observer = std::move(observer); }
+    /** Cuts off the reply playing, as the cancel button does (Session::interrupt): what an
+     *  IMMEDIATE trigger asks for. It's said once INTERRUPT_RESOLVED comes back. Unset, it's
+     *  said after the reply that's playing. Before start(). */
+    void setInterrupter(std::function<void()> interrupt) { _interrupter = std::move(interrupt); }
     /**
      * Whether someone is connected to hear the assistant (a browser peer, a phone call). Until
      * then the greeting waits; on a disconnect the conversation starts over for the next one.
@@ -78,6 +82,15 @@ public:
     void setChatMinShare(float share);
     /** Before start(): the greeting resumes the conversation from `snapshot` (FlowRuntime::resume), once. */
     void setResumeFrom(nlohmann::json snapshot) { _resumeFrom = std::move(snapshot); }
+    /** When the next schedule trigger is due, as of the last check (each second while running):
+     *  what an app sets an alarm for, to come back if it's closed by then. Thread-safe. */
+    std::optional<std::chrono::system_clock::time_point> nextScheduledTrigger() const;
+    /** The schedule and context triggers' state (FlowRuntime::triggerState), as of the last check:
+     *  kept by the app across restarts. Thread-safe. */
+    std::string triggerState() const;
+    /** Restores triggerState(), before start or while running: a reminder that came due while the
+     *  app was closed fires at the first check, one already said isn't said again. Thread-safe. */
+    void restoreTriggerState(std::string json);
     /** The user tapped the last reply's choice at `index`, from 0 (FlowRuntime::selectChoice). Thread-safe. */
     void selectChoice(int index);
     /** What $context.* reads; called on the conversation's thread, so it must be thread-safe. Before start(). */
@@ -147,6 +160,8 @@ private:
     FlowRuntime::ContextSource _contextSource;
     bool _awaitingAnswer = false;   // the last reply asked a question
     bool _replyPlaying = false;     // a reply of the flow is being spoken
+    std::function<void()> _interrupter;
+    std::shared_ptr<transport::Frame> _cutIn;   // an IMMEDIATE trigger's reply, once the one playing is cut off
     // The no-input timer: a deadline, and a generation that makes a fired timer stale once moved on.
     std::thread _timerThread;
     std::mutex _timerMutex;
@@ -154,6 +169,11 @@ private:
     Timer _noInput;
     Timer _inactivity;
     Timer _tick;                    // every second, for schedule and context_change triggers
+    // The triggers' state and next due time, copied from the conversation's thread after each check.
+    mutable std::mutex _triggerStateMutex;
+    std::optional<std::chrono::system_clock::time_point> _nextScheduled;
+    std::string _triggerState;
+    void keepTriggerState();   // on the conversation's thread
     bool _timedTriggers = false;
     bool _timerStop = false;
     // The agent's inactivity triggers, shortest first; the next to fire since the user last spoke.

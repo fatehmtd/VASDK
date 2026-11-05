@@ -16,6 +16,7 @@
 #include <VASDK/llm/Completion.h>
 #include "vasdk/engine/events.pb.h"
 
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <functional>
@@ -538,6 +539,53 @@ int main() {
         std::this_thread::sleep_for(300ms);
         texts = recorder->settled();
         check(texts.size() == 3 && texts[2].text == "Still there? How can I help?", "silence after a reply: the inactivity trigger");
+        dialog->stop();
+        recorder->stop();
+    }
+    {
+        // IMMEDIATE: the reply playing is cut off (the interrupter, as the cancel button), and the
+        // trigger is said once the interrupt resolves, not after the reply would have ended.
+        auto alarmAgent = compile(R"agent(
+            start_flow: "main"
+            triggers { name: "alarm" source { app_event {} } action { say { text: "Smoke alarm!" } }
+                       delivery { interrupt: IMMEDIATE priority: CRITICAL } }
+            flows { name: "main" start_page: "welcome"
+                    pages { name: "welcome" on_enter { ask { say { text: "How can I help?" } } } } }
+        )agent");
+        auto dialog = std::make_shared<flow::DialogProcessor>(alarmAgent);
+        auto recorder = std::make_shared<Recorder>();
+        std::atomic<int> interrupts{0};
+        dialog->setInterrupter([&] { ++interrupts; });
+        dialog->setDownstream(recorder);
+        recorder->initialize();
+        recorder->start();
+        dialog->initialize();
+        dialog->start();
+        auto state = [&](transport::AgentState previous, transport::AgentState current, transport::AgentStateTransition why) {
+            auto frame = std::make_shared<transport::AgentStateFrame>();
+            frame->previousState = previous;
+            frame->currentState = current;
+            frame->transition = why;
+            dialog->processFrame(frame, pipeline::FlowDirection::DOWNSTREAM);
+        };
+        using transport::AgentState;
+        using transport::AgentStateTransition;
+        state(AgentState::IDLE, AgentState::LISTENING, AgentStateTransition::PIPELINE_START);
+        recorder->settled();
+        state(AgentState::LISTENING, AgentState::SPEAKING, AgentStateTransition::SYNTHESIS_STARTED);
+        dialog->fireTrigger("alarm");
+        check(recorder->settled().size() == 1 && interrupts == 1, "an immediate trigger cuts off the reply playing");
+        state(AgentState::SPEAKING, AgentState::INTERRUPTED, AgentStateTransition::BARGE_IN_INTERRUPT);
+        check(recorder->settled().size() == 1, "and waits for the interrupt to resolve");
+        state(AgentState::INTERRUPTED, AgentState::LISTENING, AgentStateTransition::INTERRUPT_RESOLVED);
+        auto texts = recorder->settled();
+        check(texts.size() == 2 && texts[1].text == "Smoke alarm! How can I help?",
+              "said as soon as it's cut off, the question again after it");
+        // Between turns, nothing to cut off: said at once.
+        state(AgentState::LISTENING, AgentState::SPEAKING, AgentStateTransition::SYNTHESIS_STARTED);
+        state(AgentState::SPEAKING, AgentState::LISTENING, AgentStateTransition::SYNTHESIS_COMPLETED);
+        dialog->fireTrigger("alarm");
+        check(recorder->settled().size() == 3 && interrupts == 1, "nothing playing: said at once, nothing cut off");
         dialog->stop();
         recorder->stop();
     }

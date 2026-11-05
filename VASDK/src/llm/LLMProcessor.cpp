@@ -466,6 +466,12 @@ void LLMProcessor::processDownstream(std::shared_ptr<transport::Frame> frame) {
         auto turn = std::static_pointer_cast<transport::UserTurnFrame>(frame);
         spdlog::info("[LLMProcessor] User turn {}: \"{}\" (conf={:.2f})", turn->turnId,
                      turn->text.substr(0, std::min<size_t>(60, turn->text.size())), turn->confidence);
+        if (_offline && !_offlineReplies.empty() && _offline()) {
+            const auto& reply = _offlineReplies[_nextOfflineReply++ % _offlineReplies.size()];
+            spdlog::info("[LLMProcessor] Offline: not asked; \"{}\"", reply);
+            pushSpeech(reply, true);
+            return;
+        }
         dispatchLLMRequest(turn->text, turn->confidence, turn->replacesPrevious);
         return;
     }

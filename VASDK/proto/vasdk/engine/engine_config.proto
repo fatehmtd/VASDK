@@ -46,6 +46,11 @@ message LlmConfig {
   }
   Api api = 9;               // how endpoint is spoken to, by the conversation and the agent alike
   string effort = 10;        // the agent's requests: reasoning effort (low, medium, high); unset: the API's, "low" on Claude
+  // Said, in turn, for a turn that would go to this LLM while the network is down
+  // (Session::setNetworkAvailable) and its endpoint isn't on this machine; an agent answers what
+  // it can first. unset: "I can't reach the internet right now, so I can't answer that. Please
+  // try again in a moment."
+  repeated string offline_replies = 11;
 }
 
 // How quickly the assistant decides the user has finished speaking.

@@ -5,7 +5,9 @@
 #include "../metrics/MetricsConfig.h"
 #include "EventTapProcessor.h"
 
+#include <chrono>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -164,6 +166,15 @@ public:
      * (flow::FlowRuntime::resume) instead of at its start page. Needs Options::agent.
      */
     void resumeConversation(const std::string& snapshotJson);
+    /**
+     * The agent's schedule triggers when the app may be closed: when the next one is due (set an
+     * alarm for it: Android's AlarmManager), and their state to keep across restarts, given back
+     * with restoreTriggerState() so one that came due while closed fires at the first check and
+     * one already said isn't said again. Without an agent: none, "" and a no-op. Thread-safe.
+     */
+    std::optional<std::chrono::system_clock::time_point> nextScheduledTrigger() const;
+    std::string triggerState() const;
+    void restoreTriggerState(const std::string& json);
 
     /**
      * Whether the network is up, as the app sees it (Android's ConnectivityManager, a request

@@ -9,6 +9,7 @@
 
 #include <google/protobuf/text_format.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdio>
@@ -124,18 +125,36 @@ int main() {
         });
         std::mutex mutex;
         std::vector<std::string> replies;
+        std::vector<std::string> fired;   // the triggers that came due, said or queued
         dialog->setReplyObserver([&](const Reply& reply, const FlowRuntime&) {
             std::lock_guard<std::mutex> lock(mutex);
             if (!reply.text.empty()) replies.push_back(reply.text);
+            for (const auto& trigger : reply.triggers)
+                if (trigger.decision == vasdk::flow::STARTED || trigger.decision == vasdk::flow::QUEUED) fired.push_back(trigger.name);
         });
         dialog->initialize();
         dialog->start();
+        check(dialog->triggerState().empty() && !dialog->nextScheduledTrigger(), "nothing known before the first check");
         std::this_thread::sleep_for(1300ms);   // the first check sees 50
         level = 5;
         std::this_thread::sleep_for(1300ms);
+        // For an app's alarm: the next due time and the state to keep, read from any thread.
+        const auto next = dialog->nextScheduledTrigger();
+        const auto inHalfAnHour = std::chrono::system_clock::now() + 30min;
+        check(next && *next <= inHalfAnHour && *next > inHalfAnHour - 5s, "the next due time: in half an hour");
+        check(dialog->triggerState().find("\"half_hour\"") != std::string::npos, "the triggers' state, to keep");
+        // Last checked two hours ago, as if the app was closed since: the half-hour one is overdue.
+        const auto twoHoursAgo = std::chrono::duration_cast<std::chrono::milliseconds>(
+            (std::chrono::system_clock::now() - 2h).time_since_epoch()).count();
+        dialog->restoreTriggerState("{\"schedules\": {\"half_hour\": " + std::to_string(twoHoursAgo) + "}}");
+        std::this_thread::sleep_for(1300ms);
         dialog->stop();
         std::lock_guard<std::mutex> lock(mutex);
-        check(!replies.empty() && replies.back().rfind("Battery low.", 0) == 0, "the dialog's check warns about the battery");
+        check(std::any_of(replies.begin(), replies.end(), [](const auto& text) { return text.rfind("Battery low.", 0) == 0; }),
+              "the dialog's check warns about the battery");
+        // (queued: the battery warning is still "playing", no audio here to finish it)
+        check(std::find(fired.begin(), fired.end(), "half_hour") != fired.end(),
+              "restored while running: what came due while closed fires at the next check");
     }
 
     // Load errors

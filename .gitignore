@@ -95,3 +95,10 @@ local_install/
 *.zip
 .claude/settings.local.json
 scratchbook/
+# Python wheel builds: the libraries bundle.py copies into the package, and build output
+bindings/python/vasdk/*.dll
+bindings/python/vasdk/*.dylib
+bindings/python/build/
+bindings/python/*.egg-info/
+dist/
+__pycache__/

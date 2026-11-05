@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=70.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vasdk"
+version = "1.0.0"
+description = "VASDK voice agents from Python: agents, text conversations, and steps, tools, envelopes, page types and entity extractors written in Python"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "Apache-2.0" }
+classifiers = [
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+]
+
+[tool.setuptools]
+packages = ["vasdk"]
+
+[tool.setuptools.package-data]
+# The shared VASDK library and what it needs, copied in by bundle.py before the wheel is built.
+vasdk = ["*.dll", "*.so", "*.so.*", "*.dylib"]

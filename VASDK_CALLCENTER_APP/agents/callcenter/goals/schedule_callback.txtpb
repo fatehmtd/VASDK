@@ -30,8 +30,10 @@ slots {
 slots {
   name: "vehicle"
   description: "the vehicle's make, model and year"
+  entity: "@vehicle"                            # make, model, year: the agent's composite entity
   condition: "$form.service_type = 'repair'"   # only asked for a repair
   prompt: "What's the make, model and year of the vehicle?"
+  reprompt: "Sorry, I didn't catch the vehicle. What's the make and model, for example a 2019 Toyota Camry?"
 }
 slots {
   name: "appointment_date"

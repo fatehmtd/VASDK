@@ -6,8 +6,14 @@
 
 #include <google/protobuf/compiler/importer.h>
 #include <google/protobuf/descriptor_database.h>
+#include <google/protobuf/duration.pb.h>
 #include <google/protobuf/dynamic_message.h>
+#include <google/protobuf/empty.pb.h>
+#include <google/protobuf/field_mask.pb.h>
+#include <google/protobuf/struct.pb.h>
 #include <google/protobuf/text_format.h>
+#include <google/protobuf/timestamp.pb.h>
+#include <google/protobuf/wrappers.pb.h>
 #include <google/protobuf/util/json_util.h>
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
@@ -252,6 +258,12 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::build(vasdk::flow::Agent age
     const auto& extensions = *compiled->_registry;
     Checker check;
 
+    // The well-known types an agent may name as params ("google.protobuf.Empty"): referenced, so a
+    // static link (Android) keeps them in the generated pool.
+    for (const auto* known : {google::protobuf::Empty::descriptor(), google::protobuf::Struct::descriptor(),
+                              google::protobuf::Timestamp::descriptor(), google::protobuf::Duration::descriptor(),
+                              google::protobuf::StringValue::descriptor(), google::protobuf::FieldMask::descriptor()})
+        (void)known;
     // A params message's type: linked into the binary, else from proto_imports.
     auto findType = [&](const std::string& name) -> const google::protobuf::Descriptor* {
         if (const auto* type = google::protobuf::DescriptorPool::generated_pool()->FindMessageTypeByName(name)) return type;

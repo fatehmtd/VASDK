@@ -14,8 +14,9 @@
     conversation.say("book a tire repair")["page"]   # "booking"
     vasdk.run_test_file(agent, "tests/book_service.txtpb")   # (True, "")
 
-The library is found from VASDK_LIBRARY (a path to libVASDK.dylib, .so or VASDK.dll), else next
-to this package or in ./build/VASDK. It must be a shared build of VASDK.
+The library is found from VASDK_LIBRARY (a path to libVASDK.dylib, .so or VASDK.dll), else in
+this package (a wheel bundles it: see bindings/python/README.md) or in ./build/VASDK. It must be a
+shared build of VASDK.
 """
 
 import ctypes
@@ -38,19 +39,34 @@ def _find_library():
         return explicit
     names = {"darwin": ["libVASDK.dylib"], "win32": ["VASDK.dll"]}.get(sys.platform, ["libVASDK.so"])
     here = Path(__file__).resolve().parent
-    for folder in [here, Path.cwd() / "build" / "VASDK", here.parents[2] / "build" / "VASDK"]:
+    folders = [here]   # installed from a wheel: bundled in the package
+    builds = [Path.cwd() / "build" / "VASDK"]
+    if len(here.parents) > 2:
+        builds.append(here.parents[2] / "build" / "VASDK")   # the source tree's build
+    for build in builds:
+        folders += [build, build / "Release"]
+    for folder in folders:
         for name in names:
             if (folder / name).exists():
                 return str(folder / name)
     raise VasdkError("libVASDK not found: set VASDK_LIBRARY to its path")
 
 
-_lib = ctypes.CDLL(_find_library())
+def _load(path):
+    if sys.platform == "win32":
+        os.add_dll_directory(str(Path(path).resolve().parent))   # protobuf, abseil, curl... beside it
+    return ctypes.CDLL(path)
+
+
+_lib = _load(_find_library())
 
 _STEP = ctypes.CFUNCTYPE(None, ctypes.c_char_p, ctypes.c_void_p, ctypes.c_void_p)
 _TOOL = ctypes.CFUNCTYPE(None, ctypes.c_char_p, ctypes.c_void_p, ctypes.c_void_p)
 _BEFORE = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
 _AFTER = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_void_p)
+_PAGE_ENTER = ctypes.CFUNCTYPE(None, ctypes.c_char_p, ctypes.c_void_p, ctypes.c_void_p)
+_PAGE_TURN = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_char_p, ctypes.c_void_p, ctypes.c_void_p)
+_EXTRACTOR = ctypes.CFUNCTYPE(None, ctypes.c_char_p, ctypes.c_void_p, ctypes.c_void_p)
 _FORMATS = {"text": 0, "json": 1, "binary": 2}
 
 
@@ -70,6 +86,8 @@ _registry_free = _declare("vasdk_registry_free", None, _p)
 _add_step = _declare("vasdk_registry_add_step", _i, _p, _s, _STEP, _p)
 _add_tool = _declare("vasdk_registry_add_tool", _i, _p, _s, _s, _TOOL, _p)
 _add_envelope = _declare("vasdk_registry_add_envelope", _i, _p, _s, _BEFORE, _AFTER, _p)
+_add_page_type = _declare("vasdk_registry_add_page_type", _i, _p, _s, _s, _PAGE_ENTER, _PAGE_TURN, _p)
+_add_entity_extractor = _declare("vasdk_registry_add_entity_extractor", _i, _p, _s, _EXTRACTOR, _p)
 _result_set = _declare("vasdk_result_set", None, _p, _s)
 _result_fail = _declare("vasdk_result_fail", None, _p, _s)
 _turn_text = _declare("vasdk_turn_text", _s, _p)
@@ -144,7 +162,7 @@ class Turn:
 
 
 class Registry:
-    """Steps, tools and envelopes written in Python, for the agents loaded with it."""
+    """Steps, tools, envelopes, page types and entity extractors written in Python, for the agents loaded with it."""
 
     def __init__(self):
         self._handle = _registry_create()
@@ -197,6 +215,44 @@ class Registry:
         before_callback = self._keep(_BEFORE(call_before)) if before else _BEFORE()
         after_callback = self._keep(_AFTER(call_after)) if after else _AFTER()
         _add_envelope(self._handle, _encode(name), before_callback, after_callback, None)
+
+    def page_type(self, name, params_type=None, on_enter=None, on_turn=None):
+        """A page type for pages with type: "<name>": on_enter(params: dict, turn) when the page is
+        entered; on_turn(params: dict, turn) -> True when it answered the turn (else the page's
+        routes get it). params_type: the full name of its params message, None for no params."""
+        def call_enter(params_json, turn, _user):
+            try:
+                on_enter(json.loads(params_json.decode("utf-8")), Turn(turn))
+            except Exception as error:
+                print(f"vasdk: page type {name} failed: {error!r}", file=sys.stderr)
+
+        def call_turn(params_json, turn, _user):
+            try:
+                return 1 if on_turn(json.loads(params_json.decode("utf-8")), Turn(turn)) else 0
+            except Exception as error:
+                print(f"vasdk: page type {name} failed: {error!r}", file=sys.stderr)
+                return 0
+
+        enter_callback = self._keep(_PAGE_ENTER(call_enter)) if on_enter else _PAGE_ENTER()
+        turn_callback = self._keep(_PAGE_TURN(call_turn)) if on_turn else _PAGE_TURN()
+        if not _add_page_type(self._handle, _encode(name), _encode(params_type), enter_callback, turn_callback, None):
+            raise VasdkError(f"page type {name!r} didn't register")
+
+    def entity_extractor(self, name):
+        """Finds the values of code { extractor: "<name>" } entities: fn(words: list, text: str) ->
+        [{"start": 2, "length": 1, "value": ..., "spoken": "Mom", "attributes": {...}}] (start and
+        length index the words). Called each time the entity is looked for: keep it quick."""
+        def register(function):
+            def callback(request_json, result, _user):
+                try:
+                    request = json.loads(request_json.decode("utf-8"))
+                    _result_set(result, _encode(json.dumps(list(function(request["words"], request["text"])))))
+                except Exception as error:
+                    _result_fail(result, _encode(str(error) or type(error).__name__))
+            if not _add_entity_extractor(self._handle, _encode(name), self._keep(_EXTRACTOR(callback)), None):
+                raise VasdkError(f"entity extractor {name!r} didn't register")
+            return function
+        return register
 
     def _keep(self, callback):
         self._callbacks.append(callback)

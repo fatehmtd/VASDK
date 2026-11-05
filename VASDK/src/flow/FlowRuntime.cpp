@@ -22,6 +22,14 @@ namespace va {
 namespace flow {
 
 namespace {
+// An entity value as a slot keeps it: a composite's struct as JSON ({"make": "toyota", ...}).
+std::string slotText(const Value& value) {
+    if (value.kind_case() != Value::kStructValue) return toText(value);
+    std::string json;
+    (void)google::protobuf::util::MessageToJsonString(value.struct_value(), &json);
+    return json;
+}
+
 // "$session.tier" → {"session", "tier"}; set keys were checked when the agent loaded.
 Path splitReference(const std::string& key) {
     auto expression = Expression::parse(key);
@@ -307,7 +315,7 @@ Value FlowRuntime::resolve(const Path& path, bool spoken) const {
             std::vector<std::string> items;   // "an oil change and a tire repair"
             for (const auto& item : value.list_value().values())
                 items.push_back(slot->entity().empty() ? toText(item)
-                                                       : entities.describe(entityName(slot->entity()), item, _dynamicEntities).spoken);
+                                                       : describeSlotValue(entityName(slot->entity()), item).spoken);
             std::string said;
             for (size_t i = 0; i < items.size(); ++i)
                 said += (i == 0 ? "" : i + 1 == items.size() ? " and " : ", ") + items[i];
@@ -330,7 +338,7 @@ Value FlowRuntime::resolve(const Path& path, bool spoken) const {
             }
             return valueAt(value, path, 2);
         }
-        return entityField(entities.describe(entityName(slot->entity()), value, _dynamicEntities), path, 2, spoken);
+        return entityField(describeSlotValue(entityName(slot->entity()), value), path, 2, spoken);
     }
     return nullValue();
 }
@@ -367,7 +375,25 @@ std::optional<std::string> FlowRuntime::readSlot(const vasdk::goal::Slot& slot, 
     if (slot.entity().empty()) return extractSlotValue(slot, text, now());
     const auto match = _agent->entities().find(entityName(slot.entity()), text, _dynamicEntities, now());
     if (!match) return std::nullopt;
-    return toText(match->value);
+    _slotEntities[match->entity + '\n' + slotText(match->value)] = *match;
+    return slotText(match->value);
+}
+
+EntityMatch FlowRuntime::describeSlotValue(const std::string& entity, const Value& value) const {
+    const auto found = _slotEntities.find(entity + '\n' + slotText(value));
+    if (found != _slotEntities.end()) return found->second;
+    // A composite's value kept as JSON (a resumed conversation): its parts again, said in order.
+    if (value.kind_case() == Value::kStringValue && !value.string_value().empty() && value.string_value().front() == '{') {
+        google::protobuf::Struct parts;
+        if (google::protobuf::util::JsonStringToMessage(value.string_value(), &parts).ok()) {
+            EntityMatch match;
+            match.entity = entity;
+            *match.value.mutable_struct_value() = parts;
+            for (const auto& [name, part] : parts.fields()) match.spoken += (match.spoken.empty() ? "" : " ") + toText(part);
+            return match;
+        }
+    }
+    return _agent->entities().describe(entity, value, _dynamicEntities);
 }
 
 Value FlowRuntime::evaluate(const std::string& expression) const {
@@ -1375,6 +1401,7 @@ void FlowRuntime::arbitrate(const vasdk::flow::Trigger& trigger, const google::p
     case Delivery::NEVER:
         return decide(vasdk::flow::DROPPED, "a conversation is going on");
     case Delivery::IMMEDIATE:
+        reply.cutsIn = true;
         return deliver(fired, reply);
     case Delivery::AFTER_FLOW:
         if (betweenTurns && !formActive() && _stack.empty() && !_offer) return deliver(fired, reply);
@@ -1742,7 +1769,10 @@ nlohmann::json FlowRuntime::readList(const vasdk::goal::Slot& slot, const std::s
     };
     if (!slot.entity().empty()) {
         for (const auto& match : _agent->entities().findAll(text, _dynamicEntities, now()))
-            if (match.entity == entityName(slot.entity())) add(toText(match.value));
+            if (match.entity == entityName(slot.entity())) {
+                _slotEntities[match.entity + '\n' + slotText(match.value)] = match;
+                add(toText(match.value));
+            }
     } else {
         const auto words = splitWords(text);
         std::vector<std::pair<size_t, std::string>> found;   // where it was said, the value

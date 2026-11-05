@@ -159,6 +159,7 @@ llm {
 | `intent_timeout_ms` | With an agent: how long a turn waits for the LLM's intent check (asked only when the rules and the on-device model aren't sure). After that the rules' guess stands. A late answer doesn't rest the LLM. Default 1500; 0 or less waits up to the LLM's own 8 s. `vasdk_agentc` always waits. |
 | `api` | `OPENAI_COMPATIBLE` (default): chat completions, as OpenAI, OpenRouter, LM Studio, vLLM, a llama.cpp server or Ollama speak it. `ANTHROPIC`: Claude through the Messages API (`anthropic-version: 2026-10-21`), for the conversation and the agent; `endpoint` defaults to `https://api.anthropic.com/v1/messages` and `model` to `claude-opus-5-5`. No sampling settings are sent on that API version. On models that have one, a request a safety classifier declines is retried on another model (`fallbacks: "default"`). |
 | `effort` | The agent's requests: reasoning effort (`low`, `medium`, `high`). Unset: `low` on current Claude models, since a voice turn wants a quick answer; the endpoint's own default otherwise. |
+| `offline_replies` | Said in turn for a turn that would go to the LLM while the network is down (`Session::setNetworkAvailable(false)`), so the user hears why there's no answer. Only for an endpoint elsewhere: one on this machine (`localhost`, `127.x`) or an app's own transport (llama.cpp) still answers. With an agent, it answers what it can first. Default: "I can't reach the internet right now, so I can't answer that. Please try again in a moment." |
 
 Claude directly:
 

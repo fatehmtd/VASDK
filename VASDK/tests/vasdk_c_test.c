@@ -1,5 +1,6 @@
-/* The C API from C: an agent with a step, a tool and an envelope written in C; a conversation
- * by text; session params; a StepOutcome refused for a key it may not write; a test case file. */
+/* The C API from C: an agent with a step, a tool, an envelope, a page type and an entity
+ * extractor written in C; a conversation by text; session params; a StepOutcome refused for a key
+ * it may not write; a test case file. */
 
 #include <VASDK/c/vasdk.h>
 
@@ -50,6 +51,40 @@ static int thanks_before(vasdk_turn* turn, void* user) {
     return 1;
 }
 
+/* page type "quiz": params {"question", "answer"}; asks on entering, and answers a right guess itself. */
+static void quiz_enter(const char* params_json, vasdk_turn* turn, void* user) {
+    (void)user;
+    check(strstr(params_json, "\"question\"") != NULL, "the page type gets its params as JSON");
+    vasdk_turn_say(turn, "What colour is the sky?");
+}
+
+static int quiz_turn(const char* params_json, vasdk_turn* turn, void* user) {
+    (void)user;
+    if (strstr(params_json, "\"answer\":\"blue\"") == NULL || strcmp(vasdk_turn_text(turn), "blue") != 0) return 0;
+    vasdk_turn_say(turn, "Right!");
+    vasdk_turn_goto(turn, "welcome");
+    return 1;
+}
+
+/* code { extractor: "contacts" }: "mom" is a contact, anywhere in the words. */
+static void contacts(const char* request_json, vasdk_result* result, void* user) {
+    (void)user;
+    const char* words = strstr(request_json, "\"words\":[");
+    check(words != NULL, "the extractor gets the words as JSON");
+    const char* found = words ? strstr(words, "\"mom\"") : NULL;
+    if (!found) {
+        vasdk_result_set(result, "[]");
+        return;
+    }
+    int index = 0;   /* the commas before it in the array: its place among the words */
+    for (const char* c = words; c < found; ++c)
+        if (*c == ',') ++index;
+    char json[160];
+    snprintf(json, sizeof json,
+             "[{\"start\": %d, \"value\": \"+15550100\", \"spoken\": \"Mom\", \"attributes\": {\"label\": \"mobile\"}}]", index);
+    vasdk_result_set(result, json);
+}
+
 static const char* kAgent =
     "start_flow: \"main\"\n"
     "session_params { name: \"tier\" type: STRING default { string_value: \"standard\" } }\n"
@@ -58,13 +93,24 @@ static const char* kAgent =
     "envelopes: [\"thanks\"]\n"
     "intents { name: \"points\" examples: [\"points\", \"my points\"] }\n"
     "intents { name: \"book\" examples: [\"book\"] }\n"
+    "intents { name: \"quiz\" examples: [\"quiz\", \"a quiz\"] }\n"
+    "intents { name: \"call\" examples: [\"call\", \"make a call\"] }\n"
+    "entity_types { name: \"contact\" code { extractor: \"contacts\" } }\n"
+    "goals { name: \"calling\" slots { name: \"who\" entity: \"@contact\" prompt: \"Who should I call?\" } }\n"
     "flows { name: \"main\" start_page: \"welcome\" pages {\n"
     "  name: \"welcome\"\n"
     "  on_enter { ask { say { text: \"Hi, how can I help?\" } } }\n"
     "  routes { intent: \"points\" steps { custom { [type.googleapis.com/google.protobuf.Struct] {\n"
     "    fields { key: \"into\" value { string_value: \"$session.points\" } } } } } }\n"
     "  routes { intent: \"book\" steps { call_tool { name: \"create_booking\" args { key: \"service\" value: \"'oil'\" }\n"
-    "    into: \"$session.booking\" } } steps { say { text: \"Booked $session.booking.reference.\" } } } } }\n";
+    "    into: \"$session.booking\" } } steps { say { text: \"Booked $session.booking.reference.\" } } }\n"
+    "  routes { intent: \"quiz\" target: \"quiz\" }\n"
+    "  routes { intent: \"call\" target: \"calling\" } }\n"
+    "  pages { name: \"quiz\" type: \"quiz\" params { [type.googleapis.com/google.protobuf.Struct] {\n"
+    "    fields { key: \"question\" value { string_value: \"sky\" } } fields { key: \"answer\" value { string_value: \"blue\" } } } }\n"
+    "    routes { intent: \"points\" steps { say { text: \"No points in a quiz.\" } } } }\n"
+    "  pages { name: \"calling\" form { goal: \"calling\" }\n"
+    "    routes { condition: \"$form.complete\" steps { say { text: \"Calling $form.who ($form.who.label).\" } } target: \"welcome\" } } }\n";
 
 static const char* kCase =
     "name: \"points by tier\"\n"
@@ -78,6 +124,9 @@ int main(void) {
     check(vasdk_registry_add_step(registry, "google.protobuf.Struct", points_step, NULL), "a step registers");
     check(vasdk_registry_add_tool(registry, "create_booking", "Books a service", create_booking, &bookings), "a tool registers");
     check(vasdk_registry_add_envelope(registry, "thanks", thanks_before, NULL, NULL), "an envelope registers");
+    check(vasdk_registry_add_page_type(registry, "quiz", "google.protobuf.Struct", quiz_enter, quiz_turn, NULL),
+          "a page type registers");
+    check(vasdk_registry_add_entity_extractor(registry, "contacts", contacts, NULL), "an entity extractor registers");
 
     char* error = NULL;
     vasdk_agent* broken = vasdk_agent_parse("flows {", 7, VASDK_FORMAT_TEXT, registry, &error);
@@ -115,6 +164,26 @@ int main(void) {
     reply = vasdk_conversation_say(conversation, "book");
     check(strstr(reply, "Booked B-42.") != NULL && strstr(reply, "\"name\":\"create_booking\"") != NULL && bookings == 1,
           "the C tool was called and its result stored");
+    vasdk_free(reply);
+
+    reply = vasdk_conversation_say(conversation, "a quiz");
+    check(strstr(reply, "What colour is the sky?") != NULL && strstr(reply, "\"page\":\"quiz\"") != NULL,
+          "the C page type asked on entering");
+    vasdk_free(reply);
+    reply = vasdk_conversation_say(conversation, "my points");
+    check(strstr(reply, "No points in a quiz.") != NULL, "a turn it doesn't answer goes to the page's routes");
+    vasdk_free(reply);
+    reply = vasdk_conversation_say(conversation, "blue");
+    check(strstr(reply, "Right!") != NULL && strstr(reply, "\"page\":\"welcome\"") != NULL,
+          "the C page type answered the turn and moved on");
+    vasdk_free(reply);
+
+    reply = vasdk_conversation_say(conversation, "make a call");
+    check(strstr(reply, "Who should I call?") != NULL, "the form asks for the contact");
+    vasdk_free(reply);
+    reply = vasdk_conversation_say(conversation, "my mom please");
+    check(strstr(reply, "Calling Mom (mobile).") != NULL, "the C extractor found the contact, with its spoken form and attribute");
+    if (strstr(reply, "Calling Mom (mobile).") == NULL) fprintf(stderr, "  reply: %s\n", reply);
     vasdk_free(reply);
 
     /* A test case file, played through the same agent. */

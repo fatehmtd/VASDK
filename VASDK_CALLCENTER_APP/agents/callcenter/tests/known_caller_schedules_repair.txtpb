@@ -7,7 +7,8 @@ turns { expect { page: "welcome" said_contains: "Hi Alice Johnson" tools_called:
 turns { user: "I need to schedule a repair"
         expect { page: "schedule" form { key: "service_type" value: "repair" } form { key: "customer_name" value: "Alice Johnson" }
                  said: "What's the make, model and year of the vehicle?" } }
-turns { user: "a 2019 toyota camry" expect { said: "What day should we call you?" } }
+turns { user: "a 2019 toyota camry"
+        expect { said: "What day should we call you?" form { key: "vehicle" value: '{"make":"toyota","model":"camry","year":2019}' } } }
 turns { user: "next tuesday" expect { said_contains: "repair callback for Alice Johnson" said_contains: "Shall I schedule it?" } }
 turns { user: "yes" expect { page: "scheduled" tools_called: "schedule_callback" said_contains: "Your reference is CB-" } }
 turns { user: "no" expect { ends_session: true said_contains: "Goodbye" } }

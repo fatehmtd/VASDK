@@ -82,6 +82,12 @@ public:
      * setStreamSpeech(true). Empty (the default) disables it.
      */
     void setToolFillerPhrases(std::vector<std::string> phrases) { _toolFillerPhrases = std::move(phrases); }
+    /** While `offline()` holds (the network is down, the LLM is remote), a turn isn't sent: one
+     *  of `replies` is said instead, in turn, so the user hears why there's no answer. */
+    void setOfflineReplies(std::function<bool()> offline, std::vector<std::string> replies) {
+        _offline = std::move(offline);
+        _offlineReplies = std::move(replies);
+    }
 
     /**
      * Start the LLM before the turn is confirmed: when the VAD reports a sustained pause (ENDING)
@@ -197,6 +203,9 @@ private:
     std::unique_ptr<StreamingReplyExtractor> _extractor;  // current streamed reply
     std::atomic<bool> _speechOpen{false};  // sentence frames went out for a reply that has no final frame yet
     std::vector<std::string> _toolFillerPhrases;
+    std::function<bool()> _offline;
+    std::vector<std::string> _offlineReplies;
+    size_t _nextOfflineReply = 0;
     size_t _nextFiller{0};
     bool _fillerSent{false};  // for the current streamed reply; guarded by _streamingMutex
     // A tool batch was dispatched and its follow-up reply hasn't started: keep the spoken turn open.

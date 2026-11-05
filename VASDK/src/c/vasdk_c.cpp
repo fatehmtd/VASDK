@@ -162,6 +162,59 @@ int vasdk_registry_add_envelope(vasdk_registry* registry, const char* name, vasd
     return 1;
 }
 
+int vasdk_registry_add_page_type(vasdk_registry* registry, const char* name, const char* params_type,
+                                 vasdk_page_enter_fn on_enter, vasdk_page_turn_fn on_turn, void* user) {
+    if (!registry || !name || !*name) return 0;
+    va::flow::FlowRegistry::PageType type;
+    type.paramsType = params_type ? params_type : "";
+    if (on_enter)
+        type.onEnter = [on_enter, user](const google::protobuf::Message& params, va::flow::TurnContext& context) {
+            vasdk_turn turn{context};
+            on_enter(toJson(params).c_str(), &turn, user);
+        };
+    if (on_turn)
+        type.onTurn = [on_turn, user](const google::protobuf::Message& params, va::flow::TurnContext& context) {
+            vasdk_turn turn{context};
+            return on_turn(toJson(params).c_str(), &turn, user) != 0;
+        };
+    registry->registry->addPageType(name, std::move(type));
+    return 1;
+}
+
+int vasdk_registry_add_entity_extractor(vasdk_registry* registry, const char* name, vasdk_entity_extractor_fn extractor,
+                                        void* user) {
+    if (!registry || !name || !*name || !extractor) return 0;
+    registry->registry->addEntityExtractor(
+        name, [extractor, user, extractorName = std::string(name)](const va::flow::FlowRegistry::EntityRequest& request) {
+            std::vector<va::flow::FlowRegistry::EntityFound> found;
+            const nlohmann::json in{{"words", request.words}, {"text", request.text}};
+            vasdk_result result;
+            extractor(in.dump().c_str(), &result, user);
+            if (result.failed) {
+                spdlog::warn("[vasdk] entity extractor {} failed: {}", extractorName, result.error);
+                return found;
+            }
+            const auto values = nlohmann::json::parse(result.json.empty() ? "[]" : result.json, nullptr, false);
+            if (!values.is_array()) {
+                spdlog::warn("[vasdk] entity extractor {} didn't return an array: {}", extractorName, result.json);
+                return found;
+            }
+            for (const auto& entry : values) {
+                if (!entry.is_object() || !entry.contains("value")) continue;
+                va::flow::FlowRegistry::EntityFound value;
+                value.start = entry.value("start", static_cast<size_t>(0));
+                value.length = entry.value("length", static_cast<size_t>(1));
+                if (!google::protobuf::util::JsonStringToMessage(entry["value"].dump(), &value.value).ok()) continue;
+                value.spoken = entry.value("spoken", std::string());
+                if (entry.contains("attributes") && entry["attributes"].is_object())
+                    (void)google::protobuf::util::JsonStringToMessage(entry["attributes"].dump(), &value.attributes);
+                found.push_back(std::move(value));
+            }
+            return found;
+        });
+    return 1;
+}
+
 //  Turn
 
 const char* vasdk_turn_text(vasdk_turn* turn) { return turn ? turn->context.text().c_str() : ""; }

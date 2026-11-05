@@ -303,6 +303,32 @@ void DialogProcessor::fireTrigger(const std::string& name, const google::protobu
     enqueueFrame(std::make_shared<TriggerFrame>(name, payload), pipeline::FlowDirection::DOWNSTREAM);
 }
 
+std::optional<std::chrono::system_clock::time_point> DialogProcessor::nextScheduledTrigger() const {
+    std::lock_guard<std::mutex> lock(_triggerStateMutex);
+    return _nextScheduled;
+}
+
+std::string DialogProcessor::triggerState() const {
+    std::lock_guard<std::mutex> lock(_triggerStateMutex);
+    return _triggerState;
+}
+
+void DialogProcessor::restoreTriggerState(std::string json) {
+    post([this, json = std::move(json)] {
+        if (!_conversation.restoreTriggerState(json)) spdlog::warn("[Dialog] the trigger state isn't readable: ignored");
+        _beforeLastTurn.restoreTriggerState(json);
+        keepTriggerState();
+    });
+}
+
+void DialogProcessor::keepTriggerState() {
+    auto next = _conversation.nextScheduledTrigger();
+    auto state = _conversation.triggerState();
+    std::lock_guard<std::mutex> lock(_triggerStateMutex);
+    _nextScheduled = next;
+    _triggerState = std::move(state);
+}
+
 void DialogProcessor::setSessionParam(const std::string& name, const Value& value) {
     enqueueFrame(std::make_shared<SessionParamFrame>(name, value), pipeline::FlowDirection::DOWNSTREAM);
 }
@@ -359,6 +385,16 @@ void DialogProcessor::processFrame(std::shared_ptr<transport::Frame> frame, pipe
         pushDownstream(frame);
         return;
     }
+    auto sayReply = [this](const ReplyFrame& ready) {
+        _noInputMs = ready.noInputMs;
+        if (ready.mayPassOn && _passUnmatchedTurns) {
+            _flowMetrics.passedToLlm.increment();
+            pushDownstream(ready.turn);
+            return;
+        }
+        if (ready.reply.endsSession) _greetingPending = true;   // on the next activation or caller
+        speak(ready.reply);
+    };
     if (auto ready = std::dynamic_pointer_cast<ReplyFrame>(frame)) {
         if (ready->filler) {
             speak(ready->reply, true);
@@ -366,14 +402,15 @@ void DialogProcessor::processFrame(std::shared_ptr<transport::Frame> frame, pipe
         }
         // A trigger queued or dropped: the conversation is where it was.
         if (ready->fromTrigger && ready->reply.text.empty() && !ready->reply.expectsReply && !ready->reply.endsSession) return;
-        _noInputMs = ready->noInputMs;
-        if (ready->mayPassOn && _passUnmatchedTurns) {
-            _flowMetrics.passedToLlm.increment();
-            pushDownstream(ready->turn);
+        // An IMMEDIATE trigger while a reply plays: that reply is cut off, as by the cancel button,
+        // and this one said once it is (TTS drops text that comes before the interrupt resolves).
+        if (ready->reply.cutsIn && _replyPlaying && _interrupter && _agentState == transport::AgentState::SPEAKING) {
+            spdlog::info("[Dialog] an immediate trigger cuts off the reply playing");
+            _cutIn = ready;
+            _interrupter();
             return;
         }
-        if (ready->reply.endsSession) _greetingPending = true;   // on the next activation or caller
-        speak(ready->reply);
+        sayReply(*ready);
         return;
     }
     if (frame->getType() == transport::FrameType::USER_TURN) {
@@ -437,6 +474,7 @@ void DialogProcessor::processFrame(std::shared_ptr<transport::Frame> frame, pipe
                                   _agentState != transport::AgentState::SPEAKING;
         post([this, betweenTurns] {
             auto reply = _conversation.checkTriggers(betweenTurns);
+            keepTriggerState();
             if (!reply.triggers.empty()) deliver(std::move(reply), nullptr, false, true);
         });
         return;
@@ -488,6 +526,7 @@ void DialogProcessor::processFrame(std::shared_ptr<transport::Frame> frame, pipe
         _greetingPending = true;
         _privateAnswer = false;
         _awaitingAnswer = false;
+        _cutIn.reset();
     };
     if (dynamic_cast<const RestartFrame*>(frame.get())) {
         startOver();
@@ -534,6 +573,15 @@ void DialogProcessor::processFrame(std::shared_ptr<transport::Frame> frame, pipe
     // Activated (at start when always on, else by the wake word or button): greet if it's due.
     if (state.previousState == transport::AgentState::IDLE && state.currentState == transport::AgentState::LISTENING)
         greetIfReady();
+    // The reply an IMMEDIATE trigger cut off has stopped (or played out first): the trigger's turn.
+    if (_cutIn && (state.transition == transport::AgentStateTransition::INTERRUPT_RESOLVED ||
+                   state.transition == transport::AgentStateTransition::SYNTHESIS_COMPLETED)) {
+        const auto cutIn = std::static_pointer_cast<ReplyFrame>(std::move(_cutIn));
+        _cutIn.reset();
+        disarmNoInput();
+        disarm(_inactivity);
+        sayReply(*cutIn);
+    }
 }
 
 void DialogProcessor::greetIfReady() {

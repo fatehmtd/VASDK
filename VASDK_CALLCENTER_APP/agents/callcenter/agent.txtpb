@@ -28,6 +28,25 @@ intents { name: "goodbye"  examples: ["bye", "goodbye", "that's all", "nothing e
 intents { name: "yes"      examples: ["yes", "yeah", "yep", "sure"] }
 intents { name: "no"       examples: ["no", "nope", "nothing"] }
 
+# The vehicle for a repair, as one value with its parts: $form.vehicle.value.make, .model, .year;
+# said back as the caller said it ("2019 toyota camry"). The model is any one word after the make.
+entity_types { name: "vehicle_make" list {
+  values { value: "toyota" }  values { value: "honda" }   values { value: "ford" }
+  values { value: "chevrolet" synonyms: ["chevy"] }       values { value: "nissan" }
+  values { value: "hyundai" } values { value: "kia" }     values { value: "subaru" }
+  values { value: "mazda" }   values { value: "volkswagen" synonyms: ["vw"] }
+  values { value: "bmw" }     values { value: "mercedes" synonyms: ["mercedes benz", "benz"] }
+  values { value: "audi" }    values { value: "jeep" }    values { value: "dodge" }
+  values { value: "ram" }     values { value: "gmc" }     values { value: "tesla" }
+  values { value: "lexus" }   values { value: "volvo" } } }
+entity_types { name: "vehicle_year" derived { base: "@sys.integer" min: 1980 max: 2035 } }
+entity_types { name: "vehicle_model" pattern { regex: "[a-z][a-z0-9-]*" } }
+entity_types { name: "vehicle" composite { templates: [
+  "@vehicle_year:year @vehicle_make:make @vehicle_model:model",
+  "@vehicle_make:make @vehicle_model:model @vehicle_year:year",
+  "@vehicle_make:make @vehicle_model:model",
+  "@vehicle_year:year @vehicle_make:make"] } }
+
 # Every page: a person, goodbye, silence and repeated misunderstandings.
 envelopes: ["standard"]
 envelope_defs {

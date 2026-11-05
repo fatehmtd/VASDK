@@ -332,6 +332,52 @@ int main() {
         lateSession->stop();
     }
 
+    // An LLM-only session (no agent) with the LLM elsewhere: offline, the user hears why there's
+    // no answer instead of silence; its offline_replies in turn. One on this machine still answers.
+    {
+        auto llmOnly = [&](const std::string& endpoint, const std::string& extra, EventRecorder& recorder) {
+            engine::ProviderRegistry onlyRegistry;
+            onlyRegistry.add<audio::VADProvider>("vad", [](const engine::ProviderContext&) { return std::make_shared<fakes::FakeVad>(); });
+            onlyRegistry.add<audio::GenericTranscriptionProvider>("stt", [](const engine::ProviderContext&) {
+                return std::make_shared<fakes::FakeStt>();
+            });
+            onlyRegistry.add<audio::GenericVoiceSynthesisProvider>("tts", [](const engine::ProviderContext&) {
+                return std::make_shared<fakes::FakeTts>();
+            });
+            vasdk::engine::EngineConfig onlyConfig;
+            engine::parseProto("providers { stt { id: \"stt\" } tts { id: \"tts\" } } llm { endpoint: \"" + endpoint +
+                                   "\" api_key: \"test\" " + extra + " }",
+                               engine::ProtoFormat::Text, onlyConfig, &error);
+            VAEngine::Options onlyOptions;
+            onlyOptions.transport = std::make_shared<fakes::FakeTransport>();
+            auto created = VAEngine::create(onlyConfig, onlyRegistry, onlyOptions, &error);
+            if (created) created->addListener(recorder.listener());
+            return created;
+        };
+        EventRecorder remoteEvents;
+        // 192.0.2.1 (TEST-NET-1): never reached, the network is down before the first turn.
+        auto remote = llmOnly("http://192.0.2.1/v1/chat/completions",
+                              "offline_replies: [\"No internet, sorry.\", \"Still offline.\"]", remoteEvents);
+        check(remote && remote->start(&error), "an LLM-only session starts: " + error);
+        if (remote) {
+            remote->setNetworkAvailable(false);
+            remote->injectUserText("what's the weather like");
+            check(remoteEvents.waitFor(replied("No internet, sorry.")), "offline: the user is told, not left waiting");
+            remote->injectUserText("and tomorrow");
+            check(remoteEvents.waitFor(replied("Still offline.")), "the offline replies in turn");
+            remote->stop();
+        }
+        EventRecorder defaultEvents;
+        auto byDefault = llmOnly("https://llm.example.com/v1/chat/completions", "", defaultEvents);
+        if (byDefault && byDefault->start(&error)) {
+            byDefault->setNetworkAvailable(false);
+            byDefault->injectUserText("hello");
+            check(defaultEvents.waitFor(replied("I can't reach the internet right now, so I can't answer that. Please try again in a moment.")),
+                  "no offline_replies: the default one");
+            byDefault->stop();
+        }
+    }
+
     if (failures == 0) std::printf("network_fallback_test: all passed\n");
     return failures == 0 ? 0 : 1;
 }

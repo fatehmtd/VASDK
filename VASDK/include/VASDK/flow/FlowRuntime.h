@@ -68,6 +68,7 @@ struct Reply {
     bool endsSession = false;      // the conversation ended with this reply
     bool givenUp = false;          // the turn was given up while the LLM thought (setInterrupted): say nothing
     bool midChat = false;          // answered mid-chat with the LLM (setLlmHasConversation): the stricter rules applied
+    bool cutsIn = false;           // an IMMEDIATE trigger's: said over the reply playing, which is cut off
     std::vector<PageChange> pageChanges;
     std::vector<ReplyToolCall> toolCalls;
     std::vector<ReplyTrigger> triggers;
@@ -371,6 +372,10 @@ private:
     std::string _intent;                    // the matched route's intent this turn
     std::optional<EntityMatch> _entity;     // the matched route's entity this turn ($entity)
     DynamicEntityValues _dynamicEntities;
+    // The entity values read into slots, as they were found (entity + '\n' + value): how a code
+    // entity's value is said and its attributes, which its value alone doesn't give back.
+    mutable std::map<std::string, EntityMatch> _slotEntities;
+    EntityMatch describeSlotValue(const std::string& entity, const Value& value) const;
     ContextSource _context;
     std::optional<Form> _form;              // set on a page with a form
     std::optional<std::pair<std::string, nlohmann::json>> _resumedSlots;   // resume(): a goal's saved slots, filled when its form opens
