@@ -73,3 +73,11 @@ if(VASDK_BUILD_TESTS AND TARGET vasdk_silero_vad AND TARGET vasdk_whistle_stt AN
     set_tests_properties(vasdk_offline_conversation PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 600)
     vasdk_test_dlls(vasdk_offline_conversation_test)
 endif()
+
+# An NLU eval set as the agent hears it: spoken by Phonon's voices, recognized by Whistle. For
+# vasdk_agentc eval --sweep on recognized speech (the garage set's is in VASDK_APP).
+if(TARGET vasdk_whistle_stt AND TARGET vasdk_phonon_tts)
+    add_executable(vasdk_spoken_eval spoken_eval.cpp)
+    target_link_libraries(vasdk_spoken_eval PRIVATE vasdk_provider_catalog)
+    vasdk_test_dlls(vasdk_spoken_eval)
+endif()

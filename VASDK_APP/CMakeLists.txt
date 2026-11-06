@@ -48,6 +48,9 @@ if(VASDK_ENABLE_ENGINE_CONFIG AND TARGET VASDK)
         endif()
         add_test(NAME vasdk_agent_garage_menu_nlu
                  COMMAND garage_agentc eval ${GARAGE_DIR}/agent.txtpb ${GARAGE_DIR}/nlu_eval.txtpb --min-accuracy 0.9)
+        # The same set as Whistle heard it, said by three of Phonon's voices (vasdk_spoken_eval).
+        add_test(NAME vasdk_agent_garage_menu_nlu_spoken
+                 COMMAND garage_agentc eval ${GARAGE_DIR}/agent.txtpb ${GARAGE_DIR}/nlu_eval.spoken.txtpb --min-accuracy 0.9)
     endif()
 endif()
 

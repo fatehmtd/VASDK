@@ -1,0 +1,142 @@
+# proto-file: vasdk/flow/test_case.proto
+# proto-message: vasdk.flow.NluEvalSet
+#
+# VASDK_APP/agents/garage-menu/nlu_eval.txtpb as whistle heard it, said by Phonon's Anton, Zoey, Marcos (vasdk_spoken_eval).
+# Anton said: I'd like to book an appointment
+cases { text: "I\'d like to book an appointment." intent: "book" }
+# Anton said: can I bring my car in tomorrow
+cases { text: "Can I bring my car in tomorrow?" intent: "book" }
+# Anton said: I need to schedule a service
+cases { text: "I need to schedule a service." intent: "book" }
+# Anton said: I'd like to book an apointment
+cases { text: "I\'d like to book an appointment." intent: "book" }
+# Anton said: how much is an oil change
+cases { text: "How much is an oil change?" intent: "price" entities { key: "service" value: "oil_change" } }
+# Anton said: what does a tire repair cost
+cases { text: "What does a tire repair cost?" intent: "price" entities { key: "service" value: "tire_repair" } }
+# Anton said: what are your opening hours
+cases { text: "What are your opening hours?" intent: "hours" }
+# Anton said: when do you close today
+cases { text: "When do you close to day?\"" intent: "hours" }
+# Anton said: let me talk to a person
+cases { text: "Let me talk to a person." intent: "person" }
+# Anton said: can I speak to a representative
+cases { text: "Can I speak to a representative?" intent: "person" }
+# Anton said: can I speak to a reprasentative
+cases { text: "Can I speak to a repr\303\251sentative?" intent: "person" }
+# Anton said: that's all, goodbye
+cases { text: "That\'s all, good bye." intent: "goodbye" }
+# Anton said: what can you do
+cases { text: "What can you do?" intent: "help" }
+# Anton said: hey there
+cases { text: "Hey there." intent: "hello" }
+# Anton said: take me back to the main menu
+cases { text: "Take me back to the main menu." intent: "back" }
+# Anton said: my tyres are flat
+cases { text: "My tires are flat." entities { key: "service" value: "tire_repair" } }
+# Anton said: the weather is nice
+cases { text: "The weather is nice." }
+# Anton said: help
+cases { text: "help." intent: "help" mid_chat: true }
+# Anton said: I am hard of hearing, help me out
+cases { text: "I am hard of hearing, help me out." mid_chat: true }
+# Anton said: when do you close
+cases { text: "When do you close?" intent: "hours" mid_chat: true }
+# Anton said: I went to the shop yesterday but it was closing so I left
+cases { text: "I went to the shop yesterday, but it was closing so I left." mid_chat: true }
+# Anton said: book a service
+cases { text: "Book Asservice." intent: "book" mid_chat: true }
+# Anton said: talk to a person
+cases { text: "Talk to a person." intent: "person" mid_chat: true }
+# Zoey said: I'd like to book an appointment
+cases { text: "I\'d like to book an appointment." intent: "book" }
+# Zoey said: can I bring my car in tomorrow
+cases { text: "Can I bring my car in tomorrow?" intent: "book" }
+# Zoey said: I need to schedule a service
+cases { text: "I need to schedule a service." intent: "book" }
+# Zoey said: I'd like to book an apointment
+cases { text: "I\'d like to book an appointment." intent: "book" }
+# Zoey said: how much is an oil change
+cases { text: "How much is an oil change?" intent: "price" entities { key: "service" value: "oil_change" } }
+# Zoey said: what does a tire repair cost
+cases { text: "What does a tire repair cost?" intent: "price" entities { key: "service" value: "tire_repair" } }
+# Zoey said: what are your opening hours
+cases { text: "What are your opening hours?" intent: "hours" }
+# Zoey said: when do you close today
+cases { text: "When do you close today?" intent: "hours" }
+# Zoey said: let me talk to a person
+cases { text: "Let me talk to a person." intent: "person" }
+# Zoey said: can I speak to a representative
+cases { text: "Can I speak to a representative?\"" intent: "person" }
+# Zoey said: can I speak to a reprasentative
+cases { text: "Can I speak to a representative?" intent: "person" }
+# Zoey said: that's all, goodbye
+cases { text: "That\'s all good bye." intent: "goodbye" }
+# Zoey said: what can you do
+cases { text: "What can you do?" intent: "help" }
+# Zoey said: hey there
+cases { text: "Hay there." intent: "hello" }
+# Zoey said: take me back to the main menu
+cases { text: "Take me back to the main menu.\"" intent: "back" }
+# Zoey said: my tyres are flat
+cases { text: "My tires are flat." entities { key: "service" value: "tire_repair" } }
+# Zoey said: the weather is nice
+cases { text: "The weather is nice." }
+# Zoey said: help
+cases { text: "Help." intent: "help" mid_chat: true }
+# Zoey said: I am hard of hearing, help me out
+cases { text: "I am hard of hearing, help me out." mid_chat: true }
+# Zoey said: when do you close
+cases { text: "When do you close?" intent: "hours" mid_chat: true }
+# Zoey said: I went to the shop yesterday but it was closing so I left
+cases { text: "I went to the shop yesterday, but it was closing so I left." mid_chat: true }
+# Zoey said: book a service
+cases { text: "Book a Service." intent: "book" mid_chat: true }
+# Zoey said: talk to a person
+cases { text: "Talk to a person." intent: "person" mid_chat: true }
+# Marcos said: I'd like to book an appointment
+cases { text: "I\'d like to book an appointment." intent: "book" }
+# Marcos said: can I bring my car in tomorrow
+cases { text: "Can I bring my card in tomorrow?" intent: "book" }
+# Marcos said: I need to schedule a service
+cases { text: "I need to schedule a service." intent: "book" }
+# Marcos said: I'd like to book an apointment
+cases { text: "I\'d like to book an appointment." intent: "book" }
+# Marcos said: how much is an oil change
+cases { text: "How much is an oil change?" intent: "price" entities { key: "service" value: "oil_change" } }
+# Marcos said: what does a tire repair cost
+cases { text: "What does a TIRPEC cost?" intent: "price" entities { key: "service" value: "tire_repair" } }
+# Marcos said: what are your opening hours
+cases { text: "What are your opening hours?" intent: "hours" }
+# Marcos said: when do you close today
+cases { text: "When do you close to thee?\"" intent: "hours" }
+# Marcos said: let me talk to a person
+cases { text: "Let me talk to a person.\"" intent: "person" }
+# Marcos said: can I speak to a representative
+cases { text: "\302\277Can I speak to a representativo?" intent: "person" }
+# Marcos said: can I speak to a reprasentative
+cases { text: "Canay Spectu a Representative." intent: "person" }
+# Marcos said: that's all, goodbye
+cases { text: "That\'s all, good bye.\"" intent: "goodbye" }
+# Marcos said: what can you do
+cases { text: "What can you do?" intent: "help" }
+# Marcos said: hey there
+cases { text: "Hay there." intent: "hello" }
+# Marcos said: take me back to the main menu
+cases { text: "Take me back to the main menu." intent: "back" }
+# Marcos said: my tyres are flat
+cases { text: "My tires are flat." entities { key: "service" value: "tire_repair" } }
+# Marcos said: the weather is nice
+cases { text: "The weather is nice.\"" }
+# Marcos said: help
+cases { text: "help." intent: "help" mid_chat: true }
+# Marcos said: I am hard of hearing, help me out
+cases { text: "But I am hard of hearing, help me out." mid_chat: true }
+# Marcos said: when do you close
+cases { text: "When do you close?" intent: "hours" mid_chat: true }
+# Marcos said: I went to the shop yesterday but it was closing so I left
+cases { text: "I went to the shop yesterday, but it was closing so I left." mid_chat: true }
+# Marcos said: book a service
+cases { text: "Buca Service." intent: "book" mid_chat: true }
+# Marcos said: talk to a person
+cases { text: "Talk to a person." intent: "person" mid_chat: true }
