@@ -237,6 +237,7 @@ remote_control { enabled: true token: "${VASDK_RC_TOKEN}" mode: CONTROL }   # bi
 - **Without a token** the session doesn't start.
 - **`OBSERVE` (the default)** streams events and refuses commands (403).
 - **The bind** is this machine only unless you set another address; port 0 picks a free one.
+- **Beyond this machine, use TLS:** `tls { cert_file: "rc.crt" key_file: "rc.key" }` (PEM) serves HTTPS instead, so the token and the conversation travel encrypted. Desktop builds have it (cpp-httplib with OpenSSL); the Android build doesn't. A bind beyond this machine over plain HTTP is logged as a warning.
 - **Sensitive values** are masked in the events as everywhere else.
 - **Example:**
 

@@ -103,7 +103,7 @@ struct RemoteControl::State {
     bool stopping = false;
     int port = 0;
 #ifdef VASDK_HAS_HTTPLIB
-    httplib::Server server;
+    std::unique_ptr<httplib::Server> server;   // an SSLServer with tls
     std::thread thread;
 #endif
 };
@@ -118,7 +118,7 @@ RemoteControl::~RemoteControl() {
     }
     _state->changed.notify_all();
 #ifdef VASDK_HAS_HTTPLIB
-    _state->server.stop();
+    if (_state->server) _state->server->stop();
     if (_state->thread.joinable()) _state->thread.join();
 #endif
 }
@@ -157,14 +157,32 @@ std::unique_ptr<RemoteControl> RemoteControl::start(Session& session, const vasd
 
     std::unique_ptr<RemoteControl> remote(new RemoteControl(std::make_unique<State>(session, config)));
     State* state = remote->_state.get();
+    const bool secure = config.has_tls();
+    if (secure) {
+        if (config.tls().cert_file().empty() || config.tls().key_file().empty()) return fail("tls needs a cert_file and a key_file");
+#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
+        auto server = std::make_unique<httplib::SSLServer>(config.tls().cert_file().c_str(), config.tls().key_file().c_str());
+        if (!server->is_valid())
+            return fail("tls: can't use " + config.tls().cert_file() + " and " + config.tls().key_file() + " (PEM certificate and key)");
+        state->server = std::move(server);
+#else
+        return fail("tls: this build's HTTP server has no TLS (cpp-httplib without OpenSSL)");
+#endif
+    } else {
+        state->server = std::make_unique<httplib::Server>();
+        const bool here = host == "localhost" || host == "::1" || host.rfind("127.", 0) == 0;
+        if (!here)
+            spdlog::warn("[RemoteControl] {} is reachable beyond this machine over plain HTTP: the token and the conversation "
+                         "travel unencrypted. Give it tls.", bind);
+    }
     auto authorized = [state](const httplib::Request& request) {
         const auto header = request.get_header_value("Authorization");
         const std::string given = header.rfind("Bearer ", 0) == 0 ? header.substr(7) : request.get_param_value("token");
         return sameToken(given, state->config.token());
     };
 
-    state->server.Get("/", [](const httplib::Request&, httplib::Response& response) { response.set_content(kPage, "text/html"); });
-    state->server.Get("/events", [state, authorized](const httplib::Request& request, httplib::Response& response) {
+    state->server->Get("/", [](const httplib::Request&, httplib::Response& response) { response.set_content(kPage, "text/html"); });
+    state->server->Get("/events", [state, authorized](const httplib::Request& request, httplib::Response& response) {
         if (!authorized(request)) {
             response.status = 401;
             response.set_content(errorJson("unauthorized"), "application/json");
@@ -188,7 +206,7 @@ std::unique_ptr<RemoteControl> RemoteControl::start(Session& session, const vasd
             return sink.write(out.data(), out.size());
         });
     });
-    state->server.Post("/command", [remote = remote.get(), authorized](const httplib::Request& request, httplib::Response& response) {
+    state->server->Post("/command", [remote = remote.get(), authorized](const httplib::Request& request, httplib::Response& response) {
         if (!authorized(request)) {
             response.status = 401;
             response.set_content(errorJson("unauthorized"), "application/json");
@@ -210,9 +228,9 @@ std::unique_ptr<RemoteControl> RemoteControl::start(Session& session, const vasd
     });
 
     if (port == 0) {
-        state->port = state->server.bind_to_any_port(host);
+        state->port = state->server->bind_to_any_port(host);
         if (state->port <= 0) return fail("can't listen on " + host);
-    } else if (!state->server.bind_to_port(host, port)) {
+    } else if (!state->server->bind_to_port(host, port)) {
         return fail("can't listen on " + bind + " (in use?)");
     } else {
         state->port = port;
@@ -227,10 +245,10 @@ std::unique_ptr<RemoteControl> RemoteControl::start(Session& session, const vasd
         }
         state->changed.notify_all();
     });
-    state->thread = std::thread([state] { state->server.listen_after_bind(); });
-    state->server.wait_until_ready();
-    spdlog::info("[RemoteControl] {} on http://{}:{}", config.mode() == vasdk::engine::RemoteControl::CONTROL ? "control" : "observe",
-                 host, state->port);
+    state->thread = std::thread([state] { state->server->listen_after_bind(); });
+    state->server->wait_until_ready();
+    spdlog::info("[RemoteControl] {} on {}://{}:{}", config.mode() == vasdk::engine::RemoteControl::CONTROL ? "control" : "observe",
+                 secure ? "https" : "http", host, state->port);
     return remote;
 #endif
 }

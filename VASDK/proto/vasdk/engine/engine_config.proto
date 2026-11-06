@@ -224,4 +224,11 @@ message RemoteControl {
   string bind = 2;    // "host:port"; unset: "127.0.0.1:8765", this machine only. Port 0: any free one
   string token = 3;   // required, e.g. "${VASDK_RC_TOKEN}"
   Mode mode = 4;
+  // HTTPS instead of HTTP, for a bind beyond this machine: the token and the conversation travel
+  // encrypted. PEM files; needs a build whose cpp-httplib has OpenSSL (desktop builds do).
+  Tls tls = 5;
+  message Tls {
+    string cert_file = 1;
+    string key_file = 2;
+  }
 }
