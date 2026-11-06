@@ -140,7 +140,7 @@ With an agent and a metrics collector, the dialog reports how conversations go:
 
 With an agent, every question tells the pipeline how to listen for its answer: a `TurnPolicyFrame` goes upstream with the reply.
 - The VAD and the turn detector use its turn end: patient for a phone number said with pauses, snappy for a quick yes.
-- The speech recognizer gets the words to expect, through `GenericTranscriptionProvider::setContextHints`. That is a no-op by default; Soniox implements it.
+- The speech recognizer gets the words to expect, through `GenericTranscriptionProvider::setContextHints`. That is a no-op by default; Soniox and Whistle (as keyword biasing, merged with its config's `keywords`) implement it.
 
 See [Expected input](flows.md#expected-input).
 

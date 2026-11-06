@@ -79,8 +79,31 @@ The build generates Python classes from VASDK's `.proto` files ([VASDK/proto](..
 | `vasdk.ConversationReply`, `vasdk.ConversationInput` | A text conversation's turn and its reply ([conversation.proto](../../VASDK/proto/vasdk/flow/conversation.proto)); `Conversation.send(input)` takes any input. |
 | `vasdk.StepOutcome` | What `turn.apply` takes (a dict of the same shape works too). |
 | `vasdk.SessionOptions`, `vasdk.ToolDeclaration`, `vasdk.ToolParameter` | `Session(options=...)`, and the parameters `Session.tool` takes (dicts work too). |
+| `vasdk.ConversationSnapshot` | `Session.snapshot()`: where an agent's conversation is, to resume it. |
+| `vasdk.Language` | A language pack ([language.proto](../../VASDK/proto/vasdk/nlu/language.proto)): `Registry.add_language` takes one, `vasdk.builtin_language()` returns VASDK's en-US. See [an agent in another language](../../docs/examples/languages.md). |
 
 A step's or page type's params arrive as their message when Python knows its class: VASDK's and Google's types, a class you pass as `message=`, one whose `_pb2` module you've imported, or one the agent's own `.proto` files declare (`proto_imports`: loading the agent adds them to Python's descriptor pool, from `vasdk_agent_proto_files`). Params of a type Python can't find arrive as a dict.
+
+```python
+# agent.txtpb: proto_imports: ["loyalty.proto"]   (package acme; message Bonus { string reason = 1; int32 points = 2; })
+#              routes { intent: "bonus" steps { custom { [type.googleapis.com/acme.Bonus] { reason: "birthday" points: 50 } } } }
+registry = vasdk.Registry()
+
+@registry.step("acme.Bonus")
+def bonus(params, turn):                   # an acme.Bonus message, though no _pb2 module was generated for it
+    turn.say(f"{params.points} points for your {params.reason}.")
+
+agent = vasdk.Agent.load("agent.txtpb", registry)
+```
+
+A session's conversation picks up where it was, in a later session:
+
+```python
+saved = session.snapshot().SerializeToString()   # a vasdk.ConversationSnapshot: store the bytes
+...
+session = vasdk.Session(config, providers, agent)
+session.start(resume=saved)                      # the message, its bytes or its JSON
+```
 
 Values stay Python values: `turn.lookup` and `conversation.lookup` return them, and `set_param`, `fire_trigger` and `set_context` take them (they cross as `google.protobuf.Value` and `Struct`; a whole number comes back as an `int`). Tools and entity extractors take and give dicts, because their data is JSON: the LLM writes a tool's arguments, and as a `Struct` the integer `10` would come back as `10.0`.
 

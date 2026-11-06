@@ -248,6 +248,14 @@ remote_control { enabled: true token: "${VASDK_RC_TOKEN}" mode: CONTROL }   # bi
   curl -H "Authorization: Bearer $VASDK_RC_TOKEN" -d '{"injectText": "what are your hours"}' http://127.0.0.1:8765/command
   ```
 
+  Over HTTPS, with a certificate made for the test (a real one needs no `--insecure`):
+
+  ```
+  openssl req -x509 -newkey rsa:2048 -nodes -days 30 -subj "/CN=assistant.local" -keyout rc.key -out rc.crt
+  # remote_control { enabled: true bind: "0.0.0.0:8765" token: "${VASDK_RC_TOKEN}" tls { cert_file: "rc.crt" key_file: "rc.key" } }
+  curl -N --insecure -H "Authorization: Bearer $VASDK_RC_TOKEN" https://assistant.local:8765/events
+  ```
+
 `engine::RemoteControl::start(session, config)` starts one from code. It needs the build's HTTP server (`VASDK_ENABLE_WEBSOCKET_SERVER`, on by default).
 
 ## Using it from C++

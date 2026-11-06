@@ -77,12 +77,17 @@ private:
  * override what differs, then add it with FlowRegistry::addLanguage:
  *
  * @code
- * class Japanese : public va::nlu::Language {
+ * // Dutch "half vier" is 3:30, the half hour before four: the pack's times, and these.
+ * class Dutch : public va::nlu::Language {
  * public:
- *     Japanese() : Language(loadPack("ja-JP.txtpb")) {}
- *     std::vector<va::nlu::Found> dates(const std::vector<std::string>& words, va::nlu::Date today) const override;
+ *     explicit Dutch(vasdk::nlu::Language pack) : Language(std::move(pack)) {}
+ *     std::vector<va::nlu::Found> times(const std::vector<std::string>& words) const override {
+ *         auto found = Language::times(words);
+ *         // ... "half" + smallNumber(words, i + 1, length): {"03:30", spokenTime("03:30"), i, 1 + length}
+ *         return found;
+ *     }
  * };
- * registry->addLanguage(std::make_shared<Japanese>());
+ * registry->addLanguage(std::make_shared<Dutch>(pack));
  * @endcode
  *
  * Every method reads words as flow::entityWords() splits them, and is safe to call from many

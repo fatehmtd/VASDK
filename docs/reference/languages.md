@@ -1,5 +1,7 @@
 # Languages
 
+A worked example, from a pack to a tested French agent: [An agent in another language](../examples/languages.md).
+
 The engine has no English words in its code. Everything it reads or says in a language comes from a **language pack**, a `vasdk.nlu.Language` message ([`language.proto`](../../VASDK/proto/vasdk/nlu/language.proto)) written as a text file:
 
 - the words for numbers, dates, times, durations and email addresses (`@sys.date`, `@sys.integer`...)

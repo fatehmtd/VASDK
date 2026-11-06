@@ -220,6 +220,40 @@ int main(void) {
     vasdk_free(report);
     remove("vasdk_c_test_case.txtpb");
 
+    /* A language pack added from C: an agent in it says the engine's own replies in it. */
+    {
+        const char* pack = "code: \"es\" name: \"Spanish\" yes: [\"sí\"] no: [\"no\"]\n"
+                           "replies { not_understood: \"Lo siento, no puedo ayudarle con eso.\" }";
+        vasdk_registry* languages = vasdk_registry_create();
+        check(vasdk_registry_add_language(languages, pack, strlen(pack), VASDK_FORMAT_TEXT, &error) == 1, "a language pack registers");
+        const char* bad = "code: \"xx\" speaking { plural_rules: \"$n =\" }";
+        check(vasdk_registry_add_language(languages, bad, strlen(bad), VASDK_FORMAT_TEXT, &error) == 0 && error &&
+                  strstr(error, "plural_rules") != NULL,
+              "a pack that doesn't check is refused, with the reason");
+        vasdk_free(error);
+        error = NULL;
+        size_t english = 0;
+        char* builtin = vasdk_language_builtin(VASDK_FORMAT_TEXT, &english);
+        check(builtin != NULL && strstr(builtin, "code: \"en-US\"") != NULL, "the built-in en-US pack, as text");
+        vasdk_free(builtin);
+        const char* spanishAgent = "locale: \"es-MX\" start_flow: \"main\" flows { name: \"main\" start_page: \"p\" "
+                                   "pages { name: \"p\" on_enter { ask { say { text: \"Hola.\" } } } } }";
+        vasdk_agent* spanish = vasdk_agent_parse(spanishAgent, strlen(spanishAgent), VASDK_FORMAT_TEXT, languages, &error);
+        check(spanish != NULL, "an agent in the registered language loads");
+        if (spanish) {
+            vasdk_conversation* hola = vasdk_conversation_create(spanish);
+            vasdk_free(vasdk_conversation_start(hola));
+            char* said = vasdk_conversation_say(hola, "blablabla");
+            check(strstr(said, "Lo siento, no puedo ayudarle con eso.") != NULL, "its replies are in that language");
+            vasdk_free(said);
+            vasdk_conversation_free(hola);
+            vasdk_agent_free(spanish);
+        }
+        vasdk_free(error);
+        error = NULL;
+        vasdk_registry_free(languages);
+    }
+
     check(strlen(vasdk_version()) > 0, "a version");
     vasdk_conversation_free(conversation);
     vasdk_agent_free(agent);

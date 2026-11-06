@@ -72,6 +72,30 @@ An agent in another language lists its pack in `language_files` ([Languages](../
 | `setEntityValues(name, valuesJson)` | Replaces a dynamic entity's values: `ContactsEntity.values(context)` gives the phone book as `@contact` (number as the value, the name as spoken and said). |
 | `events` | A `SharedFlow<Event>` of every engine event, each a [`vasdk.engine.Event`](../../VASDK/proto/vasdk/engine/events.proto): `engine.events.collect { if (it.hasAgentReply()) show(it.agentReply.text) }`. |
 
+For example, a step that reads its params and sets a session value, and the agent's replies shown as they come:
+
+```kotlin
+import com.google.protobuf.Struct
+import com.google.protobuf.value
+import kotlinx.coroutines.launch
+import vasdk.flow.stepOutcome
+
+engine.agentAsset = "agents/phone/agent.txtpb"
+// custom { [type.googleapis.com/google.protobuf.Struct] { fields { key: "points" value { number_value: 120 } } } }
+engine.registerAgentStep("google.protobuf.Struct") { params, turn ->
+    val points = Struct.parseFrom(params).fieldsMap["points"]?.numberValue ?: 0.0
+    stepOutcome {
+        set["\$session.points"] = value { numberValue = points }
+        say += "You have ${points.toInt()} points."
+    }
+}
+scope.launch {
+    engine.events.collect { event ->
+        if (event.hasAgentReply()) show(event.agentReply.text)
+    }
+}
+```
+
 Register tools and steps, and set `agentAsset`, before `init()`. They run on a native thread and may block. The app's build generates Kotlin lite classes from VASDK's `.proto` files (the `com.google.protobuf` Gradle plugin, `protobuf-kotlin-lite`), the same messages the native side uses; tools take and give JSON, as their arguments are an LLM's.
 
 The agent can also hand a topic to the LLM with a route's `target: "LLM"`; its steps are the offline answer ([With an LLM](../reference/flows.md#with-an-llm)). Not in the app yet:

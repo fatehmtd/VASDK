@@ -461,6 +461,7 @@ Each example is a worked, self-contained document under [`docs/examples/`](docs/
 - [Giving the LLM a tool](docs/examples/llm-tools.md): define a `Tool` with typed parameters and a JSON handler, and follow the `ToolCallFrame`/`ToolResultFrame` round trip, including how tools reach local GGUF models.
 - [Defining a goal in JSON](docs/examples/goal-definitions.md): drive multi-turn slot filling from a JSON file, with the full slot type table, conditional slots, and validation behavior.
 - [Testing without a microphone](docs/examples/testing-with-mock-transport.md): inject frames through `MockTransport`, assert on what the pipeline sent, and script whole conversations with `GoalConversationSimulator`.
+- [An agent in another language](docs/examples/languages.md): write a language pack, run a French agent whose callers may also speak English, test it with `vasdk_agentc`, and add languages from C++, C or Python.
 
 Beyond those, the [example apps](docs/apps/README.md) are the real-world references for wiring everything together:
 - [`VASDK_APP/main_pipeline.cpp`](VASDK_APP/main_pipeline.cpp) adds audio I/O, tools, recording and a terminal UI around `VAEngine`.

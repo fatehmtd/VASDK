@@ -2,7 +2,8 @@
 // pack VASDK doesn't ship) read and said on a fixed clock (Monday 2026-11-02, 09:00): dates,
 // times, numbers, durations, emails, phone digits, yes/no; how replies say them; an agent in
 // French that understands English too; a pack from a file, from the registry, and packs that
-// don't load; back-channels in French; text folded for matching ("Décembre", "don’t").
+// don't load; a language written in C++ for grammar a pack can't express (Dutch "half vier" is
+// 3:30); back-channels in French; text folded for matching ("Décembre", "don’t").
 
 #include <VASDK/AgentStateProcessor.h>
 #include <VASDK/flow/CompiledAgent.h>
@@ -40,6 +41,26 @@ std::chrono::system_clock::time_point localTime(int year, int month, int day, in
 }
 
 const std::string kFrench = std::string(VASDK_TEST_DATA) + "/languages/fr-FR.txtpb";
+
+// Dutch says the half hour before the next one: "half vier" (half four) is 3:30. A pack's fractions
+// count from the hour before ("half past three"), so this is code: the pack's times, and these.
+class Dutch : public nlu::Language {
+public:
+    explicit Dutch(vasdk::nlu::Language pack) : Language(std::move(pack)) {}
+
+    std::vector<nlu::Found> times(const std::vector<std::string>& words) const override {
+        auto found = Language::times(words);
+        for (size_t i = 0; i + 1 < words.size(); ++i) {
+            size_t length = 0;
+            const auto hour = words[i] == "half" ? smallNumber(words, i + 1, length) : std::nullopt;
+            if (!hour || *hour < 1 || *hour > 12) continue;
+            char value[8];
+            std::snprintf(value, sizeof(value), "%02d:30", *hour == 1 ? 12 : *hour - 1);
+            found.push_back({value, spokenTime(value), i, 1 + length});
+        }
+        return found;
+    }
+};
 
 std::shared_ptr<const CompiledAgent> compileText(const std::string& text, std::string* error,
                                                  std::shared_ptr<const FlowRegistry> registry = nullptr) {
@@ -180,6 +201,30 @@ int main() {
               "a plural rule that doesn't parse: " + error);
         auto plain = compileText(R"(start_flow: "main" flows { name: "main" start_page: "p" pages { name: "p" } })", &error);
         check(plain && plain->languages().speaking().code() == "en-US", "no language: VASDK's en-US");
+    }
+
+    // A language written in C++, added to the registry: the agent's time slot reads "half vier".
+    {
+        vasdk::nlu::Language pack;
+        google::protobuf::TextFormat::ParseFromString(R"(
+            code: "nl-NL" name: "Dutch"
+            numbers { words { key: "drie" value: 3 } words { key: "vier" value: 4 } words { key: "tien" value: 10 } }
+            speaking { time: "{hour}:{minute}" whole_hour: "{hour} uur" }
+            replies { not_understood: "Sorry, daar kan ik u hier niet mee helpen." })", &pack);
+        auto registry = std::make_shared<FlowRegistry>();
+        registry->addLanguage(std::make_shared<Dutch>(pack));
+        auto dutch = compileText(R"(locale: "nl-NL" start_flow: "main"
+            goals { name: "afspraak" slots { name: "tijd" type: TIME prompt: "Hoe laat?" } }
+            flows { name: "main" start_page: "p" pages { name: "p" form { goal: "afspraak" }
+              routes { condition: "$form.complete" steps { say { text: "Om $form.tijd." } } } } })", &error, registry);
+        check(dutch != nullptr, "an agent in a language written in C++: " + error);
+        if (dutch) {
+            FlowRuntime conversation(dutch);
+            conversation.setClock([now] { return now; });
+            conversation.start();
+            const auto reply = conversation.handleText("half vier");
+            check(reply.text.find("Om 3:30.") != std::string::npos, "\"half vier\" is 3:30: " + reply.text);
+        }
     }
 
     // Back-channels in French: "ouais" lets the agent go on, "attendez" stops it.

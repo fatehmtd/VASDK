@@ -50,6 +50,7 @@ Full guides to the five apps in the repository, with what each shows and how it'
 - [Giving the LLM a tool](examples/llm-tools.md) - define, register, and dispatch a tool.
 - [Defining a goal in JSON](examples/goal-definitions.md) - slot types, conditions, loading.
 - [Testing without a microphone](examples/testing-with-mock-transport.md) - `MockTransport` and the goal conversation simulator.
+- [An agent in another language](examples/languages.md) - a language pack, an agent in French that understands English, tested with `vasdk_agentc`; packs from C++, C and Python, and a C++ language for grammar a pack can't express.
 
 ## Conventions used across the docs
 

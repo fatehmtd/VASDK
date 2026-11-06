@@ -25,6 +25,13 @@
 #include <string>
 #include <vector>
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#include <shellapi.h>
+#endif
+
 namespace va {
 namespace flow {
 
@@ -154,6 +161,24 @@ int runAgentTool(int argc, char** argv, std::shared_ptr<const FlowRegistry> regi
     auto load = [&registry](const std::string& path, bool showWarnings) { return flow::load(path, showWarnings, registry); };
     spdlog::set_level(spdlog::level::warn);
     std::vector<std::string> arguments(argv, argv + argc);
+#ifdef _WIN32
+    // Words with accents ("le 2 août") as typed: the arguments and the console in UTF-8, not the
+    // ANSI code page argv and std::cin get by default.
+    SetConsoleCP(CP_UTF8);
+    SetConsoleOutputCP(CP_UTF8);
+    int count = 0;
+    if (wchar_t** wide = CommandLineToArgvW(GetCommandLineW(), &count)) {
+        if (count == argc) {
+            for (int i = 0; i < count; ++i) {
+                const int size = WideCharToMultiByte(CP_UTF8, 0, wide[i], -1, nullptr, 0, nullptr, nullptr);
+                std::string utf8(size > 0 ? static_cast<size_t>(size - 1) : 0, '\0');
+                if (size > 1) WideCharToMultiByte(CP_UTF8, 0, wide[i], -1, utf8.data(), size, nullptr, nullptr);
+                arguments[static_cast<size_t>(i)] = std::move(utf8);
+            }
+        }
+        LocalFree(wide);
+    }
+#endif
     std::string flagError;
     const auto completion = takeLlmFlags(arguments, &flagError);
     if (!flagError.empty()) {
