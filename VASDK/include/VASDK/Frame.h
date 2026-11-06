@@ -217,6 +217,7 @@ namespace va {
                 cloned->uiJson = uiJson;
                 cloned->expectBytes = expectBytes;
                 cloned->sensitiveValues = sensitiveValues;
+                cloned->turnId = turnId;
                 return cloned;
             }
 
@@ -232,6 +233,7 @@ namespace va {
             std::string uiJson;                // app UI for the reply, a JSON object (set on the final chunk only)
             std::string expectBytes;           // what the user is expected to say, a serialized vasdk.flow.Expectation (an agent's final chunk only)
             std::vector<std::string> sensitiveValues;   // values to mask wherever the text is shown or logged (an agent's replies)
+            uint64_t turnId = 0;               // the UserTurnFrame::turnId this answers; 0: not a reply (a greeting, a trigger)
         };
 
         /**
@@ -483,6 +485,20 @@ namespace va {
                                             // so the previous exchange must be undone before answering
             uint64_t turnId = 0;            // increases with every turn
             std::string llmProfile;         // the engine config's llm_profiles entry to answer it; "": llm
+        };
+
+        /**
+         * @brief Sent by TurnAssemblerProcessor just before a turn that replaces turn `turnId` (the
+         *        user resumed it): the reply to that turn is void wherever it is. DialogProcessor
+         *        neither says it nor passes the turn on, LLMProcessor cancels it and its exchange,
+         *        TTSFrameProcessor drops its TextFrames (queued, playing, or still to come).
+         */
+        class VASDK_EXPORT TurnReplacedFrame : public Frame {
+            public:
+            FrameType getType() const override { return FrameType::CONTROL; }
+            std::shared_ptr<Frame> clone() const override { return std::make_shared<TurnReplacedFrame>(*this); }
+
+            uint64_t turnId = 0;
         };
 
         /**

@@ -103,6 +103,7 @@ public:
     std::shared_ptr<transport::Frame> turn;    // the user turn it answers
     bool mayPassOn = false;                    // not understood, and not private: an LLM may take it
     bool fromTrigger = false;                  // a trigger's; with nothing to say, it changes nothing
+    uint64_t turnId = 0;                       // the UserTurnFrame::turnId it answers; 0: none
 };
 } // namespace
 
@@ -135,6 +136,7 @@ void DialogProcessor::prepare(FlowRuntime& conversation) {
         auto frame = std::make_shared<ReplyFrame>();
         frame->reply = sofar;
         frame->filler = true;
+        frame->turnId = _answeringTurnId;
         enqueueFrame(frame, pipeline::FlowDirection::DOWNSTREAM);
     });
 }
@@ -152,7 +154,8 @@ bool DialogProcessor::shouldProcess(std::shared_ptr<transport::Frame> frame) con
            dynamic_cast<const RestartFrame*>(frame.get()) != nullptr ||
            dynamic_cast<const InactivityFrame*>(frame.get()) != nullptr ||
            dynamic_cast<const TriggerFrame*>(frame.get()) != nullptr ||
-           dynamic_cast<const TickFrame*>(frame.get()) != nullptr;
+           dynamic_cast<const TickFrame*>(frame.get()) != nullptr ||
+           dynamic_cast<const transport::TurnReplacedFrame*>(frame.get()) != nullptr;
 }
 
 bool DialogProcessor::initialize() {
@@ -254,6 +257,7 @@ void DialogProcessor::deliver(Reply reply, std::shared_ptr<transport::Frame> tur
     frame->turn = std::move(turn);
     frame->mayPassOn = mayPassOn;
     frame->fromTrigger = fromTrigger;
+    if (auto user = std::dynamic_pointer_cast<transport::UserTurnFrame>(frame->turn)) frame->turnId = user->turnId;
     enqueueFrame(frame, pipeline::FlowDirection::DOWNSTREAM);
 }
 
@@ -402,11 +406,23 @@ void DialogProcessor::processFrame(std::shared_ptr<transport::Frame> frame, pipe
             return;
         }
         if (ready.reply.endsSession) _greetingPending = true;   // on the next activation or caller
-        speak(ready.reply);
+        speak(ready.reply, false, ready.turnId);
     };
+    if (auto replaced = dynamic_cast<const transport::TurnReplacedFrame*>(frame.get())) {
+        // Ahead of the stale turn's reply when it overtook its handling: that reply goes unsaid.
+        _replacedTurns.push_back(replaced->turnId);
+        if (_replacedTurns.size() > 16) _replacedTurns.pop_front();
+        pushDownstream(frame);
+        return;
+    }
     if (auto ready = std::dynamic_pointer_cast<ReplyFrame>(frame)) {
+        if (ready->turnId != 0 &&
+            std::find(_replacedTurns.begin(), _replacedTurns.end(), ready->turnId) != _replacedTurns.end()) {
+            spdlog::info("[Dialog] turn {} was replaced: its reply is dropped", ready->turnId);
+            return;
+        }
         if (ready->filler) {
-            speak(ready->reply, true);
+            speak(ready->reply, true, ready->turnId);
             return;
         }
         // A trigger queued or dropped: the conversation is where it was.
@@ -434,6 +450,7 @@ void DialogProcessor::processFrame(std::shared_ptr<transport::Frame> frame, pipe
         post([this, frame, privateAnswer, number] {
             _answering = number;
             const auto& turn = static_cast<const transport::UserTurnFrame&>(*frame);
+            _answeringTurnId = turn.turnId;
             if (turn.replacesPrevious) _conversation = _beforeLastTurn;
             _beforeLastTurn = _conversation;
             const auto started = std::chrono::steady_clock::now();
@@ -617,7 +634,7 @@ void DialogProcessor::greetIfReady() {
     post([this] { deliver(_conversation.start()); });
 }
 
-void DialogProcessor::speak(const Reply& reply, bool filler) {
+void DialogProcessor::speak(const Reply& reply, bool filler, uint64_t turnId) {
     if (!filler) {
         _awaitingAnswer = reply.expectsReply;
         _privateAnswer = reply.expectsReply && reply.expectation.secure_entry();
@@ -655,6 +672,7 @@ void DialogProcessor::speak(const Reply& reply, bool filler) {
         text->isFinal = i + 1 == segments.size();
         text->sourceId = getName();
         text->sensitiveValues = reply.sensitiveValues;
+        text->turnId = turnId;
         if (text->isFinal) {
             text->isExpecting = reply.expectsReply;
             for (const auto& choice : reply.choices) text->choices.push_back({choice.label, choice.value});

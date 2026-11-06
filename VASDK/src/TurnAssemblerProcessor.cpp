@@ -149,6 +149,22 @@ void TurnAssemblerProcessor::handleInterrupt(transport::AgentStateTransition tra
     keepUnsentTurn();
 }
 
+void TurnAssemblerProcessor::reset() {
+    {
+        std::lock_guard<std::mutex> lock(_mutex);
+        _latestPartialText.clear();
+        _latestPartialConfidence = 0.0f;
+        _pendingTurnEnd = false;
+        _pendingFallbackText.clear();
+        _accumulatedFinalText.clear();
+        _partialAlreadySent = false;
+        _lastTurnText.clear();
+        _carriedText.clear();
+        _carriedReplacesPrevious = false;
+    }
+    cancelFinalWatchdog();
+}
+
 void TurnAssemblerProcessor::keepUnsentTurn() {
     std::string unsent = _pendingTurnEnd ? _accumulatedFinalText : std::string();
     _pendingTurnEnd = false;
@@ -323,6 +339,13 @@ void TurnAssemblerProcessor::emitTurn(const std::string& said, float confidence)
         merged->timestamp = turn->timestamp;
         merged->sourceId = getName();
         pushDownstream(merged);
+    }
+    if (turn->replacesPrevious) {   // the turn it repeats was the last one sent
+        auto replaced = std::make_shared<transport::TurnReplacedFrame>();
+        replaced->turnId = turn->turnId - 1;
+        replaced->timestamp = turn->timestamp;
+        replaced->sourceId = getName();
+        pushDownstream(replaced);
     }
     pushDownstream(turn);
 }

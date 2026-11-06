@@ -331,6 +331,35 @@ int main() {
         dialog->stop();
         recorder->stop();
     }
+    // The cancel overtook the replaced turn's handling: that turn's reply goes unsaid, and the
+    // replacing turn's reply carries its turn id.
+    {
+        auto dialog = std::make_shared<flow::DialogProcessor>(agent);
+        auto recorder = std::make_shared<Recorder>();
+        dialog->setDownstream(recorder);
+        recorder->initialize();
+        recorder->start();
+        dialog->initialize();
+        dialog->start();
+        auto listening = std::make_shared<transport::AgentStateFrame>();
+        listening->previousState = transport::AgentState::IDLE;
+        listening->currentState = transport::AgentState::LISTENING;
+        dialog->processFrame(listening, pipeline::FlowDirection::DOWNSTREAM);
+        auto replaced = std::make_shared<transport::TurnReplacedFrame>();
+        replaced->turnId = 3;
+        dialog->processFrame(replaced, pipeline::FlowDirection::DOWNSTREAM);
+        auto stale = userTurn("book");
+        stale->turnId = 3;
+        dialog->processFrame(stale, pipeline::FlowDirection::DOWNSTREAM);
+        auto merged = userTurn("book cancel my appointment", true);
+        merged->turnId = 4;
+        dialog->processFrame(merged, pipeline::FlowDirection::DOWNSTREAM);
+        const auto texts = recorder->settled();
+        check(texts.size() == 2 && texts[1].text == "Cancelled.", "[replaced] the replaced turn's reply is dropped");
+        check(texts.size() == 2 && texts[0].turnId == 0 && texts[1].turnId == 4, "[replaced] replies carry their turn id");
+        dialog->stop();
+        recorder->stop();
+    }
     {
         // No-input: silence once a question has played raises no-input; speech cancels the wait.
         auto silentAgent = compile(R"agent(

@@ -54,7 +54,7 @@ flowchart LR
 ```cpp
 auto tmpl = va::llm::PromptTemplate::create(va::llm::ChatFormat::LFM2_5);
 tmpl->addSystem("You are a {role}. Task: {goal_objective}")
-     ->addUser("{user_input}");
+     .addUser("{user_input}");
 tmpl->set("role", "scheduling assistant");
 ```
 
@@ -122,7 +122,7 @@ sequenceDiagram
     L->>T: cancel()
     Note over A: keeps the first utterance to put in front of the next turn
     U->>A: final "Actually, make it to Toulouse."
-    A->>L: TranscriptionFrame{isFollowUp} with the merged text,<br/>then UserTurnFrame{replacesPrevious}
+    A->>L: TranscriptionFrame{isFollowUp} with the merged text,<br/>TurnReplacedFrame{turn 1}, then UserTurnFrame{replacesPrevious}
     L->>T: rollbackExchange(request 1), then request 2:<br/>"Can you help me schedule a flight to Paris? Actually, make it to Toulouse."
 ```
 
@@ -132,7 +132,7 @@ A turn is merged into the next one when:
 - the user **barges in within `TurnAssemblerProcessor::setResumeMergeMs()`** (default 3000 ms) of the turn being sent. Later barge-ins are ordinary interruptions and the new turn goes on its own;
 - the turn was **never sent**: the turn detector judged the utterance unfinished, so its final transcript was staged waiting for a turn end, and the user resumed. Those words always carry over.
 
-The interrupted request is cancelled, and its exchange is rolled back from history when the merged turn is sent. The model sees only the merged message, not the first half or a partial reply. Resuming again extends the same message. `setResumeMergeMs(0)` turns follow-ups off. Every turn goes through this, whichever path completes it (turn end, final transcript, partial, watchdog).
+The interrupted request is cancelled, and its exchange is rolled back from history when the merged turn is sent. Just before it, a `TurnReplacedFrame` names the turn it replaces, and every reply's `TextFrame` carries the turn it answers (`TextFrame::turnId`, 0 for speech that answers none, such as a greeting). So the replaced turn's reply is dropped wherever it is, even if it arrives late (an agent still handling that turn hands it on after the interrupt): the `DialogProcessor` neither says it nor passes it on, the `LLMProcessor` cancels it if it asked, and the `TTSFrameProcessor` drops its queued text, stops it if it's playing, and drops what of it comes later. The model sees only the merged message, not the first half or a partial reply. Resuming again extends the same message. `setResumeMergeMs(0)` turns follow-ups off. Every turn goes through this, whichever path completes it (turn end, final transcript, partial, watchdog).
 
 Known limits: a sentence the agent already spoke before a barge-in isn't in history, so the model may repeat it; a back-channel note attached to the interrupted turn is dropped; with [speculative firing](#fire-policies---when-does-the-llm-fire) on, the merged text never matches the speculative partial, so that request is redone.
 

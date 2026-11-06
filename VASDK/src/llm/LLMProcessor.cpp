@@ -195,6 +195,8 @@ bool LLMProcessor::shouldProcess(std::shared_ptr<transport::Frame> frame) const 
             return true;
         case transport::FrameType::VAD_STATE:
             return _speculativeFiring;
+        case transport::FrameType::CONTROL:
+            return dynamic_cast<const transport::TurnReplacedFrame*>(frame.get()) != nullptr;
         default:
             break;
     }
@@ -466,6 +468,12 @@ void LLMProcessor::processDownstream(std::shared_ptr<transport::Frame> frame) {
         return;
     }
 
+    if (auto replaced = std::dynamic_pointer_cast<transport::TurnReplacedFrame>(frame)) {
+        handleTurnReplaced(replaced->turnId);
+        pushDownstream(frame);   // TTS drops what of that reply it already has
+        return;
+    }
+
     if (frame->getType() == transport::FrameType::USER_TURN) {
         // Answered here, not passed on: the turn ends with this processor.
         auto turn = std::static_pointer_cast<transport::UserTurnFrame>(frame);
@@ -474,6 +482,7 @@ void LLMProcessor::processDownstream(std::shared_ptr<transport::Frame> frame) {
         if (_offline && !_offlineReplies.empty() && _offline()) {
             const auto& reply = _offlineReplies[_nextOfflineReply++ % _offlineReplies.size()];
             spdlog::info("[LLMProcessor] Offline: not asked; \"{}\"", reply);
+            _runningTurnId = turn->turnId;
             pushSpeech(reply, true);
             return;
         }
@@ -484,7 +493,7 @@ void LLMProcessor::processDownstream(std::shared_ptr<transport::Frame> frame) {
             _turnConfig = named != _profiles.end() ? named->second : *_defaultConfig;
             if (named != _profiles.end()) spdlog::info("[LLMProcessor] answered by profile \"{}\" ({})", named->first, named->second.model);
         }
-        dispatchLLMRequest(turn->text, turn->confidence, turn->replacesPrevious);
+        dispatchLLMRequest(turn->text, turn->confidence, turn->turnId);
         return;
     }
 
@@ -673,6 +682,10 @@ void LLMProcessor::handleAgentStateTransition(std::shared_ptr<transport::AgentSt
 void LLMProcessor::handleInterruptTransition(transport::AgentStateTransition t) {
     spdlog::info("[LLMProcessor] Interrupt received ({}); cancelling LLM",
         transport::toString(t));
+    cancelReply();
+}
+
+void LLMProcessor::cancelReply() {
     cancelSpeculation("interrupt");
     // Bump the generation and drop queued requests before aborting the one in flight, so
     // nothing queued behind it starts after the cancel.
@@ -733,7 +746,7 @@ void LLMProcessor::recordBackchannel(const std::string& text) {
     spdlog::info("[LLMProcessor] Back-channel {} kept for the next user message", text);
 }
 
-void LLMProcessor::dispatchLLMRequest(const std::string& text, float confidence, bool replacesPrevious) {
+void LLMProcessor::dispatchLLMRequest(const std::string& text, float confidence, uint64_t turnId) {
     {
         std::unique_lock<std::mutex> lk(_specMutex);
         if (_spec.active && _spec.confirmed) {
@@ -756,8 +769,13 @@ void LLMProcessor::dispatchLLMRequest(const std::string& text, float confidence,
                     std::lock_guard<std::mutex> lock(_lastTurnMutex);
                     _lastTurnRequestText = _spec.requestText;
                 }
+                _lastTurnId = turnId;
+                if (turnId) _runningTurnId = turnId;   // what it streams from now on answers this turn
                 // Under the lock, so frames the request thread pushes next can't overtake them.
-                for (auto& f : _spec.held) pushDownstream(f);
+                for (auto& f : _spec.held) {
+                    if (auto text = std::dynamic_pointer_cast<transport::TextFrame>(f); text && turnId) text->turnId = turnId;
+                    pushDownstream(f);
+                }
                 _spec.held.clear();
                 return;
             }
@@ -767,18 +785,26 @@ void LLMProcessor::dispatchLLMRequest(const std::string& text, float confidence,
                                         : "final transcript differs from the partial");
         }
     }
-    if (replacesPrevious) {
-        // The user resumed the previous turn: `text` repeats it, so its exchange goes first.
-        std::string previous;
-        {
-            std::lock_guard<std::mutex> lock(_lastTurnMutex);
-            previous = _lastTurnRequestText;
-        }
-        if (!previous.empty()) enqueueRequest([this, previous] { _transport->rollbackExchange(previous); });
-    }
-    const std::string requestText = dispatchRequestNow(text, confidence);
+    _lastTurnId = turnId;
+    const std::string requestText = dispatchRequestNow(text, confidence, turnId);
     std::lock_guard<std::mutex> lock(_lastTurnMutex);
     _lastTurnRequestText = requestText;
+}
+
+void LLMProcessor::handleTurnReplaced(uint64_t turnId) {
+    // Not the last turn asked (the Dialog answered it, or dropped it): nothing of it is here.
+    if (turnId == 0 || turnId != _lastTurnId) return;
+    spdlog::info("[LLMProcessor] Turn {} was replaced; cancelling its reply", turnId);
+    cancelReply();
+    std::string previous;
+    {
+        std::lock_guard<std::mutex> lock(_lastTurnMutex);
+        previous = std::move(_lastTurnRequestText);
+        _lastTurnRequestText.clear();
+    }
+    _lastTurnId = 0;
+    // On the request thread, after the cancelled request returned: the merged turn repeats its words.
+    if (!previous.empty()) enqueueRequest([this, previous] { _transport->rollbackExchange(previous); });
 }
 
 void LLMProcessor::cancelSpeculation(const char* reason) {
@@ -852,7 +878,7 @@ void LLMProcessor::handleVadStateFrame(std::shared_ptr<transport::VADStateFrame>
     }
 }
 
-std::string LLMProcessor::dispatchRequestNow(const std::string& text, float confidence) {
+std::string LLMProcessor::dispatchRequestNow(const std::string& text, float confidence, uint64_t turnId) {
     VASDK_CTRACK_NAME("LLM::dispatchRequest");
     if (!_transport || !_transport->isConnected()) {
         spdlog::warn("[LLMProcessor] dispatchLLMRequest: transport not connected, skipping");
@@ -883,7 +909,8 @@ std::string LLMProcessor::dispatchRequestNow(const std::string& text, float conf
     frame->transcriptionResult.confidence = confidence;
     frame->timestamp = transport::Frame::getCurrentTimestamp();
     frame->sourceId = getName();
-    enqueueRequest([this, frame, config = _turnConfig] {
+    enqueueRequest([this, frame, config = _turnConfig, turnId] {
+        if (turnId) _runningTurnId = turnId;
         if (config) {   // a profile's turn, or back to the default: switched before its request, on this thread
             const auto& now = _transport->getConfig();
             if (now.endpoint != config->endpoint || now.model != config->model || now.apiKey != config->apiKey ||
@@ -953,6 +980,7 @@ void LLMProcessor::pushSpeech(const std::string& text, bool isFinal, bool isExpe
     frame->choices     = std::move(choices);
     frame->timestamp   = transport::Frame::getCurrentTimestamp();
     frame->sourceId    = getName();
+    frame->turnId      = _runningTurnId.load();
     _speechOpen        = !isFinal;
     {
         std::lock_guard<std::mutex> lk(_specMutex);

@@ -3,7 +3,8 @@
 // waiting out maxSpeechPauseDurationMs + maxSpeechEndDurationMs; without that call it still does.
 // A one-frame noise blip before the speech (VAD STARTING -> QUIET) must not produce a user turn
 // START, since that is what barges in on the agent. Confirming speech in STARTING tolerates one
-// quiet frame after voice (not two, not a blip), and is quicker while the agent speaks.
+// quiet frame after voice (not two, not a blip), and is quicker while the agent speaks. Over the
+// agent a turn-end call at a pause is held back: there it judges fragments, and the VAD's end ends the turn.
 
 #include <VASDK/Pipeline.h>
 #include <VASDK/TurnDetectionProcessor.h>
@@ -90,7 +91,7 @@ public:
 };
 
 /// Feeds 1 s of speech then silence; returns how many silent frames it took to see ENDED.
-int run(bool early, Sink*& sinkOut, std::shared_ptr<pipeline::Pipeline>& keep) {
+int run(bool early, Sink*& sinkOut, std::shared_ptr<pipeline::Pipeline>& keep, bool agentSpeaking = false) {
     audio::AudioConfig cfg{16000, audio::AudioFormat::SHORT, 1};
     auto ring = std::make_shared<AudioRingBuffer>(16000 * 10, 2);
     auto vadProvider = std::make_shared<FakeVad>();
@@ -104,9 +105,11 @@ int run(bool early, Sink*& sinkOut, std::shared_ptr<pipeline::Pipeline>& keep) {
     vad->setRingBuffer(ring);
     auto source = std::make_shared<Source>();
     auto sink = std::make_shared<Sink>();
+    auto turn = std::make_shared<pipeline::TurnDetectionProcessor>(std::make_shared<FakeTurn>(early));
+    turn->setAgentSpeaking(agentSpeaking);
     keep = std::make_shared<pipeline::Pipeline>();
     keep->addProcessor(source).addProcessor(vad)
-        .addProcessor(std::make_shared<pipeline::TurnDetectionProcessor>(std::make_shared<FakeTurn>(early)))
+        .addProcessor(turn)
         .addProcessor(sink);
     if (!keep->build() || !keep->start()) { check(false, "pipeline starts"); return -1; }
     sinkOut = sink.get();
@@ -201,6 +204,20 @@ int main() {
         int n = run(false, sink, p);
         check(n >= 7 && n < 99, "without a turn-end call the pause/end timers still apply");
         std::printf("timers: ENDED after %d silent frame(s)\n", n);
+        p->stop();
+    }
+    {
+        // Over the agent the turn-end call is ignored: a short gap between words doesn't split the speech.
+        Sink* sink = nullptr;
+        std::shared_ptr<pipeline::Pipeline> p;
+        int n = run(true, sink, p, true);
+        check(n >= 7 && n < 99, "over the agent the pause/end timers apply even with a turn-end call");
+        std::this_thread::sleep_for(200ms);
+        {
+            std::lock_guard<std::mutex> l(sink->m);
+            check(sink->ended == 1 && sink->userEnds == 1, "over the agent the turn still ends, once, at the VAD's end");
+        }
+        std::printf("over the agent: ENDED after %d silent frame(s)\n", n);
         p->stop();
     }
     std::printf("vad turn end checks done, %d failure(s)\n", failures);

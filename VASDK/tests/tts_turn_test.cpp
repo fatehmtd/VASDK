@@ -325,6 +325,50 @@ void duckLastsMinimumDuration() {
     check(snapshot().size() == 5, "no stray release later", mode);
 }
 
+std::shared_ptr<transport::TextFrame> reply(const std::string& t, bool isFinal, uint64_t turnId) {
+    auto f = text(t, isFinal);
+    f->turnId = turnId;
+    return f;
+}
+
+std::shared_ptr<transport::TurnReplacedFrame> replaced(uint64_t turnId) {
+    auto f = std::make_shared<transport::TurnReplacedFrame>();
+    f->turnId = turnId;
+    return f;
+}
+
+// The user resumed turn 3: what's queued of its reply goes, and other speech stays.
+void replacedTurnQueued() {
+    const char* mode = "replaced turn, queued";
+    Rig rig(false, false);   // one sentence at a time: the reply's waits in the queue
+    rig.send(text("Intro. ", false));          // not a reply: never dropped
+    rig.send(reply("Got it. ", false, 3));
+    rig.send(reply("Anything else?", false, 3));
+    rig.send(replaced(3));                     // its final never comes
+    std::this_thread::sleep_for(500ms);
+    check(rig.provider->received == std::vector<std::string>{"Intro. "}, "the replaced turn's sentences dropped", mode);
+    check(rig.recorder->snapshot() == std::vector<SynthesisState>{SynthesisState::STARTED, SynthesisState::COMPLETED},
+          "the turn still completes", mode);
+}
+
+// Turn 3's reply is playing: it stops, the turn completes (no INTERRUPTED: the user didn't cut in),
+// its late text is dropped, and turn 4's reply is a clean new turn.
+void replacedTurnPlaying() {
+    const char* mode = "replaced turn, playing";
+    Rig rig(true, false);
+    rig.send(reply("Alpha. ", false, 3));
+    std::this_thread::sleep_for(30ms);
+    rig.send(replaced(3));
+    rig.send(reply("Beta.", true, 3));          // the stale reply's rest, arriving after
+    std::this_thread::sleep_for(300ms);
+    rig.send(reply("Gamma.", true, 4));
+    std::this_thread::sleep_for(500ms);
+    check(rig.provider->received == std::vector<std::string>{"Alpha. ", "Gamma."}, "late text of the replaced turn dropped", mode);
+    check(rig.recorder->snapshot() == std::vector<SynthesisState>{SynthesisState::STARTED, SynthesisState::COMPLETED,
+                                                                 SynthesisState::STARTED, SynthesisState::COMPLETED},
+          "stopped turn completes, then a clean new one", mode);
+}
+
 } // namespace
 
 int main() {
@@ -336,6 +380,8 @@ int main() {
     duckLastsMinimumDuration();
     protectedPart(true);
     protectedPart(false);
+    replacedTurnQueued();
+    replacedTurnPlaying();
     std::printf("tts turn scenarios done, %d failure(s)\n", failures);
     return failures == 0 ? 0 : 1;
 }

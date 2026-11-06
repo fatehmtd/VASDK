@@ -171,7 +171,7 @@ namespace va {
         {
             if (frame->getType() == transport::FrameType::VAD_STATE) {
                 auto state = std::static_pointer_cast<transport::VADStateFrame>(frame)->state;
-                if (state == transport::VADState::STARTING) _userSpeechOpen = true;
+                if (state == transport::VADState::STARTING) _userSpeechOpen = true, _pauseEndHeld = false;
                 else if (state == transport::VADState::ENDED || state == transport::VADState::QUIET) _userSpeechOpen = false;
             }
 
@@ -180,13 +180,15 @@ namespace va {
                 va::metrics::ScopedTimer t(_metrics.inference.get());
                 evaluation = _provider->evaluate(frame, isAgentSpeaking());
             }
-            // Patient: the speech has ended and the model still waits; the silence is the answer's end.
-            if (_patient && evaluation.decision == audio::TurnDetectionProvider::Decision::NONE &&
+            // Patient, or a pause's turn end held back: the speech has ended and the model still waits
+            // (or already spoke); the silence is the end.
+            if ((_patient || _pauseEndHeld) && evaluation.decision == audio::TurnDetectionProvider::Decision::NONE &&
                 frame->getType() == transport::FrameType::VAD_STATE &&
                 std::static_pointer_cast<transport::VADStateFrame>(frame)->state == transport::VADState::ENDED) {
                 evaluation.decision = audio::TurnDetectionProvider::Decision::TURN_END;
                 evaluation.actor = transport::TurnStateFrame::TurnActor::USER;
                 evaluation.confidence = 1.0f;
+                _pauseEndHeld = false;
             }
             switch (evaluation.decision) {
             case audio::TurnDetectionProvider::Decision::NONE:
@@ -199,6 +201,13 @@ namespace va {
                 if (_patient && evaluation.actor == transport::TurnStateFrame::TurnActor::USER && _userSpeechOpen) {
                     spdlog::debug("[{}] Patient turn: a pause isn't the end", getName());
                     break;   // the VAD's end decides
+                }
+                // Over the agent the model judges a fragment heard through its voice ("yeah", before
+                // "wait, stop"); ended there, it's dismissed as a back-channel. The VAD's end ends it.
+                if (evaluation.actor == transport::TurnStateFrame::TurnActor::USER && _userSpeechOpen && _agentIsSpeaking) {
+                    spdlog::debug("[{}] Over the agent: a pause isn't the end", getName());
+                    _pauseEndHeld = true;
+                    break;
                 }
                 emitTurnFrame(evaluation.actor, transport::TurnStateFrame::TurnState::END, evaluation.type, evaluation.confidence);
                 if (evaluation.actor == transport::TurnStateFrame::TurnActor::USER && _userSpeechOpen) {

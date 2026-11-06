@@ -107,6 +107,7 @@ struct Spoken {
     std::string text;
     bool isFinal, isExpecting;
     Clock::time_point at;
+    uint64_t turnId;
 };
 
 class Recorder : public pipeline::FrameProcessor {
@@ -120,7 +121,7 @@ public:
         if (f->getType() != transport::FrameType::TEXT) return;
         auto t = std::static_pointer_cast<transport::TextFrame>(f);
         std::lock_guard<std::mutex> l(m);
-        frames.push_back({t->text, t->isFinal, t->isExpecting, Clock::now()});
+        frames.push_back({t->text, t->isFinal, t->isExpecting, Clock::now(), t->turnId});
     }
     std::vector<Spoken> snapshot() {
         std::lock_guard<std::mutex> l(m);
@@ -397,6 +398,50 @@ void profileAnswersTheTurnsThatNameIt() {
     check(rig.userTurnsInHistory().size() == 3, "[profiles] one history across them");
 }
 
+// The stale turn reaches the LLM after the interrupt (a slow Dialog), the merged one right behind
+// it, as TurnAssemblerProcessor sends them: only the merged one is answered, its frames tagged with it.
+void replacingTurnCancelsThePreviousReply() {
+    Rig rig("");
+    rig.http->replies = {R"({"text": "Got it. What would you like to do next?"})",
+                         R"({"text": "Once upon a time there was a stone."})"};
+    auto turn = [&rig](const std::string& text, uint64_t turnId, bool replacesPrevious) {
+        if (replacesPrevious) {
+            auto replaced = std::make_shared<transport::TurnReplacedFrame>();
+            replaced->turnId = turnId - 1;
+            rig.llm->processFrame(replaced, pipeline::FlowDirection::DOWNSTREAM);
+        }
+        auto frame = std::make_shared<transport::UserTurnFrame>();
+        frame->text = text;
+        frame->confidence = 1.0f;
+        frame->turnId = turnId;
+        frame->replacesPrevious = replacesPrevious;
+        rig.llm->processFrame(frame, pipeline::FlowDirection::DOWNSTREAM);
+    };
+    turn("Actually.", 3, false);
+    std::this_thread::sleep_for(50ms);   // its request is streaming
+    turn("Actually. Tell me a story.", 4, true);
+    std::this_thread::sleep_for(1500ms);
+    std::string spoken;
+    bool tagged = true;
+    for (const auto& frame : rig.recorder->snapshot()) {
+        spoken += frame.text;
+        tagged = tagged && frame.turnId == 4;
+    }
+    check(spoken == "Once upon a time there was a stone.", "[replaces] only the merged turn's reply is said");
+    check(tagged, "[replaces] its frames carry the turn they answer");
+    check(rig.userTurnsInHistory() == std::vector<std::string>{"Actually. Tell me a story."},
+          "[replaces] only the merged turn in history");
+
+    // A turn the LLM never got (the Dialog answered it): the exchange before it stays.
+    turn("Thanks.", 5, false);
+    std::this_thread::sleep_for(1200ms);
+    auto replaced = std::make_shared<transport::TurnReplacedFrame>();
+    replaced->turnId = 6;
+    rig.llm->processFrame(replaced, pipeline::FlowDirection::DOWNSTREAM);
+    std::this_thread::sleep_for(100ms);
+    check(rig.userTurnsInHistory().size() == 2, "[replaces] another turn's exchange isn't rolled back");
+}
+
 // A request that fails with nothing said: the user hears that, not silence.
 void failedRequestIsSaid() {
     Rig rig(R"({"text": "Sure."})");
@@ -480,6 +525,7 @@ int main() {
     speculativeToolCallNeverRuns();
     extraPayloadMergedIntoRequests();
     profileAnswersTheTurnsThatNameIt();
+    replacingTurnCancelsThePreviousReply();
     failedRequestIsSaid();
     backchannelGoesWithTheNextMessage();
     followUpMergedWithInterruptedTurn();

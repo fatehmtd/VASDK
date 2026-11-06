@@ -57,6 +57,10 @@ public:
     void setResumeMergeMs(uint32_t ms) { _resumeMergeMs = ms; }
     [[deprecated("use setResumeMergeMs")]] void setFollowUpWindowMs(uint32_t ms) { setResumeMergeMs(ms); }
 
+    /** Forgets the conversation's words (the caller left): nothing is merged into the next caller's
+     *  first turn. Any thread. */
+    void reset();
+
 private:
     void handleAgentState(const transport::AgentStateFrame& frame);
     void handleFinal(const transport::TranscriptionFrame& frame);

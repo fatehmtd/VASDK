@@ -112,7 +112,7 @@ public:
 
 private:
     void greetIfReady();
-    void speak(const Reply& reply, bool filler = false);
+    void speak(const Reply& reply, bool filler = false, uint64_t turnId = 0);
     // The conversation's thread: tasks run in order, and post their replies back as frames.
     void post(std::function<void()> task);
     void deliver(Reply reply, std::shared_ptr<transport::Frame> turn = nullptr, bool mayPassOn = false, bool fromTrigger = false);
@@ -159,6 +159,8 @@ private:
     std::atomic<uint64_t> _turnsSeen{0};
     std::atomic<uint64_t> _givenUpBefore{0};
     uint64_t _answering = 0;                         // the turn being answered, on the conversation's thread
+    uint64_t _answeringTurnId = 0;                   // its UserTurnFrame::turnId, on the conversation's thread
+    std::deque<uint64_t> _replacedTurns;             // TurnReplacedFrame ids, newest last: their replies go unsaid
     void giveUpTurns() { _givenUpBefore = ++_turnsSeen; }
     ReplyObserver _observer;
     FlowRuntime::ContextSource _contextSource;

@@ -33,6 +33,9 @@ public:
     void processFrame(std::shared_ptr<transport::Frame> frame, pipeline::FlowDirection) override {
         std::lock_guard<std::mutex> lock(mutex);
         if (auto turn = std::dynamic_pointer_cast<transport::UserTurnFrame>(frame)) turns.push_back(*turn);
+        // A replaced turn, in order with the turns: the number of turns seen before it, and its id.
+        if (auto replaced = std::dynamic_pointer_cast<transport::TurnReplacedFrame>(frame))
+            replacedTurns.push_back({turns.size(), replaced->turnId});
         if (auto t = std::dynamic_pointer_cast<transport::TranscriptionFrame>(frame); t && t->isFollowUp)
             followUps.push_back(t->transcriptionResult.text);
     }
@@ -44,6 +47,7 @@ public:
     std::mutex mutex;
     std::vector<transport::UserTurnFrame> turns;
     std::vector<std::string> followUps;
+    std::vector<std::pair<size_t, uint64_t>> replacedTurns;
 };
 
 // Whether each transcription it gets is marked sensitive.
@@ -180,6 +184,24 @@ int main() {
         check(turns.size() == 2 && turns[1].replacesPrevious == enabled, "[resume] replaces the sent turn");
         std::lock_guard<std::mutex> lock(rig.recorder->mutex);
         check(rig.recorder->followUps == (enabled ? Texts{second} : Texts{}), "[resume] merged text announced");
+        using Replaced = std::vector<std::pair<size_t, uint64_t>>;
+        check(rig.recorder->replacedTurns == (enabled && turns.size() == 2 ? Replaced{{1, turns[0].turnId}} : Replaced{}),
+              "[resume] the replaced turn announced just before the turn replacing it");
+    }
+    {
+        // The caller hangs up mid-merge: the next caller's first turn is theirs alone.
+        Rig rig;
+        rig.stopped();
+        rig.transcript("Book a flight", true);
+        rig.agent(transport::AgentStateTransition::USER_SPOKE_WHILE_THINKING);   // carried
+        rig.transcript("to", true);                                               // staged, unsent
+        rig.assembler->reset();
+        rig.agent(transport::AgentStateTransition::USER_SPOKE_WHILE_THINKING);
+        rig.stopped();
+        rig.transcript("Hello", true);
+        const auto turns = rig.recorder->settledTurns();
+        check(texts(turns) == Texts{"Book a flight", "Hello"}, "[reset] nothing carried to the next caller");
+        check(turns.size() == 2 && !turns[1].replacesPrevious, "[reset] nothing to replace");
     }
     {
         Rig rig;

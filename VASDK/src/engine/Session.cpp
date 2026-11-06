@@ -716,6 +716,13 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
     if (state->llm || state->dialog) {
         state->turnAssembler = std::make_shared<pipeline::TurnAssemblerProcessor>();
         state->turnAssembler->setFirePolicy(std::make_shared<llm::FinalOnlyFirePolicy>());
+        // A caller who left takes their unsent words with them.
+        auto& audio = *options.transport;
+        audio.onDisconnected = [previous = audio.onDisconnected,
+                                assembler = std::weak_ptr<pipeline::TurnAssemblerProcessor>(state->turnAssembler)] {
+            if (previous) previous();
+            if (auto processor = assembler.lock()) processor->reset();
+        };
     }
 
     state->options = std::move(options);

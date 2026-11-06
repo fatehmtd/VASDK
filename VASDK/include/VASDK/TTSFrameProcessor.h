@@ -169,7 +169,12 @@ private:
         bool interruptible = true;
         va::audio::SpeechStyle style;   // another voice or pace for it
         std::string logged;             // the text as logs show it: sensitive values masked
+        uint64_t turnId = 0;            // TextFrame::turnId: the user turn it answers
     };
+    // A TurnReplacedFrame: that turn's sentences go, and its audio if it's playing. On the pipeline thread.
+    void dropReplacedTurn(uint64_t turnId);
+    std::deque<uint64_t>    _replacedTurns;     // newest last; their TextFrames still to come are dropped (pipeline thread)
+    uint64_t                _openTurnId{ 0 };   // the turn whose text isn't final yet; guarded by _turnMutex
     std::deque<Sentence>    _pendingSentences;  // not yet handed to the provider
     // The parts of this reply handed to the provider, and when each one's audio ends playing
     // (known once synthesized): what a provider error cuts off is from the first unheard one.

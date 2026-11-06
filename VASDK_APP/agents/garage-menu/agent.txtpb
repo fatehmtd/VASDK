@@ -2,11 +2,11 @@
 # proto-message: vasdk.flow.Agent
 #
 # A garage assistant with no LLM: book a service, hear the hours, or reach a person.
-#   vasdk_agentc chat VASDK_APP/agents/garage-menu/agent.txtpb
-#   vasdk_agentc try VASDK_APP/agents/garage-menu/agent.txtpb "my tyres are flat"
-#   VASDK_Pipeline --agent VASDK_APP/agents/garage-menu/agent.txtpb
 # It uses a step, an envelope and a tool written in C++ (extensions/), so its tests and chats run with
-# garage_agentc, vasdk_agentc with them registered: garage_agentc chat VASDK_APP/agents/garage-menu/agent.txtpb
+# garage_agentc, vasdk_agentc with them registered:
+#   garage_agentc chat VASDK_APP/agents/garage-menu/agent.txtpb
+#   garage_agentc try VASDK_APP/agents/garage-menu/agent.txtpb "my tyres are flat"
+#   VASDK_Pipeline --agent VASDK_APP/agents/garage-menu/agent.txtpb
 schema_version: 1
 name: "garage-menu"
 locale: "en-US"
@@ -54,6 +54,9 @@ entity_types {
       attributes { fields { key: "price" value { number_value: 89 } } fields { key: "minutes" value { number_value: 45 } } }
     }
   }
+  # One letter off in a 5-letter word (the default 0.8) would hear "times" as "tires"; the spellings
+  # speech recognizers give are listed above.
+  matching { min_similarity: 0.85 }
 }
 
 # The times still free. These are the defaults; an app replaces them for each conversation with

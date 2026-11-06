@@ -127,6 +127,8 @@ protected:
 
     void handleAgentStateTransition(std::shared_ptr<transport::AgentStateFrame> agentFrame);
     void handleInterruptTransition(transport::AgentStateTransition t);
+    // Drops the reply being made: the request in flight, queued ones, streamed text, tool calls.
+    void cancelReply();
     void handleUserStartedSpeakingTransition();
     void handleBackchannelTransition();
     void recordBackchannel(const std::string& text);
@@ -148,10 +150,14 @@ private:
     std::string _backchannelNoteInFlight;  // sent with the latest request; restored if that was a cancelled speculation
 
     // Fires a request for a confirmed user turn; confirms or replaces a pending speculation first.
-    // replacesPrevious: the turn repeats the previous one, whose exchange is rolled back first.
-    void dispatchLLMRequest(const std::string& text, float confidence, bool replacesPrevious = false);
-    // Returns the user message as written to history (with any back-channel note).
-    std::string dispatchRequestNow(const std::string& text, float confidence);
+    void dispatchLLMRequest(const std::string& text, float confidence, uint64_t turnId = 0);
+    // Returns the user message as written to history (with any back-channel note). turnId tags
+    // the reply's TextFrames; 0 (a speculation) keeps the running one's.
+    std::string dispatchRequestNow(const std::string& text, float confidence, uint64_t turnId = 0);
+    // The user turn the running request answers: its TextFrames carry it (TextFrame::turnId).
+    std::atomic<uint64_t> _runningTurnId{0};
+    // A TurnReplacedFrame for the last turn asked: its reply is cancelled and its exchange rolled back.
+    void handleTurnReplaced(uint64_t turnId);
     std::map<std::string, LLMConfig> _profiles;   // setProfiles
     std::optional<LLMConfig> _defaultConfig;      // the config when they were set
     std::optional<LLMConfig> _turnConfig;         // what the current turn is answered with; unset: no profiles
@@ -161,6 +167,7 @@ private:
     // The last confirmed turn as written to history: rolled back when the user resumes it.
     std::mutex  _lastTurnMutex;
     std::string _lastTurnRequestText;
+    uint64_t    _lastTurnId = 0;   // its UserTurnFrame::turnId; on the frame thread
 
     void handleVadStateFrame(std::shared_ptr<transport::VADStateFrame> frame);
     void cancelSpeculation(const char* reason);
