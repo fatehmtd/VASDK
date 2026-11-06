@@ -1,11 +1,13 @@
 """A page type and an entity extractor written in Python, through the C API: a quiz page that
 asks on entering and answers a right guess itself, and contacts found in the user's words, said
-back by name with their attributes.
+back by name with their attributes. A step whose params type only the agent's own .proto
+declares gets them as that message.
 
     VASDK_LIBRARY=build/VASDK/libVASDK.dylib python3 bindings/python/tests/test_extensions.py
 """
 
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -57,6 +59,31 @@ def main():
     assert "Who should I call?" in reply.text, reply
     reply = conversation.say("ring my dentist")
     assert "Calling Doctor Lee on work." in reply.text, reply
+
+    # The agent's own type (proto_imports): its params arrive as that message, not a dict.
+    with tempfile.TemporaryDirectory() as folder:
+        (Path(folder) / "loyalty.proto").write_text(
+            'syntax = "proto3";\npackage acme;\nmessage Bonus { string reason = 1; int32 points = 2; }\n')
+        (Path(folder) / "agent.txtpb").write_text('''
+start_flow: "main"
+proto_imports: ["loyalty.proto"]
+intents { name: "bonus" examples: ["bonus"] }
+flows { name: "main" start_page: "welcome" pages { name: "welcome" on_enter { ask { say { text: "Hi." } } }
+  routes { intent: "bonus" steps { custom { [type.googleapis.com/acme.Bonus] { reason: "birthday" points: 50 } } } } } }
+''')
+        seen = []
+        own = vasdk.Registry()
+
+        @own.step("acme.Bonus")
+        def bonus(params, turn):
+            seen.append(params)
+            turn.say(f"{params.points} points for your {params.reason}.")
+
+        loyalty = vasdk.Agent.load(Path(folder) / "agent.txtpb", own).conversation()
+        loyalty.start()
+        reply = loyalty.say("bonus")
+        assert "50 points for your birthday." in reply.text, reply
+        assert seen and type(seen[0]).DESCRIPTOR.full_name == "acme.Bonus", seen
     print("test_extensions: all passed")
     return 0
 

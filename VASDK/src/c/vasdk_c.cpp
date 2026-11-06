@@ -389,6 +389,11 @@ vasdk_agent* vasdk_agent_parse(const void* data, size_t length, vasdk_format for
     return new vasdk_agent{std::move(agent)};
 }
 
+void* vasdk_agent_proto_files(const vasdk_agent* agent, size_t* length) {
+    const auto files = agent ? agent->agent->protoFiles() : google::protobuf::FileDescriptorSet();
+    return vasdk_c::writtenCopy(files, VASDK_FORMAT_BINARY, length);
+}
+
 void vasdk_agent_free(vasdk_agent* agent) { delete agent; }
 
 //  Conversations

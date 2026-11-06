@@ -23,7 +23,7 @@ def garage_extensions():
         value = 2166136261
         for byte in booking.encode("utf-8"):
             value = ((value ^ byte) * 16777619) & 0xFFFFFFFF
-        turn.apply({"set": {params["into"]: f"AG-{1000 + value % 9000}"}})
+        turn.apply({"set": {params.into: f"AG-{1000 + value % 9000}"}})   # a garage.BookingReference: its .proto is the agent's
 
     @registry.tool("save_booking", "Keeps a confirmed booking")
     def save_booking(booking):

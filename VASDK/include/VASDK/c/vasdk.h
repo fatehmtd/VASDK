@@ -128,6 +128,10 @@ VASDK_EXPORT int vasdk_turn_apply(vasdk_turn* turn, const void* outcome, size_t 
 
 /* An agent file (.txtpb, .json or .pb; its imports and goal files beside it). registry may be NULL. */
 VASDK_EXPORT vasdk_agent* vasdk_agent_load(const char* path, const vasdk_registry* registry, char** error);
+/* The .proto files of the agent's proto_imports and those they import, dependencies first, as a
+ * serialized google.protobuf.FileDescriptorSet: for a language that builds its message classes at
+ * run time, to read the agent's own types as messages. Its size in *length; empty without proto_imports. */
+VASDK_EXPORT void* vasdk_agent_proto_files(const vasdk_agent* agent, size_t* length);
 /* A vasdk.flow.Agent from memory. */
 VASDK_EXPORT vasdk_agent* vasdk_agent_parse(const void* data, size_t length, vasdk_format format,
                                             const vasdk_registry* registry, char** error);

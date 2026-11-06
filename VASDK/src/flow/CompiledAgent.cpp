@@ -199,6 +199,19 @@ std::vector<std::string> readProtoImports(const std::string& path) {
 
 } // namespace
 
+google::protobuf::FileDescriptorSet CompiledAgent::protoFiles() const {
+    google::protobuf::FileDescriptorSet files;
+    if (!_imports) return files;
+    std::set<std::string> added;
+    std::function<void(const google::protobuf::FileDescriptor*)> add = [&](const google::protobuf::FileDescriptor* file) {
+        if (!file || !added.insert(file->name()).second) return;
+        for (int i = 0; i < file->dependency_count(); ++i) add(file->dependency(i));
+        file->CopyTo(files.add_file());
+    };
+    for (const auto& name : _agent.proto_imports()) add(_imports->pool.FindFileByName(name));
+    return files;
+}
+
 std::shared_ptr<const CompiledAgent> CompiledAgent::load(const std::string& path, std::string* error,
                                                          std::vector<std::string>* warnings,
                                                          std::shared_ptr<const FlowRegistry> registry) {

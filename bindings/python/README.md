@@ -78,7 +78,7 @@ The build generates Python classes from VASDK's `.proto` files ([VASDK/proto](..
 | `vasdk.StepOutcome` | What `turn.apply` takes (a dict of the same shape works too). |
 | `vasdk.SessionOptions`, `vasdk.ToolDeclaration`, `vasdk.ToolParameter` | `Session(options=...)`, and the parameters `Session.tool` takes (dicts work too). |
 
-A step's or page type's params arrive as their message when Python knows its class: VASDK's and Google's types, a class you pass as `message=`, or one whose `_pb2` module you've imported. A type only the agent's own `.proto` files declare arrives as a dict.
+A step's or page type's params arrive as their message when Python knows its class: VASDK's and Google's types, a class you pass as `message=`, one whose `_pb2` module you've imported, or one the agent's own `.proto` files declare (`proto_imports`: loading the agent adds them to Python's descriptor pool, from `vasdk_agent_proto_files`). Params of a type Python can't find arrive as a dict.
 
 Values stay Python values: `turn.lookup` and `conversation.lookup` return them, and `set_param`, `fire_trigger` and `set_context` take them (they cross as `google.protobuf.Value` and `Struct`; a whole number comes back as an `int`). Tools and entity extractors take and give dicts, because their data is JSON: the LLM writes a tool's arguments, and as a `Struct` the integer `10` would come back as `10.0`.
 

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <google/protobuf/descriptor.pb.h>
 #include "vasdk_export.h"
 #include "Entities.h"
 #include "Expression.h"
@@ -87,6 +88,9 @@ public:
 
     /** The C++ steps, page types and envelopes the agent was loaded with. */
     const FlowRegistry& registry() const { return *_registry; }
+    /** The .proto files of proto_imports and those they import, dependencies first: for a language
+     *  that builds its message classes at run time (Python) to read the agent's own types. */
+    google::protobuf::FileDescriptorSet protoFiles() const;
     /** A custom step's params, read when the agent loaded; nullptr for an Any it doesn't hold. */
     const google::protobuf::Message* params(const google::protobuf::Any& params) const;
     /** What a page's type and the C++ envelopes applied to it add to it. */

@@ -57,7 +57,7 @@ class VasdkError(RuntimeError):
 
 
 try:
-    from google.protobuf import descriptor_pool, json_format, message_factory, struct_pb2
+    from google.protobuf import descriptor_pb2, descriptor_pool, json_format, message_factory, struct_pb2
 except ImportError as missing:   # pragma: no cover - only without protobuf
     raise ImportError("VASDK's Python binding needs protobuf: pip install protobuf") from missing
 
@@ -193,6 +193,7 @@ _turn_say = _declare("vasdk_turn_say", None, _p, _s)
 _turn_goto = _declare("vasdk_turn_goto", None, _p, _s)
 _turn_apply = _declare("vasdk_turn_apply", _i, _p, _s, _n, _i, _error)
 _agent_load = _declare("vasdk_agent_load", _p, _s, _p, _error)
+_agent_proto_files = _declare("vasdk_agent_proto_files", _p, _p, _length)
 _agent_parse = _declare("vasdk_agent_parse", _p, _s, _n, _i, _p, _error)
 _agent_free = _declare("vasdk_agent_free", None, _p)
 _conversation_create = _declare("vasdk_conversation_create", _p, _p)
@@ -302,6 +303,14 @@ def _message_class(full_name):
         return None
 
 
+def _params_from_json(params_type, params_json):
+    """A step's or page type's params, given as JSON: its message when Python knows the class by
+    now (an agent's proto_imports add theirs when it loads), else a dict."""
+    text = params_json.decode("utf-8")
+    cls = _message_class(params_type) if params_type else None
+    return json_format.Parse(text, cls(), ignore_unknown_fields=True) if cls else json.loads(text)
+
+
 def _tool_callback(function):
     """A vasdk_tool_fn calling fn(args: dict) -> result; raising fails the call. Tools take and give
     JSON objects: the LLM writes them."""
@@ -379,8 +388,8 @@ class Registry:
 
     def step(self, params_type, message=None):
         """A step for custom { [type.googleapis.com/<params_type>] {...} }: fn(params, turn: Turn).
-        params is the message itself when Python knows its class (message=, or its _pb2 module is
-        imported); else a dict (a type only the agent's .proto files declare)."""
+        params is the message itself when Python knows its class: message=, its _pb2 module
+        imported, or the agent's proto_imports declaring it. Else a dict."""
         message = message or _message_class(params_type)
 
         def register(function):
@@ -396,9 +405,9 @@ class Registry:
                 def callback(data, length, turn, _user):
                     run(lambda: message.FromString(_bytes_at(data, length)))(turn)
                 _add_step_message(self._handle, _encode(params_type), _BINARY, self._keep(_STEP_MESSAGE(callback)), None)
-            else:
+            else:   # not known yet: the agent's proto_imports may declare it
                 def callback(params_json, turn, _user):
-                    run(lambda: json.loads(params_json.decode("utf-8")))(turn)
+                    run(lambda: _params_from_json(params_type, params_json))(turn)
                 _add_step(self._handle, _encode(params_type), self._keep(_STEP(callback)), None)
             return function
         return register
@@ -460,10 +469,10 @@ class Registry:
                                         turn_callback, None)
         else:
             def call_enter(params_json, turn, _user):
-                guarded(lambda: on_enter(json.loads(params_json.decode("utf-8")), Turn(turn)), None)
+                guarded(lambda: on_enter(_params_from_json(params_type, params_json), Turn(turn)), None)
 
             def call_turn(params_json, turn, _user):
-                return 1 if guarded(lambda: on_turn(json.loads(params_json.decode("utf-8")), Turn(turn)), False) else 0
+                return 1 if guarded(lambda: on_turn(_params_from_json(params_type, params_json), Turn(turn)), False) else 0
 
             enter_callback = self._keep(_PAGE_ENTER(call_enter)) if on_enter else _PAGE_ENTER()
             turn_callback = self._keep(_PAGE_TURN(call_turn)) if on_turn else _PAGE_TURN()
@@ -499,6 +508,20 @@ class Agent:
     def __init__(self, handle, registry):
         self._handle = handle
         self._registry = registry   # its callbacks must outlive the agent
+        self._add_proto_files()
+
+    def _add_proto_files(self):
+        """The agent's proto_imports, into Python's descriptor pool: their types' params arrive as
+        messages, not dicts. A file Python already has is kept as it is."""
+        length = ctypes.c_size_t()
+        files = descriptor_pb2.FileDescriptorSet()
+        files.ParseFromString(_take_bytes(_agent_proto_files(self._handle, ctypes.byref(length)), length))
+        pool = descriptor_pool.Default()
+        for file in files.file:
+            try:
+                pool.FindFileByName(file.name)
+            except KeyError:
+                pool.AddSerializedFile(file.SerializeToString())
 
     @classmethod
     def load(cls, path, registry=None):
