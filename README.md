@@ -236,7 +236,7 @@ flowchart TD
 A voice agent feels robotic when it jumps in on every breath, stops talking at every "mm-hmm", or answers half a sentence. Three behaviors in the core library handle this, on every transport and platform:
 
 - **Early end of turn, without cutting people off.** The turn detector (SmartTurn v3) scores the audio while the user pauses. A clearly finished turn ends at the pause, about 0.1 s after the user goes quiet; an uncertain one waits for real silence. Ending at a pause takes more confidence (`setPauseThreshold`, default 0.85) than ending after silence (0.5). [Details](docs/reference/processors.md#turndetectionprocessor)
-- **Back-channels don't interrupt.** "Mm-hmm", "yeah" and "right" said over the agent duck its voice instead of stopping it; real interruptions still cut in. [Details](docs/reference/processors.md#back-channels-speech-over-the-agent-that-isnt-an-interruption)
+- **Back-channels don't interrupt.** "Mm-hmm", "yeah" and "right" said over the agent duck its voice instead of stopping it; real interruptions still cut in. The words are the agent's languages' ("ouais" in a French pack). [Details](docs/reference/processors.md#back-channels-speech-over-the-agent-that-isnt-an-interruption)
 - **Follow-ups are one message.** If a pause ends the turn and the user keeps talking, the in-flight request is cancelled and both utterances go to the LLM together. [Details](docs/reference/llm.md#follow-ups)
 
 ```mermaid
@@ -268,6 +268,7 @@ VASDK_CALLCENTER_APP/  Goal-oriented call center showcase (VASDK_CallCenter)
 VASDK_CAR_APP/         In-car assistant showcase with a live dashboard (VASDK_Car)
 VASDK_ANDROID/         Android app + JNI bindings around the core library
 VASDK_PYTHON_APP/      Kitchen assistant in Python, on the Python binding
+VASDK/languages/       The built-in language pack (en-US): copy it to write another language
 bindings/python/       The Python binding (the C API, over ctypes)
 docs/apps/             The example apps' guides
 docs/examples/         Worked examples (pipelines, tools, goals, testing)
@@ -280,6 +281,7 @@ Each application directory has its own guide: [VASDK_APP](docs/apps/pipeline.md)
 
 Beyond frames, processors, pipeline, and providers, `VASDK/include/VASDK` has a few more subsystems worth knowing about:
 
+- **`nlu/Language.h`**: the languages agents read and speak. No word of any language is in the code: number and date words, yes and no, the built-in intents, back-channels, the engine's own replies and how values are said ("Tuesday, November 10th") come from a language pack, a text file written by whoever deploys the agent. VASDK ships [`en-US`](VASDK/languages/en-US.txtpb); an agent lists the languages its users speak, and understands them together. [Languages](docs/reference/languages.md)
 - **`Transport.h`, `LocalTransport.h`, `WebSocketTransport.h`, `MockTransport.h`**: how audio/text gets in and out. `MockTransport` exists specifically so pipelines can be driven from a test harness without real audio hardware.
 - **`llm/`**: `LLMTransport` is the abstract base; `OpenAITransport` and `AnthropicTransport` are the concrete ones, both streaming-capable. `PromptTemplate` is not a single class with a format switch inside it. It's an abstract base with one concrete subclass per chat format (`ApiPromptTemplates.h` for OpenAI/Anthropic/Google-style JSON APIs, `LocalPromptTemplates.h` for ChatML/Llama2/Llama3/Mistral/Gemma/Phi3/LFM2 token formats), built through `PromptTemplate::create(ChatFormat)`. `ToolDispatchProcessor` turns `ToolCallFrame`s into actual function calls and pushes the results back as `ToolResultFrame`s.
 - **`goal/`**: the call center engine. `GoalSlot` describes one piece of information you need from the caller (phone number, date, an arbitrary JSON object, or a composite of sub-slots), `GoalState` tracks what's been collected, `GoalManager` drives the LLM toward completion via `update_slot`/`update_object_slot`/`complete_goal` tool calls, and `IntentRouter` figures out which goal applies from the caller's first utterance and swaps the system prompt accordingly, with no pipeline restart required. Goals can be defined in JSON via `GoalDefinitionLoader` instead of C++, and `GoalConversationSimulator` lets you script a fake caller through a goal for regression testing without a live LLM.

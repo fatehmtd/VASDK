@@ -63,6 +63,8 @@ sequenceDiagram
 
 `VasdkEngine.agentAsset` names an [agent](../reference/flows.md) in the app's assets. It answers what it understands, and everything else goes on to the LLM as before. The app ships [`agents/phone/agent.txtpb`](../../VASDK_ANDROID/app/src/main/assets/agents/phone/agent.txtpb): "call mom" finds the contact by name in the phone book, asks "Call Mom?", and calls on a yes. The same conversation runs on the desktop in `ctest` (`vasdk_agent_android_phone`, cases in [`agent-tests/phone/`](../../VASDK_ANDROID/agent-tests/phone/)).
 
+An agent in another language lists its pack in `language_files` ([Languages](../reference/languages.md)). Put the pack beside `agent.txtpb` in the agent's assets folder: the files there are copied with it, but its subfolders aren't.
+
 | Call | Use |
 | --- | --- |
 | `registerAgentTool(name) { argsJson -> resultJson }` | A tool for the agent's `call_tool` steps, written in Kotlin (`place_call` here). Declare it in the agent with no `http` (`tools { name: "place_call" }`), so lint and tests know it. |

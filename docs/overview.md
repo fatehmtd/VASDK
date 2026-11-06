@@ -28,6 +28,8 @@ Think of it as the plumbing between a microphone and a speaker, with interchange
 
 **The right model for each task.** Picking which command was meant needs a small, fast model; a story or a question about the world deserves a capable one; most turns need none. The engine config names several models, and each part of the assistant says which one it uses. Changing a model is a configuration change, not a code change.
 
+**Any language, written by you.** The engine has no English built into its code. The words it understands (numbers, dates, "yes", "cancel") and the way it says things ("Tuesday, November 10th") come from a language file. English ships with it; another language, or a regional variant, is a file you write, with no change to the software. One assistant can understand several languages at once. See [Languages](reference/languages.md).
+
 **Built from parts.** A large assistant is split into self-contained features, each with its own conversation, code and tests. Adding or removing a feature doesn't touch the others.
 
 **Multiplatform from the get go.** You can build your pipeline and logic once and run it everywhere. Integration and End to End testing can be implemented without having to run on the target hardware.

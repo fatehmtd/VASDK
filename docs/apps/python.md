@@ -103,6 +103,7 @@ flowchart LR
 | The conversation | the agent: pages, intents, forms, flows | nothing: [`agent/`](../../VASDK_PYTHON_APP/agent/) |
 | The kitchen's actions in the conversation | `call_tool { name: "timers" ... }` | `registry.tool("timers")(kitchen.timers_tool)` |
 | Words the agent can't know (the recipes) | `code { extractor: "recipes" }` entities | `registry.entity_extractor("recipes")` |
+| Another language | `locale`, `languages` and `language_files` in the agent | `registry.add_language("fr-FR.txtpb")`, or a `vasdk.Language` built from `vasdk.builtin_language()` |
 | The LLM's actions | tool calls | `session.tool("convert_units", ...)(convert)` |
 | The app speaks first | a trigger, `interrupt: IMMEDIATE` | `session.fire_trigger("timer-done", {"label": "pasta"})` |
 | What the LLM knows | `{context}` in its instructions | `session.set_context(kitchen.context())` |

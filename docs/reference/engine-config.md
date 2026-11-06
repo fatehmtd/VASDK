@@ -50,6 +50,8 @@ Each `ProviderSpec` has:
   | `vasdk.providers.LocalTtsOptions` | `supertonic`, `moss`, `phonon`, `pocket` | `model_dir`, `voice`, `language`, `steps`, `prebuffer_ms` (pocket, moss: audio made before playback starts, against stalls on slow phones) |
   | `vasdk.providers.SmartTurnOptions` | `smartturn-v3` | `model_path` |
 
+  A recognizer's or voice's `language` is the provider's own setting: set it to match the agent's `locale` ([Languages](languages.md)), which the providers don't read.
+
 - `fallback`: ids to try, in order, when `id` is not built into the binary or fails to start (a missing model file, for example), and to switch to when the network drops ([When the network drops](engine.md#when-the-network-drops)). `options` apply to `id`; a fallback gets its `fallback_options` entry (`fallback_options { key: "parakeet" value { [type.googleapis.com/vasdk.providers.LocalSttOptions] { model_dir: "models/parakeet" } } }`), or starts with its defaults. The log shows which provider was used and why the others were skipped.
 
 ## Activation
@@ -119,7 +121,7 @@ turn_taking {
 | `barge_in_min_speech_ms` | `min_speech_ms` while the assistant speaks (default 150; 0: same as `min_speech_ms`) | `bargeInMinSpeechDurationMs` |
 | `lookback_factor` | audio kept from before the detected start, as a multiple of the start window (default 3 for `BALANCED`, 5 otherwise) | `VADFrameProcessor` constructor |
 
-`backchannel` decides whether speech over the assistant is a back-channel ("yeah", "mm-hmm") or an interruption. Each field replaces the same value in `Session::Options::backchannel` (`pipeline::BackchannelConfig`), so a value set in the file wins over the app's: `enabled`, `pending_playback` (`DUCK`, `PAUSE`, `CONTINUE`), `history` (`DROP`, `APPEND_TO_HISTORY`), `tail_overlap` (`TREAT_AS_TURN`, `CLASSIFY`), `duck_gain_db`, `duck_ms`, `commit_after_ms`, `final_transcription_wait_ms`, `tail_overlap_ms`, `max_backchannel_words`, `min_interrupt_confidence`, `low_confidence_max_words`, `phrases` and `interrupt_words`. The two lists replace the built-in ones when set.
+`backchannel` decides whether speech over the assistant is a back-channel ("yeah", "mm-hmm") or an interruption. Each field replaces the same value in `Session::Options::backchannel` (`pipeline::BackchannelConfig`), so a value set in the file wins over the app's: `enabled`, `pending_playback` (`DUCK`, `PAUSE`, `CONTINUE`), `history` (`DROP`, `APPEND_TO_HISTORY`), `tail_overlap` (`TREAT_AS_TURN`, `CLASSIFY`), `duck_gain_db`, `duck_ms`, `commit_after_ms`, `final_transcription_wait_ms`, `tail_overlap_ms`, `max_backchannel_words`, `min_interrupt_confidence`, `low_confidence_max_words`, `phrases` and `interrupt_words`. The two lists replace the agent's languages' back-channels and interruptions when set ([Languages](languages.md)); without an agent, VASDK's built-in en-US ones.
 
 **Echo from speakers.** Without echo cancellation (a laptop's own mic and speakers; browsers over WebRTC cancel it themselves), the mic hears the assistant, and that can pause or cut its reply. With `reject_echo` (the default), speech over the assistant that is mostly its own words (2 or more, `echo_min_share` of them, default 0.8, and no interrupt word) is treated as echo: the reply goes on, and the words aren't a user turn. It needs words: by default, speech longer than `commit_after_ms` still interrupts before any arrive. `echo_words_wait_ms: 600` waits that much longer for them, so echo is caught with an STT whose words come late, but every real interruption then waits as long too.
 
