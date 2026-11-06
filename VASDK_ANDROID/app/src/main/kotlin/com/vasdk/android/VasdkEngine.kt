@@ -266,7 +266,7 @@ class VasdkEngine private constructor(
             )
         }
         if (ttsProvider == TtsProvider.PHONON) {
-            // phonon-31m-en: the public (non-gated) English checkpoint, CC BY-NC 4.0.
+            // phonon-31m-en: the public (non-gated) English checkpoint, Apache 2.0.
             modelRequests.add(
                 ModelDownloadRequest(
                     targetDir = File(contextWrapper.cacheDir, "phonon_tts"),

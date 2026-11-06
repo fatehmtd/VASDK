@@ -30,7 +30,7 @@ flowchart TB
 
 ## LocalTransport
 
-([`LocalTransport.h`](../../VASDK/include/VASDK/LocalTransport.h)) The hardware transport: a capture thread pulls from a [`GenericAudioSource`](providers.md#genericaudiosource), writes samples into the shared [`AudioRingBuffer`](../../README.md#the-audio-ring-buffer), and emits lightweight `AudioFrame`s (offsets, not samples). Outbound `SynthesisFrame`s are written to the [`GenericAudioSink`](providers.md#genericaudiosink).
+([`LocalTransport.h`](../../VASDK/include/VASDK/LocalTransport.h)) The hardware transport: a capture thread pulls from a [`GenericAudioSource`](providers.md#genericaudiosource), writes samples into the shared [`AudioRingBuffer`](frames.md#the-audio-ring-buffer), and emits lightweight `AudioFrame`s (offsets, not samples). Outbound `SynthesisFrame`s are written to the [`GenericAudioSink`](providers.md#genericaudiosink).
 
 Configuration before `initialize()`:
 
@@ -101,7 +101,7 @@ Both showcase apps take `--webrtc-port <port>` (and `--webrtc-page`) when built 
 | `injectFrame(frame)` | Simulate the receive side: the frame enters the pipeline as if it arrived from outside. |
 | `getSentFrames()` / `getSentFramesByType(type)` / `getSentFrameCount()` | Everything the pipeline tried to send, captured for assertions. |
 | `clearSentFrames()` | Reset between test cases. |
-| `setAutoRespond(...)`, `setSimulatedLatency(ms)`, `simulateError(...)`, `simulateDisconnect()` | Scripted behaviors for failure-path tests. |
+| `setAutoResponse(enabled)`, `setSimulatedLatency(ms)`, `simulateError(code, message)`, `simulateDisconnection()` | Scripted behaviors for failure-path tests. |
 
 Full walkthrough: [testing-with-mock-transport.md](../examples/testing-with-mock-transport.md).
 

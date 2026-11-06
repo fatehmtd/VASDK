@@ -42,8 +42,6 @@ flowchart LR
 
 ## What's mature and what's moving
 
-An overview based on [root README](../README.md):
-
 | Area | Status |
 | --- | --- |
 | Core pipeline (audio → VAD → STT → LLM → TTS) | Stable in daily use across five showcase apps |

@@ -23,36 +23,24 @@ A C++17 framework for building voice assistants that listen, think, and talk bac
 
 ### Browser calls over WebRTC
 
-Build with `-DVASDK_BUILD_LIBDATACHANNEL_WEBRTC=ON`, run `./build/VASDK_APP/VASDK_Pipeline --webrtc-port 8765` and open `http://127.0.0.1:8765`: the browser becomes the mic and speaker (Opus, browser echo cancellation), and the [demo page](assets/webrtc/index.html) shows the pipeline live over a data channel - agent state, a VizAnim-driven voice visual and 20 s voice ribbon, the conversation with per-utterance speaker tags, a turn timeline, and latency split into end-of-turn + ASR, LLM first token and TTS first audio heard. Details: [WebRtcTransport](docs/reference/transports.md#webrtctransport).
-
-To talk to an agent with an LLM behind it:
+Build with `-DVASDK_BUILD_LIBDATACHANNEL_WEBRTC=ON`, then talk to an agent with an LLM behind it from your browser:
 
 ```bash
 ./build/VASDK_APP/VASDK_Pipeline --config VASDK_APP/config/engine.txtpb \
   --agent VASDK_APP/agents/garage-menu/agent.txtpb --env-file .env --webrtc-port 8080
 ```
 
-The agent's pages answer what they understand: booking, prices, opening hours, a person. The LLM chats about everything else, and a keyword in the middle of a story doesn't take the chat away from it ([With an LLM](docs/reference/flows.md#with-an-llm)). The example config uses Whistle for speech recognition and Phonon for the voice. When you talk over the assistant, it pauses at once. It stops if you keep talking for 300 ms or say "stop", "wait" or similar, and carries on after a "mm-hmm".
+Open `http://127.0.0.1:8080`: the browser becomes the mic and speaker, and the page shows the agent's state, the conversation and per-turn latency live. The agent answers what it understands (booking, prices, opening hours) and the LLM chats about everything else. See [VASDK_Pipeline](docs/apps/pipeline.md#an-agent-and-the-llm-together) and [WebRtcTransport](docs/reference/transports.md#webrtctransport).
 
 ## Why this exists
 
-The idea for VASDK took shape while I was designing a production in-vehicle voice assistant. That work made the gap obvious: there are strong voice-agent SDKs like Pipecat and LiveKit Agents, but they are primarily built around Python-first, cloud-friendly assumptions that do not map cleanly to embedded and automotive systems.
+VASDK took shape while I was designing a production in-vehicle voice assistant. Strong voice-agent SDKs like Pipecat and LiveKit Agents exist, but they are Python-first and cloud-friendly, and an in-vehicle product has unreliable connectivity, strict latency budgets, ARM targets and no room for a Python interpreter in the critical path. VASDK keeps the idea that makes those frameworks pleasant to use (a pipeline of typed frames flowing through composable processors) and reimplements it natively in C++, assuming from day one that any stage might be a local ONNX or GGUF model instead of an HTTP call. Every backend is a separate CMake target: you link the ones you need and the rest never touch your binary.
 
-That kind of product has constraints that many general-purpose voice frameworks are not designed around: unreliable connectivity, strict latency budgets, ARM deployment targets, and no room for a Python interpreter in the critical path. VASDK is my attempt to bring the same high-level developer experience those frameworks offer into a C++ runtime that fits in-vehicle systems: modular, pipeline-based, cross-compilable, and able to run fully offline when the product demands it.
-
-So VASDK keeps the idea that makes those frameworks pleasant to use (a pipeline of typed frames flowing through composable processors) and reimplements it natively, with the assumption baked in from day one that any given stage might be a local ONNX or GGUF model instead of an HTTP call. Every VAD, STT, TTS, and LLM backend is a separate CMake target. You link the ones you need and the rest never touch your binary. Providers swap without touching pipeline logic, you only use what you actually need.
-
-The project is still young and moving fast. There are no tagged releases yet, and the API surface shifts fastest wherever the newest work is landing: the goal-oriented call center layer (`goal/`) as its slot-filling, escalation, and CRM-integration isn't mature yet and will continue to change. The Android app as it grows from a thin JNI wrapper into a genuinely capable on-device assistant - spoken confirmation before sensitive actions like calls or texts, a model-info overlay for inspecting the live prompt and tool set, waveform-driven UI feedback for mic and TTS output, and a widening set of Android-native tools spanning calls, SMS, contacts, calendar, location, camera, notifications, alarms/timers, media, and web. Treat headers as the source of truth over this document.
+The project is young and moving fast, with no tagged releases yet; see [what's mature and what's moving](docs/overview.md#whats-mature-and-whats-moving). Treat headers as the source of truth over the docs.
 
 ## Quick start
 
-### Prerequisites
-
-- CMake 3.16+ and a C++17 compiler.
-- Git on your `PATH` - needed both to clone the repo and by CMake's `FetchContent` to pull every C++ dependency at configure time.
-- libcurl, for every HTTP-based transport (OpenAI/Anthropic/OpenRouter LLM calls, Gladia/Deepgram/Cartesia/Fish Audio cloud STT/TTS). No install is needed: configure uses an installed libcurl when CMake finds one (system package, Homebrew, or a vcpkg toolchain if you pass one), and otherwise builds curl 8.21 from source as a static library. On Windows that build uses Schannel, the OS TLS stack, so neither vcpkg nor OpenSSL is required. Pass `-DVASDK_FETCH_CURL=ON` to always build it from source, or `-DVASDK_ENABLE_HTTP_TRANSPORT=OFF` to drop it (which also disables every cloud provider, leaving only local/offline ones). On Linux/macOS a from-source build picks up OpenSSL (`apt install libssl-dev` / `brew install openssl`). Note that CMake also reads `CMAKE_TOOLCHAIN_FILE` from the environment, so a machine-wide vcpkg setting applies to every new build directory.
-- protobuf, for engine config files. Configure uses an installed one (`brew install protobuf`, `apt install libprotobuf-dev protobuf-compiler`, or vcpkg) and otherwise builds it from source, which makes the first configure slower.
-- A network connection and ~1.5 GB free disk for the first configure - everything else (C++ deps and model files) is fetched for you, and re-configures skip anything already downloaded.
+You need CMake 3.16+, a C++17 compiler, git and a network connection. Everything else (C++ dependencies, libcurl and protobuf if they aren't installed, model files) is fetched at configure time. Details: [Building VASDK](docs/building.md).
 
 ```bash
 git clone https://github.com/fatehmtd/VASDK.git
@@ -61,9 +49,7 @@ cmake -B build -S .
 cmake --build build --config Release
 ```
 
-The first configure downloads all C++ dependencies via `FetchContent` (spdlog, nlohmann/json, CLI11, Highway, ctrack, each provider's SDK) and the model files for every local provider enabled by default: Silero VAD, SmartTurn v3, the pyannote speaker-embedding model, Whistle STT (plus its prebuilt engine), PocketTTS, and Phonon TTS. Parakeet, Moonshine, Whisper.cpp, Supertonic, MOSS-TTS-Nano and llama.cpp are off by default; turn them on with their `VASDK_BUILD_*` option (see [Model files](#model-files)).
-
-Phonon's default 40m model is gated on HuggingFace. Without a token, configure only prints a warning and the app has no Phonon model at runtime. Before you configure, do one of these: export `HF_TOKEN` after accepting the [model terms](https://huggingface.co/gradium/phonon-40m-multilingual), pass `-DPHONON_TTS_HF_REPO=gradium/phonon-31m-en` for the public English-only model, or pass `-DVASDK_BUILD_PHONON_TTS=OFF` to use PocketTTS instead.
+Phonon, the default voice, is gated on HuggingFace: before you configure, export `HF_TOKEN` after accepting the [model terms](https://huggingface.co/gradium/phonon-40m-multilingual), or pass `-DPHONON_TTS_HF_REPO=gradium/phonon-31m-en` for the public English-only model.
 
 Then give it an LLM to talk to and run it:
 
@@ -72,41 +58,23 @@ cp .env.example .env   # fill in LLM_API_KEY (or OPENROUTER_API_KEY / OPENAI_API
 ./build/VASDK_APP/VASDK_Pipeline
 ```
 
-Two values in `.env` matter, not just the key: `LLM_MODEL` is required too - the default `LLM_ENDPOINT` is OpenRouter, which expects its `provider/model` naming (`openai/gpt-4o`, `anthropic/claude-sonnet-4-5`, `qwen/qwen3-30b-a3b-instruct`, …; see the comments in `.env.example`). Leaving `LLM_MODEL` unset doesn't fail fast - the app starts, logs the model as `(not set)`, and only errors once the first LLM request goes out - so set it up front. If you point `LLM_ENDPOINT` at OpenAI or Anthropic directly instead, use that provider's own model names.
+Set `LLM_MODEL` too, not only the key: the default endpoint is OpenRouter, which expects `provider/model` names (`openai/gpt-4o`, `anthropic/claude-sonnet-4-5`, …). Without it the app starts but fails on the first LLM request. To stay fully offline, build llama.cpp instead and pass `--llm-model-path` ([VASDK_Pipeline guide](docs/apps/pipeline.md)).
 
-That's a full voice loop: mic in, VAD, speaker tracking, transcription, LLM turn with tool calling, synthesis, speaker out. Talk to it. If you'd rather stay fully offline, configure with `-DVASDK_BUILD_LLAMACPP=ON -DVASDK_DOWNLOAD_LLAMACPP_MODEL=ON` (this downloads the default GGUF into `build/VASDK_3P_IMPL/models/`), skip the `.env`, and pass `--llm-model-path` pointing at a GGUF file. The [VASDK_Pipeline guide](docs/apps/pipeline.md) covers every flag and feature.
+That's a full voice loop: mic in, VAD, speaker tracking, transcription, LLM turn with tool calling, synthesis, speaker out. The repository has five apps to run and copy from:
 
-The second showcase app is the call center:
+| App | What it is | Run |
+| --- | --- | --- |
+| [VASDK_Pipeline](docs/apps/pipeline.md) | General-purpose desktop assistant: barge-in, tools, metrics, browser calls | `./build/VASDK_APP/VASDK_Pipeline` |
+| [VASDK_CallCenter](docs/apps/callcenter.md) | A phone call answered by agent files: caller lookup, forms with read-backs, handoff to a person; runs with no LLM | `./build/VASDK_CALLCENTER_APP/VASDK_CallCenter` |
+| [VASDK_Car](docs/apps/car.md) | In-car assistant built from ten verticals, with a live dashboard and proactive alerts | `./build/VASDK_CAR_APP/VASDK_Car` |
+| [VASDK_PYTHON_APP](docs/apps/python.md) | Kitchen assistant on the [Python binding](bindings/python/README.md) | `python VASDK_PYTHON_APP/app.py --demo` |
+| [Android](docs/apps/android.md) | The full stack on a phone, in Kotlin over JNI, with device tools | see the guide |
 
-```bash
-./build/VASDK_CALLCENTER_APP/VASDK_CallCenter
-```
+With Visual Studio or Xcode, binaries land under an extra `Release/` folder (e.g. `./build/VASDK_APP/Release/VASDK_Pipeline`).
 
-Its call flow is an [agent file](VASDK_CALLCENTER_APP/agents/callcenter/agent.txtpb): it looks the caller up by their number, asks what they need, fills a form over several turns, reads it back before acting, and hands off to a person on request or after too many misunderstandings. It runs with no LLM; with one (the same `.env` as `VASDK_Pipeline`), it also understands what its examples miss. It's the closest thing in this repo to an IVR replacement. The [VASDK_CallCenter guide](docs/apps/callcenter.md) walks through the call flow, its tests, and the CRM integration seams.
+## Architecture at a glance
 
-The third is an in-car assistant:
-
-```bash
-./build/VASDK_CAR_APP/VASDK_Car
-```
-
-It's built from self-contained verticals: drive, climate, media, phone, messages, navigation, driver profiles, the owner's manual, a companion for stories and games, and general knowledge. Each vertical's folder holds its code, its part of the [agent](VASDK_CAR_APP/agents/car/agent.txtpb) (merged with `include_files`), its tests and its panel on a live dashboard (http://127.0.0.1:8090, with a Talk button over WebRTC). The car speaks first when a call or a text comes in, when the cabin is hot, when fuel runs low or won't last the trip, and when a driver gets in. With an LLM, what no vertical covers goes to the LLM, which knows the car's state and calls the same tools. It also tells stories, plays trivia and answers questions about anything, while the car's commands keep working mid-story. See the [VASDK_Car guide](docs/apps/car.md).
-
-The fourth is the same kind of assistant, written in Python:
-
-```bash
-python VASDK_PYTHON_APP/app.py --demo
-```
-
-A kitchen assistant on the [Python binding](bindings/python/README.md): recipes step by step, timers that ring over whatever is being said, a shopping list, and cooking questions for an LLM. The agent's tools and entities and the LLM's tools are Python functions; speech is recognized and spoken on the machine. `--demo` has a second session speak a cook's lines into it, so the whole spoken loop runs with no microphone. See the [VASDK_PYTHON_APP guide](docs/apps/python.md).
-
-With multi-config generators (Visual Studio, Xcode) the binaries land one level deeper, under a `Release/` subdirectory (e.g. `./build/VASDK_APP/Release/VASDK_Pipeline`). The apps print an error and exit if they can't find the models directory or a required provider wasn't built; check the CMake configure output, which lists exactly which providers were enabled.
-
-## Core architecture
-
-Four concepts do all the work in this codebase. Frames carry data, processors act on frames, a pipeline chains processors together, and providers are the swappable backends a processor wraps. Everything else in the core library (the goal engine, context aggregation, metrics, networking) is built on top of these four, not a replacement for them. This section is the tour; the per-interface contracts (every method, every state machine, extension checklists) live in the [reference docs](docs/README.md#core-concepts-reference).
-
-Here's the whole thing at a glance. A voice turn flows left to right as typed frames; interrupts and errors race back right to left; and every stage is a provider you can swap without touching the rest:
+Frames carry data, processors act on frames, a pipeline chains processors, and providers are the swappable backends a processor wraps. A voice turn flows left to right as typed frames; interrupts and errors race back right to left:
 
 ```mermaid
 flowchart LR
@@ -137,162 +105,15 @@ flowchart LR
     TOut -.->|"upstream: ErrorFrame (CRITICAL) · ControlFrame::INTERRUPT (barge-in) · SynthesisStateFrame"| TIn
 ```
 
-Providers are picked one per stage at build time - the same shape above, with `MiniAudio`/`SDL3`/`FFmpeg` behind Transport, `Silero`/`Energy+ZCR` behind VAD, `SmartTurn v3` behind Turn detection, `Whistle`/`Parakeet`/`Moonshine`/`Whisper.cpp` or a cloud STT behind STT, `llama.cpp`/`OpenAI`/`Anthropic` behind LLM, and `PocketTTS`/`Phonon`/`MOSS-TTS-Nano`/`Supertonic` or a cloud TTS behind TTS. An optional `SpeakerIdentificationProcessor` (pyannote embeddings) sits after turn detection and tags each utterance with who said it.
-
-### Frames
-
-A `Frame` (`Frame.h`) is the unit of data flowing through the system. It's an abstract base carrying shared metadata (timestamp, sequence ID, `sourceId`, processing/acquisition duration for profiling), and each concrete subclass adds its own payload:
-
-| Frame | Carries |
-| --- | --- |
-| `AudioFrame` | not samples, but an offset and length into a shared ring buffer |
-| `TranscriptionFrame` | STT result (text, word timing, alternatives, `isFinal`) |
-| `TextFrame` | text for TTS input or LLM output, with optional UI `choices` |
-| `SynthesisFrame` / `SynthesisStateFrame` | TTS audio output, and TTS lifecycle (started, completed, interrupted) |
-| `VADStateFrame` / `TurnStateFrame` | speech-activity state, and whose turn it is |
-| `SpeakerIdentificationFrame` / `SpeakerEnrollmentFrame` | who spoke an utterance (same/new speaker, best enrolled match), and voice enrollment requests and results |
-| `ToolCallFrame` / `ToolResultFrame` | an LLM-requested function call and its result |
-| `AgentStateFrame` | the conversation state machine's current state (IDLE/LISTENING/THINKING/SPEAKING/INTERRUPTED) |
-| `ErrorFrame` / `ControlFrame` | failures and pipeline commands (start/stop/interrupt) |
-
-Every frame has a `FramePriority` (`ErrorFrame` and `ControlFrame::INTERRUPT` are `CRITICAL`), and frames travel in both directions: `DOWNSTREAM` for the normal audio-to-text-to-synthesis flow, `UPSTREAM` for errors, interrupts, and state changes racing back toward the input side. That's what makes barge-in and error recovery possible without bespoke wiring at every stage. When the caller talks over the assistant mid-response, that's an upstream `ControlFrame::INTERRUPT` racing an `ErrorFrame` past the TTS stage, and `AgentStateProcessor` decides what happens to the in-flight response: a real interruption cancels it, while a back-channel ("mm-hmm", "yeah") only ducks it for a moment ([back-channels](docs/reference/processors.md#back-channels-speech-over-the-agent-that-isnt-an-interruption)). It's also how `RecoveryProcessor` catches STT/LLM/TTS failures from a single insertion point anywhere in the chain, since errors travel upstream regardless of where they originated.
-
-`AudioFrame` is worth a closer look on its own: it doesn't carry samples, only an offset and length into a shared `AudioRingBuffer`. See [The audio ring buffer](#the-audio-ring-buffer) below for why that design choice earns its complexity.
-
-### The audio ring buffer
-
-The single biggest reason `AudioFrame` doesn't carry samples is `AudioRingBuffer` (`AudioRingBuffer.h`): a fixed-capacity circular buffer, shared via `shared_ptr` across the transport and every processor that touches raw mic-side audio. Instead of pushing PCM through a chain of stage-to-stage copies, only two integers move downstream: `absoluteOffset` and `numSamples`. Whoever actually needs the bytes calls `readAbsolute()` against the shared buffer, however many frames behind the write cursor they've fallen.
-
-That shared-buffer design pays for itself in three concrete ways, beyond just "fewer memcpys":
-
-- **Raw and clean streams, kept separate.** `LocalTransport` writes mic audio into one ring buffer and never touches it again - the raw signal stays raw. `AudioDSPProcessor` reads from that raw buffer, runs it through a `GenericAudioDSPProvider` (e.g. RNNoise), and writes the result into a second, identically-sized "clean" ring buffer, advanced in lock-step so the same `AudioFrame::ringbufferOffset` addresses the same instant in both. VAD and STT are pointed at whichever buffer they need - the clean one when denoising is enabled, the raw one directly when it isn't - and neither buffer is ever mutated in place. That clean stream is just as available to anything else that wants processed audio without paying for its own DSP pass: a wake-word detector, a voice-cloning reference recorder for TTS, a debug logger, or whatever gets added next - they all read the same offsets, no extra plumbing required. (`AudioRingBuffer` does expose a lower-level `overwrite()` for in-place mutation of a single buffer, but the shipped `AudioDSPProcessor` doesn't use it; keeping raw and clean as two buffers means nothing downstream ever loses access to the untouched signal.)
-- **Free lookback.** `VADFrameProcessor` doesn't keep its own pre-roll window to avoid clipping the start of an utterance. When it detects speech onset, it computes an earlier `absoluteOffset` (`lookbackMultiplier` samples before the detected boundary) and emits *that* offset in the `VADStateFrame`. `TranscriptionProcessor` reads from it directly - the "extra" audio was already sitting in the ring buffer the whole time, so pre-roll costs nothing extra to capture.
-- **No backpressure stalls.** Nothing blocks waiting for a slow reader, so a burst of audio never backs up the capture thread. The trade-off is explicit rather than hidden: each buffer has to be sized generously enough (in samples/duration) that the slowest consumer reading from it can't fall behind by more than its capacity before the write cursor wraps and overwrites data that hasn't been read yet. There's no locking and no queueing of raw audio - only bounded staleness, and that bound is a constructor argument you control per buffer.
-
-This only covers the inbound, near-continuous mic path. Outbound audio doesn't need it: `SynthesisFrame` (TTS output) carries its `audioData` directly, since synthesized speech is bursty and short-lived rather than a firehose the whole pipeline needs to share cheaply.
-
-```mermaid
-sequenceDiagram
-    participant Transport as Transport (mic)
-    participant Raw as Raw ring buffer
-    participant DSP as AudioDSPProcessor (RNNoise, optional)
-    participant Clean as Clean ring buffer
-    participant VAD
-    participant STT as Transcription
-    participant Other as Wake-word / other consumers
-
-    Transport->>Raw: write(samples) → offset X
-    Transport->>DSP: AudioFrame{absoluteOffset=X, numSamples}
-    DSP->>Raw: readAbsolute(X, numSamples)
-    DSP->>Clean: write(denoised samples) → offset X (lock-step)
-    DSP->>VAD: AudioFrame{absoluteOffset=X, numSamples}
-    VAD->>Clean: readAbsolute(X, numSamples)
-    Note over VAD: speech onset detected -<br/>back up by lookbackSamples
-    VAD->>STT: VADStateFrame{speechStartOffset = X − lookback}
-    STT->>Clean: readAbsolute(speechStartOffset, …)
-    Other->>Clean: readAbsolute(...) - same offsets,<br/>no DSP pass of its own
-    Note over Raw,Clean: identical capacity, same offset space -<br/>consumers pick whichever stream they need
-```
-
-If DSP is disabled at runtime, there's no processor sitting between `Transport` and `Clean` in that diagram - VAD/STT are simply pointed at the raw buffer directly instead, so the "clean" concept costs nothing when you don't need it.
-
-### Processors
-
-`FrameProcessor` (`FrameProcessor.h`) is the base class for every pipeline stage: `VADFrameProcessor`, `TranscriptionFrameProcessor`, `LLMProcessor`, `TTSFrameProcessor`, `ToolDispatchProcessor`, `AgentStateProcessor`, `TurnDetectionProcessor`, `SpeakerIdentificationProcessor`, `RecoveryProcessor`, and so on. Each one:
-
-- runs on its own thread, pulling frames off a priority queue ordered by `FramePriority` then FIFO, so a critical `ErrorFrame` jumps ahead of queued audio;
-- links to a `_downstream` and `_upstream` neighbor and forwards frames via `pushDownstream`/`pushUpstream`;
-- overrides `processFrame(frame, direction)` to react to the frame types it cares about and silently passes the rest through (`shouldProcess()` lets it filter cheaply before doing real work);
-- reports latency, queue-wait, and frame-count metrics automatically, since instrumentation is wired into the base constructor rather than added per subclass.
-
-A processor stays deliberately ignorant of anything upstream or downstream of it. `TTSFrameProcessor` doesn't know a `RecoveryProcessor` exists three stages away. It just emits `SynthesisStateFrame`s and lets whoever's listening react.
-
-### Pipeline
-
-`Pipeline` (`Pipeline.h`) is intentionally thin. It holds an ordered list of processors plus optional input/output transports, and does three things: `build()` wires each processor's upstream/downstream links to its neighbors, `start()` starts every processor's thread, `stop()` tears them all down. It is not a scheduler or a state machine. All the actual behavior (VAD triggering STT, STT triggering the LLM, tool calls looping back into the conversation) happens because each processor knows which frame types to watch for, not because `Pipeline` orchestrates it.
-
-### Providers
-
-A provider is a concrete implementation of one of the small interfaces the core library declares but never implements: `VADProvider`, `GenericTranscriptionProvider`, `GenericVoiceSynthesisProvider`, `GenericAudioSource`/`Sink`, `TurnDetectionProvider`, `SpeakerEmbeddingProvider`, `LLMTransport`. The core library only knows the interface. The actual Silero ONNX graph, the Parakeet model, or the HTTP call to Gladia lives in `VASDK_3P_IMPL/` as its own CMake target (`vasdk_silero_vad`, `vasdk_parakeet`, `vasdk_gladiapp_transcription`, and so on).
-
-The corresponding `*FrameProcessor` is the bridge: `VADFrameProcessor` owns a `shared_ptr<VADProvider>` and translates provider calls into frames. That split is why swapping Silero for Energy+ZCR VAD, or Supertonic TTS for Deepgram, never touches processor or pipeline code. You construct a different provider, hand it to the same processor type, and the rest of the chain doesn't notice anything changed.
-
-### How they compose
-
-```mermaid
-flowchart TD
-    Provider["<b>Provider</b><br/>Silero, Parakeet, llama.cpp, Supertonic, ...<br/><i>implements the interface</i>"]
-    Processor["<b>Processor</b><br/>VADFrameProcessor, TranscriptionFrameProcessor, LLMProcessor, TTSFrameProcessor, ...<br/><i>wraps the provider, speaks Frames</i>"]
-    Pipeline["<b>Pipeline</b><br/>chains processors, owns transports, start/stop<br/><i>frames flow downstream (audio → text → synthesis) and upstream (errors/interrupts/state)</i>"]
-    Transport["<b>Transport</b><br/>LocalTransport, WebSocketTransport, MockTransport"]
-
-    Provider --> Processor --> Pipeline --> Transport
-```
-
-`main_pipeline.cpp` picks one provider per stage based on which `VASDK_HAS_*` macro is defined at build time, wraps each in its processor, and chains them with `Pipeline::addProcessor`. None of `Frame`, `FrameProcessor`, or `Pipeline` changes no matter which providers were picked. That decoupling is the point of the architecture.
+Swapping a provider never touches processor or pipeline code. Read the reference in order: [frames](docs/reference/frames.md) (including [the audio ring buffer](docs/reference/frames.md#the-audio-ring-buffer)), [processors](docs/reference/processors.md), [pipeline](docs/reference/pipeline.md), [providers](docs/reference/providers.md).
 
 ## Natural turn-taking
 
-A voice agent feels robotic when it jumps in on every breath, stops talking at every "mm-hmm", or answers half a sentence. Three behaviors in the core library handle this, on every transport and platform:
-
-- **Early end of turn, without cutting people off.** The turn detector (SmartTurn v3) scores the audio while the user pauses. A clearly finished turn ends at the pause, about 0.1 s after the user goes quiet; an uncertain one waits for real silence. Ending at a pause takes more confidence (`setPauseThreshold`, default 0.85) than ending after silence (0.5). [Details](docs/reference/processors.md#turndetectionprocessor)
-- **Back-channels don't interrupt.** "Mm-hmm", "yeah" and "right" said over the agent duck its voice instead of stopping it; real interruptions still cut in. The words are the agent's languages' ("ouais" in a French pack). [Details](docs/reference/processors.md#back-channels-speech-over-the-agent-that-isnt-an-interruption)
+- **Early end of turn, without cutting people off.** SmartTurn v3 scores the audio while the user pauses: a clearly finished turn ends at the pause, an uncertain one waits for real silence. [Details](docs/reference/processors.md#turndetectionprocessor)
+- **Back-channels don't interrupt.** "Mm-hmm", "yeah" and "right" said over the agent duck its voice instead of stopping it; real interruptions still cut in. [Details](docs/reference/processors.md#back-channels-speech-over-the-agent-that-isnt-an-interruption)
 - **Follow-ups are one message.** If a pause ends the turn and the user keeps talking, the in-flight request is cancelled and both utterances go to the LLM together. [Details](docs/reference/llm.md#follow-ups)
 
-```mermaid
-flowchart TD
-    Pause["User pauses"] --> Score{"Turn detector, during the pause:<br/>probability ≥ 0.85?"}
-    Pause -->|"user resumes before<br/>the turn ends"| Same["Same turn continues"]
-    Score -->|yes| Early["Turn ends at the pause (~0.1 s)<br/>transcript sent to the LLM"]
-    Score -->|no| Silence{"After confirmed silence (~0.75 s):<br/>probability ≥ 0.5?"}
-    Silence -->|yes| Sent["Turn ends<br/>transcript sent to the LLM"]
-    Silence -->|no| Staged["Transcript held<br/>(sent after 2 s if the user stays quiet)"]
-    Early --> Again{"User speaks again while the agent thinks,<br/>or within 3 s of the send?"}
-    Sent --> Again
-    Staged -->|user resumes| Merge
-    Again -->|yes| Merge["Request cancelled and rolled back:<br/>next message = earlier words + new words"]
-    Again -->|no| Normal["Ordinary barge-in or new turn"]
-```
-
-On the [WebRTC demo page](#browser-calls-over-webrtc), the merged turn replaces the separate bubbles: the first utterance is struck through, and the `+` line is exactly what the LLM received. From a real call; the speech recognizer heard "Toulouse" as "Taluz", and the model still worked it out:
-
-![WebRTC demo page: a follow-up merged into one message](assets/screenshots/webrtc-follow-up.png)
-
-## Repository layout
-
-```text
-VASDK/                Core shared library: the pipeline runtime, all interfaces
-VASDK_3P_IMPL/         Provider implementations, one CMake target each (see table below)
-VASDK_APP/             General-purpose voice assistant showcase (VASDK_Pipeline)
-VASDK_CALLCENTER_APP/  Goal-oriented call center showcase (VASDK_CallCenter)
-VASDK_CAR_APP/         In-car assistant showcase with a live dashboard (VASDK_Car)
-VASDK_ANDROID/         Android app + JNI bindings around the core library
-VASDK_PYTHON_APP/      Kitchen assistant in Python, on the Python binding
-VASDK/languages/       The built-in language pack (en-US): copy it to write another language
-bindings/python/       The Python binding (the C API, over ctypes)
-docs/apps/             The example apps' guides
-docs/examples/         Worked examples (pipelines, tools, goals, testing)
-prometheus/, grafana/  docker-compose stack for local metrics visualization
-```
-
-Each application directory has its own guide: [VASDK_APP](docs/apps/pipeline.md), [VASDK_CALLCENTER_APP](docs/apps/callcenter.md), [VASDK_CAR_APP](docs/apps/car.md), [VASDK_ANDROID](docs/apps/android.md).
-
-### The rest of the core library
-
-Beyond frames, processors, pipeline, and providers, `VASDK/include/VASDK` has a few more subsystems worth knowing about:
-
-- **`nlu/Language.h`**: the languages agents read and speak. No word of any language is in the code: number and date words, yes and no, the built-in intents, back-channels, the engine's own replies and how values are said ("Tuesday, November 10th") come from a language pack, a text file written by whoever deploys the agent. VASDK ships [`en-US`](VASDK/languages/en-US.txtpb); an agent lists the languages its users speak, and understands them together. [Languages](docs/reference/languages.md)
-- **`Transport.h`, `LocalTransport.h`, `WebSocketTransport.h`, `MockTransport.h`**: how audio/text gets in and out. `MockTransport` exists specifically so pipelines can be driven from a test harness without real audio hardware.
-- **`llm/`**: `LLMTransport` is the abstract base; `OpenAITransport` and `AnthropicTransport` are the concrete ones, both streaming-capable. `PromptTemplate` is not a single class with a format switch inside it. It's an abstract base with one concrete subclass per chat format (`ApiPromptTemplates.h` for OpenAI/Anthropic/Google-style JSON APIs, `LocalPromptTemplates.h` for ChatML/Llama2/Llama3/Mistral/Gemma/Phi3/LFM2 token formats), built through `PromptTemplate::create(ChatFormat)`. `ToolDispatchProcessor` turns `ToolCallFrame`s into actual function calls and pushes the results back as `ToolResultFrame`s.
-- **`goal/`**: the call center engine. `GoalSlot` describes one piece of information you need from the caller (phone number, date, an arbitrary JSON object, or a composite of sub-slots), `GoalState` tracks what's been collected, `GoalManager` drives the LLM toward completion via `update_slot`/`update_object_slot`/`complete_goal` tool calls, and `IntentRouter` figures out which goal applies from the caller's first utterance and swaps the system prompt accordingly, with no pipeline restart required. Goals can be defined in JSON via `GoalDefinitionLoader` instead of C++, and `GoalConversationSimulator` lets you script a fake caller through a goal for regression testing without a live LLM.
-- **`context/`**: small providers (`SystemContextProvider`, `NetworkContextProvider`, `LocationContextProvider`, `AppContextProvider`) that get aggregated by `ContextAggregator` into prompt-injectable facts about the running system. Useful for grounding responses in what the device, network, and app state actually look like right now, without wiring that by hand into every prompt.
-- **`metrics/`**: `MetricsCollector` plus per-call KPIs in `CallMetrics.h` (useful for the call center scenario specifically: escalation rate, slot-fill time, reprompt counts). Exporters live under `metrics/exporters/`. Every processor reports to this whether you asked for it or not; only the exporters are opt-in at build time. Treat it as a solid base for basic visibility rather than a hardened observability stack: the collection and export path hasn't been thoroughly tested yet, so double-check numbers before wiring alerts to them.
-- **`network/`**: thin interfaces (`HttpInterface`, `WebSocketInterface`) with `CurlHttpProvider` and a `cpp-httplib`-based WebSocket provider behind them, so the LLM/STT/TTS providers that need HTTP don't each reinvent connection handling.
-- **`RecoveryProcessor.h`, `engine/Runtime.h`, `SessionManager.h`**: error recovery (retry prompts, escalation on repeated failure), and running several concurrent calls as sessions of one runtime, which reuses each ended call's pre-loaded models. That matters a lot when a model is a multi-hundred-MB ONNX graph you don't want to reload per call.
-
-## Available providers
-
-Every row is an independent target under `VASDK_3P_IMPL/`. Enable only what you need; each one guards its own CMake option and compiles out cleanly if disabled.
+## Providers
 
 | Stage | Local / offline | Cloud |
 | --- | --- | --- |
@@ -301,177 +122,20 @@ Every row is an independent target under `VASDK_3P_IMPL/`. Enable only what you 
 | Turn detection | SmartTurn v3 | - |
 | Speaker identification | pyannote (WeSpeaker ResNet34-LM, ONNX) | - |
 | Noise suppression | RNNoise | - |
-| STT | Whistle (prebuilt engine), Parakeet, Moonshine (streaming), Whisper.cpp (WIP) (ONNX/GGUF), Voz (Android, via the Desert Ant Labs SDK) | Gladia (WIP), Gradium, Soniox, Deepgram, Cartesia, Fish Audio |
-| TTS | PocketTTS (ONNX), Phonon (GGUF), MOSS-TTS-Nano (ONNX), Supertonic 3 (ONNX, 31 languages) | Gradium, Soniox, Deepgram, Cartesia, Fish Audio |
+| Intent understanding | all-MiniLM-L6-v2 sentence encoder (ONNX) | - |
+| STT | Whistle, Parakeet, Moonshine, Whisper.cpp (WIP), Voz (Android) | Gladia (WIP), Gradium, Soniox, Deepgram, Cartesia, Fish Audio |
+| TTS | PocketTTS, Phonon, MOSS-TTS-Nano, Supertonic 3 | Gradium, Soniox, Deepgram, Cartesia, Fish Audio |
 | LLM | llama.cpp, or any OpenAI-compatible local server | OpenAI, Anthropic |
 | File / batch audio | FFmpeg-backed file transport | - |
-| WebRTC (browser calls) | libdatachannel + Opus, direct peer connection | - |
-| Visualization | VizAnim (audio feature extraction for UI animation) | - |
+| WebRTC (browser calls) | libdatachannel + Opus | - |
 
-Mix and match freely. With the default build options, both showcase apps run Whistle STT, Phonon TTS (PocketTTS if Phonon is off), pyannote speaker tracking, and a cloud LLM from `.env`. Each app picks one STT and one TTS at compile time: any cloud provider you build wins over the local ones (Gradium first when several are built), then Whistle > Moonshine > Parakeet > Whisper.cpp for STT and MOSS-TTS-Nano > Phonon > PocketTTS for TTS.
-
-Default build options: on are MiniAudio, Silero VAD, SmartTurn v3, pyannote, Whistle, PocketTTS, Phonon, RNNoise and VizAnim. Everything else is off, including every cloud STT/TTS and llama.cpp.
-
-**WIP:** Gladia and Whisper.cpp are still work in progress - expect rough edges, incomplete feature coverage, or breaking changes before they stabilize.
-
-The cloud STT/TTS providers (Gladia, Soniox, Deepgram, Cartesia, Fish Audio, Gradium) integrate against third-party APIs that change on their own schedule, and this project is still under heavy, frequent development. Don't be surprised if one of those integrations lags behind an upstream API change; the local/offline providers are the more stable path if you need something that keeps working without maintenance. More generally, the STT/TTS provider set as a whole is still evolving - parameter surfaces and generation controls on the local providers shift release to release too (PocketTTS's chunking and generation-control options, for one), so pin a commit if you need a stable target.
-
-### Provider sources and licenses
-
-Where each provider's underlying code or API actually comes from, and under what license. Model-weight licenses (downloaded separately at build time) are covered in full in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md); this table is about the implementation - the SDK, inference code, or API a provider target wraps.
-
-| | Provider | Website / API docs | GitHub | License |
-| --- | --- | --- | --- | --- |
-| <a href="https://github.com/snakers4/silero-vad"><img src="assets/logos/snakers4.png" width="48"  alt=""></a> | Silero VAD | - | [snakers4/silero-vad](https://github.com/snakers4/silero-vad) | MIT |
-| | Energy+ZCR VAD | - | custom, in-repo | Apache 2.0 (VASDK) |
-| <a href="https://www.pipecat.ai"><img src="assets/logos/pipecat.svg" width="48" height="48" alt=""></a> | SmartTurn v3 | - | [pipecat-ai/smart-turn-v3](https://huggingface.co/pipecat-ai/smart-turn-v3) (model) · [marton78/pffft](https://github.com/marton78/pffft) (FFT dependency) | BSD 2-Clause (model) · permissive NCAR/UCAR license (pffft) |
-| | pyannote speaker embedding | - | [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) (pipeline) · [wespeaker_en_voxceleb_resnet34_LM.onnx](https://github.com/k2-fsa/sherpa-onnx/releases/tag/speaker-recongition-models) (ONNX export by sherpa-onnx) | MIT (pyannote) · CC BY 4.0 (WeSpeaker model) |
-| <a href="https://github.com/xiph/rnnoise"><img src="assets/logos/xiph.png" width="48" height="48" alt=""></a> | RNNoise | - | [xiph/rnnoise](https://github.com/xiph/rnnoise) | BSD 3-Clause |
-| <a href="https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3"><img src="assets/logos/nvidia.svg" width="48" height="48" alt=""></a> | Parakeet TDT | - | [istupakov/parakeet-tdt-0.6b-v3-onnx](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx) (model) · [microsoft/onnxruntime](https://github.com/microsoft/onnxruntime) (runtime) | CC BY 4.0 (model) · MIT (ONNX Runtime) |
-| <a href="https://github.com/moonshine-ai/moonshine"><img src="assets/logos/moonshine-ai.png" width="48"  alt=""></a> | Moonshine | - | [moonshine-ai/moonshine](https://github.com/moonshine-ai/moonshine) | MIT (English models; other languages ship under the non-commercial Moonshine Community License) |
-| <a href="https://github.com/ggml-org/whisper.cpp"><img src="assets/logos/ggml-org.jpg" width="48" alt=""></a> | Whisper.cpp | - | [ggml-org/whisper.cpp](https://github.com/ggml-org/whisper.cpp) | MIT |
-| | Whistle | [cactuscompute.com/whistle](https://cactuscompute.com/whistle) | [Cactus-Compute/whistle](https://huggingface.co/Cactus-Compute/whistle) (model) · [Cactus-Compute/needle3](https://huggingface.co/Cactus-Compute/needle3) (prebuilt engine, no source) · [cactus-compute/needle](https://github.com/cactus-compute/needle) | Apache 2.0 (model and engine binaries) |
-| | Voz | [desertant.com/models/voz](https://desertant.com/models/voz/) | [desert-ant-labs/voz](https://huggingface.co/desert-ant-labs/voz) (model) · [ai.desertant:voz](https://central.sonatype.com/artifact/ai.desertant/voz) (Android SDK) | Desert Ant Labs Source-Available License 1.0 (free below 100k monthly active devices per platform; attribution required) |
-| <a href="https://www.gladia.io"><img src="assets/logos/gladiaio.jpg" width="48" alt=""></a> | Gladia (cloud STT) | [gladia.io](https://www.gladia.io) · [API docs](https://docs.gladia.io) | [fatehmtd/gladiapp](https://github.com/fatehmtd/gladiapp) (VASDK's own client, not Gladia's official SDK) | MIT (gladiapp) |
-| <a href="https://soniox.com"><img src="assets/logos/soniox.png" width="48" alt=""></a> | Soniox (cloud STT/TTS) | [soniox.com](https://soniox.com) · [API docs](https://soniox.com/docs) | [fatehmtd/SonioxPP](https://github.com/fatehmtd/SonioxPP) (VASDK's own client, not Soniox's official SDK) | Apache 2.0 (SonioxPP) |
-| <a href="https://github.com/supertone-inc/supertonic"><img src="assets/logos/supertone-inc.png" width="48" alt=""></a> | Supertonic | - | [supertone-inc/supertonic](https://github.com/supertone-inc/supertonic) (inference code) | MIT (code) · OpenRAIL (model weights) |
-| <a href="https://kyutai.org"><img src="assets/logos/kyutai-labs.png" width="48" alt=""></a> | PocketTTS | - | [kyutai/pocket-tts](https://huggingface.co/kyutai/pocket-tts) (model) · [google/sentencepiece](https://github.com/google/sentencepiece) (tokenizer) | CC BY 4.0 (model) · Apache 2.0 (sentencepiece) |
-| | Phonon | [gradium.ai/phonon](https://gradium.ai/phonon) | in-repo C++ port on [ggml-org/ggml](https://github.com/ggml-org/ggml) of [gradium-ai/xn-ptts](https://github.com/gradium-ai/xn-ptts) · [gradium/phonon-40m-multilingual](https://huggingface.co/gradium/phonon-40m-multilingual) (model) · [google/sentencepiece](https://github.com/google/sentencepiece) (tokenizer) | Apache 2.0 (VASDK) · MIT (ggml) · CC BY-NC 4.0 (40m models) |
-| | MOSS-TTS-Nano | [OpenMOSS/MOSS-TTS-Nano](https://github.com/OpenMOSS/MOSS-TTS-Nano) | [Supbatomic/moss-tts-nano-100m-onnx-model](https://huggingface.co/Supbatomic/moss-tts-nano-100m-onnx-model) (model) · [OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano-ONNX](https://huggingface.co/OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano-ONNX) (codec) · [google/sentencepiece](https://github.com/google/sentencepiece) (tokenizer) | Apache 2.0 |
-| <a href="https://deepgram.com"><img src="assets/logos/deepgram.svg" width="48" height="48" alt=""></a> | Deepgram (cloud STT/TTS) | [deepgram.com](https://deepgram.com) · [API docs](https://developers.deepgram.com) | [fatehmtd/deepgrampp](https://github.com/fatehmtd/deepgrampp) (VASDK's own client, not Deepgram's official SDK) | Apache 2.0 (deepgrampp) |
-| | Cartesia (cloud STT/TTS) | [cartesia.ai](https://cartesia.ai) | [fatehmtd/CartesiaPP](https://github.com/fatehmtd/CartesiaPP) (VASDK's own client, not Cartesia's official SDK) | Apache 2.0 (CartesiaPP) |
-| | Fish Audio (cloud STT/TTS) | [fish.audio](https://fish.audio) | [fatehmtd/fishaudiopp](https://github.com/fatehmtd/fishaudiopp) (VASDK's own client, not Fish Audio's official SDK) | Apache 2.0 (fishaudiopp) |
-| | Gradium (cloud STT/TTS) | [gradium.ai](https://gradium.ai) · [API docs](https://docs.gradium.ai) | [fatehmtd/GradiumPP](https://github.com/fatehmtd/GradiumPP) (VASDK's own client, not Gradium's official SDK) | Apache 2.0 (GradiumPP) |
-| <a href="https://github.com/ggml-org/llama.cpp"><img src="assets/logos/ggml-org.jpg" width="48" alt=""></a> | llama.cpp | - | [ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp) | MIT |
-| <a href="https://openai.com"><img src="assets/logos/openai.png" width="48" alt=""></a> | OpenAI (cloud LLM) | [openai.com](https://openai.com) · [API docs](https://platform.openai.com/docs) | - (direct HTTP via libcurl, no vendor SDK) | - |
-| <a href="https://www.anthropic.com"><img src="assets/logos/anthropic.svg" width="48" alt=""></a> | Anthropic (cloud LLM) | [anthropic.com](https://www.anthropic.com) · [API docs](https://platform.claude.com/docs) | - (direct HTTP via libcurl, no vendor SDK) | - |
-| <a href="https://github.com/mackron/miniaudio"><img src="assets/logos/mackron.png" width="48" height="48" alt=""></a> | MiniAudio | - | [mackron/miniaudio](https://github.com/mackron/miniaudio) | Public domain (Unlicense) / MIT-0, your choice |
-| <a href="https://github.com/libsdl-org/SDL"><img src="assets/logos/libsdl-org.png" width="48" alt=""></a> | SDL3 | - | [libsdl-org/SDL](https://github.com/libsdl-org/SDL) | zlib |
-| <a href="https://ffmpeg.org"><img src="assets/logos/ffmpeg.svg" width="48" alt=""></a> | FFmpeg | [ffmpeg.org](https://ffmpeg.org) | [FFmpeg/FFmpeg](https://github.com/FFmpeg/FFmpeg) | LGPL or GPL, depending on how your system build was configured |
-| | libdatachannel (WebRTC) | - | [paullouisageneau/libdatachannel](https://github.com/paullouisageneau/libdatachannel) | MPL 2.0 |
-| | Opus (WebRTC audio codec) | [opus-codec.org](https://opus-codec.org) | [xiph/opus](https://github.com/xiph/opus) | BSD 3-Clause |
-| | VizAnim | - | custom, in-repo · [marton78/pffft](https://github.com/marton78/pffft) (FFT dependency) | Apache 2.0 (VASDK) · permissive NCAR/UCAR license (pffft) |
-
-`gladiapp`, `SonioxPP`, `deepgrampp`, `CartesiaPP`, `fishaudiopp`, and `GradiumPP` are VASDK's own thin WebSocket clients for those APIs, not an SDK published by Gladia, Soniox, Deepgram, Cartesia, Fish Audio, or Gradium themselves - the license listed is for that wrapper code, not the underlying service.
-
-## Configuration
-
-### Build options
-
-```bash
-# Core library only, no provider implementations
-cmake -B build -S . -DVASDK_BUILD_THIRDPARTY_IMPL=OFF
-
-# Providers as shared libs instead of static
-cmake -B build -S . -DVASDK_THIRDPARTY_SHARED_LIBS=ON
-
-# Terminal UI for VASDK_Pipeline (FTXUI)
-cmake -B build -S . -DVASDK_BUILD_TUI=ON
-
-# Metrics exporters (all default OFF, pick what your monitoring stack speaks)
-cmake -B build -S . -DVASDK_METRICS_PROMETHEUS=ON -DVASDK_METRICS_STATSD=ON
-
-# WebRTC transport provider + browser demo page (libdatachannel, Opus; default OFF)
-cmake -B build -S . -DVASDK_BUILD_LIBDATACHANNEL_WEBRTC=ON
-```
-
-### Model files
-
-Model files are downloaded automatically during CMake configure, into `build/VASDK_3P_IMPL/models/`. Each enabled provider pulls its own files from the model's upstream release (HuggingFace for most) and skips anything already on disk, so re-configuring is cheap. At runtime, both showcase apps locate that directory by searching for `VASDK_3P_IMPL/models` upward from the executable's location, so the default build layout just works.
-
-An enabled provider downloads its models by default. Several also have a `VASDK_DOWNLOAD_*` switch to skip that download. The exception is llama.cpp, whose model download is off by default even when the provider is built:
-
-```bash
-# Skip a model download (per provider)
-cmake -B build -S . -DVASDK_DOWNLOAD_PHONON_TTS_MODEL=OFF
-
-# Build llama.cpp and download its model (default: LFM2.5 1.2B Instruct Q4_K_M, ~731 MB)
-cmake -B build -S . -DVASDK_BUILD_LLAMACPP=ON -DVASDK_DOWNLOAD_LLAMACPP_MODEL=ON
-
-# Swap the default llama.cpp model
-cmake -B build -S . -DVASDK_LLAMACPP_MODEL_URL=https://huggingface.co/.../model.gguf
-```
-
-Phonon TTS is on by default. Its default 40m multilingual models are gated on HuggingFace and licensed CC BY-NC 4.0 (non-commercial use only). Accept the terms on the [model page](https://huggingface.co/gradium/phonon-40m-multilingual) first, then export `HF_TOKEN` (or run `hf auth login`) before configuring. Without a token, configure warns and skips the download. `-DPHONON_TTS_HF_REPO=gradium/phonon-31m-en` switches to the public English-only model. The provider loads the Hugging Face checkpoint files as published (`config.json`, `tokenizer.model`, `model.q8.gguf`, voice `.safetensors`) with an in-repo C++ port of Gradium's inference on ggml: it shares llama.cpp's ggml when `VASDK_BUILD_LLAMACPP` is on and fetches a pinned ggml otherwise. In the showcase apps any cloud TTS you build, and MOSS-TTS-Nano, take priority over Phonon:
-
-```bash
-# Pick voices from gradium/phonon-voices (default: Easton;Zoey;Augustin;Anton;Marcos;Davi)
-cmake -B build -S . -DPHONON_TTS_VOICES="Zoey;Augustin"
-```
-
-At runtime, `PHONON_TTS_VOICE` (in `.env`) picks the voice and `PHONON_TTS_LANG` (`en`, `fr`, `de`, `es`, `pt` or `none`) the language text is normalized as: numbers, amounts, symbols, emails, URLs and abbreviations are spelled out exactly as Gradium's runtime does. Long replies are then split as that runtime splits them: whole sentences grouped into pieces of up to 50 tokens, with any sentence over 200 tokens cut at a clause, because the model stops early and drops words when it is given much more at once. The C++ normalizer and splitter are checked against the reference implementation by golden-file parity tests (`-DVASDK_BUILD_TESTS=ON`, then `ctest`; see `VASDK_3P_IMPL/PhononTTS/tests/golden-gen`). `PHONON_TTS_RULES=all` also reads phone numbers, times and dates, which are opt-in there too. The Android app offers Phonon with the public `gradium/phonon-31m-en` checkpoint, downloaded at runtime.
-
-MOSS-TTS-Nano ([OpenMOSS](https://github.com/OpenMOSS/MOSS-TTS-Nano), Apache 2.0) is a 100M-parameter multilingual TTS (Chinese, English, Japanese and more) that generates 48 kHz audio autoregressively on CPU. It is off by default because its files are large: configure downloads about 710 MB from the [ONNX export](https://huggingface.co/Supbatomic/moss-tts-nano-100m-onnx-model) and the streaming decoder of [MOSS-Audio-Tokenizer-Nano-ONNX](https://huggingface.co/OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano-ONNX), both pinned by revision, and the provider uses about 1.6 GB of RAM once loaded. Audio streams as it is generated, starting roughly 0.2 s after a request, and synthesis runs at about twice real time on four desktop CPU threads. In the showcase apps a cloud TTS takes priority when one is built; otherwise MOSS wins over Phonon and PocketTTS:
-
-```bash
-cmake -B build -S . -DVASDK_BUILD_MOSS_TTS=ON
-```
-
-`MOSS_TTS_VOICE` (in `.env`) picks one of the 18 built-in voices shipped in `browser_poc_manifest.json`, for example `Ava`, `Bella`, `Adam` or `Nathan` (English), `Junhao` or `Xiaoyu` (Chinese) and `Soyo` or `Saki` (Japanese). The default is `Ava`. Text goes through upstream's normalization pipeline before synthesis. Its robustness pass is ported rule for rule (markdown, line breaks, brackets, dashes, repeated punctuation, spacing, and protection of URLs, emails and file names) and checked against the reference's own test table. Upstream's semantic stage, WeTextProcessing, is replaced by a compact C++ reader that spells out numbers, decimals, percentages, money, dates, times, fractions, ranges, units, phone numbers, versions, URLs, emails and common abbreviations in English, Chinese or Japanese, picked by the script of the text. `setTextNormalization(false)` turns that off. Long replies are then split the way upstream splits them, into sentence groups of up to 75 tokens. In the Android app, pick "MOSS-TTS-Nano" as the TTS provider; it downloads the same files into the app cache. Voice cloning from reference audio isn't wired up yet. `-DVASDK_BUILD_TESTS=ON` adds two `ctest`s: `moss_normalize` (normalizer parity and spoken forms, no models needed) and `moss_tts_synth` (synthesizes a sentence end to end and writes `moss_tts_test.wav`).
-
-Whistle STT ([Cactus Compute](https://huggingface.co/Cactus-Compute/whistle), Apache 2.0) is a 17 MB CPU model for English, German, French, Spanish, Italian, Dutch and Polish, with word timestamps and keyword biasing. It is on by default. Note that it runs on Cactus's closed-source needle engine, which is only published as prebuilt binaries; pass `-DVASDK_BUILD_WHISTLE_STT=OFF` to avoid it. Configure downloads `whistle.cact`, `needle.h` and the engine, each pinned by revision and SHA-256. On Windows, Linux and macOS the engine is the self-contained `libneedle3.dll`/`.so`/`.dylib` from the `cactus-needle` wheel, placed next to the model and loaded at runtime. The repo's static `libneedle.a` for those platforms is built with clang/libc++, so MSVC and GCC can't link it. On Android the NDK-built `libneedle.a` links in directly. In the showcase apps a cloud STT takes priority when one is built; otherwise Whistle wins over Moonshine, Parakeet and Whisper.cpp.
-
-Moonshine STT ([Useful Sensors](https://huggingface.co/UsefulSensors/moonshine-streaming), MIT) runs the English streaming models: audio is encoded as it arrives, so partials stay cheap on long utterances. Turn it on with `-DVASDK_BUILD_MOONSHINE_STT=ON` and pick the size with `-DMOONSHINE_MODEL_ARCH=tiny|small|medium` (default `small`, ~270 MB). Configure downloads the five `.ort` graphs pinned by HuggingFace revision, plus `tokenizer.bin` pinned by SHA-256. Changing the size re-downloads on the next configure.
-
-`WHISTLE_LANGUAGE` (in `.env`; `en`, `de`, `fr`, `es`, `it`, `nl` or `pl`) pins the language. Without it, the language is detected per utterance. The engine holds one speech model per process, so every Whistle provider instance shares it and their inference calls are serialised. The Android app offers Whistle on arm64 only, because the needle engine has no x86_64 Android build.
-
-Speaker tracking uses pyannote/speaker-diarization-3.1's embedding model (WeSpeaker ResNet34-LM, ONNX, on a Kaldi fbank front end checked by a parity test). It is on by default (`VASDK_BUILD_PYANNOTE_SPEAKER`). Both showcase apps insert `SpeakerIdentificationProcessor` after turn detection. For each utterance, it reports whether the speaker is the same as the last one or new, and it matches against voices enrolled with `requestEnrollment()`. If the model fails to load, the apps log an error and run without speaker tracking.
-
-The [ManniX-ITA/whistle-GGUF](https://huggingface.co/ManniX-ITA/whistle-GGUF) repackaging uses custom ggml tensor types (CQ2_0/CQ4_0) that only the opencoti llamafile fork loads, so the provider uses the original `.cact` and engine instead.
-
-Voz STT ([Desert Ant Labs](https://huggingface.co/desert-ant-labs/voz)) is NVIDIA's Parakeet TDT 0.6B v3 repackaged for on-device runtimes (25 European languages, word timestamps). Its license only covers running it through Desert Ant Labs' own SDKs, which download the model and send the device-count telemetry the license relies on. `VozTranscriptionProvider` (`VASDK_BUILD_VOZ_STT`, off by default) therefore doesn't run the model itself. It buffers each utterance and passes it to a `VozRecognizer` callback that the platform implements on top of the SDK. The Android app is the only platform with a recognizer so far: it calls `ai.desertant:voz` over JNI. The SDK only transcribes whole clips, so results arrive at the end of each utterance, and partials are off by default. Apps that offer Voz must credit Desert Ant Labs where users can see it (the Android app does this in Settings). Above 100,000 monthly active devices per platform, you need a commercial license.
-
-For air-gapped builds, turn the downloads off and place the files in `build/VASDK_3P_IMPL/models/` yourself; each `VASDK_3P_IMPL/cmake/Download*.cmake` script documents the exact filenames its provider expects.
-
-### Runtime flags
-
-Each app documents its own flag set (`--help` is always authoritative): the [VASDK_Pipeline flags](docs/apps/pipeline.md#cli-flags) cover LLM selection, prompt overrides, session recording, and metrics tuning; the [VASDK_CallCenter flags](docs/apps/callcenter.md#cli-flags) add `--ani` and `--persist-dir` for the CRM prefill and resume-on-redial features. Both take `--webrtc-port <port>` to talk from a browser instead of the local mic and speaker (with `VASDK_BUILD_LIBDATACHANNEL_WEBRTC`). Both load LLM credentials from `.env` (`--env-file` to point elsewhere), with CLI flags taking precedence over the environment. VASDK_Pipeline also takes `--config <engine.txtpb>` to choose its VAD, STT and TTS providers and LLM settings from a file instead of the build: see [Engine config files](docs/reference/engine-config.md).
-
-### Metrics
-
-Good enough today for basic visibility (latency, queue wait, per-call KPIs) - not yet thoroughly tested as a production observability path, so validate the numbers you care about before relying on them for alerting.
-
-```bash
-cmake -B build -S . -DVASDK_METRICS_PROMETHEUS=ON
-cmake --build build --config Release
-./build/VASDK_APP/VASDK_Pipeline --prometheus --prometheus-port 9099
-# curl http://127.0.0.1:9099/metrics
-```
-
-Or bring up the full local stack (Prometheus scraping the app, Grafana pointed at Prometheus):
-
-```bash
-docker compose up -d
-# Grafana at http://localhost:3000 (admin/admin)
-```
-
-## Android
-
-`VASDK_ANDROID/` wraps the core library and provider set behind a JNI boundary for a Kotlin app built with Jetpack Compose: same CMake tree, cross-compiled per ABI, with on-device GGUF inference through llama.cpp and a set of Android-native tools (camera, location, notifications, and more) the LLM can call. On first launch, a setup wizard asks you to pick the STT, TTS and language-model providers, then downloads their models. On-device options include Parakeet or Whistle for STT and PocketTTS, Phonon or MOSS-TTS-Nano for TTS, and pyannote speaker tracking is always on. The [Android guide](docs/apps/android.md) covers the layering, the `VasdkEngine` API, model downloading, and build setup.
+On by default: MiniAudio, Silero VAD, SmartTurn v3, pyannote, MiniLM, Whistle, PocketTTS, Phonon, RNNoise and VizAnim. The [provider catalog](docs/provider-catalog.md) covers how apps pick between them, each provider's options and models, and every source and license. To write one, follow the [provider checklist](docs/reference/providers.md#writing-a-new-provider-the-checklist).
 
 ## Documentation
 
-Everything beyond this README lives under [`docs/`](docs/README.md), organized by audience. The [example apps' guides](docs/apps/README.md) walk through the five apps in this repository, with what each shows and how it's built. There's also a [plain-language overview](docs/overview.md) for product and project people evaluating VASDK, and a [reference section](docs/README.md#core-concepts-reference) documenting every core interface and abstract class (frames, processors, pipeline, providers, transports, the LLM stack, the goal layer) with diagrams, contracts, and extension guides. The [docs index](docs/README.md) routes you to the right starting point.
-
-## Examples
-
-Each example is a worked, self-contained document under [`docs/examples/`](docs/examples/):
-
-- [A minimal pipeline](docs/examples/minimal-pipeline.md): chain six processors between two transports and get a talking assistant; the shortest path from providers to a running loop.
-- [Giving the LLM a tool](docs/examples/llm-tools.md): define a `Tool` with typed parameters and a JSON handler, and follow the `ToolCallFrame`/`ToolResultFrame` round trip, including how tools reach local GGUF models.
-- [Defining a goal in JSON](docs/examples/goal-definitions.md): drive multi-turn slot filling from a JSON file, with the full slot type table, conditional slots, and validation behavior.
-- [Testing without a microphone](docs/examples/testing-with-mock-transport.md): inject frames through `MockTransport`, assert on what the pipeline sent, and script whole conversations with `GoalConversationSimulator`.
-- [An agent in another language](docs/examples/languages.md): write a language pack, run a French agent whose callers may also speak English, test it with `vasdk_agentc`, and add languages from C++, C or Python.
-
-Beyond those, the [example apps](docs/apps/README.md) are the real-world references for wiring everything together:
-- [`VASDK_APP/main_pipeline.cpp`](VASDK_APP/main_pipeline.cpp) adds audio I/O, tools, recording and a terminal UI around `VAEngine`.
-- [`VASDK_CALLCENTER_APP/callcenter_pipeline.cpp`](VASDK_CALLCENTER_APP/callcenter_pipeline.cpp) runs one engine session per call, from agent files.
-- [`VASDK_CAR_APP/car_pipeline.cpp`](VASDK_CAR_APP/car_pipeline.cpp) feeds the car's state to the agent and the LLM, and serves a dashboard.
-- [`VASDK_PYTHON_APP/kitchen/assistant.py`](VASDK_PYTHON_APP/kitchen/assistant.py) does the same from Python: the agent's tools, the LLM's tools and the context.
-
-## Adding a provider
-
-Copy the shape of an existing `VASDK_3P_IMPL/<Name>/CMakeLists.txt`: declare the option, `FetchContent` the upstream SDK if there is one, implement the relevant interface (`GenericAudioSource`/`Sink`, `VADProvider`, `GenericTranscriptionProvider`, `GenericVoiceSynthesisProvider`, `TurnDetectionProvider`, or `LLMTransport`), and wire the new target into both showcase apps' CMakeLists behind an `ifdef` following the pattern already there. If the provider needs model files, add a `Download<Name>Model.cmake` script under `VASDK_3P_IMPL/cmake/` following the existing ones. Nothing in the core library needs to change. The [provider interfaces reference](docs/reference/providers.md) documents each interface's exact contract and ends with a step-by-step checklist.
+- [Documentation index](docs/README.md): where to start, by role (evaluating, building an app, writing a provider, extending the core).
+- [Example apps](docs/apps/README.md) and [worked examples](docs/README.md#worked-examples).
+- [Plain-language overview](docs/overview.md) for product and project people.
 
 ## License
 

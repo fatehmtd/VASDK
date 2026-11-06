@@ -1,5 +1,7 @@
 # Languages
 
+*Reference for language packs. Schema: [`language.proto`](../../VASDK/proto/vasdk/nlu/language.proto); header: [`Language.h`](../../VASDK/include/VASDK/nlu/Language.h) - the source of truth if this page and the code ever disagree.*
+
 A worked example, from a pack to a tested French agent: [An agent in another language](../examples/languages.md).
 
 The engine has no English words in its code. Everything it reads or says in a language comes from a **language pack**, a `vasdk.nlu.Language` message ([`language.proto`](../../VASDK/proto/vasdk/nlu/language.proto)) written as a text file:

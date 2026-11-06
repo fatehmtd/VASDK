@@ -98,7 +98,7 @@ The pipeline's endpoints ([`TransportInputProcessor.h`](../../VASDK/include/VASD
 
 ### AudioDSPProcessor
 
-([`AudioDSPProcessor.h`](../../VASDK/include/VASDK/AudioDSPProcessor.h)) Reads each `AudioFrame`'s range from the **raw** ring buffer, runs it through a `GenericAudioDSPProvider` (e.g. RNNoise), writes the result to a separate **clean** ring buffer advanced in lock-step, and forwards the frame unchanged - the same offsets are valid in both buffers, so downstream processors just point at whichever buffer they want. Both buffers must have identical capacity and sample size. Optional: omit the processor entirely and point VAD/STT at the raw buffer. Full design discussion: [root README, "The audio ring buffer"](../../README.md#the-audio-ring-buffer).
+([`AudioDSPProcessor.h`](../../VASDK/include/VASDK/AudioDSPProcessor.h)) Reads each `AudioFrame`'s range from the **raw** ring buffer, runs it through a `GenericAudioDSPProvider` (e.g. RNNoise), writes the result to a separate **clean** ring buffer advanced in lock-step, and forwards the frame unchanged - the same offsets are valid in both buffers, so downstream processors just point at whichever buffer they want. Both buffers must have identical capacity and sample size. Optional: omit the processor entirely and point VAD/STT at the raw buffer. Full design discussion: [Frames, "The audio ring buffer"](frames.md#the-audio-ring-buffer).
 
 ### VADFrameProcessor
 
@@ -130,11 +130,32 @@ Tunables live in `VADConfig` (defaults: `vadThresholdMs` 200, `minSpeechDuration
 Two behaviors sit on top of either path:
 
 - **User turn starts wait for confirmed speech.** A user `START` produced while the VAD is only `STARTING` is held and emitted on the first `ONGOING`; if the VAD falls back to `QUIET` it is dropped. A noise or echo blip therefore can't barge in on the agent or cancel the LLM - the cost is that a real barge-in takes `bargeInMinSpeechDurationMs` (150 ms in sessions) or else `minSpeechDurationMs` to land.
-- **Early end of turn.** When the provider returns `TURN_END` for the user while the VAD segment is still open (e.g. SmartTurn scoring a pause with `setEvaluateOnPause(true)`), the processor emits the turn `END` and also sends a `TurnStateFrame(USER, END)` upstream so the VAD closes the segment and transcription runs right away. In the showcase apps this takes the gap from the pause to the final transcript from ~1 s to ~0.1 s when the model is confident. Ending at a pause needs the provider's `pauseThreshold()` (default 0.85, `setPauseThreshold()`), higher than its regular threshold: a pause is often just a breath, and an uncertain turn still ends once the VAD confirms silence. If the user resumes after the turn did end, `LLMProcessor` merges both utterances into one message ([follow-ups](llm.md#follow-ups)).
+- **Early end of turn.** When the provider returns `TURN_END` for the user while the VAD segment is still open (e.g. SmartTurn scoring a pause with `setEvaluateOnPause(true)`), the processor emits the turn `END` and also sends a `TurnStateFrame(USER, END)` upstream so the VAD closes the segment and transcription runs right away. The transcript then goes out at the pause instead of after the silence timers. Ending at a pause needs the provider's `pauseThreshold()` (default 0.85, `setPauseThreshold()`), higher than its regular threshold: a pause is often just a breath, and an uncertain turn still ends once the VAD confirms silence. If the user resumes after the turn did end, `LLMProcessor` merges both utterances into one message ([follow-ups](llm.md#follow-ups)).
+
+The whole end-of-turn decision, with follow-ups:
+
+```mermaid
+flowchart TD
+    Pause["User pauses"] --> Score{"Turn detector, during the pause:<br/>probability ≥ 0.85?"}
+    Pause -->|"user resumes before<br/>the turn ends"| Same["Same turn continues"]
+    Score -->|yes| Early["Turn ends at the pause<br/>transcript sent to the LLM"]
+    Score -->|no| Silence{"After confirmed silence (~0.75 s):<br/>probability ≥ 0.5?"}
+    Silence -->|yes| Sent["Turn ends<br/>transcript sent to the LLM"]
+    Silence -->|no| Staged["Transcript held<br/>(sent after 2 s if the user stays quiet)"]
+    Early --> Again{"User speaks again while the agent thinks,<br/>or within 3 s of the send?"}
+    Sent --> Again
+    Staged -->|user resumes| Merge
+    Again -->|yes| Merge["Request cancelled and rolled back:<br/>next message = earlier words + new words"]
+    Again -->|no| Normal["Ordinary barge-in or new turn"]
+```
+
+On the [WebRTC demo page](transports.md#webrtctransport), the merged turn replaces the separate bubbles: the first utterance is struck through, and the `+` line is exactly what the LLM received. From a real call; the speech recognizer heard "Toulouse" as "Taluz", and the model still worked it out:
+
+![WebRTC demo page: a follow-up merged into one message](../../assets/screenshots/webrtc-follow-up.png)
 
 ### SpeakerIdentificationProcessor
 
-([`SpeakerIdentificationProcessor.h`](../../VASDK/include/VASDK/SpeakerIdentificationProcessor.h)) Enrolls users by voice and tags each utterance with who said it. On VAD `ENDED` it reads the utterance from the ring buffer and embeds it with a [`SpeakerEmbeddingProvider`](providers.md#speakerembeddingprovider). It tracks the current speaker's voice print: an utterance scoring below `threshold` against it is a new speaker and replaces it, otherwise it is averaged into it (logged as SAME/NEW speaker, and carried in the frame as `isNewSpeaker` / `trackedSimilarity`). If an enrollment is pending (`requestEnrollment(id)` or a `SpeakerEnrollmentFrame` with `REQUESTED`), the voice print is stored and a `SpeakerEnrollmentFrame` (`ENROLLED`/`FAILED`) is emitted; otherwise it emits a `SpeakerIdentificationFrame` with the tracking result and the best enrolled cosine match above `threshold` (default 0.3, pyannote 3.1's clustering threshold). Utterances shorter than `minSpeechSec` (default 1 s) are skipped. `getSpeakers()` / `addSpeaker()` save and restore voice prints. Place it after VAD; the showcase apps put it after transcription, since embedding the whole utterance (~70 ms per second of speech) would otherwise delay the transcript. Needs `setRingBuffer()`.
+([`SpeakerIdentificationProcessor.h`](../../VASDK/include/VASDK/SpeakerIdentificationProcessor.h)) Enrolls users by voice and tags each utterance with who said it. On VAD `ENDED` it reads the utterance from the ring buffer and embeds it with a [`SpeakerEmbeddingProvider`](providers.md#speakerembeddingprovider). It tracks the current speaker's voice print: an utterance scoring below `threshold` against it is a new speaker and replaces it, otherwise it is averaged into it (logged as SAME/NEW speaker, and carried in the frame as `isNewSpeaker` / `trackedSimilarity`). If an enrollment is pending (`requestEnrollment(id)` or a `SpeakerEnrollmentFrame` with `REQUESTED`), the voice print is stored and a `SpeakerEnrollmentFrame` (`ENROLLED`/`FAILED`) is emitted; otherwise it emits a `SpeakerIdentificationFrame` with the tracking result and the best enrolled cosine match above `threshold` (default 0.3, pyannote 3.1's clustering threshold). Utterances shorter than `minSpeechSec` (default 1 s) are skipped. `getSpeakers()` / `addSpeaker()` save and restore voice prints. Place it after VAD; the showcase apps put it after transcription, since embedding the whole utterance would otherwise delay the transcript. Needs `setRingBuffer()`.
 
 ### TranscriptionFrameProcessor
 

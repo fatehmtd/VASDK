@@ -1,6 +1,6 @@
 # VAEngine
 
-Source of truth: [`VAEngine.h`](../../VASDK/include/VASDK/VAEngine.h), [`VAEngine.cpp`](../../VASDK/src/VAEngine.cpp).
+*Reference for `va::VAEngine`. Source: [`VAEngine.h`](../../VASDK/include/VASDK/VAEngine.h), [`VAEngine.cpp`](../../VASDK/src/VAEngine.cpp) - the source of truth if this page and the code ever disagree.*
 
 `VAEngine` builds a complete voice assistant from an [engine config](engine-config.md). It creates the VAD, STT, TTS and turn-detection providers the config names, then wires the standard pipeline, so an app doesn't assemble processors by hand. You supply the audio transport and, optionally, your own processors and tools.
 

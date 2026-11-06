@@ -9,9 +9,16 @@ Start here and pick your path.
 | **Evaluating VASDK** (PM, project lead, architect doing a first pass) | [Plain-language overview](overview.md) - what it is, what you can build, maturity, licensing. No code. |
 | **New to the codebase** (any level, including junior) | Root [README](../README.md) for the quick start, then [Core concepts](#core-concepts-reference) below in order: frames → processors → pipeline. The [minimal pipeline example](examples/minimal-pipeline.md) is the fastest way to a mental model. |
 | **Building an app on VASDK** | The [example apps](apps/README.md) and which to start from: [VASDK_Pipeline](apps/pipeline.md) (general assistant), [VASDK_CallCenter](apps/callcenter.md) (goal-oriented, no LLM needed), [VASDK_Car](apps/car.md) (an agent in verticals, rules and an LLM together, a model per task), [Android](apps/android.md), [VASDK_PYTHON_APP](apps/python.md) (VASDK from Python: spoken sessions, tools and triggers in Python). Then the [examples](#worked-examples). |
+| **Building from source** (prerequisites, CMake options, model downloads, air-gapped builds) | [Building VASDK](building.md). |
+| **Choosing providers** (which STT/TTS/LLM, their options, models and licenses) | [Providers](provider-catalog.md). |
 | **Implementing a provider** (new STT/TTS/VAD/LLM backend) | [Provider interfaces](reference/providers.md), especially the checklist at the end. |
 | **Extending the core** (new processor, transport, frame type) | [Processors](reference/processors.md), [Transports](reference/transports.md), [Frames](reference/frames.md) - each ends with an extension guide. |
 | **Doing compliance / legal review** | [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md). |
+
+## Setup
+
+- **[Building VASDK](building.md)** - prerequisites, build options, model files, air-gapped builds.
+- **[Providers](provider-catalog.md)** - every implementation, how the apps choose between them, per-provider options, sources and licenses.
 
 ## Core concepts (reference)
 
@@ -52,8 +59,26 @@ Full guides to the five apps in the repository, with what each shows and how it'
 - [Testing without a microphone](examples/testing-with-mock-transport.md) - `MockTransport` and the goal conversation simulator.
 - [An agent in another language](examples/languages.md) - a language pack, an agent in French that understands English, tested with `vasdk_agentc`; packs from C++, C and Python, and a C++ language for grammar a pack can't express.
 
+## Repository layout
+
+```text
+VASDK/                Core shared library: the pipeline runtime, all interfaces
+VASDK_3P_IMPL/         Provider implementations, one CMake target each (see table below)
+VASDK_APP/             General-purpose voice assistant showcase (VASDK_Pipeline)
+VASDK_CALLCENTER_APP/  Goal-oriented call center showcase (VASDK_CallCenter)
+VASDK_CAR_APP/         In-car assistant showcase with a live dashboard (VASDK_Car)
+VASDK_ANDROID/         Android app + JNI bindings around the core library
+VASDK_PYTHON_APP/      Kitchen assistant in Python, on the Python binding
+VASDK/languages/       The built-in language pack (en-US): copy it to write another language
+bindings/python/       The Python binding (the C API, over ctypes)
+docs/apps/             The example apps' guides
+docs/examples/         Worked examples (pipelines, tools, goals, testing)
+prometheus/, grafana/  docker-compose stack for local metrics visualization
+```
+
 ## Conventions used across the docs
 
 - Every reference page links the header it documents; **the header is the source of truth** - this project changes daily and prose can lag.
 - Interfaces here grow by **adding optional virtuals with safe defaults**, so custom implementations keep compiling across updates; pages call out which members are optional.
 - File paths in code snippets are relative to the repository root.
+- **The root README only links.** It holds the pitch, the demo and the quick start; every detail lives in exactly one page here.

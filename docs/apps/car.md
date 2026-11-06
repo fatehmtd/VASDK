@@ -117,9 +117,9 @@ A car command is a rule and asks no LLM. The rest goes to one of three LLMs, set
 
 | Profile | Answers | Set with |
 | --- | --- | --- |
-| `fast` | The intent check, when the rules aren't sure | `LLM_FAST_MODEL` (and `_ENDPOINT`, `_API_KEY`, `_REASONING_EFFORT`) |
+| `fast` | The intent check, when the rules aren't sure | `LLM_FAST_MODEL`, `LLM_FAST_ENDPOINT`, `LLM_FAST_API_KEY`, `LLM_FAST_REASONING_EFFORT` |
 | default (`llm`) | Chat, and requests no vertical understands, with the tools | `LLM_MODEL`, `LLM_ENDPOINT`, `LLM_API_KEY`, `LLM_REASONING_EFFORT` |
-| `smart` | Stories, games and questions about the world (routes with `llm_profile: "smart"`), and the turns after them that nothing understood, such as a quiz's answers | `LLM_SMART_MODEL` (and `_ENDPOINT`, ...) |
+| `smart` | Stories, games and questions about the world (routes with `llm_profile: "smart"`), and the turns after them that nothing understood, such as a quiz's answers | `LLM_SMART_MODEL`, `LLM_SMART_ENDPOINT`, `LLM_SMART_API_KEY`, `LLM_SMART_REASONING_EFFORT` |
 
 ```bash
 # .env.local

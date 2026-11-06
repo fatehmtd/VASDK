@@ -1,5 +1,7 @@
 # The C API
 
+*Reference for the C API. Headers: [`vasdk.h`](../../VASDK/include/VASDK/c/vasdk.h) and its C++ wrapper [`vasdk_cpp.h`](../../VASDK/include/VASDK/c/vasdk_cpp.h) - the source of truth if this page and the code ever disagree.*
+
 [`VASDK/c/vasdk.h`](../../VASDK/include/VASDK/c/vasdk.h) gives any language that can call C what C++ apps have for [agents](flows.md): load an agent, talk to it by text, write its steps, tools, envelopes, page types and entity extractors, and run its test cases. Data crosses as JSON or serialized protos ([`vasdk/flow/*.proto`](../../VASDK/proto/vasdk/flow/)), never as C++ types, so bindings (Python, Rust, Go, Swift) stay thin.
 
 ```c
@@ -12,7 +14,7 @@ static void create_booking(const char* args_json, vasdk_result* result, void* us
 vasdk_registry* registry = vasdk_registry_create();
 vasdk_registry_add_tool(registry, "create_booking", "Books a service", create_booking, NULL);
 char* error = NULL;
-vasdk_agent* agent = vasdk_agent_load("agents/garage/agent.txtpb", registry, &error);
+vasdk_agent* agent = vasdk_agent_load("VASDK_APP/agents/garage-menu/agent.txtpb", registry, &error);
 vasdk_conversation* conversation = vasdk_conversation_create(agent);
 char* reply = vasdk_conversation_start(conversation);   /* {"text": "Hi, ...", "page": "welcome", ...} */
 vasdk_free(reply);

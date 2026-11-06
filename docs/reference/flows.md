@@ -1,5 +1,7 @@
 # Agents
 
+*Reference for agent files and `va::flow`. Schema: [`vasdk/flow/`](../../VASDK/proto/vasdk/flow/) (start with [`agent.proto`](../../VASDK/proto/vasdk/flow/agent.proto)); headers in [`VASDK/include/VASDK/flow/`](../../VASDK/include/VASDK/flow/) - the source of truth if this page and the code ever disagree.*
+
 An agent file describes a conversation as pages: what the assistant says on each, which answers it understands, and where each answer leads. It runs with no LLM. With an LLM configured, the agent answers first and the LLM takes what no page understands.
 
 ```cpp
@@ -82,7 +84,7 @@ Intents are understood from their examples, with no model and no LLM. When sever
 
 `$nlu.intent` is the matched route's intent. `$nlu.confidence` (0 to 1) is how fully its example matched, and `$nlu.stage` is what understood it (`rules`). `vasdk_agentc try` shows the best three.
 
-**A sentence encoder.** With `providers { sentence_encoder { id: "minilm" } }` in the engine config, a session understands paraphrases its examples miss: "is the shop open on saturday" for `hours`. That is all-MiniLM-L6-v2, 23 MB int8, on device; its model is downloaded at build time into `models/minilm`. It runs after the rules, which keep every turn they understand. On a paraphrase set, the rules alone get 20% and rules plus MiniLM 90% (`vasdk_minilm_nlu` in ctest).
+**A sentence encoder.** With `providers { sentence_encoder { id: "minilm" } }` in the engine config, a session understands paraphrases its examples miss: "is the shop open on saturday" for `hours`. That is all-MiniLM-L6-v2 (int8), on device; its model is downloaded at build time into `models/minilm`. It runs after the rules, which keep every turn they understand. A paraphrase set checks it (`vasdk_minilm_nlu` in ctest).
 
 **Knowledge.** `knowledge { questions: ["do you do bodywork"] answer: "We don't do bodywork." }` answers questions on any page when no route understands the words, then asks the page's question again.
 - Without an encoder, a question matches when nearly all its words that matter are said, misspellings allowed.

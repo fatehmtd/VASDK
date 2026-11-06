@@ -1,6 +1,6 @@
 # Engine config files
 
-Source of truth: [`engine_config.proto`](../../VASDK/proto/vasdk/engine/engine_config.proto), [`ProtoFileLoader.h`](../../VASDK/include/VASDK/engine/ProtoFileLoader.h), [`ProviderRegistry.h`](../../VASDK/include/VASDK/engine/ProviderRegistry.h), [`options.proto`](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto).
+*Reference for engine config files. Source: [`engine_config.proto`](../../VASDK/proto/vasdk/engine/engine_config.proto), [`ProtoFileLoader.h`](../../VASDK/include/VASDK/engine/ProtoFileLoader.h), [`ProviderRegistry.h`](../../VASDK/include/VASDK/engine/ProviderRegistry.h), [`options.proto`](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto) - the source of truth if this page and the code ever disagree.*
 
 An engine config picks the VAD, STT, TTS and turn-detection providers and the LLM settings at run time, so switching from Whistle to Parakeet, or from PocketTTS to Cartesia, is a file edit instead of a rebuild. The schema is a protobuf message (`vasdk.engine.EngineConfig`); you write it as text proto.
 
