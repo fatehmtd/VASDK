@@ -61,7 +61,7 @@ session.set_context({"kitchen": {...}})  # $context.kitchen, and {context} in th
 | `push_audio`, `inject_text`, `say` | The user's audio, a user turn by text, words the assistant says. |
 | `send(vasdk.Command(...))` | What a `Command` asks: `inject_text`, `select_choice`, `fire_trigger`, `say`, `interrupt`, `set_session_param`. `select_choice`, `interrupt` and the methods around them are shortcuts for it. |
 | `fire_trigger`, `set_context`, `set_param` | The agent's app events, the app's state, a declared `$session` param. |
-| `snapshot()`, `start(resume=...)` | Where the agent's conversation is, to pick it up in a later session. |
+| `snapshot()`, `start(resume=...)` | Where the agent's conversation is, to pick it up in a later session: a `vasdk.ConversationSnapshot` (store it with `SerializeToString()`; `start` takes the message, its bytes or its JSON). |
 | `vasdk.set_log_level("warn")` | How much VASDK (and the providers) log to the console. |
 
 [VASDK_PYTHON_APP](../../VASDK_PYTHON_APP/) is a whole app built this way: a kitchen assistant with a microphone, a scripted demo, and tests.

@@ -255,7 +255,7 @@ struct Session::State {
     mutable std::mutex fallbackMutex;
     // The agent's conversation after its last reply (FlowRuntime::snapshot). Guarded by snapshotMutex.
     mutable std::mutex snapshotMutex;
-    std::string snapshot;
+    vasdk::flow::ConversationSnapshot snapshot;
     bool offline = false;
     bool fallbacksLoaded = false;
     void switchProviders(bool toFallbacks, const std::string& reason);
@@ -647,7 +647,7 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
             {
                 auto saved = conversation.snapshot();
                 std::lock_guard<std::mutex> lock(raw->snapshotMutex);
-                raw->snapshot = saved.empty() ? std::string() : saved.dump();
+                raw->snapshot = std::move(saved);
             }
             auto dispatcher = events.lock();
             if (!dispatcher) return;
@@ -875,22 +875,39 @@ void Session::setNetworkAvailable(bool available) {
     else _state->networkLost("network down", true);
 }
 
-std::string Session::conversationSnapshot() const {
+vasdk::flow::ConversationSnapshot Session::conversationSnapshotMessage() const {
     std::lock_guard<std::mutex> lock(_state->snapshotMutex);
     return _state->snapshot;
 }
 
-void Session::resumeConversation(const std::string& snapshotJson) {
+// Its JSON form, with the proto's field names: {"flow", "page", "session", "form": {"goal", "slots"}}.
+std::string Session::conversationSnapshot() const {
+    const auto snapshot = conversationSnapshotMessage();
+    if (snapshot.flow().empty()) return {};
+    google::protobuf::json::PrintOptions options;
+    options.preserve_proto_field_names = true;
+    std::string json;
+    (void)google::protobuf::util::MessageToJsonString(snapshot, &json, options);
+    return json;
+}
+
+void Session::resumeConversation(const vasdk::flow::ConversationSnapshot& snapshot) {
     if (!_state->dialog) {
         spdlog::warn("{} resumeConversation: no agent", _state->logTag);
         return;
     }
-    auto snapshot = nlohmann::json::parse(snapshotJson, nullptr, false);
-    if (!snapshot.is_object()) {
+    _state->dialog->setResumeFrom(snapshot);
+}
+
+void Session::resumeConversation(const std::string& snapshotJson) {
+    vasdk::flow::ConversationSnapshot snapshot;
+    google::protobuf::json::ParseOptions options;
+    options.ignore_unknown_fields = true;
+    if (!google::protobuf::util::JsonStringToMessage(snapshotJson, &snapshot, options).ok()) {
         spdlog::warn("{} resumeConversation: not a snapshot", _state->logTag);
         return;
     }
-    _state->dialog->setResumeFrom(std::move(snapshot));
+    resumeConversation(snapshot);
 }
 
 std::optional<std::chrono::system_clock::time_point> Session::nextScheduledTrigger() const {

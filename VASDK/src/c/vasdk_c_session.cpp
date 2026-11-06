@@ -3,6 +3,7 @@
 #include "c/vasdk.h"
 #include "c/vasdk_cpp.h"
 #include "vasdk_c_internal.h"
+#include "vasdk/flow/snapshot.pb.h"
 #include "context/ContextProvider.h"
 
 #include "../AudioFrameUtil.h"
@@ -254,6 +255,16 @@ void vasdk_session_resume(vasdk_session* session, const char* snapshot_json) {
     if (session && snapshot_json && *snapshot_json) session->engine->resumeConversation(snapshot_json);
 }
 
+int vasdk_session_resume_message(vasdk_session* session, const void* snapshot, size_t length, vasdk_format format,
+                                 char** error) {
+    if (!session) return failWith(error, "no session", 0);
+    vasdk::flow::ConversationSnapshot parsed;
+    std::string reason;
+    if (!vasdk_c::read(snapshot, length, format, parsed, &reason)) return failWith(error, "ConversationSnapshot: " + reason, 0);
+    if (!parsed.flow().empty()) session->engine->resumeConversation(parsed);
+    return 1;
+}
+
 int vasdk_session_start(vasdk_session* session, char** error) {
     if (!session) return failWith(error, "no session", 0);
     std::string reason;
@@ -304,6 +315,11 @@ void vasdk_session_set_network_available(vasdk_session* session, int available) 
 
 char* vasdk_session_snapshot(vasdk_session* session) {
     return copyText(session ? session->engine->conversationSnapshot() : std::string());
+}
+
+void* vasdk_session_snapshot_message(vasdk_session* session, vasdk_format format, size_t* length) {
+    const auto snapshot = session ? session->engine->conversationSnapshotMessage() : vasdk::flow::ConversationSnapshot();
+    return vasdk_c::writtenCopy(snapshot, format, length);
 }
 
 int vasdk_session_add_tool(vasdk_session* session, const char* name, const char* description, const char* parameters_json,

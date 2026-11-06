@@ -11,6 +11,7 @@
 #include <nlohmann/json.hpp>
 #include <vasdk/engine/events.pb.h>
 #include <vasdk/engine/session.pb.h>
+#include <vasdk/flow/snapshot.pb.h>
 
 #include <atomic>
 #include <chrono>
@@ -135,6 +136,13 @@ int main() {
     char* snapshot = vasdk_session_snapshot(session);
     const auto saved = nlohmann::json::parse(snapshot, nullptr, false);
     check(saved.is_object() && saved.value("page", "") == "booking", std::string("a snapshot of the form: ") + snapshot);
+    // The same as the vasdk.flow.ConversationSnapshot itself.
+    size_t snapshotLength = 0;
+    void* snapshotData = vasdk_session_snapshot_message(session, VASDK_FORMAT_BINARY, &snapshotLength);
+    vasdk::flow::ConversationSnapshot message;
+    check(message.ParseFromArray(snapshotData, static_cast<int>(snapshotLength)) && message.page() == "booking" &&
+              message.form().slots().fields().count("day") == 1,
+          "a snapshot as a message, with the form's filled slot");
     vasdk_session_free(session);
 
     Heard again;
@@ -145,6 +153,20 @@ int main() {
     check(vasdk_session_start(later, &error) == 1, "the later session starts");
     check(again.waitFor("Welcome back. Your name?"), "it resumes: only what's missing is asked");
     vasdk_session_free(later);
+
+    Heard fromMessage;
+    vasdk_session* resumed = vasdk_session_create(configPath.c_str(), providers, agent, nullptr, &error);
+    vasdk_session_on_event(resumed, onEvent, &fromMessage);
+    check(vasdk_session_resume_message(resumed, snapshotData, snapshotLength, VASDK_FORMAT_BINARY, &error) == 1,
+          "a session resumes from the message");
+    vasdk_free(snapshotData);
+    check(vasdk_session_resume_message(resumed, "\x01\x02", 2, VASDK_FORMAT_BINARY, &error) == 0 && error,
+          "bytes that aren't a snapshot fail");
+    vasdk_free(error);
+    error = nullptr;
+    check(vasdk_session_start(resumed, &error) == 1, "it starts");
+    check(fromMessage.waitFor("Welcome back. Your name?"), "and picks up the form where the message left it");
+    vasdk_session_free(resumed);
 
     // The same through protos, serialized: SessionOptions in, Events out, a Command, a Struct context, a ToolDeclaration.
     vasdk::engine::SessionOptions options;

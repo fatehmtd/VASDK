@@ -77,15 +77,20 @@ int main(int argc, char** argv) {
         first.handleText("can you call me back about maintenance");
         first.handleText("Carol Diaz");
         const auto saved = first.snapshot();
-        expect(saved.value("flow", "") == "main" && saved.value("page", "") == "schedule", "saved on the schedule page: " + saved.dump());
-        const auto slots = saved["form"]["slots"];
-        expect(slots.value("customer_name", "") == "Carol Diaz" && slots.value("service_type", "") == "maintenance" &&
-                   !slots.contains("phone_number"),
-               "the name and service kept, no phone number: " + saved.dump());
+        expect(saved.flow() == "main" && saved.page() == "schedule", "saved on the schedule page: " + saved.ShortDebugString());
+        const auto& slots = saved.form().slots().fields();
+        auto slot = [&slots](const std::string& name) {
+            const auto found = slots.find(name);
+            return found == slots.end() ? std::string() : found->second.string_value();
+        };
+        expect(slot("customer_name") == "Carol Diaz" && slot("service_type") == "maintenance" && !slots.count("phone_number"),
+               "the name and service kept, no phone number: " + saved.ShortDebugString());
 
         va::flow::FlowRuntime again(agent);
         bool resumed = false;
-        auto reply = again.resume(nlohmann::json::parse(saved.dump()), &resumed);
+        vasdk::flow::ConversationSnapshot stored;   // as it would be read back from a file
+        stored.ParseFromString(saved.SerializeAsString());
+        auto reply = again.resume(stored, &resumed);
         expect(resumed && reply.text == "Welcome back. Let's finish scheduling your callback. What's the best number to call you back on?",
                "welcomed back, and asked what's missing: " + reply.text);
         reply = again.handleText("five five five, two two two, three three three three");
@@ -94,12 +99,12 @@ int main(int argc, char** argv) {
         expect(reply.text.find("maintenance callback for Carol Diaz") != std::string::npos, "read back with the saved values: " + reply.text);
 
         auto gone = saved;
-        gone["page"] = "a page the agent no longer has";
+        gone.set_page("a page the agent no longer has");
         va::flow::FlowRuntime stale(agent);
         reply = stale.resume(gone, &resumed);
         expect(!resumed && stale.pageName() == "welcome", "a snapshot that doesn't fit: the call starts over");
         stale.handleText("goodbye");
-        expect(stale.ended() && stale.snapshot().empty(), "an ended call leaves nothing to resume");
+        expect(stale.ended() && stale.snapshot().flow().empty(), "an ended call leaves nothing to resume");
     }
 
     if (llm->calls == 0) {

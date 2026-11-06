@@ -81,7 +81,7 @@ public:
     /** Mid-chat, the share of the words a route must account for (FlowRuntime::setChatMinShare). Before start(). */
     void setChatMinShare(float share);
     /** Before start(): the greeting resumes the conversation from `snapshot` (FlowRuntime::resume), once. */
-    void setResumeFrom(nlohmann::json snapshot) { _resumeFrom = std::move(snapshot); }
+    void setResumeFrom(vasdk::flow::ConversationSnapshot snapshot) { _resumeFrom = std::move(snapshot); }
     /** When the next schedule trigger is due, as of the last check (each second while running):
      *  what an app sets an alarm for, to come back if it's closed by then. Thread-safe. */
     std::optional<std::chrono::system_clock::time_point> nextScheduledTrigger() const;
@@ -148,7 +148,7 @@ private:
     int _noInputMs = 0;             // the page's no-input wait after the last reply
     bool _privateAnswer = false;    // the last question's answer is private
     bool _greetingPending = true;
-    nlohmann::json _resumeFrom;     // the first greeting resumes from it, when set
+    vasdk::flow::ConversationSnapshot _resumeFrom;   // the first greeting resumes from it, when its flow is set
     float _chatMinShare = 0.25f;
     transport::AgentState _agentState = transport::AgentState::IDLE;
     bool _connected = true;

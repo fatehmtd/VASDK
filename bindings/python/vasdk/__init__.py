@@ -83,7 +83,7 @@ def _find_messages():
 _find_messages()
 
 from .engine import events_pb2, session_pb2  # noqa: E402
-from .flow import conversation_pb2, step_outcome_pb2, trigger_pb2  # noqa: E402
+from .flow import conversation_pb2, snapshot_pb2, step_outcome_pb2, trigger_pb2  # noqa: E402
 
 Event = events_pb2.Event
 Command = events_pb2.Command
@@ -94,6 +94,7 @@ SessionOptions = session_pb2.SessionOptions
 ToolDeclaration = session_pb2.ToolDeclaration
 ToolParameter = session_pb2.ToolParameter
 TriggerDecision = trigger_pb2.TriggerDecision   # TriggerFired.decision, ConversationReply.Trigger.decision
+ConversationSnapshot = snapshot_pb2.ConversationSnapshot   # Session.snapshot(), start(resume=...)
 
 
 def _find_library():
@@ -206,7 +207,7 @@ _session_create = _declare("vasdk_session_create_message", _p, _s, _p, _p, _s, _
 _session_free = _declare("vasdk_session_free", None, _p)
 _session_on_event = _declare("vasdk_session_on_event_message", None, _p, _MESSAGE, _i, _p)
 _session_on_audio = _declare("vasdk_session_on_audio", None, _p, _AUDIO, _p)
-_session_resume = _declare("vasdk_session_resume", None, _p, _s)
+_session_resume = _declare("vasdk_session_resume_message", _i, _p, _s, _n, _i, _error)
 _session_start = _declare("vasdk_session_start", _i, _p, _error)
 _session_stop = _declare("vasdk_session_stop", None, _p)
 _session_input_rate = _declare("vasdk_session_input_rate", _i, _p)
@@ -214,7 +215,7 @@ _session_output_rate = _declare("vasdk_session_output_rate", _i, _p)
 _session_push_audio = _declare("vasdk_session_push_audio", None, _p, _p, _n)
 _session_send = _declare("vasdk_session_send", _i, _p, _s, _n, _i, _error)
 _session_set_network = _declare("vasdk_session_set_network_available", None, _p, _i)
-_session_snapshot = _declare("vasdk_session_snapshot", _p, _p)
+_session_snapshot = _declare("vasdk_session_snapshot_message", _p, _p, _i, _length)
 _session_add_tool = _declare("vasdk_session_add_tool_message", _i, _p, _s, _n, _i, _TOOL, _p, _error)
 _session_set_context = _declare("vasdk_session_set_context_message", _i, _p, _s, _n, _i, _error)
 _providers_lib = None   # vasdk_providers, loaded by the first Providers()
@@ -717,9 +718,14 @@ class Session:
         return register
 
     def start(self, resume=None):
-        """Starts listening and speaking; resume: a snapshot() from an earlier session to pick up."""
+        """Starts listening and speaking. resume: a snapshot() from an earlier session to pick up (a
+        vasdk.ConversationSnapshot, its serialized bytes, or its JSON)."""
         if resume:
-            _session_resume(self._handle, _encode(resume))
+            if isinstance(resume, str):
+                resume = json_format.Parse(resume, ConversationSnapshot(), ignore_unknown_fields=True)
+            data = resume if isinstance(resume, bytes) else resume.SerializeToString()
+            error = ctypes.c_char_p()
+            _check(_session_resume(self._handle, data, len(data), _BINARY, ctypes.byref(error)), error)
         error = ctypes.c_void_p()
         _check(_session_start(self._handle, ctypes.byref(error)), error)
 
@@ -780,8 +786,13 @@ class Session:
         _session_set_network(self._handle, 1 if available else 0)
 
     def snapshot(self):
-        """Where the agent's conversation is, to start(resume=...) a later session there; "" for nothing."""
-        return _take(_session_snapshot(self._handle)) or ""
+        """Where the agent's conversation is, to start(resume=...) a later session there: a
+        vasdk.ConversationSnapshot (its flow empty when there's nothing to resume). Store it with
+        SerializeToString(), or json_format.MessageToJson()."""
+        length = ctypes.c_size_t()
+        snapshot = ConversationSnapshot()
+        snapshot.ParseFromString(_take_bytes(_session_snapshot(self._handle, _BINARY, ctypes.byref(length)), length))
+        return snapshot
 
     def _keep(self, callback):
         with self._lock:

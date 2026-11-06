@@ -14,6 +14,7 @@
 #include <google/protobuf/struct.pb.h>
 namespace vasdk::nlu { class EntityValue; }
 namespace vasdk::engine { class Command; }
+namespace vasdk::flow { class ConversationSnapshot; }
 
 namespace va {
 
@@ -170,11 +171,14 @@ public:
      * Empty without an agent, before the first reply, or once the conversation ended. Thread-safe.
      */
     std::string conversationSnapshot() const;
+    /** The same, as the vasdk.flow.ConversationSnapshot itself (its flow empty when there's none). */
+    vasdk::flow::ConversationSnapshot conversationSnapshotMessage() const;
     /**
      * Before start(): the agent's greeting picks the conversation up where `snapshotJson` left it
      * (flow::FlowRuntime::resume) instead of at its start page. Needs Options::agent.
      */
     void resumeConversation(const std::string& snapshotJson);
+    void resumeConversation(const vasdk::flow::ConversationSnapshot& snapshot);
     /**
      * The agent's schedule triggers when the app may be closed: when the next one is due (set an
      * alarm for it: Android's AlarmManager), and their state to keep across restarts, given back

@@ -215,6 +215,9 @@ VASDK_EXPORT void vasdk_session_on_event_message(vasdk_session* session, vasdk_m
 VASDK_EXPORT void vasdk_session_on_audio(vasdk_session* session, vasdk_audio_fn on_audio, void* user);
 /* The agent's greeting picks up where a vasdk_session_snapshot left it. */
 VASDK_EXPORT void vasdk_session_resume(vasdk_session* session, const char* snapshot_json);
+/* The same, from a vasdk.flow.ConversationSnapshot (vasdk/flow/snapshot.proto) in `format`. 0, with *error set, when it doesn't parse. */
+VASDK_EXPORT int vasdk_session_resume_message(vasdk_session* session, const void* snapshot, size_t length, vasdk_format format,
+                                              char** error);
 VASDK_EXPORT int vasdk_session_start(vasdk_session* session, char** error);
 VASDK_EXPORT void vasdk_session_stop(vasdk_session* session);
 /* Sample rates, in Hz, of the audio pushed in and given out (the config's audio, default 16000). */
@@ -234,8 +237,11 @@ VASDK_EXPORT int vasdk_session_send(vasdk_session* session, const void* command,
                                     char** error);
 /* Nonzero: the network is up. Down: local fallbacks speak and listen, and the LLM rests. Thread-safe. */
 VASDK_EXPORT void vasdk_session_set_network_available(vasdk_session* session, int available);
-/* Where the agent's conversation is, to resume it later ("" when there's nothing to resume). */
+/* Where the agent's conversation is, to resume it later ("" when there's nothing to resume): the
+ * JSON form of a vasdk.flow.ConversationSnapshot. */
 VASDK_EXPORT char* vasdk_session_snapshot(vasdk_session* session);
+/* The same, the ConversationSnapshot itself in `format` (its flow empty when there's nothing to resume); its size in *length. */
+VASDK_EXPORT void* vasdk_session_snapshot_message(vasdk_session* session, vasdk_format format, size_t* length);
 
 /* A tool the session's LLM may call, written by the app. parameters_json (may be NULL) is a JSON
  * array of {"name", "description", "type": "string" | "number" | "integer" | "boolean", "required"}.

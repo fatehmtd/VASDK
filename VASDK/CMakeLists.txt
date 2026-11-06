@@ -223,6 +223,7 @@ if(VASDK_ENABLE_ENGINE_CONFIG)
         ./proto/vasdk/flow/step_outcome.proto
         ./proto/vasdk/flow/conversation.proto
         ./proto/vasdk/engine/session.proto
+        ./proto/vasdk/flow/snapshot.proto
     )
     # A Windows DLL exports only what's marked: the generated messages are marked VASDK_EXPORT, so
     # apps and tests can use vasdk::flow::Agent, vasdk::engine::Event... The generated headers

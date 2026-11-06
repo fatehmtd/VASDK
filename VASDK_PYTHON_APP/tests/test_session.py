@@ -130,7 +130,7 @@ def main():
         time.sleep(0.05)
     check(heard.wait(lambda h: any("make" in t.lower() for t in h.transcripts), 30), f"pushed audio is heard: {heard.transcripts[-1:]}")
     check(heard.wait(lambda h: any("I know how to make" in r for r in h.replies), 30), "and answered")
-    check(isinstance(session.snapshot(), str), "a snapshot")
+    check(isinstance(session.snapshot(), vasdk.ConversationSnapshot), "a snapshot")
     cook.close()
     session.close()
     kitchen.timers.cancel()

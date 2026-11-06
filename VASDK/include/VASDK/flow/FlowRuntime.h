@@ -6,6 +6,7 @@
 #include "../llm/Completion.h"
 #include "../nlu/EmbeddingNluProvider.h"
 #include "vasdk/flow/page_types.pb.h"
+#include "vasdk/flow/snapshot.pb.h"
 
 #include <chrono>
 #include <deque>
@@ -102,10 +103,10 @@ public:
     Reply start();
     /**
      * Where the conversation is, to pick it up later (a caller who hangs up mid-form and calls
-     * back): its flow and page, the form's filled slots and the session params, as JSON. Sensitive
-     * slots and params are left out, so it can be stored. Empty when not started, or ended.
+     * back): its flow and page, the form's filled slots and the session params. Sensitive slots and
+     * params are left out, so it can be stored. Its flow is empty when not started, or ended.
      */
-    nlohmann::json snapshot() const;
+    vasdk::flow::ConversationSnapshot snapshot() const;
     /**
      * Starts the conversation where a snapshot left it, instead of start(): its session params
      * set, and its page entered with the form's saved slots already filled, so only the rest are
@@ -113,7 +114,7 @@ public:
      * first ("Welcome back."). A snapshot that doesn't fit the agent (a page it no longer has):
      * start(), and `resumed` false.
      */
-    Reply resume(const nlohmann::json& snapshot, bool* resumed = nullptr);
+    Reply resume(const vasdk::flow::ConversationSnapshot& snapshot, bool* resumed = nullptr);
     /**
      * Routes the user's words on the current page: the matched route's steps run, then the
      * conversation moves to its target. Not understood: "Sorry, I can't help with that here." and the

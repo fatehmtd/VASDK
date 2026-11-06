@@ -603,7 +603,7 @@ void DialogProcessor::processFrame(std::shared_ptr<transport::Frame> frame, pipe
 void DialogProcessor::greetIfReady() {
     if (!_greetingPending || !_connected || _agentState == transport::AgentState::IDLE) return;
     _greetingPending = false;
-    if (_resumeFrom.is_object() && !_resumeFrom.empty()) {
+    if (!_resumeFrom.flow().empty()) {
         post([this, snapshot = std::move(_resumeFrom)] {
             bool resumed = false;
             auto reply = _conversation.resume(snapshot, &resumed);
@@ -611,7 +611,7 @@ void DialogProcessor::greetIfReady() {
                          _conversation.pageName());
             deliver(std::move(reply));
         });
-        _resumeFrom = nullptr;
+        _resumeFrom.Clear();
         return;
     }
     post([this] { deliver(_conversation.start()); });

@@ -412,34 +412,36 @@ bool FlowRuntime::holds(const std::string& condition) const {
 std::string FlowRuntime::flowName() const { return started() ? _agent->flow(_position).name() : std::string(); }
 std::string FlowRuntime::pageName() const { return started() ? _agent->page(_position).name() : std::string(); }
 
-nlohmann::json FlowRuntime::snapshot() const {
-    if (!started() || _ended) return nlohmann::json::object();
-    nlohmann::json saved{{"flow", flowName()}, {"page", pageName()}};
-    nlohmann::json session = nlohmann::json::object();
+vasdk::flow::ConversationSnapshot FlowRuntime::snapshot() const {
+    vasdk::flow::ConversationSnapshot saved;
+    if (!started() || _ended) return saved;
+    saved.set_flow(flowName());
+    saved.set_page(pageName());
+    auto& session = *saved.mutable_session()->mutable_fields();
     for (const auto& [name, value] : _session.fields()) {
         const auto* param = _agent->sessionParam(name);
         if (param && !param->sensitive() && value.kind_case() != Value::kNullValue && value.kind_case() != Value::KIND_NOT_SET)
-            session[name] = toJson(value);
+            session[name] = value;
     }
-    saved["session"] = session;
     if (_form) {
-        nlohmann::json slots = nlohmann::json::object();
+        auto* form = saved.mutable_form();
+        form->set_goal(_form->goal->name());
+        auto& slots = *form->mutable_slots()->mutable_fields();
         for (const auto& slot : _form->goal->slots()) {
             if (slot.sensitive()) continue;
             const auto value = _form->state->slotValueJson(slot.name());
-            if (!value.is_null()) slots[slot.name()] = value;
+            if (!value.is_null()) slots[slot.name()] = fromJson(value);
         }
-        saved["form"] = {{"goal", _form->goal->name()}, {"slots", slots}};
     }
     return saved;
 }
 
-Reply FlowRuntime::resume(const nlohmann::json& snapshot, bool* resumed) {
+Reply FlowRuntime::resume(const vasdk::flow::ConversationSnapshot& snapshot, bool* resumed) {
     if (resumed) *resumed = false;
     std::optional<CompiledAgent::PageRef> page;
-    if (snapshot.is_object() && snapshot.value("flow", std::string()) != "") {
-        const auto flowWanted = snapshot.value("flow", std::string());
-        const auto pageWanted = snapshot.value("page", std::string());
+    if (!snapshot.flow().empty()) {
+        const auto& flowWanted = snapshot.flow();
+        const auto& pageWanted = snapshot.page();
         const auto& flows = _agent->definition().flows();
         for (int f = 0; f < flows.size() && !page; ++f) {
             if (flows.Get(f).name() != flowWanted) continue;
@@ -448,19 +450,19 @@ Reply FlowRuntime::resume(const nlohmann::json& snapshot, bool* resumed) {
         }
     }
     if (!page) {
-        if (snapshot.is_object() && !snapshot.empty())
-            spdlog::info("[FlowRuntime] the saved conversation's page is gone: starting over");
+        if (!snapshot.flow().empty()) spdlog::info("[FlowRuntime] the saved conversation's page is gone: starting over");
         return start();
     }
-    if (snapshot.contains("session") && snapshot["session"].is_object()) {
-        for (const auto& [name, value] : snapshot["session"].items()) {
-            const auto* param = _agent->sessionParam(name);
-            if (param && !param->sensitive()) setSessionParam(name, fromJson(value), nullptr);
-        }
+    for (const auto& [name, value] : snapshot.session().fields()) {
+        const auto* param = _agent->sessionParam(name);
+        if (param && !param->sensitive()) setSessionParam(name, value, nullptr);
     }
     _resumedSlots.reset();
-    if (snapshot.contains("form") && snapshot["form"].is_object() && snapshot["form"].contains("slots"))
-        _resumedSlots.emplace(snapshot["form"].value("goal", std::string()), snapshot["form"]["slots"]);
+    if (snapshot.has_form()) {
+        Value slots;
+        *slots.mutable_struct_value() = snapshot.form().slots();
+        _resumedSlots.emplace(snapshot.form().goal(), toJson(slots));
+    }
 
     Reply reply;
     _ended = false;
