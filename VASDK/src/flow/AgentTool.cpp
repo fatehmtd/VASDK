@@ -125,8 +125,12 @@ void print(const va::flow::Reply& reply, const va::flow::FlowRuntime& conversati
     const auto stage = conversation.lookup({"nlu", "stage"});
     if (stage.has_string_value() && stage.string_value() != "rules" && !reply.intent.empty())
         std::printf("     understood by: %s (%s)\n", stage.string_value().c_str(), reply.intent.c_str());
-    for (const auto& segment : reply.segments)
+    for (const auto& segment : reply.segments) {
         if (!segment.interruptible) std::printf("     can't be interrupted: \"%s\"\n", segment.text.c_str());
+        if (!segment.voice.empty() || segment.speed > 0)
+            std::printf("     in voice %s at %.2gx: \"%s\"\n", segment.voice.empty() ? "(its own)" : segment.voice.c_str(),
+                        segment.speed > 0 ? static_cast<double>(segment.speed) : 1.0, segment.text.c_str());
+    }
     if (!reply.choices.empty()) {
         std::string labels;
         for (const auto& choice : reply.choices) labels += (labels.empty() ? "" : " | ") + choice.label;

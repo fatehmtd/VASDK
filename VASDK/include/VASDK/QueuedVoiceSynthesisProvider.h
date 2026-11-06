@@ -73,6 +73,7 @@ namespace va {
 
             // --- GenericVoiceSynthesisProvider ---
             bool synthesizeSpeech(const std::string& text) final;
+            bool synthesizeStyledSpeech(const std::string& text, const SpeechStyle& style) final;
             void cancelSynthesis() final;
             bool acceptsQueuedSynthesis() const final { return true; }
             bool startVoiceSynthesisProvider() final;
@@ -113,6 +114,9 @@ namespace va {
             const std::string& logTag() const { return _logTag; }
             VoiceSynthesisResultListener* listener() const { return _resultListener; }
             const AudioConfig& audioConfig() const { return _audioConfig; }
+            /// In synthesizeOne(): the voice and pace the text is to be said in. A voice that can
+            /// change them reads it; the default style is the provider's usual way.
+            const SpeechStyle& style() const { return _style; }
             /// Logs the error and tells the listener.
             void reportError(const std::string& message);
 
@@ -131,6 +135,7 @@ namespace va {
             struct QueuedText {
                 std::string text;
                 uint64_t    generation;   // the cancel it came after
+                SpeechStyle style;
             };
             struct Chunk {
                 std::vector<float> pcm;
@@ -149,6 +154,7 @@ namespace va {
             std::mutex              _queueMutex;
             std::condition_variable _queueCv;
             std::queue<QueuedText>  _textQueue;            // under _queueMutex
+            SpeechStyle             _style;                // the worker's: the text being said
             uint64_t                _cancelGeneration{0};  // under _queueMutex
             bool                    _inSynthesisSequence{false};
             std::atomic<bool>       _cancelSynth{false};

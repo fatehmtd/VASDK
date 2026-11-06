@@ -127,6 +127,24 @@ static std::vector<std::string> splitIntoSentenceChunks(const std::string& text)
 }
 
 bool SupertonicVoiceSynthesisProvider::synthesizeOne(const std::string& text) {
+    // A part said faster or slower (say { speed }): its speed times the part's, for this text only.
+    struct SpeedFor {
+        std::shared_ptr<SupertonicInferenceImpl> impl;
+        float own = 0;
+        SpeedFor(std::shared_ptr<SupertonicInferenceImpl> engine, float factor) : impl(std::move(engine)) {
+            if (factor <= 0) return;
+            auto p = impl->getParams();
+            own = p.speed;
+            p.speed = own * factor;
+            impl->setParams(p);
+        }
+        ~SpeedFor() {
+            if (own <= 0) return;
+            auto p = impl->getParams();
+            p.speed = own;
+            impl->setParams(p);
+        }
+    } speedFor(impl_, style().speed);
     std::string normalized = normalizeText(text);
     auto chunks = splitIntoSentenceChunks(normalized);
     spdlog::debug("[SupertonicTTS] {} chunk(s) for {} chars total", chunks.size(), normalized.size());

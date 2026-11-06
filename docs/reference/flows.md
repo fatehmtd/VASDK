@@ -133,7 +133,7 @@ A reply can carry more than its words:
 
 ```textproto
 on_enter { say { text: "Welcome to Acme Garage." ui { fields { key: "card" value { string_value: "logo" } } } } }
-on_enter { say { text: "Calls are recorded." interruptible: false } }
+on_enter { say { text: "Calls are recorded." interruptible: false voice: "cosette" speed: 1.2 } }
 on_enter { ask { say { ssml: "<speak>Book a service <break time='300ms'/> or hear our hours?</speak>" }
                  choices { label: "Book a service" value: "book" synonyms: ["make a booking"] }
                  choices { label: "Opening hours" value: "hours" } } }
@@ -143,12 +143,13 @@ on_enter { ask { say { ssml: "<speak>Book a service <break time='300ms'/> or hea
 |---|---|
 | `interruptible: false` | The user can't talk over this part: it plays to its end. What they say meanwhile is kept and answered once the whole reply has played, like speech over a reply's last words. The parts before and after can still be interrupted. |
 | `ssml` | Spoken by a voice provider that reads SSML (`supportsSsml()`). Other voices speak `text`, or the SSML with its tags removed when there's no `text`. References (`$form.day`) work in it. No bundled provider reads SSML yet. |
+| `voice`, `speed` | Another of the voice provider's own voices for this part, and how fast (0.8 slower, 1.2 faster; 0.5 to 2): a disclaimer in another voice, a phone number read slowly. The voice is the provider's name for it: Pocket's and MOSS's built-in voices ("cosette", "Ava"), Phonon's voice files, a Cartesia voice id. Speed works on Supertonic and Cartesia (0.6 to 1.5). A provider that can't do one says the part as usual. |
 | `ui` | Any structure, given to the app with the reply (`agent_reply.ui_json`): a card, a map, a picture. |
 | `choices` (on `ask`) | Answers the app can show as buttons (`agent_reply.choices`, with `choice_values`). A button sends its value as the user's words (`injectUserText`). Saying a label, value or synonym as the whole answer counts as saying the value: "Opening hours" routes like "hours". A choice without a value sends its label. Asked again, the question offers them again. |
 
 **Was the reply heard?** When the user cuts a reply off, the flow is told. A read-back cut off before its end isn't confirmed by a plain "yes" in the next turn: it's read back again, so nobody confirms what they didn't hear. Any other answer (a new day, a "no") counts as usual.
 
-**Checked at load:** a `say` or `ask` with neither text nor SSML, a choice without a label, and the references in SSML.
+**Checked at load:** a `say` or `ask` with neither text nor SSML, a choice without a label, a speed out of range, and the references in SSML.
 
 ## Expected input
 

@@ -648,6 +648,8 @@ void DialogProcessor::speak(const Reply& reply, bool filler) {
         text->text = i == 0 ? segments[i].text : " " + segments[i].text;   // listeners join the parts as they come
         text->ssml = segments[i].ssml;
         text->interruptible = segments[i].interruptible;
+        text->voice = segments[i].voice;
+        text->speed = segments[i].speed;
         text->isFinal = i + 1 == segments.size();
         text->sourceId = getName();
         text->sensitiveValues = reply.sensitiveValues;

@@ -30,6 +30,8 @@ struct ReplySegment {
     std::string text;
     std::string ssml;              // for a voice that reads SSML; empty: speak text
     bool interruptible = true;     // false: the user can't talk over it
+    std::string voice;             // another of the voice provider's voices; empty: its own
+    float speed = 0;               // 0: the voice's usual pace; 1.2 faster, 0.8 slower
 };
 
 /** An answer offered with a question, for the app to show as a button. */

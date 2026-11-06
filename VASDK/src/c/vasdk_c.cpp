@@ -80,7 +80,12 @@ char* replyJson(const va::flow::Reply& reply, const va::flow::FlowRuntime& runti
                        {"to_llm", reply.toLlm}, {"llm_profile", reply.llmProfile},
                        {"flow", runtime.flowName()}, {"page", runtime.pageName()}};
     auto& segments = out["segments"] = nlohmann::json::array();
-    for (const auto& segment : reply.segments) segments.push_back({{"text", segment.text}, {"interruptible", segment.interruptible}});
+    for (const auto& segment : reply.segments) {
+        nlohmann::json part{{"text", segment.text}, {"interruptible", segment.interruptible}};
+        if (!segment.voice.empty()) part["voice"] = segment.voice;
+        if (segment.speed > 0) part["speed"] = segment.speed;
+        segments.push_back(std::move(part));
+    }
     auto& choices = out["choices"] = nlohmann::json::array();
     for (const auto& choice : reply.choices) choices.push_back({{"label", choice.label}, {"value", choice.value}});
     auto& tools = out["tool_calls"] = nlohmann::json::array();
@@ -102,6 +107,8 @@ vasdk::flow::ConversationReply replyMessage(const va::flow::Reply& reply, const 
         auto* added = out.add_segments();
         added->set_text(segment.text);
         added->set_interruptible(segment.interruptible);
+        added->set_voice(segment.voice);
+        added->set_speed(segment.speed);
     }
     for (const auto& choice : reply.choices) {
         auto* added = out.add_choices();

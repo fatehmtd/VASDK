@@ -664,6 +664,7 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::build(vasdk::flow::Agent age
         for (const auto& text : say.text()) checkTemplate(text, at);
         if (!say.ssml().empty()) checkTemplate(say.ssml(), at + " ssml");
         if (say.has_follow_up_listen_ms()) checkListenMs(say.follow_up_listen_ms(), at);
+        if (say.has_speed() && (say.speed() < 0.5f || say.speed() > 2.0f)) check.error(at, kind + " speed must be 0.5 to 2");
     };
     using Steps = google::protobuf::RepeatedPtrField<vasdk::flow::Step>;
     std::function<void(const Steps&, const std::string&)> checkSteps = [&](const Steps& steps, const std::string& at) {

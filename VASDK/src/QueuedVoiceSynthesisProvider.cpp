@@ -150,6 +150,10 @@ namespace va {
         // ---------------------------------------------------------------------------
 
         bool QueuedVoiceSynthesisProvider::synthesizeSpeech(const std::string& text) {
+            return synthesizeStyledSpeech(text, {});
+        }
+
+        bool QueuedVoiceSynthesisProvider::synthesizeStyledSpeech(const std::string& text, const SpeechStyle& style) {
             if (!_running) {
                 spdlog::error("[{}] synthesizeSpeech() called but the provider is not running.", _logTag);
                 return false;
@@ -157,7 +161,7 @@ namespace va {
             if (text.empty()) return false;
             {
                 std::lock_guard<std::mutex> lock(_queueMutex);
-                _textQueue.push({text, _cancelGeneration});
+                _textQueue.push({text, _cancelGeneration, style});
             }
             _queueCv.notify_one();
             return true;
@@ -178,6 +182,7 @@ namespace va {
         void QueuedVoiceSynthesisProvider::workerLoop() {
             while (true) {
                 std::string text;
+                SpeechStyle style;
                 bool isSequenceStart = false;
                 {
                     std::unique_lock<std::mutex> lock(_queueMutex);
@@ -188,6 +193,7 @@ namespace va {
                     _textQueue.pop();
                     if (queued.generation != _cancelGeneration) continue;   // queued before a cancel
                     text = std::move(queued.text);
+                    style = std::move(queued.style);
                     // Queued after the cancel the sequence was stopped by: a new sequence, not part of it.
                     isSequenceStart = !_inSynthesisSequence || _cancelSynth.load();
                     _inSynthesisSequence = true;
@@ -204,6 +210,7 @@ namespace va {
                 _preBufferFilled = false;
 
                 bool completed = false;
+                _style = std::move(style);
                 try {
                     completed = synthesizeOne(text);
                 }

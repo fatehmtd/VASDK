@@ -229,6 +229,10 @@ bool PhononVoiceSynthesisProvider::applyPendingVoice() {
     {
         std::lock_guard<std::mutex> lock(_settingsMutex);
         voice = _voice;
+        // A part in another of its voices (say { voice }), when the model has it.
+        const auto& wanted = style().voice;
+        if (!wanted.empty() && std::find(_availableVoices.begin(), _availableVoices.end(), wanted) != _availableVoices.end())
+            voice = wanted;
     }
     if (voice == _loadedVoice) return true;
     try {
@@ -240,7 +244,7 @@ bool PhononVoiceSynthesisProvider::applyPendingVoice() {
         spdlog::warn("[PhononTTS] Could not load voice '{}': {}; keeping '{}'.",
             voice, e.what(), _loadedVoice);
         std::lock_guard<std::mutex> lock(_settingsMutex);
-        _voice = _loadedVoice;
+        if (voice == _voice) _voice = _loadedVoice;
         return false;
     }
 }

@@ -254,6 +254,10 @@ message Say {
   optional bool interruptible = 3;   // false: the user can't talk over this part; it plays to its end
   google.protobuf.Struct ui = 6;     // given to the app with the reply: a card, a map, a picture
   optional int32 follow_up_listen_ms = 7;   // how long the mic stays open after this reply; before any other setting
+  // How this part is said: another of the voice provider's own voices ("cosette", "Ava"), and how
+  // fast (0.8 slower, 1.2 faster; 0.5 to 2). A provider that can't is heard as usual.
+  string voice = 8;
+  optional float speed = 9;
 }
 
 // A question: the user is expected to answer, and it is repeated when the answer isn't understood.

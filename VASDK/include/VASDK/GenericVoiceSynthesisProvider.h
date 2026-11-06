@@ -41,6 +41,18 @@ namespace va {
         };
 
         /**
+         * @brief How a text is said: another of the provider's own voices, or another pace.
+         * The default, an empty voice and speed 0, is the provider's usual way.
+         */
+        struct SpeechStyle {
+            std::string voice;   // a voice the provider has ("cosette", "Ava"); empty: its own
+            float speed = 0;     // 1.2 faster, 0.8 slower; 0: as usual
+            bool isDefault() const { return voice.empty() && speed <= 0; }
+            bool operator==(const SpeechStyle& other) const { return voice == other.voice && speed == other.speed; }
+            bool operator!=(const SpeechStyle& other) const { return !(*this == other); }
+        };
+
+        /**
          * @brief The GenericVoiceSynthesisEngine class
          */
         class GenericVoiceSynthesisProvider {
@@ -54,6 +66,16 @@ namespace va {
              * @param text The text to be synthesized
              */
             virtual bool synthesizeSpeech(const std::string& text) = 0;
+
+            /**
+             * @brief Says `text` in `style`: a part of a reply in another voice, or slower (an
+             * agent's `say { voice speed }`). A provider that can't change them says it as
+             * synthesizeSpeech() does, the default.
+             */
+            virtual bool synthesizeStyledSpeech(const std::string& text, const SpeechStyle& style) {
+                (void)style;
+                return synthesizeSpeech(text);
+            }
 
             /**
              * @brief Cancel any in-progress synthesis immediately.

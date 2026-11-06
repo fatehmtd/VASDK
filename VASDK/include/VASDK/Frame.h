@@ -212,6 +212,8 @@ namespace va {
                 cloned->choices = choices;
                 cloned->ssml = ssml;
                 cloned->interruptible = interruptible;
+                cloned->voice = voice;
+                cloned->speed = speed;
                 cloned->uiJson = uiJson;
                 cloned->expectBytes = expectBytes;
                 cloned->sensitiveValues = sensitiveValues;
@@ -225,6 +227,8 @@ namespace va {
             std::vector<Choice> choices;       // UI choices presented to the user (non-empty when LLM restricts valid responses)
             std::string ssml;                  // spoken instead of text by a provider that supportsSsml()
             bool interruptible = true;         // false: the user can't talk over this frame's audio
+            std::string voice;                 // another of the voice provider's voices for this text; empty: its own
+            float speed = 0;                   // 0: the voice's usual pace; 1.2 faster, 0.8 slower
             std::string uiJson;                // app UI for the reply, a JSON object (set on the final chunk only)
             std::string expectBytes;           // what the user is expected to say, a serialized vasdk.flow.Expectation (an agent's final chunk only)
             std::vector<std::string> sensitiveValues;   // values to mask wherever the text is shown or logged (an agent's replies)

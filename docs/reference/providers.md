@@ -133,6 +133,8 @@ Plus lifecycle (`initializeTranscriptionProvider`, `start/stopTranscriptionProvi
 virtual bool synthesizeSpeech(const std::string& text) = 0;
 virtual void cancelSynthesis() {}   // optional but important - see below
 virtual bool supportsSsml() const { return false; }   // true: synthesizeSpeech() may get a <speak> document
+// A part of a reply in another voice or at another pace (say { voice speed }); by default, as synthesizeSpeech()
+virtual bool synthesizeStyledSpeech(const std::string& text, const SpeechStyle& style);
 ```
 
 The **`cancelSynthesis()` contract** is what makes barge-in work: it must be non-blocking, stop audio emission promptly, and still fire `onSynthesisCompleted()` (or `onSynthesisError()`) once cancellation is confirmed - that completion is what lets `TTSFrameProcessor` emit `SynthesisStateFrame{INTERRUPTED}` upstream and unblock the agent state machine. A provider that can't cancel leaves the assistant talking over the user.
@@ -146,7 +148,7 @@ bool loadEngine() override;                          // on start: load the model
 bool synthesizeOne(const std::string& text) override; // on the worker: one text, true when said in full
 ```
 
-In `synthesizeOne()` it passes audio to `handoffAudio(pcm, sampleRate)` and ends with `return finishHandoff();`. A delivery thread plays each piece while the next one is synthesized. If the engine streams audio on a thread of its own, construct the base with `Delivery::Direct` and call `deliverAudio()` instead, as Phonon does. `onCancel()` stops the engine early; `cancelFlag()` is there for an engine that checks between steps. The provider's destructor calls `stopVoiceSynthesisProvider()`.
+In `synthesizeOne()`, `style()` is the voice and pace the text is to be said in (an agent's `say { voice speed }`); the default style is the voice's own. It passes audio to `handoffAudio(pcm, sampleRate)` and ends with `return finishHandoff();`. A delivery thread plays each piece while the next one is synthesized. If the engine streams audio on a thread of its own, construct the base with `Delivery::Direct` and call `deliverAudio()` instead, as Phonon does. `onCancel()` stops the engine early; `cancelFlag()` is there for an engine that checks between steps. The provider's destructor calls `stopVoiceSynthesisProvider()`.
 
 ## GenericAudioDSPProvider
 

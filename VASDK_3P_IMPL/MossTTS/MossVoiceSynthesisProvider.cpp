@@ -99,6 +99,24 @@ bool MossVoiceSynthesisProvider::getTextNormalization() const {
 // ---------------------------------------------------------------------------
 
 bool MossVoiceSynthesisProvider::synthesizeOne(const std::string& text) {
+    // A part in another of its voices (say { voice }): that voice for this text only.
+    struct VoiceFor {
+        decltype(_impl) impl;
+        std::string own;
+        VoiceFor(decltype(_impl) engine, const std::string& wanted) : impl(std::move(engine)) {
+            auto p = impl->getParams();
+            if (wanted.empty() || wanted == p.voiceName) return;
+            own = p.voiceName;
+            p.voiceName = wanted;
+            impl->setParams(p);
+        }
+        ~VoiceFor() {
+            if (own.empty()) return;
+            auto p = impl->getParams();
+            p.voiceName = own;
+            impl->setParams(p);
+        }
+    } voiceFor(_impl, style().voice);
     VASDK_CTRACK_NAME("MossTTS::synthesize");
     _resampler.reset(_modelSampleRate, audioConfig().sampleRate);
     const int outRate = _resampler.passthrough() ? _modelSampleRate : audioConfig().sampleRate;

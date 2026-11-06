@@ -263,7 +263,8 @@ namespace va {
                     _pendingSentences.push_back({ssml                                   ? frame->ssml
                                                  : _synthesisProvider->normalizesText() ? frame->text
                                                                                         : nlu::english::speakable(frame->text),
-                                                 frame->interruptible});
+                                                 frame->interruptible,
+                                                 {frame->voice, frame->speed}});
                 if (frame->isFinal) _textClosed = true;
             }
             if (mergeIntoDrainingTurn) cancelDrainWait();
@@ -272,7 +273,7 @@ namespace va {
         }
 
         void TTSFrameProcessor::pumpSentences() {
-            std::vector<std::string> toSend;
+            std::vector<std::pair<std::string, va::audio::SpeechStyle>> toSend;
             {
                 std::lock_guard<std::mutex> lock(_turnMutex);
                 const bool queued = _synthesisProvider->acceptsQueuedSynthesis();
@@ -291,16 +292,17 @@ namespace va {
                         _protectedStart = _protectedEnd = _turnActive ? std::max(now, _playbackEndTime) : now;
                     }
                     _sentParts.push_back({_pendingSentences.front(), false, {}});
-                    toSend.push_back(std::move(_pendingSentences.front().text));
+                    toSend.emplace_back(std::move(_pendingSentences.front().text), _pendingSentences.front().style);
                     _pendingSentences.pop_front();
                     _providerBusy = true;
                 }
             }
             // Outside the lock: cloud providers fire onSynthesisStarted() from inside this call.
-            for (const auto& text : toSend) {
+            for (const auto& [text, style] : toSend) {
                 spdlog::info("[TTSFrameProcessor] Synthesizing: {}", text);
                 _metrics.requests.increment();
-                _synthesisProvider->synthesizeSpeech(text);
+                if (style.isDefault()) _synthesisProvider->synthesizeSpeech(text);
+                else _synthesisProvider->synthesizeStyledSpeech(text, style);
             }
         }
 

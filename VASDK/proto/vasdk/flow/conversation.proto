@@ -26,6 +26,8 @@ message ConversationReply {
   message Segment {
     string text = 1;
     bool interruptible = 2;           // false: the user can't talk over it
+    string voice = 3;                 // another of the voice's own voices; empty: its usual one
+    float speed = 4;                  // 0: the usual pace
   }
   message Choice {
     string label = 1;
