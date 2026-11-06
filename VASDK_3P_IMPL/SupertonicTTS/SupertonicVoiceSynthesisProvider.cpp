@@ -1,6 +1,5 @@
 #include "SupertonicVoiceSynthesisProvider.hpp"
 #include "impl/SupertonicInferenceImpl.hpp"
-#include <VASDK/AudioSIMD.h>
 #include <spdlog/spdlog.h>
 #include <algorithm>
 #include <cmath>
@@ -12,88 +11,24 @@ SupertonicVoiceSynthesisProvider::SupertonicVoiceSynthesisProvider(
     const std::string& modelDir,
     const std::string& stylePath,
     const std::string& lang)
-    : impl_(std::make_shared<SupertonicInferenceImpl>(modelDir, stylePath, lang)) {}
+    : QueuedVoiceSynthesisProvider("SupertonicTTS", Delivery::Thread),
+      impl_(std::make_shared<SupertonicInferenceImpl>(modelDir, stylePath, lang)) {}
 
 SupertonicVoiceSynthesisProvider::~SupertonicVoiceSynthesisProvider() {
     stopVoiceSynthesisProvider();
 }
 
-// --- GenericVoiceSynthesisProvider interface ---
-
-bool SupertonicVoiceSynthesisProvider::startVoiceSynthesisProvider() {
-    if (_running) {
-        spdlog::warn("SupertonicTTS provider already running.");
-        return true;
-    }
+bool SupertonicVoiceSynthesisProvider::loadEngine() {
     if (!impl_->initialize()) {
+        spdlog::error("[SupertonicTTS] Initialization failed.");
         return false;
     }
     _modelSampleRate = impl_->getSampleRate();
-    if (_modelSampleRate != audioConfig_.sampleRate && _modelSampleRate > 0 && audioConfig_.sampleRate > 0) {
-        spdlog::info("SupertonicTTS resampling active: {} Hz (model) -> {} Hz (pipeline)",
-                     _modelSampleRate, audioConfig_.sampleRate);
+    if (_modelSampleRate != audioConfig().sampleRate && _modelSampleRate > 0 && audioConfig().sampleRate > 0) {
+        spdlog::info("[SupertonicTTS] Resampling {} Hz (model) -> {} Hz (pipeline)",
+                     _modelSampleRate, audioConfig().sampleRate);
     }
-    _running = true;
-    _stopWorker.store(false);
-    _deliveryDone = false;
-    _inSynthesisSequence = false;
-    _synthThread    = std::thread(&SupertonicVoiceSynthesisProvider::workerLoop,   this);
-    _deliveryThread = std::thread(&SupertonicVoiceSynthesisProvider::deliveryLoop, this);
-    spdlog::info("SupertonicTTS provider started.");
     return true;
-}
-
-void SupertonicVoiceSynthesisProvider::stopVoiceSynthesisProvider() {
-    if (!_running) return;
-    _cancelSynth.store(true);
-    {
-        std::lock_guard<std::mutex> lock(_queueMutex);
-        while (!_textQueue.empty()) _textQueue.pop();
-        _stopWorker.store(true);
-    }
-    _queueCv.notify_all();
-    if (_synthThread.joinable()) _synthThread.join();
-
-    // Signal the delivery thread to exit after draining any in-flight slot.
-    flushDeliverySlot();
-    {
-        std::lock_guard<std::mutex> lock(_deliveryMutex);
-        _deliveryDone = true;
-    }
-    _deliveryReadyCv.notify_all();
-    if (_deliveryThread.joinable()) _deliveryThread.join();
-
-    _running = false;
-    spdlog::info("SupertonicTTS provider stopped.");
-}
-
-bool SupertonicVoiceSynthesisProvider::isVoiceSynthesisProviderRunning() const {
-    return _running;
-}
-
-bool SupertonicVoiceSynthesisProvider::synthesizeSpeech(const std::string& text) {
-    if (!_running) {
-        spdlog::error("SupertonicTTS provider is not running.");
-        return false;
-    }
-    if (text.empty()) return false;
-
-    {
-        std::lock_guard<std::mutex> lock(_queueMutex);
-        _textQueue.push(text);
-    }
-    _queueCv.notify_one();
-    return true;
-}
-
-void SupertonicVoiceSynthesisProvider::cancelSynthesis() {
-    {
-        std::lock_guard<std::mutex> lock(_queueMutex);
-        while (!_textQueue.empty()) _textQueue.pop();
-    }
-    _cancelSynth.store(true);
-    _queueCv.notify_all();
-    flushDeliverySlot();
 }
 
 /// Split normalized text into chunks of at most maxChars characters, breaking
@@ -191,119 +126,26 @@ static std::vector<std::string> splitIntoSentenceChunks(const std::string& text)
     return chunks;
 }
 
-void SupertonicVoiceSynthesisProvider::workerLoop() {
-    while (true) {
-        std::string text;
-        bool isSequenceStart = false;
-        {
-            std::unique_lock<std::mutex> lock(_queueMutex);
-            _queueCv.wait(lock, [this] {
-                return !_textQueue.empty() || _stopWorker.load();
-            });
-            if (_stopWorker.load() && _textQueue.empty()) break;
-            if (_textQueue.empty()) continue;
-            text = std::move(_textQueue.front());
-            _textQueue.pop();
-            isSequenceStart = !_inSynthesisSequence;
-            _inSynthesisSequence = true;
-        }
-
-        if (isSequenceStart) {
-            // Fresh sequence - clear any stale cancel from a previous barge-in.
-            _cancelSynth.store(false);
-        } else if (_cancelSynth.load()) {
-            // Barge-in arrived mid-sequence: discard this and any remaining queued items.
-            std::lock_guard<std::mutex> lock(_queueMutex);
-            while (!_textQueue.empty()) _textQueue.pop();
-            _inSynthesisSequence = false;
-            continue;
-        }
-
-        if (isSequenceStart && resultListener_)
-            resultListener_->onSynthesisStarted();
-
-        bool completed = synthesizeOne(text);
-
-        bool shouldFireCompleted;
-        {
-            std::lock_guard<std::mutex> lock(_queueMutex);
-            if (!completed || _cancelSynth.load()) {
-                // Cancelled or error: drain remaining queued items.
-                while (!_textQueue.empty()) _textQueue.pop();
-                _inSynthesisSequence = false;
-                shouldFireCompleted = false;
-            } else if (_textQueue.empty()) {
-                // Queue drained - all sentences have been spoken.
-                _inSynthesisSequence = false;
-                shouldFireCompleted = true;
-            } else {
-                // More sentences pending - keep synthesising without completing.
-                shouldFireCompleted = false;
-            }
-        }
-
-        if (shouldFireCompleted && resultListener_)
-            resultListener_->onSynthesisCompleted();
-    }
-}
-
 bool SupertonicVoiceSynthesisProvider::synthesizeOne(const std::string& text) {
     std::string normalized = normalizeText(text);
     auto chunks = splitIntoSentenceChunks(normalized);
-    spdlog::debug("SupertonicTTS: {} chunk(s) for {} chars total",
-                  chunks.size(), normalized.size());
-    try {
-        const auto params = impl_->getParams();
-        // Silence is expressed in model sample rate so it travels through the normal
-        // handoff→deliverAudio path and gets resampled to the correct output count.
-        // (zeros → zeros regardless of resampling, just need the right duration.)
-        const int  silenceSamplesModel = (params.silenceDuration > 0.0f && _modelSampleRate > 0)
-            ? static_cast<int>(_modelSampleRate * params.silenceDuration) : 0;
+    spdlog::debug("[SupertonicTTS] {} chunk(s) for {} chars total", chunks.size(), normalized.size());
+    const auto params = impl_->getParams();
+    // Silence at the model's rate: it's resampled with the speech (zeros stay zeros, at the right length).
+    const int silenceSamplesModel = (params.silenceDuration > 0.0f && _modelSampleRate > 0)
+        ? static_cast<int>(_modelSampleRate * params.silenceDuration) : 0;
 
-        for (const auto& chunk : chunks) {
-            if (_cancelSynth.load()) return false;
-            spdlog::debug("SupertonicTTS synthesizing chunk ({} chars)", chunk.size());
-            auto out = impl_->synthesize(chunk);
-            if (_cancelSynth.load()) return false;  // barge-in during ONNX - discard result
-            // Hand off to delivery thread so synthesis of the next chunk can begin immediately.
-            handoffAudio(std::move(out.wav));
-            // Append inter-chunk silence (separate handoff so the main wav buffer stays clean).
-            if (silenceSamplesModel > 0 && !_cancelSynth.load()) {
-                handoffAudio(std::vector<float>(silenceSamplesModel, 0.0f));
-            }
-        }
-        // Wait for the delivery thread to pick up the last slot before returning.
-        // This ensures onSynthesisCompleted() fires only after all audio has been
-        // submitted to deliverAudio(), preserving the original ordering guarantee.
-        {
-            std::unique_lock<std::mutex> lock(_deliveryMutex);
-            _deliveryCv.wait(lock, [this] {
-                return !_deliverySlot.has_value() || _cancelSynth.load();
-            });
-        }
-        return true;
-    } catch (const std::exception& e) {
-        spdlog::error("SupertonicTTS synthesis failed: {}", e.what());
-        if (resultListener_) resultListener_->onSynthesisError(e.what());
-        return false;
+    for (const auto& chunk : chunks) {
+        if (cancelled()) return false;
+        spdlog::debug("[SupertonicTTS] Synthesizing chunk ({} chars)", chunk.size());
+        auto out = impl_->synthesize(chunk);
+        if (cancelled()) return false;  // barge-in during ONNX - discard result
+        // The delivery thread plays it while the next chunk is synthesized.
+        handoffAudio(std::move(out.wav), _modelSampleRate);
+        if (silenceSamplesModel > 0)
+            handoffAudio(std::vector<float>(silenceSamplesModel, 0.0f), _modelSampleRate);
     }
-}
-
-void SupertonicVoiceSynthesisProvider::setAudioConfiguration(const va::audio::AudioConfig& config) {
-    audioConfig_ = config;
-}
-
-va::audio::AudioConfig SupertonicVoiceSynthesisProvider::getAudioConfiguration() const {
-    return audioConfig_;
-}
-
-void SupertonicVoiceSynthesisProvider::setVoiceSynthesisResultListener(
-    va::audio::VoiceSynthesisResultListener* listener) {
-    resultListener_ = listener;
-}
-
-va::audio::VoiceSynthesisResultListener* SupertonicVoiceSynthesisProvider::getVoiceSynthesisResultListener() const {
-    return resultListener_;
+    return finishHandoff();
 }
 
 // --- Synthesis quality / timing knobs ---
@@ -566,142 +408,4 @@ std::string SupertonicVoiceSynthesisProvider::normalizeText(const std::string& t
         }
     }
     return result;
-}
-
-// --- Resampling & audio format conversion ---
-
-// Normalized sinc function: sin(pi*x) / (pi*x), sinc(0) = 1
-static constexpr double PI = 3.14159265358979323846;
-static inline double sinc(double x) {
-    if (std::abs(x) < 1e-9) return 1.0;
-    double px = PI * x;
-    return std::sin(px) / px;
-}
-
-/// Windowed-sinc resample from srcRate to dstRate, writing into a pre-allocated buffer.
-/// Uses a Lanczos kernel (a=3) for high-quality anti-aliased resampling.
-/// `out` is resized to the required output length.
-static void resample(const std::vector<float>& in, int srcRate, int dstRate,
-                     std::vector<float>& out) {
-    if (in.empty() || srcRate <= 0 || dstRate <= 0) { out.clear(); return; }
-
-    const int A = 3; // Lanczos kernel half-width (a=3 is high quality)
-    double ratio = static_cast<double>(dstRate) / srcRate;
-    // When downsampling, stretch the kernel to act as a low-pass filter at the Nyquist of the output
-    double filterScale = std::min(1.0, ratio);
-    int kernelRadius = static_cast<int>(std::ceil(A / filterScale));
-
-    size_t outLen = static_cast<size_t>(std::ceil(in.size() * ratio));
-    out.resize(outLen);
-
-    for (size_t i = 0; i < outLen; ++i) {
-        double center = i / ratio; // position in the input
-        int left  = static_cast<int>(std::floor(center)) - kernelRadius + 1;
-        int right = static_cast<int>(std::floor(center)) + kernelRadius;
-
-        double sample = 0.0;
-        double weightSum = 0.0;
-
-        for (int j = left; j <= right; ++j) {
-            double x = (center - j) * filterScale;
-            // Lanczos window: sinc(x) * sinc(x/a) for |x| < a, else 0
-            double w = 0.0;
-            if (std::abs(x) < A) {
-                w = sinc(x) * sinc(x / A);
-            }
-            if (j >= 0 && j < static_cast<int>(in.size())) {
-                sample += in[j] * w;
-                weightSum += w;
-            }
-        }
-
-        out[i] = (weightSum > 0.0) ? static_cast<float>(sample / weightSum) : 0.0f;
-    }
-}
-
-void SupertonicVoiceSynthesisProvider::deliverAudio(const std::vector<float>& pcmIn) {
-    if (!resultListener_ || pcmIn.empty()) return;
-
-    // Resample from model native rate to pipeline rate if they differ.
-    // _modelSampleRate is cached at startup - no virtual call or mutex needed here.
-    const std::vector<float>* pcm = &pcmIn;
-    if (_modelSampleRate != audioConfig_.sampleRate && _modelSampleRate > 0 && audioConfig_.sampleRate > 0) {
-        resample(pcmIn, _modelSampleRate, audioConfig_.sampleRate, _resampleBuf);
-        pcm = &_resampleBuf;
-    }
-
-    switch (audioConfig_.format) {
-    case va::audio::AudioFormat::SHORT: {
-        _int16Buf.resize(pcm->size());
-        AudioSIMD::convertFloatToInt16(pcm->data(), _int16Buf.data(), pcm->size());
-        resultListener_->onAudioDataReceived(
-            reinterpret_cast<const char*>(_int16Buf.data()),
-            _int16Buf.size() * sizeof(int16_t));
-        break;
-    }
-    case va::audio::AudioFormat::FLOAT: {
-        resultListener_->onAudioDataReceived(
-            reinterpret_cast<const char*>(pcm->data()),
-            pcm->size() * sizeof(float));
-        break;
-    }
-    case va::audio::AudioFormat::INT: {
-        _int32Buf.resize(pcm->size());
-        AudioSIMD::convertFloatToInt32(pcm->data(), _int32Buf.data(), pcm->size());
-        resultListener_->onAudioDataReceived(
-            reinterpret_cast<const char*>(_int32Buf.data()),
-            _int32Buf.size() * sizeof(int32_t));
-        break;
-    }
-    case va::audio::AudioFormat::BYTE: {
-        _uint8Buf.resize(pcm->size());
-        AudioSIMD::convertFloatToUint8(pcm->data(), _uint8Buf.data(), pcm->size());
-        resultListener_->onAudioDataReceived(
-            reinterpret_cast<const char*>(_uint8Buf.data()),
-            _uint8Buf.size() * sizeof(uint8_t));
-        break;
-    }
-    default:
-        spdlog::warn("SupertonicTTS: unknown audio format, delivering as float.");
-        resultListener_->onAudioDataReceived(
-            reinterpret_cast<const char*>(pcm->data()),
-            pcm->size() * sizeof(float));
-        break;
-    }
-}
-
-// --- Delivery pipeline (synthesis+delivery overlap) ---
-
-void SupertonicVoiceSynthesisProvider::deliveryLoop() {
-    while (true) {
-        std::vector<float> wav;
-        {
-            std::unique_lock<std::mutex> lock(_deliveryMutex);
-            _deliveryReadyCv.wait(lock, [this] {
-                return _deliverySlot.has_value() || _deliveryDone;
-            });
-            if (_deliveryDone && !_deliverySlot.has_value()) break;
-            wav = std::move(*_deliverySlot);
-            _deliverySlot.reset();
-            _deliveryCv.notify_one(); // unblock synthesis thread waiting to place next chunk
-        }
-        deliverAudio(wav); // runs without any lock held
-    }
-}
-
-void SupertonicVoiceSynthesisProvider::handoffAudio(std::vector<float> wav) {
-    std::unique_lock<std::mutex> lock(_deliveryMutex);
-    // Wait until the slot is free OR barge-in has been requested.
-    _deliveryCv.wait(lock, [this] {
-        return !_deliverySlot.has_value() || _cancelSynth.load();
-    });
-    if (_cancelSynth.load()) return; // barge-in - discard this chunk
-    _deliverySlot = std::move(wav);
-    _deliveryReadyCv.notify_one();
-}
-
-void SupertonicVoiceSynthesisProvider::flushDeliverySlot() {
-    std::lock_guard<std::mutex> lock(_deliveryMutex);
-    _deliverySlot.reset();
-    _deliveryCv.notify_one(); // unblock synthesis thread if it was waiting to hand off
 }

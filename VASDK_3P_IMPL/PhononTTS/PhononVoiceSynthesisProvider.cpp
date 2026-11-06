@@ -4,7 +4,6 @@
 #include "impl/normalize.h"
 #include "impl/chunk.h"
 
-#include <VASDK/AudioSIMD.h>
 #include <VASDK/profiling/CTrack.h>
 #include <spdlog/spdlog.h>
 
@@ -26,22 +25,6 @@ std::string join(const std::vector<std::string>& items, const char* sep) {
     return out;
 }
 
-// Lanczos windowed-sinc, same kernel as PocketVoiceSynthesisProvider's resampler.
-constexpr int    kLanczosA = 3;
-constexpr double kPi       = 3.14159265358979323846;
-
-inline double sinc(double x) {
-    if (std::abs(x) < 1e-9) return 1.0;
-    double px = kPi * x;
-    return std::sin(px) / px;
-}
-
-int kernelRadius(int srcRate, int dstRate) {
-    const double ratio       = static_cast<double>(dstRate) / srcRate;
-    const double filterScale = std::min(1.0, ratio);
-    return static_cast<int>(std::ceil(kLanczosA / filterScale));
-}
-
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -56,7 +39,7 @@ public:
     void onStart(gradium::tts::StreamId, const std::string&) override {}
 
     void onAudioChunk(gradium::tts::StreamId, std::vector<float> chunk) override {
-        if (_owner->_cancelSynth.load()) return;
+        if (_owner->cancelled()) return;
         _owner->onModelAudio(chunk.data(), chunk.size());
     }
 
@@ -84,7 +67,8 @@ private:
 
 PhononVoiceSynthesisProvider::PhononVoiceSynthesisProvider(
     const std::string& modelDir, const std::string& voiceName, const std::string& language)
-    : _modelDir(modelDir), _voice(voiceName),
+    : QueuedVoiceSynthesisProvider("PhononTTS", Delivery::Direct),
+      _modelDir(modelDir), _voice(voiceName),
       _ruleBits(gradium::tts::text::Rules::defaults().bits)
 {
     if (!setLanguage(language))
@@ -99,12 +83,7 @@ PhononVoiceSynthesisProvider::~PhononVoiceSynthesisProvider() {
 // GenericVoiceSynthesisProvider interface
 // ---------------------------------------------------------------------------
 
-bool PhononVoiceSynthesisProvider::startVoiceSynthesisProvider() {
-    if (_running) {
-        spdlog::warn("[PhononTTS] Provider already running.");
-        return true;
-    }
-
+bool PhononVoiceSynthesisProvider::loadEngine() {
     // Loading the model is the slow part; keep the engine across stop/start.
     if (!_engine) {
         scanVoices();
@@ -145,80 +124,13 @@ bool PhononVoiceSynthesisProvider::startVoiceSynthesisProvider() {
         spdlog::info("[PhononTTS] Model loaded from '{}' (voice '{}', {} voices available)",
             _modelDir, voice, _availableVoices.size());
     }
-
-    _running = true;
-    _stopWorker.store(false);
-    _cancelSynth.store(false);
-    _inSynthesisSequence = false;
-
-    _synthThread = std::thread(&PhononVoiceSynthesisProvider::workerLoop, this);
-
-    spdlog::info("[PhononTTS] Provider started (model rate: 24 kHz → pipeline: {} Hz {}ch)",
-        _audioConfig.sampleRate, _audioConfig.channels);
     return true;
 }
 
-void PhononVoiceSynthesisProvider::stopVoiceSynthesisProvider() {
-    if (!_running) return;
-
-    cancelSynthesis();
-    {
-        std::lock_guard<std::mutex> lock(_queueMutex);
-        _stopWorker.store(true);
-    }
-    _queueCv.notify_all();
-    if (_synthThread.joinable()) _synthThread.join();
-
-    _running = false;
-    spdlog::info("[PhononTTS] Provider stopped.");
-}
-
-bool PhononVoiceSynthesisProvider::isVoiceSynthesisProviderRunning() const {
-    return _running;
-}
-
-bool PhononVoiceSynthesisProvider::synthesizeSpeech(const std::string& text) {
-    if (!_running) {
-        spdlog::error("[PhononTTS] synthesizeSpeech() called but provider is not running.");
-        return false;
-    }
-    if (text.empty()) return false;
-    {
-        std::lock_guard<std::mutex> lock(_queueMutex);
-        _textQueue.push(text);
-    }
-    _queueCv.notify_one();
-    return true;
-}
-
-void PhononVoiceSynthesisProvider::cancelSynthesis() {
-    {
-        std::lock_guard<std::mutex> lock(_queueMutex);
-        while (!_textQueue.empty()) _textQueue.pop();
-    }
-    _cancelSynth.store(true);
+void PhononVoiceSynthesisProvider::onCancel() {
     // Generation stops at the next frame boundary; a stale id is a no-op in the engine.
     const uint64_t id = _activeStream.load();
     if (id != 0 && _engine) _engine->cancelStream(id);
-    _queueCv.notify_all();
-}
-
-void PhononVoiceSynthesisProvider::setAudioConfiguration(const va::audio::AudioConfig& config) {
-    _audioConfig = config;
-}
-
-va::audio::AudioConfig PhononVoiceSynthesisProvider::getAudioConfiguration() const {
-    return _audioConfig;
-}
-
-void PhononVoiceSynthesisProvider::setVoiceSynthesisResultListener(
-    va::audio::VoiceSynthesisResultListener* listener) {
-    _resultListener = listener;
-}
-
-va::audio::VoiceSynthesisResultListener*
-PhononVoiceSynthesisProvider::getVoiceSynthesisResultListener() const {
-    return _resultListener;
 }
 
 // ---------------------------------------------------------------------------
@@ -334,69 +246,13 @@ bool PhononVoiceSynthesisProvider::applyPendingVoice() {
 }
 
 // ---------------------------------------------------------------------------
-// Worker thread (synthesis queue → synthesizeOne)
-// Mirrors PocketVoiceSynthesisProvider::workerLoop.
+// The silence after a sequence said in full
 // ---------------------------------------------------------------------------
 
-void PhononVoiceSynthesisProvider::workerLoop() {
-    while (true) {
-        std::string text;
-        bool isSequenceStart = false;
-        {
-            std::unique_lock<std::mutex> lock(_queueMutex);
-            _queueCv.wait(lock, [this] {
-                return !_textQueue.empty() || _stopWorker.load();
-                });
-            if (_stopWorker.load() && _textQueue.empty()) break;
-            if (_textQueue.empty()) continue;
-            text = std::move(_textQueue.front());
-            _textQueue.pop();
-            isSequenceStart = !_inSynthesisSequence;
-            _inSynthesisSequence = true;
-        }
-
-        VASDK_CTRACK_NAME("PhononTTS::processChunk");
-        if (isSequenceStart) {
-            _cancelSynth.store(false);
-        }
-        else if (_cancelSynth.load()) {
-            std::lock_guard<std::mutex> lock(_queueMutex);
-            while (!_textQueue.empty()) _textQueue.pop();
-            _inSynthesisSequence = false;
-            continue;
-        }
-
-        if (isSequenceStart && _resultListener)
-            _resultListener->onSynthesisStarted();
-
-        bool completed = synthesizeOne(text);
-
-        bool shouldFireCompleted;
-        {
-            std::lock_guard<std::mutex> lock(_queueMutex);
-            if (!completed || _cancelSynth.load()) {
-                while (!_textQueue.empty()) _textQueue.pop();
-                _inSynthesisSequence = false;
-                shouldFireCompleted = false;
-            }
-            else if (_textQueue.empty()) {
-                _inSynthesisSequence = false;
-                shouldFireCompleted = true;
-            }
-            else {
-                shouldFireCompleted = false;
-            }
-        }
-
-        if (shouldFireCompleted && _silenceDuration > 0.0f && _audioConfig.sampleRate > 0) {
-            std::vector<float> silence(
-                static_cast<size_t>(_silenceDuration * _audioConfig.sampleRate), 0.0f);
-            deliverAudio(silence.data(), silence.size());
-        }
-
-        if (shouldFireCompleted && _resultListener)
-            _resultListener->onSynthesisCompleted();
-    }
+void PhononVoiceSynthesisProvider::onSequenceCompleted() {
+    if (_silenceDuration <= 0.0f || audioConfig().sampleRate <= 0) return;
+    std::vector<float> silence(static_cast<size_t>(_silenceDuration * audioConfig().sampleRate), 0.0f);
+    deliverAudio(silence.data(), silence.size());
 }
 
 // ---------------------------------------------------------------------------
@@ -406,14 +262,13 @@ void PhononVoiceSynthesisProvider::workerLoop() {
 bool PhononVoiceSynthesisProvider::synthesizeOne(const std::string& text) {
     VASDK_CTRACK_NAME("PhononTTS::synthesize");
     applyPendingVoice();
-    resetResampler();
+    _resampler.reset(modelSampleRate(), audioConfig().sampleRate);
 
-    static std::atomic<int> seed{42};
     gradium::tts::SynthOpts opts;
     opts.temperature         = _temperature.load();
     opts.duration_delta      = _durationDelta.load();
     opts.stream_chunk_frames = _streamChunkFrames.load();
-    opts.seed                = seed.fetch_add(1);
+    opts.seed                = _seed.fetch_add(1);
 
     // Plan the text as Gradium's runtime does (parity-tested ports in impl/): spell numbers,
     // amounts, symbols and addresses out (normalize.cpp), then group whole sentences into
@@ -437,143 +292,49 @@ bool PhononVoiceSynthesisProvider::synthesizeOne(const std::string& text) {
         spdlog::debug("[PhononTTS] Skipping \"{}\": {}", text, e.what());
         return true;
     } catch (const std::exception& e) {
-        spdlog::error("[PhononTTS] Text planning failed: {}", e.what());
-        if (_resultListener) _resultListener->onSynthesisError(e.what());
+        reportError(std::string("text planning: ") + e.what());
         return false;
     }
 
     // Each chunk is generated on its own from the voice-primed state; their audio is
     // contiguous, so the resampler carries across them.
     for (size_t i = 0; i < chunks.size(); ++i) {
-        if (_cancelSynth.load()) return false;
+        if (cancelled()) return false;
         spdlog::debug("[PhononTTS] Chunk {}/{} ({} tokens, {}): \"{}\"", i + 1, chunks.size(),
                       chunks[i].tokens.size(), language, chunks[i].text);
         StreamListener listener(this);
         const auto id = _engine->synthesizeAsync(chunks[i].text, opts, listener);
         _activeStream.store(id);
-        if (_cancelSynth.load()) _engine->cancelStream(id);  // cancelled before the id was visible
+        if (cancelled()) _engine->cancelStream(id);  // cancelled before the id was visible
         _engine->waitForStream(id);
         _activeStream.store(0);
 
         if (listener.failed) {
-            spdlog::error("[PhononTTS] Synthesis failed: {}", listener.error);
-            if (_resultListener) _resultListener->onSynthesisError(listener.error);
+            reportError(listener.error);
             return false;
         }
-        opts.seed = seed.fetch_add(1);
+        opts.seed = _seed.fetch_add(1);
     }
-    if (_cancelSynth.load()) return false;
+    if (cancelled()) return false;
 
     flushResampler();
     return true;
 }
 
 void PhononVoiceSynthesisProvider::onModelAudio(const float* pcm, size_t n) {
-    if (!_resultListener || n == 0) return;
-    if (_audioConfig.sampleRate <= 0 || _audioConfig.sampleRate == kModelSampleRate) {
+    if (!listener() || n == 0) return;
+    if (_resampler.passthrough()) {
         deliverAudio(pcm, n);
         return;
     }
-    resampleStream(pcm, n, _resampleBuf);
+    _resampleBuf.clear();
+    _resampler.process(pcm, n, _resampleBuf);
     deliverAudio(_resampleBuf.data(), _resampleBuf.size());
-}
-
-// ---------------------------------------------------------------------------
-// Streaming resampler. Audio arrives in chunks of whole 80 ms frames; resampling each
-// chunk on its own (as the batch Lanczos in PocketTTS does) would leave a discontinuity
-// at every chunk edge, so the input tail is carried over.
-// ---------------------------------------------------------------------------
-
-void PhononVoiceSynthesisProvider::resetResampler() {
-    _rsHistory.clear();
-    _rsPos = 0.0;
-    if (_audioConfig.sampleRate <= 0 || _audioConfig.sampleRate == kModelSampleRate) return;
-    // Zero left context so the first output sample is centred on input sample 0.
-    const int R = kernelRadius(kModelSampleRate, _audioConfig.sampleRate);
-    _rsHistory.assign(static_cast<size_t>(R), 0.0f);
-    _rsPos = R;
 }
 
 void PhononVoiceSynthesisProvider::flushResampler() {
-    if (_audioConfig.sampleRate <= 0 || _audioConfig.sampleRate == kModelSampleRate) return;
-    // Zero right context lets the last real input samples be centred in the kernel.
-    const int R = kernelRadius(kModelSampleRate, _audioConfig.sampleRate);
-    std::vector<float> tail(static_cast<size_t>(R), 0.0f);
-    resampleStream(tail.data(), tail.size(), _resampleBuf);
+    // The last real samples, centred in the kernel.
+    _resampleBuf.clear();
+    _resampler.flush(_resampleBuf);
     deliverAudio(_resampleBuf.data(), _resampleBuf.size());
-    resetResampler();
-}
-
-void PhononVoiceSynthesisProvider::resampleStream(const float* in, size_t n, std::vector<float>& out) {
-    const int    dstRate     = _audioConfig.sampleRate;
-    const double ratio       = static_cast<double>(dstRate) / kModelSampleRate;
-    const double step        = 1.0 / ratio;
-    const double filterScale = std::min(1.0, ratio);
-    const int    R           = kernelRadius(kModelSampleRate, dstRate);
-
-    _rsHistory.insert(_rsHistory.end(), in, in + n);
-    out.clear();
-
-    const long long histLen = static_cast<long long>(_rsHistory.size());
-    while (static_cast<long long>(std::floor(_rsPos)) + R < histLen) {
-        const long long base  = static_cast<long long>(std::floor(_rsPos));
-        double sample = 0.0, wSum = 0.0;
-        for (long long j = base - R + 1; j <= base + R; ++j) {
-            double x = (_rsPos - j) * filterScale;
-            double w = (std::abs(x) < kLanczosA) ? sinc(x) * sinc(x / kLanczosA) : 0.0;
-            sample += _rsHistory[static_cast<size_t>(j)] * w;
-            wSum += w;
-        }
-        out.push_back((wSum > 0.0) ? static_cast<float>(sample / wSum) : 0.0f);
-        _rsPos += step;
-    }
-
-    // Keep R samples of left context for the next call.
-    const long long drop = static_cast<long long>(std::floor(_rsPos)) - R;
-    if (drop > 0) {
-        _rsHistory.erase(_rsHistory.begin(), _rsHistory.begin() + static_cast<std::ptrdiff_t>(drop));
-        _rsPos -= static_cast<double>(drop);
-    }
-}
-
-// ---------------------------------------------------------------------------
-// deliverAudio - format convert + call listener
-// ---------------------------------------------------------------------------
-
-void PhononVoiceSynthesisProvider::deliverAudio(const float* pcm, size_t n) {
-    if (!_resultListener || n == 0) return;
-
-    switch (_audioConfig.format) {
-    case va::audio::AudioFormat::SHORT: {
-        _int16Buf.resize(n);
-        AudioSIMD::convertFloatToInt16(pcm, _int16Buf.data(), n);
-        _resultListener->onAudioDataReceived(
-            reinterpret_cast<const char*>(_int16Buf.data()), n * sizeof(int16_t));
-        break;
-    }
-    case va::audio::AudioFormat::FLOAT: {
-        _resultListener->onAudioDataReceived(
-            reinterpret_cast<const char*>(pcm), n * sizeof(float));
-        break;
-    }
-    case va::audio::AudioFormat::INT: {
-        _int32Buf.resize(n);
-        AudioSIMD::convertFloatToInt32(pcm, _int32Buf.data(), n);
-        _resultListener->onAudioDataReceived(
-            reinterpret_cast<const char*>(_int32Buf.data()), n * sizeof(int32_t));
-        break;
-    }
-    case va::audio::AudioFormat::BYTE: {
-        _uint8Buf.resize(n);
-        AudioSIMD::convertFloatToUint8(pcm, _uint8Buf.data(), n);
-        _resultListener->onAudioDataReceived(
-            reinterpret_cast<const char*>(_uint8Buf.data()), n * sizeof(uint8_t));
-        break;
-    }
-    default:
-        spdlog::warn("[PhononTTS] Unknown audio format; delivering as float.");
-        _resultListener->onAudioDataReceived(
-            reinterpret_cast<const char*>(pcm), n * sizeof(float));
-        break;
-    }
 }

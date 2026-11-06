@@ -139,6 +139,15 @@ The **`cancelSynthesis()` contract** is what makes barge-in work: it must be non
 
 Implementations: Supertonic, PocketTTS and MOSS-TTS-Nano (local ONNX), Phonon (local GGUF on ggml), Soniox, Deepgram, Cartesia, Fish Audio, and Gradium (cloud).
 
+**A voice that runs on this machine** derives from [`QueuedVoiceSynthesisProvider`](../../VASDK/include/VASDK/QueuedVoiceSynthesisProvider.h), as the four local voices do. It covers the whole interface. It queues the texts and speaks them on a worker thread, and sends the started and completed events. A cancel drops only what was queued before it, so a reply sent right after a cancel is still said. It delivers the audio: resampled to the pipeline's rate, converted to its format, optionally pre-buffered. The voice only implements two functions:
+
+```cpp
+bool loadEngine() override;                          // on start: load the model
+bool synthesizeOne(const std::string& text) override; // on the worker: one text, true when said in full
+```
+
+In `synthesizeOne()` it passes audio to `handoffAudio(pcm, sampleRate)` and ends with `return finishHandoff();`. A delivery thread plays each piece while the next one is synthesized. If the engine streams audio on a thread of its own, construct the base with `Delivery::Direct` and call `deliverAudio()` instead, as Phonon does. `onCancel()` stops the engine early; `cancelFlag()` is there for an engine that checks between steps. The provider's destructor calls `stopVoiceSynthesisProvider()`.
+
 ## GenericAudioDSPProvider
 
 ([`GenericAudioDSPProvider.h`](../../VASDK/include/VASDK/GenericAudioDSPProvider.h)) In-line audio processing - noise suppression, echo cancellation, dynamic-range compression. The simplest provider interface:

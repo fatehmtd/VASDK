@@ -1,15 +1,12 @@
 #ifndef PHONON_VOICE_SYNTHESIS_PROVIDER_HPP
 #define PHONON_VOICE_SYNTHESIS_PROVIDER_HPP
 
-#include <VASDK/GenericVoiceSynthesisProvider.h>
+#include <VASDK/QueuedVoiceSynthesisProvider.h>
 #include <atomic>
-#include <condition_variable>
 #include <cstdint>
 #include <memory>
 #include <mutex>
-#include <queue>
 #include <string>
-#include <thread>
 #include <vector>
 
 namespace gradium::tts { class PhononTTS; }
@@ -19,8 +16,9 @@ namespace gradium::tts { class PhononTTS; }
  *        Mimi decoder, 24 kHz mono), run by an in-tree C++ port of the inference on ggml
  *        (impl/), loading the Hugging Face checkpoint files as published.
  *
- * Implements GenericVoiceSynthesisProvider so it can be plugged directly into
- * TTSFrameProcessor in the VASDK pipeline.
+ * A QueuedVoiceSynthesisProvider: the base class queues the texts and cancels; this class loads
+ * the model, synthesizes one text and delivers its audio straight from the engine's stream
+ * thread (Delivery::Direct).
  *
  * Model directory, laid out like the model's Hugging Face repo
  * (e.g. gradium/phonon-40m-multilingual):
@@ -33,7 +31,7 @@ namespace gradium::tts { class PhononTTS; }
  * Audio streams in chunks while the rest of the utterance is still being generated:
  * a 480 ms first chunk, then doubling up to setStreamChunkFrames().
  */
-class PhononVoiceSynthesisProvider : public va::audio::GenericVoiceSynthesisProvider {
+class PhononVoiceSynthesisProvider : public va::audio::QueuedVoiceSynthesisProvider {
 public:
     /**
      * @param modelDir   Checkpoint folder (see above)
@@ -48,18 +46,6 @@ public:
     // Non-copyable
     PhononVoiceSynthesisProvider(const PhononVoiceSynthesisProvider&)            = delete;
     PhononVoiceSynthesisProvider& operator=(const PhononVoiceSynthesisProvider&) = delete;
-
-    // --- GenericVoiceSynthesisProvider interface ---
-    bool synthesizeSpeech(const std::string& text) override;
-    void cancelSynthesis() override;
-    bool acceptsQueuedSynthesis() const override { return true; }  // FIFO worker queue
-    bool startVoiceSynthesisProvider() override;
-    void stopVoiceSynthesisProvider() override;
-    bool isVoiceSynthesisProviderRunning() const override;
-    void setAudioConfiguration(const va::audio::AudioConfig& config) override;
-    va::audio::AudioConfig getAudioConfiguration() const override;
-    void setVoiceSynthesisResultListener(va::audio::VoiceSynthesisResultListener* listener) override;
-    va::audio::VoiceSynthesisResultListener* getVoiceSynthesisResultListener() const override;
 
     // --- Phonon knobs ---
 
@@ -111,12 +97,9 @@ private:
 
     std::string _modelDir;
     std::unique_ptr<gradium::tts::PhononTTS> _engine;
-    va::audio::AudioConfig _audioConfig{};
-    va::audio::VoiceSynthesisResultListener* _resultListener = nullptr;
-    bool _running = false;
     float _silenceDuration = 0.0f;
 
-    static constexpr int kModelSampleRate = 24000;
+    int modelSampleRate() const { return 24000; }   // the model's output rate
 
     std::atomic<float> _temperature{0.3f};
     std::atomic<float> _durationDelta{0.0f};
@@ -132,37 +115,24 @@ private:
     std::string _language = "en";   // normalization language, or "none"
     uint32_t    _ruleBits = 0;      // text::Rules::bits; set to the defaults in the constructor
 
-    // Synthesis worker thread (same queue/sequence pattern as PocketVoiceSynthesisProvider)
-    std::thread             _synthThread;
-    std::atomic<bool>       _cancelSynth{false};
-    std::atomic<bool>       _stopWorker{false};
-    std::atomic<uint64_t>   _activeStream{0};
-    bool                    _inSynthesisSequence{false};
-    std::queue<std::string> _textQueue;
-    std::mutex              _queueMutex;
-    std::condition_variable _queueCv;
+    std::atomic<uint64_t> _activeStream{0};   // the engine stream being spoken, for onCancel()
+    std::atomic<int>      _seed{42};          // a new sampling seed per chunk
 
-    // Streaming resampler state (24 kHz → pipeline rate), carried across chunks so chunk
-    // boundaries don't click. Only touched from the engine's stream thread.
-    std::vector<float> _rsHistory;
-    double             _rsPos = 0.0;
+    // Streaming resampler (24 kHz -> pipeline rate), carried across chunks so chunk boundaries
+    // don't click. The engine's stream thread uses it, and the worker once a stream has ended.
+    va::audio::StreamResampler _resampler;
+    std::vector<float>         _resampleBuf;
 
-    // Pre-allocated format-conversion buffers
-    std::vector<float>   _resampleBuf;
-    std::vector<int16_t> _int16Buf;
-    std::vector<int32_t> _int32Buf;
-    std::vector<uint8_t> _uint8Buf;
+    bool loadEngine() override;
+    bool synthesizeOne(const std::string& text) override;
+    void onCancel() override;
+    void onSequenceCompleted() override;
 
-    void workerLoop();
-    bool synthesizeOne(const std::string& text);
     bool applyPendingVoice();
     std::string voicePath(const std::string& name) const;
     void scanVoices();
     void onModelAudio(const float* pcm, size_t n);
-    void resetResampler();
     void flushResampler();
-    void resampleStream(const float* in, size_t n, std::vector<float>& out);
-    void deliverAudio(const float* pcm, size_t n);
 };
 
 #endif // PHONON_VOICE_SYNTHESIS_PROVIDER_HPP

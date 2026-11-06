@@ -59,6 +59,7 @@ add_library(VASDK ${VASDK_LIBRARY_TYPE}
     ./src/VADFrameProcessor.cpp
     ./src/TranscriptionProcessor.cpp
     ./src/TTSFrameProcessor.cpp
+    ./src/QueuedVoiceSynthesisProvider.cpp
     ./src/llm/LLMProcessor.cpp
     ./src/llm/AggregatingLLMProcessor.cpp
     ./src/llm/ToolDispatchProcessor.cpp
