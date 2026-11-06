@@ -85,7 +85,7 @@ JNIEnv *attachedEnv() {
 struct Callbacks {
     jweak target = nullptr;
     jmethodID onTranscript = nullptr, onStatus = nullptr, onLlmResponse = nullptr, onError = nullptr;
-    jmethodID onEngineEvent = nullptr;   // every event, as JSON (VasdkEngine.events)
+    jmethodID onEngineEvent = nullptr;   // every event, a serialized vasdk.engine.Event (VasdkEngine.events)
     std::string replySoFar;   // AgentReply carries the whole reply so far; Kotlin wants the new part
 
     void call(const std::function<void(JNIEnv *, jobject)> &invoke) const {
@@ -108,13 +108,13 @@ struct Callbacks {
     void onEvent(const vasdk::engine::Event &event) {
         using Event = vasdk::engine::Event;
         if (onEngineEvent) {
-            std::string json;
-            if (google::protobuf::util::MessageToJsonString(event, &json).ok())
-                call([&](JNIEnv *env, jobject callback) {
-                    jstring jJson = env->NewStringUTF(json.c_str());
-                    env->CallVoidMethod(callback, onEngineEvent, jJson);
-                    env->DeleteLocalRef(jJson);
-                });
+            const std::string bytes = event.SerializeAsString();
+            call([&](JNIEnv *env, jobject callback) {
+                jbyteArray jBytes = env->NewByteArray(static_cast<jsize>(bytes.size()));
+                env->SetByteArrayRegion(jBytes, 0, static_cast<jsize>(bytes.size()), reinterpret_cast<const jbyte *>(bytes.data()));
+                env->CallVoidMethod(callback, onEngineEvent, jBytes);
+                env->DeleteLocalRef(jBytes);
+            });
         }
         switch (event.kind_case()) {
         case Event::kTranscript:
@@ -197,6 +197,35 @@ std::string callKotlin(jweak target, jmethodID method, const std::vector<std::st
     return result;
 }
 
+// A Kotlin step: (paramsType, params bytes, text, flow, page) -> a serialized StepOutcome; empty
+// when it couldn't be called.
+std::string callKotlinStep(jweak target, jmethodID method, const std::string &type, const std::string &params,
+                           const std::string &text, const std::string &flow, const std::string &page) {
+    JNIEnv *env = attachedEnv();
+    if (!env) return {};
+    jobject callback = env->NewLocalRef(target);
+    if (!callback) return {};
+    jvalue values[5];
+    values[0].l = env->NewStringUTF(type.c_str());
+    auto jParams = env->NewByteArray(static_cast<jsize>(params.size()));
+    env->SetByteArrayRegion(jParams, 0, static_cast<jsize>(params.size()), reinterpret_cast<const jbyte *>(params.data()));
+    values[1].l = jParams;
+    values[2].l = env->NewStringUTF(text.c_str());
+    values[3].l = env->NewStringUTF(flow.c_str());
+    values[4].l = env->NewStringUTF(page.c_str());
+    auto jResult = static_cast<jbyteArray>(env->CallObjectMethodA(callback, method, values));
+    if (env->ExceptionCheck()) env->ExceptionClear();
+    for (auto &value : values) env->DeleteLocalRef(value.l);
+    env->DeleteLocalRef(callback);
+    std::string result;
+    if (jResult) {
+        result.resize(static_cast<size_t>(env->GetArrayLength(jResult)));
+        env->GetByteArrayRegion(jResult, 0, static_cast<jsize>(result.size()), reinterpret_cast<jbyte *>(result.data()));
+        env->DeleteLocalRef(jResult);
+    }
+    return result;
+}
+
 std::vector<std::string> stringArray(JNIEnv *env, jobjectArray array) {
     std::vector<std::string> strings;
     if (!array) return strings;
@@ -222,15 +251,14 @@ std::shared_ptr<va::flow::FlowRegistry> kotlinExtensions(jweak target, jmethodID
         registry->addTool(std::move(tool));
     }
     for (const auto &type : steps) {
+        // Its params serialized (Kotlin parses them with its class for the type), a StepOutcome back.
         registry->addStep(type, [target, onAgentStep, type](const google::protobuf::Message &params, va::flow::TurnContext &turn) {
-            std::string paramsJson;
-            (void) google::protobuf::util::MessageToJsonString(params, &paramsJson);
-            const nlohmann::json context{{"text", turn.text()}, {"flow", turn.flowName()}, {"page", turn.pageName()}};
-            const std::string outcomeJson = callKotlin(target, onAgentStep, {type, paramsJson, context.dump()});
+            const std::string outcomeBytes =
+                    callKotlinStep(target, onAgentStep, type, params.SerializeAsString(), turn.text(), turn.flowName(), turn.pageName());
             vasdk::flow::StepOutcome outcome;
             std::string error;
-            if (!google::protobuf::util::JsonStringToMessage(outcomeJson, &outcome).ok())
-                spdlog::error("[VASDK] step {}: not a StepOutcome: {}", type, outcomeJson);
+            if (!outcome.ParseFromString(outcomeBytes))
+                spdlog::error("[VASDK] step {}: not a StepOutcome", type);
             else if (!turn.apply(outcome, &error))
                 spdlog::error("[VASDK] step {}: {}", type, error);
         });
@@ -285,8 +313,8 @@ Java_com_vasdk_android_VasdkEngine_nativeInit(JNIEnv *env, jobject thiz, jstring
     jmethodID onToolCall = env->GetMethodID(cls, "onToolCall", "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;");
     jmethodID onAgentTool = env->GetMethodID(cls, "onAgentTool", "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;");
     jmethodID onAgentStep = env->GetMethodID(cls, "onAgentStep",
-                                             "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;");
-    callbacks->onEngineEvent = env->GetMethodID(cls, "onEngineEvent", "(Ljava/lang/String;)V");
+                                             "(Ljava/lang/String;[BLjava/lang/String;Ljava/lang/String;Ljava/lang/String;)[B");
+    callbacks->onEngineEvent = env->GetMethodID(cls, "onEngineEvent", "([B)V");
     if (!callbacks->onTranscript || !callbacks->onStatus || !callbacks->onLlmResponse || !callbacks->onError || !onToolCall ||
         !onAgentTool || !onAgentStep || !callbacks->onEngineEvent)
         return fail("Could not resolve callback methods on VasdkEngine");

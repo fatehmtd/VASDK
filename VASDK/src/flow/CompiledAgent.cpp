@@ -204,7 +204,7 @@ google::protobuf::FileDescriptorSet CompiledAgent::protoFiles() const {
     if (!_imports) return files;
     std::set<std::string> added;
     std::function<void(const google::protobuf::FileDescriptor*)> add = [&](const google::protobuf::FileDescriptor* file) {
-        if (!file || !added.insert(file->name()).second) return;
+        if (!file || !added.insert(std::string(file->name())).second) return;
         for (int i = 0; i < file->dependency_count(); ++i) add(file->dependency(i));
         file->CopyTo(files.add_file());
     };

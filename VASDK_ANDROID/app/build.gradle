@@ -2,6 +2,7 @@ plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
     id 'org.jetbrains.kotlin.plugin.compose'
+    id 'com.google.protobuf'
 }
 
 def localProps = new Properties()
@@ -120,7 +121,23 @@ android {
     }
 }
 
+// VASDK's messages for Kotlin (vasdk.engine.Event, ...), from the same .proto files as the native
+// side, as lite classes: VasdkEngine.events gives each event as its message.
+android.sourceSets.main.proto.srcDir '../../VASDK/proto'
+protobuf {
+    protoc { artifact = 'com.google.protobuf:protoc:4.29.5' }
+    generateProtoTasks {
+        all().each { task ->
+            task.builtins {
+                java { option 'lite' }
+                kotlin { option 'lite' }
+            }
+        }
+    }
+}
+
 dependencies {
+    implementation 'com.google.protobuf:protobuf-kotlin-lite:4.29.5'
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'com.google.android.material:material:1.11.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'

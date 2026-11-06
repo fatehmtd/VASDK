@@ -1,5 +1,7 @@
 package com.vasdk.android
 
+import vasdk.engine.Events.Event
+import vasdk.flow.StepOutcomeOuterClass.StepOutcome
 import android.content.Context
 import android.content.ContextWrapper
 import android.net.ConnectivityManager
@@ -177,7 +179,7 @@ class VasdkEngine private constructor(
     /** An agent in the app's assets ("agents/phone/agent.txtpb", with its files beside it); null: none. Before init(). */
     var agentAsset: String? = null
     private val agentTools = ConcurrentHashMap<String, (String) -> String>()
-    private val agentSteps = ConcurrentHashMap<String, (String, String) -> String>()
+    private val agentSteps = ConcurrentHashMap<String, (ByteArray, AgentTurn) -> StepOutcome>()
 
     /**
      * A tool for the agent's call_tool steps, written in Kotlin: gets the step's args as a JSON
@@ -186,13 +188,16 @@ class VasdkEngine private constructor(
      */
     fun registerAgentTool(name: String, tool: (argsJson: String) -> String) { agentTools[name] = tool }
 
+    /** Where a step written in Kotlin runs: what the user said, and the agent's flow and page. */
+    data class AgentTurn(val text: String, val flow: String, val page: String)
+
     /**
      * A step for the agent's `custom { [type.googleapis.com/<paramsType>] { ... } }` steps, written in
-     * Kotlin: gets its params and the turn ({"text", "flow", "page"}) as JSON and returns a
-     * vasdk.flow.StepOutcome as JSON: {"set": {"$session.x": 1}, "say": ["..."], "goto": "page"}.
+     * Kotlin: gets its params serialized (parse them with the type's class: `Points.parseFrom(params)`)
+     * and the turn, and returns a vasdk.flow.StepOutcome: `stepOutcome { say += "Noted."; goto = "done" }`.
      * Before init().
      */
-    fun registerAgentStep(paramsType: String, step: (paramsJson: String, turnJson: String) -> String) {
+    fun registerAgentStep(paramsType: String, step: (params: ByteArray, turn: AgentTurn) -> StepOutcome) {
         agentSteps[paramsType] = step
     }
 
@@ -204,9 +209,9 @@ class VasdkEngine private constructor(
         isNativeStarted && nativeSetEntityValues(name, valuesJson)
     }
 
-    private val eventFlow = MutableSharedFlow<String>(extraBufferCapacity = 256)
-    /** Everything the engine reports (vasdk/engine/events.proto), each a JSON object: {"agentReply": {...}}, {"pageChanged": {...}}. */
-    val events: SharedFlow<String> = eventFlow.asSharedFlow()
+    private val eventFlow = MutableSharedFlow<Event>(extraBufferCapacity = 256)
+    /** Everything the engine reports, each a vasdk.engine.Event (vasdk/engine/events.proto): `event.kindCase`, `event.agentReply.text`. */
+    val events: SharedFlow<Event> = eventFlow.asSharedFlow()
 
     // The agent asset and the files beside it, copied where native code can read them.
     private fun extractAgent(asset: String): String? = try {
@@ -954,16 +959,20 @@ class VasdkEngine private constructor(
     }
 
     @Keep
-    fun onAgentStep(paramsType: String, paramsJson: String, turnJson: String): String = try {
-        agentSteps[paramsType]?.invoke(paramsJson, turnJson) ?: "{}"
+    fun onAgentStep(paramsType: String, params: ByteArray, text: String, flow: String, page: String): ByteArray = try {
+        (agentSteps[paramsType]?.invoke(params, AgentTurn(text, flow, page)) ?: StepOutcome.getDefaultInstance()).toByteArray()
     } catch (e: Exception) {
         Log.e(TAG, "Agent step $paramsType failed", e)
-        "{}"
+        StepOutcome.getDefaultInstance().toByteArray()
     }
 
     @Keep
-    fun onEngineEvent(json: String) {
-        eventFlow.tryEmit(json)
+    fun onEngineEvent(event: ByteArray) {
+        try {
+            eventFlow.tryEmit(Event.parseFrom(event))
+        } catch (e: Exception) {
+            Log.e(TAG, "Not an engine event", e)
+        }
     }
 
     //  Native declarations 

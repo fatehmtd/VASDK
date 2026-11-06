@@ -66,11 +66,11 @@ sequenceDiagram
 | Call | Use |
 | --- | --- |
 | `registerAgentTool(name) { argsJson -> resultJson }` | A tool for the agent's `call_tool` steps, written in Kotlin (`place_call` here). Declare it in the agent with no `http` (`tools { name: "place_call" }`), so lint and tests know it. |
-| `registerAgentStep(paramsType) { paramsJson, turnJson -> outcomeJson }` | A step for `custom { [type.googleapis.com/<paramsType>] { ... } }`. It gets the turn's text, flow and page, and returns a [`StepOutcome`](../../VASDK/proto/vasdk/flow/step_outcome.proto) as JSON: values to set, texts to say, a target. |
+| `registerAgentStep(paramsType) { params, turn -> stepOutcome { ... } }` | A step for `custom { [type.googleapis.com/<paramsType>] { ... } }`. It gets its params serialized (parse them with the type's class, `Points.parseFrom(params)`) and the turn's text, flow and page (`AgentTurn`), and returns a [`StepOutcome`](../../VASDK/proto/vasdk/flow/step_outcome.proto) message: values to set, texts to say, a target. |
 | `setEntityValues(name, valuesJson)` | Replaces a dynamic entity's values: `ContactsEntity.values(context)` gives the phone book as `@contact` (number as the value, the name as spoken and said). |
-| `events` | A `SharedFlow<String>` of every engine event as JSON (`{"pageChanged": {...}}`, `{"agentReply": {...}}`): `engine.events.collect { ... }`. |
+| `events` | A `SharedFlow<Event>` of every engine event, each a [`vasdk.engine.Event`](../../VASDK/proto/vasdk/engine/events.proto): `engine.events.collect { if (it.hasAgentReply()) show(it.agentReply.text) }`. |
 
-Register tools and steps, and set `agentAsset`, before `init()`. They run on a native thread and may block.
+Register tools and steps, and set `agentAsset`, before `init()`. They run on a native thread and may block. The app's build generates Kotlin lite classes from VASDK's `.proto` files (the `com.google.protobuf` Gradle plugin, `protobuf-kotlin-lite`), the same messages the native side uses; tools take and give JSON, as their arguments are an LLM's.
 
 The agent can also hand a topic to the LLM with a route's `target: "LLM"`; its steps are the offline answer ([With an LLM](../reference/flows.md#with-an-llm)). Not in the app yet:
 - the engine config that `VasdkEngine` builds has a single LLM, so `llm_profiles` ([a model per task](../reference/engine-config.md#different-llms-for-different-tasks)) aren't in its settings;
