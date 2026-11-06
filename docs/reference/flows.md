@@ -181,7 +181,7 @@ slots { name: "card" type: STRING prompt: "Please type or say your card number."
 | `no_input_ms`, `max_reprompts` | The no-input timer and the misses allowed, for this question, before the page's settings (and, on a form, the goal's `max_reprompts`). |
 | `follow_up_listen_ms` | How long the mic stays open after the question (see below). |
 | `turn_end` | When the answer is over. `PATIENT`: pauses don't end it, so "five five five... one two three... four five six seven" stays one turn (the VAD holds pauses twice as long, at least 1 s, and the end at least 1.5 s; the turn model's guess during a pause is ignored). `SNAPPY`: ends sooner after the user stops (at most 300 ms). `NORMAL`: the engine's turn-taking. Unset: `PATIENT` for `DIGITS` and an `EMAIL` keyboard, `SNAPPY` for `YES_NO` and `CONFIRMATION`. |
-| `hints` | Words the answer may hold, for the speech recognizer. Added to those derived: the choices' labels, the asked slot's values and synonyms, and the page's intent examples (up to 50). Recognizers that can be biased use them for the next answer; Soniox sends them as its `context` terms. |
+| `hints` | Words the answer may hold, for the speech recognizer. Added to those derived: the choices' labels, the asked slot's values and synonyms, and the page's intent examples (up to 50). Recognizers that can be biased use them for the next answer: Whistle favours them as keywords, with its own, and Soniox sends them as its `context` terms. The others don't take hints (Deepgram's client has only Nova-2's `keywords`, not Nova-3's `keyterm`). |
 
 **Tapping a choice.** `Session::selectChoice(index)` (from 0) taps one of the last reply's choices, the same as saying its value; `vasdk_agentc chat` taps with `#1`, and test cases with `choice: 0`.
 

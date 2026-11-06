@@ -1,5 +1,6 @@
 #include "WhistleTranscriptionProvider.hpp"
 #include "impl/NeedleEngine.hpp"
+#include <set>
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 #include <algorithm>
@@ -202,6 +203,12 @@ WhistleTranscriptionProvider::getInferenceConfig() const
     return _inferenceConfig;
 }
 
+void WhistleTranscriptionProvider::setContextHints(const std::vector<std::string>& phrases)
+{
+    std::lock_guard<std::mutex> lock(_mtx);
+    _hints = phrases;
+}
+
 // ---------------------------------------------------------------------------
 // Audio format conversion (mirrors the WhisperCpp / Parakeet implementations)
 // ---------------------------------------------------------------------------
@@ -256,12 +263,21 @@ WhistleTranscriptionProvider::runInference(const std::vector<float>& audio)
     if (audio.empty()) return result;
 
     InferenceConfig config = getInferenceConfig();
+    std::vector<std::string> hints;
+    {
+        std::lock_guard<std::mutex> lock(_mtx);
+        hints = _hints;
+    }
+    // The config's keywords, then the words the agent expects for this answer, each once.
     std::string keywords;
-    for (const auto& k : config.keywords) {
-        if (k.empty()) continue;
+    std::set<std::string> seen;
+    auto add = [&](const std::string& k) {
+        if (k.empty() || !seen.insert(k).second) return;
         if (!keywords.empty()) keywords += '\n';
         keywords += k;
-    }
+    };
+    for (const auto& k : config.keywords) add(k);
+    for (const auto& k : hints) add(k);
 
     std::string json, error;
     if (!NeedleEngine::instance().transcribe(audio, config.language, keywords,
