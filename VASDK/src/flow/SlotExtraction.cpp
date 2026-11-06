@@ -18,12 +18,6 @@ std::string trim(const std::string& text) {
     return text.substr(first, text.find_last_not_of(" \t\r\n.!?") - first + 1);
 }
 
-// The system entities need no declarations: one empty catalog serves every slot.
-std::optional<EntityMatch> system(const char* name, const std::string& text,
-                                  std::chrono::system_clock::time_point now = std::chrono::system_clock::now()) {
-    static const EntityCatalog catalog;
-    return catalog.find(name, text, {}, now);
-}
 
 } // namespace
 
@@ -42,15 +36,17 @@ Value slotValue(const goal::GoalState& state, const std::string& slot) {
     return stringValue(json.dump());
 }
 
-std::optional<bool> extractYesNo(const std::string& text) {
-    const auto answer = system("sys.yes_no", text);
+std::optional<bool> extractYesNo(const std::string& text, const EntityCatalog& entities) {
+    const auto answer = entities.find("sys.yes_no", text);
     if (!answer) return std::nullopt;
     return answer->value.bool_value();
 }
 
 std::optional<std::string> extractSlotValue(const vasdk::goal::Slot& slot, const std::string& text,
-                                            std::chrono::system_clock::time_point now) {
+                                            const EntityCatalog& entities, std::chrono::system_clock::time_point now) {
     using Type = vasdk::goal::Slot;
+    // The system entities need no declarations.
+    auto system = [&](const char* name, const std::string& said) { return entities.find(name, said, {}, now); };
     switch (slot.type()) {
     case Type::ENUM: {
         const auto words = splitWords(text);
@@ -74,7 +70,7 @@ std::optional<std::string> extractSlotValue(const vasdk::goal::Slot& slot, const
         return toText(number->value);
     }
     case Type::BOOLEAN: {
-        const auto answer = extractYesNo(text);
+        const auto answer = extractYesNo(text, entities);
         if (!answer) return std::nullopt;
         return std::string(*answer ? "yes" : "no");
     }
@@ -89,7 +85,7 @@ std::optional<std::string> extractSlotValue(const vasdk::goal::Slot& slot, const
     case Type::EMAIL: {   // "next Tuesday" → 2026-11-10, "half past three" → 15:30
         const char* entity = slot.type() == Type::DATE ? "sys.date" : slot.type() == Type::TIME ? "sys.time"
                            : slot.type() == Type::DATETIME ? "sys.datetime" : "sys.email";
-        const auto value = system(entity, text, now);
+        const auto value = system(entity, text);
         if (!value) return std::nullopt;
         return toText(value->value);
     }

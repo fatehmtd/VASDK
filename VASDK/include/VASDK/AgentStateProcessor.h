@@ -1,5 +1,6 @@
 #pragma once
 
+#include "nlu/Language.h"
 #include "FrameProcessor.h"
 #include "Frame.h"
 #include "metrics/MetricsCollector.h"
@@ -61,11 +62,12 @@ namespace va {
             /// ("Hey, hey." for "yeah, yeah"), and a garbled word shouldn't cut the agent off.
             float minInterruptConfidence = 0.6f;
             uint32_t lowConfidenceMaxWords = 2;
-            std::vector<std::string> backchannelPhrases{ "yeah", "yep", "yes", "yup", "mm-hmm", "mhm", "mm", "hmm",
-                "uh-huh", "okay", "ok", "right", "all right", "alright", "sure", "i see", "got it", "cool", "nice", "wow", "ah", "oh" };
-            /// Any of these words makes the speech a real interruption at once ("okay stop", "what?": not heard).
-            std::vector<std::string> interruptWords{ "stop", "wait", "no", "hold", "hang", "actually", "but",
-                "sorry", "excuse", "what", "pardon" };
+            /// What may be said over the agent without interrupting it ("yeah", "mm-hmm"). Empty: the
+            /// languages' back-channels (nlu::Language's turn_taking; useLanguageWords).
+            std::vector<std::string> backchannelPhrases;
+            /// Any of these words makes the speech a real interruption at once ("okay stop", "what?": not
+            /// heard). Empty: the languages' interruptions.
+            std::vector<std::string> interruptWords;
             /// Speech over the agent that is only its own words (speakers heard by the mic, with no echo
             /// cancellation) doesn't interrupt it. Needs the words being spoken (setSpokenTextProvider).
             bool rejectEcho = true;
@@ -76,6 +78,9 @@ namespace va {
             /// cancellation and an STT whose words come late; every interruption then waits as long.
             uint32_t echoWordsWaitMs = 0;
         };
+
+        /** Fills `config`'s empty phrase and word lists with `languages`' back-channels and interruptions. */
+        VASDK_EXPORT void useLanguageWords(BackchannelConfig& config, const nlu::Languages& languages);
 
         /**
          * @brief Classifies a transcript heard over the agent. Punctuation and case are ignored, and
@@ -153,10 +158,18 @@ namespace va {
             void setInterruptTimeoutMs(uint32_t ms) { _interruptTimeoutMs = ms; }
 
             /// Back-channel policy; enabled = false restores the plain hard barge-in. Before start(), or
-            /// any time from another thread: it then applies from the next frame.
+            /// any time from another thread: it then applies from the next frame. Empty phrase and
+            /// word lists are the languages' (setLanguages).
             void setBackchannelConfig(const BackchannelConfig& backchannelConfig) {
                 std::lock_guard<std::mutex> lock(_pendingBackchannelMutex);
                 _pendingBackchannel = backchannelConfig;
+                useLanguageWords(*_pendingBackchannel, _languages);
+            }
+            /// The languages the user may speak over the agent in: their back-channels ("yeah",
+            /// "ouais") and interruptions, for a policy that lists none. Default: VASDK's built-in en-US.
+            void setLanguages(const nlu::Languages& languages) {
+                std::lock_guard<std::mutex> lock(_pendingBackchannelMutex);
+                _languages = languages;
             }
             /// The policy in use, with any setBackchannelConfig() not yet applied.
             BackchannelConfig getBackchannelConfig() const {
@@ -281,6 +294,7 @@ namespace va {
             bool                    _interruptStop{ false };
 
             BackchannelConfig    _backchannelConfig;
+            nlu::Languages       _languages{{nlu::Language::builtIn()}};
             std::function<int()> _playbackRemainingMsProvider;
             std::function<std::string()> _spokenTextProvider;
             bool echoes(const std::string& heard) const;

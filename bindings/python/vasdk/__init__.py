@@ -49,7 +49,7 @@ from pathlib import Path
 
 __all__ = ["Registry", "Turn", "Agent", "Conversation", "Providers", "Session", "run_test_file", "words", "version",
            "set_log_level", "VasdkError", "Event", "Command", "ConversationInput", "ConversationReply", "StepOutcome",
-           "SessionOptions", "ToolDeclaration", "ToolParameter", "TriggerDecision"]
+           "SessionOptions", "ToolDeclaration", "ToolParameter", "TriggerDecision", "Language", "builtin_language"]
 
 
 class VasdkError(RuntimeError):
@@ -84,6 +84,7 @@ _find_messages()
 
 from .engine import events_pb2, session_pb2  # noqa: E402
 from .flow import conversation_pb2, snapshot_pb2, step_outcome_pb2, trigger_pb2  # noqa: E402
+from .nlu import language_pb2  # noqa: E402
 
 Event = events_pb2.Event
 Command = events_pb2.Command
@@ -95,6 +96,7 @@ ToolDeclaration = session_pb2.ToolDeclaration
 ToolParameter = session_pb2.ToolParameter
 TriggerDecision = trigger_pb2.TriggerDecision   # TriggerFired.decision, ConversationReply.Trigger.decision
 ConversationSnapshot = snapshot_pb2.ConversationSnapshot   # Session.snapshot(), start(resume=...)
+Language = language_pb2.Language   # a language pack: Registry.add_language(), builtin_language()
 
 
 def _find_library():
@@ -185,6 +187,8 @@ _add_page_type = _declare("vasdk_registry_add_page_type", _i, _p, _s, _s, _PAGE_
 _add_page_type_message = _declare("vasdk_registry_add_page_type_message", _i, _p, _s, _s, _i, _PAGE_ENTER_MESSAGE,
                                   _PAGE_TURN_MESSAGE, _p)
 _add_entity_extractor = _declare("vasdk_registry_add_entity_extractor", _i, _p, _s, _EXTRACTOR, _p)
+_add_language = _declare("vasdk_registry_add_language", _i, _p, _s, _n, _i, _error)
+_language_builtin = _declare("vasdk_language_builtin", _p, _i, _length)
 _result_set = _declare("vasdk_result_set", None, _p, _s)
 _result_fail = _declare("vasdk_result_fail", None, _p, _s)
 _turn_text = _declare("vasdk_turn_text", _s, _p)
@@ -324,6 +328,12 @@ def _tool_callback(function):
 
 def version():
     return _version().decode()
+
+
+def builtin_language():
+    """VASDK's own en-US pack, a vasdk.Language: to copy and change, or to start another language from."""
+    length = ctypes.c_size_t()
+    return Language.FromString(_take_bytes(_language_builtin(_BINARY, ctypes.byref(length)), length))
 
 
 def set_log_level(level):
@@ -495,6 +505,26 @@ class Registry:
                 raise VasdkError(f"entity extractor {name!r} didn't register")
             return function
         return register
+
+    def add_language(self, pack):
+        """A language agents may name in locale or languages: a vasdk.Language, or the path of a
+        .txtpb, .json or .pb pack (vasdk/nlu/language.proto). One with the code of another
+        replaces it. A pack the agent lists in language_files needs no call."""
+        if not isinstance(pack, Language):
+            path = Path(pack)
+            text = path.read_bytes()
+            pack = Language()
+            if path.suffix == ".json":
+                json_format.Parse(text.decode("utf-8"), pack)
+            elif path.suffix in (".pb", ".binpb"):
+                pack.ParseFromString(text)
+            else:
+                from google.protobuf import text_format
+                text_format.Parse(text.decode("utf-8"), pack)
+        data = pack.SerializeToString()
+        error = ctypes.c_void_p()
+        if not _add_language(self._handle, data, len(data), _BINARY, ctypes.byref(error)):
+            raise VasdkError(_take(error.value))
 
     def _keep(self, callback):
         self._callbacks.append(callback)

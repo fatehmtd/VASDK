@@ -12,40 +12,26 @@ namespace nlu {
 
 namespace {
 
-const std::map<std::string, std::vector<std::string>>& builtIns() {
-    static const std::map<std::string, std::vector<std::string>> intents{
-        {"sys.yes", {"yes", "yeah", "yep", "yup", "sure", "correct", "right", "ok", "okay", "that's right", "sounds good",
-                     "go ahead", "please do"}},
-        {"sys.no", {"no", "nope", "nah", "no thanks", "not really", "wrong"}},
-        {"sys.cancel", {"cancel", "never mind", "nevermind", "forget it", "stop"}},
-        {"sys.repeat", {"repeat", "say that again", "come again", "what did you say", "pardon", "one more time"}},
-        {"sys.help", {"help", "what can i say", "what can you do", "i'm confused", "options"}},
-        {"sys.skip", {"skip", "i don't know", "not sure", "no idea", "pass", "next question"}},
-    };
-    return intents;
-}
-
-// Words that negate what follows them closely: "I don't want to book".
-bool negated(const std::vector<std::string>& words, size_t start) {
-    static const std::set<std::string> cues{"not", "never", "no", "don't", "dont", "doesn't", "didn't", "won't", "wont",
-                                            "can't", "cant", "cannot", "isn't", "wouldn't", "shouldn't"};
-    for (size_t at = start > 3 ? start - 3 : 0; at < start; ++at)
-        if (cues.count(words[at])) return true;
+// The intents every agent has; their examples come from its languages.
+bool builtInName(const std::string& intent) {
+    for (const char* name : {"sys.yes", "sys.no", "sys.cancel", "sys.repeat", "sys.help", "sys.skip"})
+        if (intent == name) return true;
     return false;
 }
 
 } // namespace
 
-RuleNluProvider::RuleNluProvider(const google::protobuf::RepeatedPtrField<vasdk::flow::Intent>& intents, float minSimilarity)
-    : _minSimilarity(minSimilarity) {
+RuleNluProvider::RuleNluProvider(const google::protobuf::RepeatedPtrField<vasdk::flow::Intent>& intents,
+                                 std::shared_ptr<const Languages> languages, float minSimilarity)
+    : _languages(languages ? std::move(languages) : std::make_shared<const Languages>()), _minSimilarity(minSimilarity) {
     for (const auto& intent : intents)
         add(intent.name(), {intent.examples().begin(), intent.examples().end()},
             {intent.negative_examples().begin(), intent.negative_examples().end()});
-    for (const auto& [name, examples] : builtIns())
-        if (!_intents.count(name)) add(name, examples, {});
+    for (const char* name : {"sys.yes", "sys.no", "sys.cancel", "sys.repeat", "sys.help", "sys.skip"})
+        if (!_intents.count(name)) add(name, _languages->intentExamples(name), {});
 }
 
-bool RuleNluProvider::isBuiltIn(const std::string& intent) { return builtIns().count(intent) > 0; }
+bool RuleNluProvider::isBuiltIn(const std::string& intent) { return builtInName(intent); }
 
 // "book an @service for @sys.date": the words between entities, and the entities.
 void RuleNluProvider::add(const std::string& name, const std::vector<std::string>& examples,
@@ -100,7 +86,10 @@ float RuleNluProvider::score(const Example& example, const std::vector<std::stri
         total += at->second;
         cursor = at->first + segment.size();
     }
-    if (negatable && first < words.size() && negated(words, first)) return 0;
+    if (negatable && first < words.size()) {   // "I don't want to book": a negation just before
+        for (size_t at = first > 3 ? first - 3 : 0; at < first; ++at)
+            if (_languages->negates(words[at])) return 0;
+    }
     return total;
 }
 

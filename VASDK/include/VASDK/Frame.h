@@ -221,7 +221,7 @@ namespace va {
             }
 
             std::string text;                  // Text content
-            std::string language;              // Language code (e.g., "en-US")
+            std::string language;              // the text's language ("en-US", "fr-FR"); empty: unknown
             bool isFinal = true;               // false = mid-stream chunk; true = last chunk of a response
             bool isExpecting = false;          // true = LLM expects a user response (set on final chunk only)
             std::vector<Choice> choices;       // UI choices presented to the user (non-empty when LLM restricts valid responses)
@@ -232,8 +232,6 @@ namespace va {
             std::string uiJson;                // app UI for the reply, a JSON object (set on the final chunk only)
             std::string expectBytes;           // what the user is expected to say, a serialized vasdk.flow.Expectation (an agent's final chunk only)
             std::vector<std::string> sensitiveValues;   // values to mask wherever the text is shown or logged (an agent's replies)
-
-            TextFrame() : language("en-US") {}
         };
 
         /**

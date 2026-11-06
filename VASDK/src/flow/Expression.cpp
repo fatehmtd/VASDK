@@ -1,6 +1,7 @@
 #include "flow/Expression.h"
+#include "nlu/Language.h"
 
-#include "nlu/English.h"
+#include "nlu/Calendar.h"
 
 #include <algorithm>
 #include <cctype>
@@ -73,9 +74,9 @@ std::optional<long> asDays(const Value& value) {
     int year = 0, month = 0, day = 0;
     if (text.size() < 10 || text[4] != '-' || text[7] != '-' || (text.size() > 10 && text[10] != 'T' && text[10] != ' '))
         return std::nullopt;
-    if (std::sscanf(text.c_str(), "%4d-%2d-%2d", &year, &month, &day) != 3 || !nlu::english::validDate(year, month, day))
+    if (std::sscanf(text.c_str(), "%4d-%2d-%2d", &year, &month, &day) != 3 || !nlu::validDate(year, month, day))
         return std::nullopt;
-    return nlu::english::daysFromCivil(year, month, day);
+    return nlu::daysFromCivil(year, month, day);
 }
 
 std::string localDateTime(TimePoint now) {
@@ -488,11 +489,11 @@ private:
         if (!_now) _now = std::chrono::system_clock::now();
         return *_now;
     }
-    long today() { return nlu::english::daysOf(nlu::english::dateAt(now())); }
+    long today() { return nlu::daysOf(nlu::dateAt(now())); }
 
     Value call(const std::string& name, const std::vector<Value>& arguments) {
         if (name == "now") return stringValue(localDateTime(now()));
-        if (name == "today") return stringValue(nlu::english::iso(nlu::english::civilFromDays(today())));
+        if (name == "today") return stringValue(nlu::iso(nlu::civilFromDays(today())));
         const Value& argument = arguments[0];
         if (name == "exists") return boolValue(!isNull(argument));
         if (name == "empty") {
@@ -522,10 +523,10 @@ private:
             if (!days) return nullValue();
             if (name == "days_until") return numberValue(static_cast<double>(*days - today()));
             if (name == "days_since") return numberValue(static_cast<double>(today() - *days));
-            if (name == "weekday") return numberValue((nlu::english::weekdayOf(*days) + 6) % 7 + 1);
+            if (name == "weekday") return numberValue((nlu::weekdayOf(*days) + 6) % 7 + 1);
             const auto count = asNumber(arguments[1]);
             if (!count) return nullValue();
-            return stringValue(nlu::english::iso(nlu::english::civilFromDays(*days + static_cast<long>(std::lround(*count)))));
+            return stringValue(nlu::iso(nlu::civilFromDays(*days + static_cast<long>(std::lround(*count)))));
         }
         if (name == "min" || name == "max") {
             std::vector<Value> values;   // min($session.prices) takes a list's items
@@ -606,7 +607,7 @@ std::string toText(const Value& value) {
         const auto& items = value.list_value().values();
         std::string text;
         for (int i = 0; i < items.size(); ++i) {
-            if (i > 0) text += i + 1 == items.size() ? " and " : ", ";
+            if (i > 0) text += ", ";   // a reply says lists in its language (TemplateScope::language)
             text += toText(items.Get(i));
         }
         return text;
@@ -725,7 +726,7 @@ std::optional<std::pair<size_t, size_t>> filterArity(const std::string& name) {
     if (name == "raw" || name == "count" || name == "lower" || name == "upper" || name == "capitalize") return std::pair<size_t, size_t>{0, 0};
     if (name == "round") return std::pair<size_t, size_t>{0, 1};
     if (name == "default") return std::pair<size_t, size_t>{1, 1};
-    if (name == "plural") return std::pair<size_t, size_t>{2, 2};
+    if (name == "plural") return std::pair<size_t, size_t>{2, 6};
     return std::nullopt;
 }
 
@@ -751,10 +752,12 @@ std::optional<Filter> parseFilter(const std::string& text, std::string& error) {
         }
     }
     if (filter.arguments.size() < takes->first || filter.arguments.size() > takes->second) {
+        auto values = [](size_t count) { return std::to_string(count) + (count == 1 ? " value" : " values"); };
         error = "filter '" + filter.name + "' takes " +
-                (takes->second == 0 ? std::string("no values")
-                 : takes->first == takes->second ? std::to_string(takes->first) + (takes->first == 1 ? " value" : " values")
-                                                 : "at most " + std::to_string(takes->second) + " value");
+                (takes->second == 0                ? std::string("no values")
+                 : takes->first == takes->second ? values(takes->first)
+                 : takes->first == 0             ? "at most " + values(takes->second)
+                                                 : std::to_string(takes->first) + " to " + values(takes->second));
         return std::nullopt;
     }
     return filter;
@@ -803,13 +806,16 @@ double countOf(const Value& value) {
     }
 }
 
-Value applyFilter(const Filter& filter, const Value& value) {
+Value applyFilter(const Filter& filter, const Value& value, const nlu::Language* language) {
     if (filter.name == "raw") return value;
     if (filter.name == "count") return numberValue(countOf(value));
     if (filter.name == "plural") {
         const auto number = value.kind_case() == Value::kListValue ? std::optional<double>(countOf(value)) : asNumber(value);
         const double count = number.value_or(0);
-        return stringValue(toText(numberValue(count)) + " " + toText(filter.arguments[count == 1 ? 0 : 1]));
+        size_t form = count == 1 ? 0 : 1;   // without a language: one, or more
+        if (language) form = language->pluralForm(count);
+        form = std::min(form, filter.arguments.size() - 1);
+        return stringValue(toText(numberValue(count)) + " " + toText(filter.arguments[form]));
     }
     if (filter.name == "round") {
         const auto number = asNumber(value);
@@ -899,15 +905,21 @@ std::string renderTemplate(const std::string& text, const TemplateScope& scope) 
             Value value;
             if (placeholder.expression) value = placeholder.expression->evaluate(raw, scope.now);
             else if (const Lookup& lookup = placeholder.readsValue ? raw : scope.spoken; lookup) value = lookup(placeholder.path);
-            for (const auto& filter : placeholder.filters) value = applyFilter(filter, value);
-            rendered += toText(value);
+            for (const auto& filter : placeholder.filters) value = applyFilter(filter, value, scope.language);
+            if (scope.language && value.kind_case() == Value::kListValue) {   // "a, b and c", in the reply's language
+                std::vector<std::string> items;
+                for (const auto& item : value.list_value().values()) items.push_back(toText(item));
+                rendered += scope.language->spokenList(items);
+            } else {
+                rendered += toText(value);
+            }
         },
         nullptr);
     return rendered;
 }
 
 std::string renderTemplate(const std::string& text, const Lookup& lookup) {
-    return renderTemplate(text, TemplateScope{lookup, nullptr, std::nullopt});
+    return renderTemplate(text, TemplateScope{lookup, nullptr, std::nullopt, nullptr});
 }
 
 bool templateReferences(const std::string& text, std::vector<Path>& references, std::string* error) {

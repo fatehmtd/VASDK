@@ -11,14 +11,15 @@ namespace va {
     namespace pipeline {
 
         namespace {
-            // Lowercase, punctuation to spaces (keeping word-internal hyphens), common spellings unified.
-            std::vector<std::string> normalizedWords(const std::string& text) {
+            // Lowercase, punctuation to spaces (keeping word-internal hyphens).
+            std::vector<std::string> normalizedWords(const std::string& said) {
+                const std::string text = nlu::foldedText(said);
                 std::string cleaned;
                 cleaned.reserve(text.size());
                 for (size_t index = 0; index < text.size(); ++index) {
                     const unsigned char character = static_cast<unsigned char>(text[index]);
                     if (std::isalnum(character) || character >= 0x80) {
-                        cleaned += static_cast<char>(std::tolower(character));
+                        cleaned += static_cast<char>(character);
                     } else if (character == '\'') {
                         // "that's" -> "thats"
                     } else if (character == '-' && !cleaned.empty() && cleaned.back() != ' ' &&
@@ -31,18 +32,7 @@ namespace va {
                 std::vector<std::string> words;
                 std::istringstream stream(cleaned);
                 for (std::string word; stream >> word;) words.push_back(word);
-
-                std::vector<std::string> unified;
-                for (size_t index = 0; index < words.size(); ++index) {
-                    const std::string& word = words[index];
-                    const std::string next = index + 1 < words.size() ? words[index + 1] : std::string();
-                    if ((word == "uh" || word == "un") && (next == "huh" || next == "hu")) { unified.push_back("uh-huh"); ++index; }
-                    else if ((word == "mm" || word == "m") && (next == "hmm" || next == "hm")) { unified.push_back("mm-hmm"); ++index; }
-                    else if (word == "uhhuh" || word == "uh-hu") unified.push_back("uh-huh");
-                    else if (word == "mhmm" || word == "mmhmm" || word == "mm-hm" || word == "mhm-hmm") unified.push_back("mm-hmm");
-                    else unified.push_back(word);
-                }
-                return unified;
+                return words;   // spellings ("uh huh", "uhhuh") are each a phrase of the language
             }
         } // namespace
 
@@ -112,7 +102,14 @@ namespace va {
             return echo;
         }
 
-        AgentStateProcessor::AgentStateProcessor() = default;
+        void useLanguageWords(BackchannelConfig& config, const nlu::Languages& languages) {
+            if (config.backchannelPhrases.empty()) config.backchannelPhrases = languages.backchannels();
+            if (config.interruptWords.empty()) config.interruptWords = languages.interruptions();
+        }
+
+        AgentStateProcessor::AgentStateProcessor() {
+            useLanguageWords(_backchannelConfig, _languages);
+        }
 
         AgentStateProcessor::~AgentStateProcessor() {
             stop();

@@ -381,6 +381,8 @@ private:
     bool holds(const std::string& condition) const;
     Value evaluate(const std::string& expression) const;
 
+    /** The replies the engine says itself, in the agent's language. */
+    const vasdk::nlu::Replies& replies() const { return _agent->languages().speaking().replies(); }
     std::shared_ptr<const CompiledAgent> _agent;
     CompiledAgent::PageRef _position;
     bool _ended = false;

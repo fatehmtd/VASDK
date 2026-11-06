@@ -84,6 +84,32 @@ flows { name: "main" start_page: "welcome" pages { name: "welcome" on_enter { as
         reply = loyalty.say("bonus")
         assert "50 points for your birthday." in reply.text, reply
         assert seen and type(seen[0]).DESCRIPTOR.full_name == "acme.Bonus", seen
+
+    # A language written in Python, from VASDK's own pack: the agent's replies and yes in it.
+    spanish = vasdk.builtin_language()
+    assert spanish.code == "en-US" and spanish.replies.not_understood, spanish.code
+    spanish.code, spanish.name = "es", "Spanish"
+    spanish.replies.not_understood = "Lo siento, no puedo ayudarle con eso."
+    del spanish.intents["sys.yes"].phrases[:]
+    spanish.intents["sys.yes"].phrases.extend(["sí", "claro"])
+    languages = vasdk.Registry()
+    languages.add_language(spanish)
+    agent = vasdk.Agent.parse('''
+locale: "es-MX"
+start_flow: "main"
+flows { name: "main" start_page: "p" pages { name: "p" on_enter { ask { say { text: "Hola." } } }
+  routes { intent: "sys.yes" steps { say { text: "Perfecto." } } } } }
+''', languages).conversation()
+    agent.start()
+    assert "Perfecto." in agent.say("Sí, claro").text
+    assert "Lo siento, no puedo ayudarle con eso." in agent.say("blablabla").text
+    broken = vasdk.Language(code="xx")
+    broken.speaking.plural_rules.append("$n =")
+    try:
+        languages.add_language(broken)
+        raise AssertionError("a pack that doesn't check was added")
+    except vasdk.VasdkError as error:
+        assert "plural_rules" in str(error), error
     print("test_extensions: all passed")
     return 0
 

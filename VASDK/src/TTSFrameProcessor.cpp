@@ -1,6 +1,5 @@
 #include "VASDK/TTSFrameProcessor.h"
 #include "VASDK/Masking.h"
-#include "VASDK/nlu/English.h"
 #include <VASDK/profiling/CTrack.h>
 #include <spdlog/spdlog.h>
 #include <algorithm>
@@ -264,7 +263,7 @@ namespace va {
                 if (ssml || !frame->text.empty())
                     _pendingSentences.push_back({ssml                                   ? frame->ssml
                                                  : _synthesisProvider->normalizesText() ? frame->text
-                                                                                        : nlu::english::speakable(frame->text),
+                                                                                        : speakable(frame->text),
                                                  frame->interruptible,
                                                  {frame->voice, frame->speed},
                                                  logged});

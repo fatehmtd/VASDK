@@ -193,7 +193,7 @@ The policy is chosen when building the pipeline:
 | `historyMode` | `Drop`, or `AppendToHistory`: the dismissed final is forwarded with `TranscriptionFrame::isBackchannel`. LLMProcessor puts it in front of the user's next message, e.g. `(While you were speaking I said "mm-hmm".) What about Tuesday?`, so history keeps strict user/assistant alternation. |
 | `tailOverlapMode` | `TreatAsTurn`, `Classify` |
 
-`enabled = false` restores the plain hard barge-in. Back-channels while `THINKING` aren't covered: any speech then still cancels the reply. The phrase and interrupt-word lists are English by default; set your own for other languages.
+`enabled = false` restores the plain hard barge-in. Back-channels while `THINKING` aren't covered: any speech then still cancels the reply. Empty phrase and interrupt-word lists are the languages' (`setLanguages`; a Session gives it the agent's, else VASDK's built-in en-US); set your own to replace them.
 
 ### TurnAssemblerProcessor
 

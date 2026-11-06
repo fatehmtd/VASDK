@@ -106,8 +106,8 @@ namespace va {
             virtual bool supportsSsml() const { return false; }
             /**
              * Whether the voice reads dates, times and phone numbers well by itself. When not
-             * (the default), TTSFrameProcessor gives it nlu::english::speakable() text: "2026-11-10"
-             * as "Tuesday, November 10th", "555-123-4567" digit by digit.
+             * (the default), TTSFrameProcessor gives it nlu::Language::speakable() text, in the
+             * reply's language: "2026-11-10" as "Tuesday, November 10th", "555-123-4567" digit by digit.
              */
             virtual bool normalizesText() const { return false; }
 

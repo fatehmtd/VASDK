@@ -247,7 +247,7 @@ int main() {
 
     // System values as replies say them: a form's read-back says the day, not 2026-11-10.
     {
-        EntityCatalog catalog;
+        EntityCatalog catalog(std::make_shared<const va::nlu::Languages>(va::nlu::Languages({va::nlu::Language::builtIn()})));
         std::vector<std::string> errors;
         catalog.build({}, errors);
         check(catalog.describe("sys.date", stringValue("2026-11-10")).spoken == "Tuesday, November 10th", "a date, said");

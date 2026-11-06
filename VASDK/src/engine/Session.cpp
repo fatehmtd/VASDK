@@ -418,6 +418,8 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
             return current && current->getState() == transport::AgentState::IDLE;
         });
     }
+    // Back-channels and interruptions in the agent's languages, unless the config lists its own.
+    if (options.agent) state->agentState->setLanguages(options.agent->languages());
     state->agentState->setBackchannelConfig(options.backchannel);
     if (turnTaking.has_interrupt_timeout_ms())
         state->agentState->setInterruptTimeoutMs(static_cast<uint32_t>(std::max(0, turnTaking.interrupt_timeout_ms())));
@@ -431,6 +433,7 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
         state->bargeInHandler = std::make_shared<BargeInHandler>(state->transcription);
 
     state->tts = std::make_shared<pipeline::TTSFrameProcessor>(providers.tts);
+    if (options.agent) state->tts->setLanguage(options.agent->languages().all().front());   // dates and numbers said in it
     state->tts->setPlaybackFlush([transport = options.transport] { transport->flushOutputAudio(); });
     state->tts->setPlaybackHold([transport = options.transport](transport::PendingPlaybackMode mode, bool held,
                                                                float duckGainDecibels) {

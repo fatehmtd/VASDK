@@ -95,25 +95,26 @@ std::string form(const FlowRuntime& conversation, const std::string& name) {
 } // namespace
 
 int main() {
-    // Reading values from what was said
+    // Reading values from what was said, in VASDK's built-in en-US
+    const EntityCatalog english(std::make_shared<const va::nlu::Languages>(va::nlu::Languages({va::nlu::Language::builtIn()})));
     const auto service = slotOf(R"(type: ENUM values: ["oil change", "tire", "tire repair"])");
-    check(extractSlotValue(service, "I'd like an Oil-Change please") == std::optional<std::string>("oil change"),
+    check(extractSlotValue(service, "I'd like an Oil-Change please", english) == std::optional<std::string>("oil change"),
           "a list value, any case and punctuation");
-    check(extractSlotValue(service, "a tire repair") == std::optional<std::string>("tire repair"), "the longest value wins");
-    check(!extractSlotValue(service, "a car wash"), "no list value");
+    check(extractSlotValue(service, "a tire repair", english) == std::optional<std::string>("tire repair"), "the longest value wins");
+    check(!extractSlotValue(service, "a car wash", english), "no list value");
     const auto count = slotOf("type: INTEGER");
-    check(extractSlotValue(count, "twenty five") == std::optional<std::string>("25") &&
-              extractSlotValue(count, "I have 3 cars") == std::optional<std::string>("3") &&
-              extractSlotValue(count, "a hundred and two") == std::optional<std::string>("102") &&
-              extractSlotValue(count, "twenty-one, please") == std::optional<std::string>("21"),
+    check(extractSlotValue(count, "twenty five", english) == std::optional<std::string>("25") &&
+              extractSlotValue(count, "I have 3 cars", english) == std::optional<std::string>("3") &&
+              extractSlotValue(count, "a hundred and two", english) == std::optional<std::string>("102") &&
+              extractSlotValue(count, "twenty-one, please", english) == std::optional<std::string>("21"),
           "integers in digits and words");
-    check(!extractSlotValue(count, "lots"), "no number");
-    check(extractSlotValue(slotOf("type: NUMBER"), "about 2.5 liters") == std::optional<std::string>("2.5"), "a decimal");
+    check(!extractSlotValue(count, "lots", english), "no number");
+    check(extractSlotValue(slotOf("type: NUMBER"), "about 2.5 liters", english) == std::optional<std::string>("2.5"), "a decimal");
     const auto yesNo = slotOf("type: BOOLEAN");
-    check(extractSlotValue(yesNo, "yeah sure") == std::optional<std::string>("yes") &&
-              extractSlotValue(yesNo, "nope") == std::optional<std::string>("no"), "yes and no");
-    check(extractYesNo("no, yes") == std::optional<bool>(false) && !extractYesNo("maybe later"), "the first answer wins");
-    check(extractSlotValue(slotOf("type: PHONE"), "five five five, one two three, double four six seven") ==
+    check(extractSlotValue(yesNo, "yeah sure", english) == std::optional<std::string>("yes") &&
+              extractSlotValue(yesNo, "nope", english) == std::optional<std::string>("no"), "yes and no");
+    check(extractYesNo("no, yes", english) == std::optional<bool>(false) && !extractYesNo("maybe later", english), "the first answer wins");
+    check(extractSlotValue(slotOf("type: PHONE"), "five five five, one two three, double four six seven", english) ==
               std::optional<std::string>("5551234467"), "spoken phone digits");
 
     std::string error;

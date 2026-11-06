@@ -93,7 +93,7 @@ void addYesNo(FlowRegistry& registry) {
     yesNo.onTurn = [](const Message& params, TurnContext& turn) {
         bool answered = false;
         FlowRegistry::withParams<YesNoParams>(params, [&](const YesNoParams& question) {
-            const auto answer = extractYesNo(turn.text());
+            const auto answer = extractYesNo(turn.text(), turn.entities());
             const std::string target = !answer ? "" : *answer ? question.yes_target() : question.no_target();
             if (!target.empty()) {
                 turn.goTo(target);
@@ -172,6 +172,14 @@ const llm::Tool* FlowRegistry::tool(const std::string& name) const {
 
 void FlowRegistry::addEntityExtractor(const std::string& name, EntityExtractor extractor) {
     _entityExtractors[name] = std::move(extractor);
+}
+
+void FlowRegistry::addLanguage(std::shared_ptr<const nlu::Language> language) {
+    if (!language) return;
+    _languages.erase(std::remove_if(_languages.begin(), _languages.end(),
+                                    [&](const auto& known) { return known->code() == language->code(); }),
+                     _languages.end());
+    _languages.push_back(std::move(language));
 }
 
 const FlowRegistry::EntityExtractor* FlowRegistry::entityExtractor(const std::string& name) const {

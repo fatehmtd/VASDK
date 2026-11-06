@@ -31,7 +31,8 @@
 namespace va {
 namespace flow {
 
-std::vector<std::string> splitWords(const std::string& text) {
+std::vector<std::string> splitWords(const std::string& said) {
+    const std::string text = nlu::foldedText(said);
     std::vector<std::string> words;
     std::string word;
     for (const char c : text) {
@@ -259,6 +260,16 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::load(const std::string& path
             }
         }
         part.clear_entity_files();
+        for (const auto& file : part.language_files()) {
+            vasdk::nlu::Language pack;
+            std::string packError;
+            if (!engine::loadProtoFile((dir / file).string(), pack, &packError)) {
+                if (error) *error = where + "language_files " + quoted(file) + ": " + packError;
+                return false;
+            }
+            *part.add_language_defs() = std::move(pack);
+        }
+        part.clear_language_files();
         const auto files = part.include_files();
         part.clear_include_files();
         for (const auto& file : files) {
@@ -278,6 +289,7 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::load(const std::string& path
             if (more.schema_version() != 0) owned.push_back("schema_version");
             if (!more.name().empty()) owned.push_back("name");
             if (!more.locale().empty()) owned.push_back("locale");
+            if (more.languages_size() > 0) owned.push_back("languages");
             if (!more.start_flow().empty()) owned.push_back("start_flow");
             if (more.has_proactive_policy()) owned.push_back("proactive_policy");
             if (more.proto_imports_size() > 0) owned.push_back("proto_imports");
@@ -358,7 +370,59 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::build(vasdk::flow::Agent age
             if (splitWords(example).empty()) check.error(where, "example " + quoted(example) + " has no words");
         if (intent.examples().empty()) check.error(where, "has no examples");
     }
-    compiled->_rules = std::make_shared<nlu::RuleNluProvider>(definition.intents());
+    // Its languages: the locale first, then the others; each from the agent's own packs, then
+    // the app's (FlowRegistry::addLanguage), then VASDK's built-in one. Same code first, then the
+    // same language ("fr-CA" → "fr").
+    {
+        std::vector<std::shared_ptr<const nlu::Language>> own;
+        for (int i = 0; i < definition.language_defs_size(); ++i) {
+            std::string languageError;
+            auto language = nlu::Language::compile(definition.language_defs(i), &languageError);
+            if (!language) {
+                check.error("language_defs[" + std::to_string(i) + "]", languageError);
+                continue;
+            }
+            own.push_back(std::move(language));
+        }
+        std::vector<std::shared_ptr<const nlu::Language>> builtIn{nlu::Language::builtIn()};
+        auto sameCode = [](const std::string& a, const std::string& b) {
+            if (a.size() != b.size()) return false;
+            for (size_t i = 0; i < a.size(); ++i)
+                if (std::tolower(static_cast<unsigned char>(a[i])) != std::tolower(static_cast<unsigned char>(b[i])) &&
+                    !((a[i] == '-' || a[i] == '_') && (b[i] == '-' || b[i] == '_')))
+                    return false;
+            return true;
+        };
+        using Packs = std::vector<std::shared_ptr<const nlu::Language>>;
+        const std::vector<const Packs*> sources{&own, &compiled->_registry->languages(), &builtIn};
+        auto find = [&](const std::string& code) -> std::shared_ptr<const nlu::Language> {
+            for (const auto* source : sources)
+                for (const auto& language : *source)
+                    if (sameCode(language->code(), code)) return language;
+            for (const auto* source : sources)
+                for (const auto& language : *source)
+                    if (language->serves(code)) return language;
+            return nullptr;
+        };
+        std::vector<std::string> codes;
+        if (!definition.locale().empty()) codes.push_back(definition.locale());
+        codes.insert(codes.end(), definition.languages().begin(), definition.languages().end());
+        if (codes.empty()) codes.push_back("en-US");
+        std::vector<std::shared_ptr<const nlu::Language>> chosen;
+        for (const auto& code : codes) {
+            auto language = find(code);
+            if (!language) {
+                check.error("language " + quoted(code),
+                            "has no pack: add one with language_files (start from VASDK's languages/en-US.txtpb), or "
+                            "FlowRegistry::addLanguage; en-US is built in");
+                continue;
+            }
+            if (std::find(chosen.begin(), chosen.end(), language) == chosen.end()) chosen.push_back(std::move(language));
+        }
+        if (chosen.empty()) chosen.push_back(builtIn.front());
+        compiled->_languages = std::make_shared<const nlu::Languages>(std::move(chosen));
+    }
+    compiled->_rules = std::make_shared<nlu::RuleNluProvider>(definition.intents(), compiled->_languages);
     for (int i = 0; i < definition.session_params_size(); ++i) {
         const auto& param = definition.session_params(i);
         const std::string where = "session param " + (param.name().empty() ? std::to_string(i + 1) : quoted(param.name()));
@@ -420,6 +484,7 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::build(vasdk::flow::Agent age
 
     {
         std::vector<std::string> entityErrors;
+        compiled->_entities = EntityCatalog(compiled->_languages);
         compiled->_entities.build(definition.entity_types(), entityErrors, compiled->_registry);
         check.errors.insert(check.errors.end(), entityErrors.begin(), entityErrors.end());
     }

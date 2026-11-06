@@ -6,7 +6,7 @@
 #include <VASDK/flow/CompiledAgent.h>
 #include <VASDK/flow/Entities.h>
 #include <VASDK/flow/FlowRuntime.h>
-#include <VASDK/nlu/English.h>
+#include <VASDK/nlu/Language.h>
 
 #include <google/protobuf/text_format.h>
 
@@ -39,7 +39,8 @@ std::chrono::system_clock::time_point localTime(int year, int month, int day, in
 
 int main() {
     const auto now = localTime(2026, 11, 2, 9);
-    const EntityCatalog catalog;
+    const auto english = nlu::Language::builtIn();   // VASDK's en-US pack
+    const EntityCatalog catalog(std::make_shared<const nlu::Languages>(nlu::Languages({english})));
     auto value = [&](const std::string& entity, const std::string& text) {
         const auto match = catalog.find(entity, text, {}, now);
         return match ? toText(match->value) : std::string("(none)");
@@ -81,17 +82,27 @@ int main() {
     expect("sys.yes_no", "nope", "false");
     expect("sys.ordinal", "the second one", "2");
     expect("sys.ordinal", "number three", "3");
+    expect("sys.ordinal", "the twenty first", "21");
+    expect("sys.integer", "a hundred and two", "102");
+    expect("sys.integer", "two thousand three hundred and five", "2305");
+    expect("sys.integer", "nineteen", "19");
+    expect("sys.time", "3pm", "15:00");
+    expect("sys.time", "three o'clock", "03:00");
+    expect("sys.date", "the 10 of November", "2026-11-10");
+    expect("sys.yes_no", "That’s right, yes", "true");
     check(value("sys.time", "I have 3 cars") == "(none)", "a bare number isn't a time");
     check(value("sys.date", "I'm 5") == "(none)", "a bare number isn't a date");
 
     // How replies say them.
-    check(nlu::english::spokenDate("2026-11-10") == "Tuesday, November 10th", "a date said");
-    check(nlu::english::spokenDate("2026-11-22") == "Sunday, November 22nd", "22nd");
-    check(nlu::english::spokenTime("15:30") == "3:30 PM" && nlu::english::spokenTime("09:00") == "9 AM" &&
-              nlu::english::spokenTime("12:00") == "noon",
+    check(english->spokenDate("2026-11-10") == "Tuesday, November 10th", "a date said");
+    check(english->spokenDate("2026-11-22") == "Sunday, November 22nd", "22nd");
+    check(english->spokenDate("2026-11-13") == "Friday, November 13th", "13th");
+    check(english->spokenTime("15:30") == "3:30 PM" && english->spokenTime("09:00") == "9 AM" &&
+              english->spokenTime("12:00") == "noon",
           "times said");
-    check(nlu::english::spokenDuration("PT1H30M") == "1 hour and 30 minutes", "a duration said");
-    const auto speakable = nlu::english::speakable("Call 555-123-4567 on 2026-11-10 at 15:30, or at 4:00 PM.");
+    check(english->spokenDuration("PT1H30M") == "1 hour and 30 minutes", "a duration said");
+    check(english->spokenDuration("P1DT2H3M") == "1 day, 2 hours and 3 minutes", "three units");
+    const auto speakable = english->speakable("Call 555-123-4567 on 2026-11-10 at 15:30, or at 4:00 PM.");
     check(speakable == "Call five five five, one two three, four five six seven on Tuesday, November 10th at 3:30 PM, or at 4:00 PM.",
           "speakable: " + speakable);
 

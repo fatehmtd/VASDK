@@ -301,6 +301,21 @@ int vasdk_registry_add_page_type_message(vasdk_registry* registry, const char* n
     return 1;
 }
 
+int vasdk_registry_add_language(vasdk_registry* registry, const void* pack, size_t length, vasdk_format format, char** error) {
+    if (!registry || !pack || length == 0) return fail(error, "no registry or pack", 0);
+    vasdk::nlu::Language message;
+    std::string reason;
+    if (!vasdk_c::read(pack, length, format, message, &reason)) return fail(error, "Language: " + reason, 0);
+    auto language = va::nlu::Language::compile(std::move(message), &reason);
+    if (!language) return fail(error, reason, 0);
+    registry->registry->addLanguage(std::move(language));
+    return 1;
+}
+
+void* vasdk_language_builtin(vasdk_format format, size_t* length) {
+    return vasdk_c::writtenCopy(va::nlu::Language::builtIn()->pack(), format, length);
+}
+
 int vasdk_registry_add_entity_extractor(vasdk_registry* registry, const char* name, vasdk_entity_extractor_fn extractor,
                                         void* user) {
     if (!registry || !name || !*name || !extractor) return 0;

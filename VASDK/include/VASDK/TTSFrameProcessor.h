@@ -2,6 +2,7 @@
 
 #include "FrameProcessor.h"
 #include "GenericVoiceSynthesisProvider.h"
+#include "nlu/Language.h"
 #include "metrics/MetricsCollector.h"
 #include "metrics/MetricHandles.h"
 #include "metrics/MetricsConfig.h"
@@ -46,6 +47,15 @@ public:
      * another reply came). Thread-safe.
      */
     void replaceProvider(std::shared_ptr<audio::GenericVoiceSynthesisProvider> provider);
+    /**
+     * The language replies are in, for a voice that doesn't read numbers itself
+     * (normalizesText false): dates, times and phone numbers are said in it. Default: VASDK's
+     * built-in en-US. Thread-safe.
+     */
+    void setLanguage(std::shared_ptr<const nlu::Language> language) {
+        std::lock_guard<std::mutex> lock(_languageMutex);
+        if (language) _language = std::move(language);
+    }
     /** The words of the reply being spoken, or of the one just finished: what echo from the speakers would be. Thread-safe. */
     std::string currentReplyText();
     /** Called, on the provider's thread, when the provider reports an error (a lost connection). */
@@ -120,6 +130,10 @@ protected:
     bool shouldProcess(std::shared_ptr<transport::Frame> frame) const override;
 
 private:
+    std::string speakable(const std::string& text) {
+        std::lock_guard<std::mutex> lock(_languageMutex);
+        return _language->speakable(text);
+    }
     void handleAgentStateFrame(std::shared_ptr<transport::AgentStateFrame> frame);
     void synthesizeTextFrame(std::shared_ptr<transport::TextFrame> frame);
     // Sends whatever the provider may take now. Takes _turnMutex; calls the provider without it.
@@ -222,6 +236,8 @@ private:
         va::metrics::GaugeHandle      ttfaAlert;
     } _metrics;
     bool _firstChunkReceived{false};
+    std::mutex _languageMutex;
+    std::shared_ptr<const nlu::Language> _language = nlu::Language::builtIn();
 };
 
 } // namespace pipeline

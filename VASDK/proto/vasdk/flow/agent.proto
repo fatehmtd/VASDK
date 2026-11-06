@@ -12,11 +12,15 @@ import "vasdk/flow/expectation.proto";
 import "vasdk/flow/trigger.proto";
 import "vasdk/goal/goal.proto";
 import "vasdk/nlu/entity.proto";
+import "vasdk/nlu/language.proto";
 
 message Agent {
   int32 schema_version = 1;
   string name = 2;
-  string locale = 3;       // "en-US": the only one understood so far
+  // The language the agent's texts are in, and its replies: how values are said ("Tuesday,
+  // November 10th"), the replies the engine says itself. Empty: the first of `languages`, else
+  // "en-US". Always understood too.
+  string locale = 3;
   string start_flow = 4;   // the flow a conversation starts in, at its start_page
 
   repeated Intent intents = 10;
@@ -42,8 +46,18 @@ message Agent {
   // an app's verticals (climate, media, navigation), each with its intents, entities, envelopes,
   // flows, triggers, knowledge and goals. They are merged in, in order, after this file's own;
   // their goal_files, entity_files and include_files are relative to them. Only the main file
-  // sets schema_version, name, locale, start_flow, proactive_policy and proto_imports.
+  // sets schema_version, name, locale, languages, start_flow, proactive_policy and proto_imports.
   repeated string include_files = 25;
+  // The languages the agent's users may speak, besides locale ("en-US", "fr-CA"): values ("demain",
+  // "tomorrow"), yes and no, the built-in intents and back-channels are understood in any of them.
+  // Each needs a pack: from language_files or language_defs, else one the app added
+  // (FlowRegistry::addLanguage); en-US is built in. A code finds a pack of the same language too
+  // ("fr-CA" uses "fr" or "fr-FR" when there's no "fr-CA").
+  repeated string languages = 26;
+  // Language packs (vasdk.nlu.Language), relative to this file: see VASDK's languages/en-US.txtpb
+  // and docs/reference/languages.md. A pack here replaces a built-in or registered one of the same code.
+  repeated string language_files = 27;
+  repeated vasdk.nlu.Language language_defs = 28;   // the same, written in the agent
 }
 
 // An answer to questions people ask: when no route understands the words and they ask one of

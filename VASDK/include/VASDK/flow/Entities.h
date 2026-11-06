@@ -2,6 +2,7 @@
 
 #include "vasdk_export.h"
 #include "Expression.h"
+#include "../nlu/Language.h"
 #include "vasdk/nlu/entity.pb.h"
 
 #include <chrono>
@@ -44,6 +45,11 @@ inline constexpr const char* kSystemEntities[] = {"sys.integer", "sys.number",  
  */
 class VASDK_EXPORT EntityCatalog {
 public:
+    /** No languages: the system entities (@sys.date, @sys.yes_no...) find nothing. */
+    EntityCatalog();
+    /** System entities read in `languages`, and said in the first. */
+    explicit EntityCatalog(std::shared_ptr<const nlu::Languages> languages);
+
     /** Checks and indexes `types`; each problem goes to `errors` ("entity \"plate\": ..."). Code
      *  entities find their values with `registry`'s extractors. */
     void build(const google::protobuf::RepeatedPtrField<vasdk::nlu::EntityType>& types,
@@ -53,6 +59,8 @@ public:
     bool knows(const std::string& name) const;
     /** A declared entity, or nullptr. */
     const vasdk::nlu::EntityType* type(const std::string& name) const;
+    /** The languages values are read in. */
+    const nlu::Languages& languages() const { return *_languages; }
 
     /** Every declared entity in `text`, overlaps resolved, in the order said. */
     std::vector<EntityMatch> findAll(const std::string& text, const DynamicEntityValues& dynamic = {},
@@ -81,9 +89,10 @@ private:
     std::map<std::string, std::shared_ptr<std::regex>> _patterns;
     std::map<std::string, std::shared_ptr<const Expression>> _conditions;   // derived entities
     std::shared_ptr<const FlowRegistry> _registry;                          // code entities' extractors
+    std::shared_ptr<const nlu::Languages> _languages;
 };
 
-/** "Hi, I'm 25." → {"hi", "i'm", "25"}: lower case; a decimal point between digits is kept ("2.5"). */
+/** "Hi, I'm 25." → {"hi", "i'm", "25"}: lower case (nlu::foldedText); a decimal point between digits is kept ("2.5"). */
 VASDK_EXPORT std::vector<std::string> entityWords(const std::string& text);
 
 /**

@@ -1,7 +1,7 @@
 #include "flow/FlowRuntime.h"
 
 #include "flow/SlotExtraction.h"
-#include "nlu/English.h"
+#include "nlu/Language.h"
 #include "goal/GoalState.h"
 
 #include <google/protobuf/util/json_util.h>
@@ -37,14 +37,12 @@ Path splitReference(const std::string& key) {
     return path ? *path : Path{};
 }
 
-constexpr const char* kNotUnderstood = "Sorry, I can't help with that here.";
 
 std::string trim(const std::string& text) {
     const auto start = text.find_first_not_of(" \t\r\n");
     if (start == std::string::npos) return {};
     return text.substr(start, text.find_last_not_of(" \t\r\n") - start + 1);
 }
-constexpr const char* kToolFailed = "Sorry, I can't do that right now.";
 
 nlohmann::json toJson(const Value& value) {
     std::string json;
@@ -57,12 +55,19 @@ Value fromJson(const nlohmann::json& json) {
     if (!google::protobuf::util::JsonStringToMessage(json.dump(), &value).ok()) return nullValue();
     return value;
 }
-constexpr const char* kDidNotGetThat = "Sorry, I didn't get that.";
-constexpr const char* kSayYesOrNo = "Please say yes or no.";
-constexpr const char* kWhatToChange = "What would you like to change?";
 constexpr size_t kMaxSlotChoices = 5;   // a slot with more values offers no buttons
 
 using Expectation = vasdk::flow::Expectation;
+
+// `text` with each {name} replaced: "What's the {slot}?".
+std::string withValues(std::string text, const std::vector<std::pair<std::string, std::string>>& values) {
+    for (const auto& [name, value] : values) {
+        const std::string key = "{" + name + "}";
+        for (size_t at = text.find(key); at != std::string::npos; at = text.find(key, at + value.size()))
+            text.replace(at, key.size(), value);
+    }
+    return text;
+}
 
 // The derived expectation, with the fields `given` sets in place of its own.
 Expectation merged(Expectation derived, const Expectation& given) {
@@ -163,6 +168,7 @@ void TurnContext::say(const std::string& text) { append(_reply, text); }
 std::string TurnContext::render(const std::string& text) const { return _runtime.render(text); }
 void TurnContext::goTo(const std::string& target) { _target = target; }
 const std::string& TurnContext::replyText() const { return _reply.text; }
+const EntityCatalog& TurnContext::entities() const { return _runtime._agent->entities(); }
 
 bool TurnContext::apply(const vasdk::flow::StepOutcome& outcome, std::string* error) {
     const auto session = _runtime._session;
@@ -318,10 +324,7 @@ Value FlowRuntime::resolve(const Path& path, bool spoken) const {
             for (const auto& item : value.list_value().values())
                 items.push_back(slot->entity().empty() ? toText(item)
                                                        : describeSlotValue(entityName(slot->entity()), item).spoken);
-            std::string said;
-            for (size_t i = 0; i < items.size(); ++i)
-                said += (i == 0 ? "" : i + 1 == items.size() ? " and " : ", ") + items[i];
-            return stringValue(said);
+            return stringValue(_agent->languages().speaking().spokenList(items));
         }
         if (slot == _form->goal->slots().end() || slot->entity().empty() || value.kind_case() == Value::kNullValue) {
             // As a reply says it: "2026-11-10" → "Tuesday, November 10th", "15:30" → "3:30 PM".
@@ -329,13 +332,10 @@ Value FlowRuntime::resolve(const Path& path, bool spoken) const {
                 using Slot = vasdk::goal::Slot;
                 const auto& text = value.string_value();
                 std::string said;
-                if (slot->type() == Slot::DATE) said = nlu::english::spokenDate(text);
-                else if (slot->type() == Slot::TIME) said = nlu::english::spokenTime(text);
-                else if (slot->type() == Slot::DATETIME && text.size() >= 16) {
-                    const auto day = nlu::english::spokenDate(text.substr(0, 10));
-                    const auto time = nlu::english::spokenTime(text.substr(11, 5));
-                    if (!day.empty() && !time.empty()) said = day + " at " + time;
-                }
+                const auto& language = _agent->languages().speaking();
+                if (slot->type() == Slot::DATE) said = language.spokenDate(text);
+                else if (slot->type() == Slot::TIME) said = language.spokenTime(text);
+                else if (slot->type() == Slot::DATETIME) said = language.spokenDateTime(text.substr(0, 16));
                 if (!said.empty()) return stringValue(said);
             }
             return valueAt(value, path, 2);
@@ -374,7 +374,7 @@ bool FlowRuntime::store(const std::string& key, const Value& value, std::string*
 
 // A slot's value in an answer: by its entity, else by its type.
 std::optional<std::string> FlowRuntime::readSlot(const vasdk::goal::Slot& slot, const std::string& text) const {
-    if (slot.entity().empty()) return extractSlotValue(slot, text, now());
+    if (slot.entity().empty()) return extractSlotValue(slot, text, _agent->entities(), now());
     const auto match = _agent->entities().find(entityName(slot.entity()), text, _dynamicEntities, now());
     if (!match) return std::nullopt;
     _slotEntities[match->entity + '\n' + slotText(match->value)] = *match;
@@ -773,7 +773,7 @@ FlowRuntime::Outcome FlowRuntime::miss(const std::string& event, Reply& reply) {
     reply.event = handler ? kEventMaxReprompts : event;
     if (!handler) handler = findHandler(event);
     if (handler) return runHandler(*handler, reply);
-    if (event == kEventNoMatch) append(reply, kNotUnderstood);
+    if (event == kEventNoMatch) append(reply, replies().not_understood());
     askAgain(reply);
     return {};
 }
@@ -817,7 +817,8 @@ std::string FlowRuntime::chosenValue(const std::string& text) const {
             return value;
     }
     // "the second one", "number two": the choice at that place.
-    const auto ordinal = nlu::english::ordinals(entityWords(text));
+    const auto heard = entityWords(text);
+    const auto ordinal = _agent->languages().each([&](const nlu::Language& language) { return language.ordinals(heard); });
     if (ordinal.size() == 1 && ordinal[0].length * 2 >= words.size()) {
         const size_t index = static_cast<size_t>(std::stoi(ordinal[0].value)) - 1;
         if (index < _questionChoices.size())
@@ -1096,7 +1097,7 @@ FlowRuntime::Outcome FlowRuntime::run(const google::protobuf::RepeatedPtrField<v
                 break;
             }
             if (llmStep.offline().empty()) {
-                append(reply, kNotUnderstood);
+                append(reply, replies().not_understood());
                 break;
             }
             if (auto outcome = run(llmStep.offline(), reply); outcome.moves()) return outcome;
@@ -1155,7 +1156,7 @@ FlowRuntime::Outcome FlowRuntime::callTool(const vasdk::flow::CallTool& call, Re
     if (const auto* handler = findHandler(kEventToolError)) {
         outcome = runHandler(*handler, reply);
     } else {
-        append(reply, kToolFailed);
+        append(reply, replies().tool_failed());
         askAgain(reply);
     }
     outcome.halted = true;
@@ -1405,8 +1406,6 @@ const vasdk::flow::Knowledge* FlowRuntime::knowledgeAnswering(const std::string&
         const auto [index, similarity] = _embeddings->closest(text, questions, atLeast);
         return index < 0 ? nullptr : &entries.Get(owner[static_cast<size_t>(index)]);
     }
-    static const std::set<std::string> filler{"a", "an", "the", "do", "does", "you", "your", "i", "is", "are", "can", "to",
-                                              "of", "on", "in", "my", "me", "it", "we", "what", "how", "please"};
     const auto words = splitWords(text);
     const vasdk::flow::Knowledge* best = nullptr;
     float bestShare = 0.75f;
@@ -1414,7 +1413,7 @@ const vasdk::flow::Knowledge* FlowRuntime::knowledgeAnswering(const std::string&
         for (const auto& question : entry.questions()) {
             int needed = 0, found = 0;
             for (const auto& word : splitWords(question)) {
-                if (filler.count(word)) continue;
+                if (_agent->languages().isStopWord(word)) continue;
                 ++needed;
                 if (std::any_of(words.begin(), words.end(), [&](const std::string& said) { return nlu::wordMatch(said, word, 0.8f) > 0; }))
                     ++found;
@@ -1617,12 +1616,12 @@ bool FlowRuntime::answerOffer(const std::string& text, Reply& reply) {
     _lastQuestion = std::move(offer.lastQuestion);
     _questionChoices = std::move(offer.questionChoices);
     _expectation = std::move(offer.expectation);
-    const auto answer = extractYesNo(text);
+    const auto answer = extractYesNo(text, _agent->entities());
     if (!answer) return false;
     if (*answer) {
         runTriggerAction(*offer.trigger.trigger, reply);
     } else {
-        append(reply, "Okay.");
+        append(reply, replies().declined());
         askAgain(reply);
     }
     return true;
@@ -1789,7 +1788,8 @@ std::string FlowRuntime::say(const vasdk::flow::Say& say, Reply& reply) {
 
 std::string FlowRuntime::render(const std::string& text) const {
     return renderTemplate(text, TemplateScope{[this](const Path& path) { return resolve(path, true); },
-                                              [this](const Path& path) { return resolve(path, false); }, now()});
+                                              [this](const Path& path) { return resolve(path, false); }, now(),
+                                              &_agent->languages().speaking()});
 }
 
 std::string FlowRuntime::pick(const Texts& texts, const void* key) {
@@ -1968,7 +1968,7 @@ bool FlowRuntime::fillForm(const std::string& text) {
     auto& form = *_form;
     bool used = false;
     if (form.awaitingConfirmation) {
-        const auto answer = extractYesNo(text);
+        const auto answer = extractYesNo(text, _agent->entities());
         if (!answer) return false;
         form.awaitingConfirmation = false;
         // "No, make it Tuesday": a value in the same answer changes it straight away.
@@ -2023,7 +2023,7 @@ FlowRuntime::Outcome FlowRuntime::advanceForm(Reply& reply) {
     form.asking.clear();
     const auto& goal = *form.goal;
     if (form.awaitingChange) {
-        ask(goal.change(), &goal.change(), kWhatToChange, reply);
+        ask(goal.change(), &goal.change(), replies().what_to_change(), reply);
         return {};
     }
     const auto missing = form.state->missingSlots();
@@ -2031,7 +2031,7 @@ FlowRuntime::Outcome FlowRuntime::advanceForm(Reply& reply) {
         form.asking = missing.front();
         const auto& slot = *std::find_if(goal.slots().begin(), goal.slots().end(),
                                          [&](const auto& candidate) { return candidate.name() == form.asking; });
-        ask(slot.prompt(), &slot.prompt(), "What's the " + spokenName(slot.name()) + "?", reply);
+        ask(slot.prompt(), &slot.prompt(), withValues(replies().ask_slot(), {{"slot", spokenName(slot.name())}}), reply);
         return {};
     }
     if (goal.require_confirmation() && !form.state->isConfirmed()) {
@@ -2059,10 +2059,10 @@ FlowRuntime::Outcome FlowRuntime::repromptForm(Reply& reply) {
     }
     const auto& goal = *form.goal;
     if (form.awaitingConfirmation) {
-        append(reply, kSayYesOrNo);
+        append(reply, replies().say_yes_or_no());
         ask(goal.confirm(), &goal.confirm(), "", reply);
     } else if (form.awaitingChange) {
-        ask(goal.change(), &goal.change(), kWhatToChange, reply);
+        ask(goal.change(), &goal.change(), replies().what_to_change(), reply);
     } else {
         const auto slot = std::find_if(goal.slots().begin(), goal.slots().end(),
                                        [&](const auto& candidate) { return candidate.name() == form.asking; });
@@ -2076,15 +2076,18 @@ FlowRuntime::Outcome FlowRuntime::repromptForm(Reply& reply) {
                 ask(partial, &partial, "", reply);
                 return {};
             }
-            append(reply, "I only got " + std::to_string(digits) + (digits == 1 ? " digit." : " digits."));
-            ask(slot->prompt(), &slot->prompt(), "What's the " + spokenName(slot->name()) + "?", reply);
+            const auto& forms = replies().too_few_digits();
+            if (!forms.empty())
+                append(reply, withValues(_agent->languages().speaking().plural({forms.begin(), forms.end()}, static_cast<double>(digits)),
+                                         {{"count", std::to_string(digits)}}));
+            ask(slot->prompt(), &slot->prompt(), withValues(replies().ask_slot(), {{"slot", spokenName(slot->name())}}), reply);
             return {};
         }
         if (!slot->reprompt().empty()) {
             ask(slot->reprompt(), &slot->reprompt(), "", reply);
         } else {
-            append(reply, kDidNotGetThat);
-            ask(slot->prompt(), &slot->prompt(), "What's the " + spokenName(slot->name()) + "?", reply);
+            append(reply, replies().did_not_get_that());
+            ask(slot->prompt(), &slot->prompt(), withValues(replies().ask_slot(), {{"slot", spokenName(slot->name())}}), reply);
         }
     }
     return {};

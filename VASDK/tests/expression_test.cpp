@@ -5,6 +5,7 @@
 // templates with expressions and filters.
 
 #include <VASDK/flow/Expression.h>
+#include <VASDK/nlu/Language.h>
 
 #include <cstdio>
 #include <ctime>
@@ -114,7 +115,7 @@ int main() {
     check(value && value->reference() && *value->reference() == Path({"session", "points"}) &&
               value->evaluate(lookup).number_value() == 120, "a lone reference: its path and value");
     auto list = Expression::parse("('a', 2, $session.tier)");
-    check(list && toText(list->evaluate(lookup)) == "a, 2 and gold" && list->references().size() == 1, "a list value");
+    check(list && toText(list->evaluate(lookup)) == "a, 2, gold" && list->references().size() == 1, "a list value");
 
     // Parse errors say where
     check(parseError("$session.tier = gold") == "column 17: unknown word 'gold' (strings need quotes)", "bare word");
@@ -135,7 +136,7 @@ int main() {
     check(textOf("$session.missing + 1") == "1", "a missing value adds as 0");
     check(textOf("'Hi ' + $session.tier") == "Hi gold" && textOf("0.1 + 0.2") == "0.3", "+ joins text; 0.1 + 0.2 reads as 0.3");
     check(holds("$session.points * 2 > 200") && holds("$session.points + 1 = 121"), "arithmetic in a condition");
-    check(textOf("('a', -5)") == "a and -5", "a negative number in a list");
+    check(textOf("('a', -5)") == "a, -5", "a negative number in a list");
     check(textOf("round(2.567, 2)") == "2.57" && textOf("round(2.5)") == "3" && textOf("floor(2.9)") == "2" &&
               textOf("ceil(2.1)") == "3" && textOf("abs(-4)") == "4", "round, floor, ceil, abs");
     check(textOf("min(3, $session.points, 7)") == "3" && textOf("max(3, $session.points)") == "120" &&
@@ -161,7 +162,14 @@ int main() {
     check(renderTemplate("${session.tier}-member, $$5 off, $5 fee", lookup) == "gold-member, $5 off, $5 fee",
           "${ref}, $$ and a lone $");
     check(renderTemplate("Hi $session.missing!", lookup) == "Hi !", "a missing value renders empty");
-    check(renderTemplate("Your cars: $session.cars.", lookup) == "Your cars: Corolla and Civic.", "a list reads naturally");
+    check(renderTemplate("Your cars: $session.cars.", lookup) == "Your cars: Corolla, Civic.", "a list without a language");
+    {
+        const auto english = va::nlu::Language::builtIn();
+        const TemplateScope scope{lookup, nullptr, std::nullopt, english.get()};
+        check(renderTemplate("Your cars: $session.cars.", scope) == "Your cars: Corolla and Civic.", "a list reads in the reply's language");
+        check(renderTemplate("${session.cars|plural:'car':'cars'}, ${1|plural:'car':'cars'}", scope) == "2 cars, 1 car",
+              "plural by the language's rules");
+    }
     std::vector<Path> references;
     std::string error;
     check(templateReferences("$session.tier and ${session.points}", references, &error) && references.size() == 2,
@@ -187,7 +195,7 @@ int main() {
           "references in expressions and filtered ones");
     check(!templateReferences("${session.tier|shout}", references, &error) && error.find("unknown filter 'shout'") != std::string::npos,
           "an unknown filter is an error");
-    check(!templateReferences("${session.tier|plural:'car'}", references, &error) && error.find("takes 2 values") != std::string::npos,
+    check(!templateReferences("${session.tier|plural:'car'}", references, &error) && error.find("takes 2 to 6 values") != std::string::npos,
           "a filter's values are counted");
     check(!templateReferences("${$session.points +}", references, &error) && error.find("expected a value") != std::string::npos,
           "an expression that doesn't parse is an error");

@@ -1,8 +1,10 @@
 #pragma once
 
 #include "vasdk_export.h"
+#include "Entities.h"
 #include "Expression.h"
 #include "../llm/Tool.h"
+#include "../nlu/Language.h"
 #include "vasdk/flow/agent.pb.h"
 #include "vasdk/flow/step_outcome.pb.h"
 
@@ -53,6 +55,8 @@ public:
     bool apply(const vasdk::flow::StepOutcome& outcome, std::string* error = nullptr);
     /** What the reply says so far. */
     const std::string& replyText() const;
+    /** The agent's entities and languages: entities().languages().speaking() for the language replies are in. */
+    const EntityCatalog& entities() const;
     std::string flowName() const;
     std::string pageName() const;
 
@@ -165,11 +169,19 @@ public:
      */
     void addEntityExtractor(const std::string& name, EntityExtractor extractor);
 
+    /**
+     * A language agents may name in locale or languages: a pack read from a file
+     * (nlu::Language::load), or a subclass for grammar a pack can't express. One with the code of
+     * another replaces it; an agent's own language_files and language_defs win over these.
+     */
+    void addLanguage(std::shared_ptr<const nlu::Language> language);
+
     const Step* step(const std::string& paramsType) const;
     const PageType* pageType(const std::string& name) const;
     const Envelope* envelope(const std::string& name) const;
     const llm::Tool* tool(const std::string& name) const;
     const EntityExtractor* entityExtractor(const std::string& name) const;
+    const std::vector<std::shared_ptr<const nlu::Language>>& languages() const { return _languages; }
 
     /** Calls `use` with `params` as a Params: as it is when it's one, else converted (a type loaded with proto_imports). */
     template <class Params, class Use>
@@ -189,6 +201,7 @@ private:
     std::map<std::string, Envelope> _envelopes;
     std::map<std::string, llm::Tool> _tools;
     std::map<std::string, EntityExtractor> _entityExtractors;
+    std::vector<std::shared_ptr<const nlu::Language>> _languages;
 };
 
 } // namespace flow

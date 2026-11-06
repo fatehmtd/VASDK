@@ -8,7 +8,7 @@
 #include <VASDK/flow/Entities.h>
 #include <VASDK/flow/Expression.h>
 #include <VASDK/flow/FlowRuntime.h>
-#include <VASDK/nlu/English.h>
+#include <VASDK/nlu/Language.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -45,11 +45,12 @@ extern "C" int fuzzExpression(const uint8_t* data, size_t size) {
 
 // What a user says: every system entity, made speakable, and the built-in intents.
 extern "C" int fuzzWords(const uint8_t* data, size_t size) {
-    static const va::flow::EntityCatalog catalog;
+    const auto english = va::nlu::Language::builtIn();
+    const va::flow::EntityCatalog catalog(std::make_shared<const va::nlu::Languages>(va::nlu::Languages({english})));
     const std::string said = text(data, size);
     for (const char* entity : va::flow::kSystemEntities) (void)catalog.find(entity, said);
     (void)catalog.findAll(said);
-    (void)va::nlu::english::speakable(said);
+    (void)english->speakable(said);
     return 0;
 }
 

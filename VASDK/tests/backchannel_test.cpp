@@ -140,8 +140,15 @@ bool sameTransitions(const std::vector<Transition>& actual, const std::vector<Tr
     return true;
 }
 
+// The defaults, with VASDK's built-in en-US back-channels and interruptions.
+pipeline::BackchannelConfig englishConfig() {
+    pipeline::BackchannelConfig config;
+    pipeline::useLanguageWords(config, nlu::Languages({nlu::Language::builtIn()}));
+    return config;
+}
+
 void classifierTable() {
-    const pipeline::BackchannelConfig config;
+    const pipeline::BackchannelConfig config = englishConfig();
     struct Case { const char* text; bool isFinal; pipeline::BackchannelVerdict expected; };
     const Case cases[] = {
         {"Mm-hmm.", true, pipeline::BackchannelVerdict::Backchannel},
@@ -481,7 +488,7 @@ void envelopeRamps() {
 // Echo from open speakers: the agent's own words heard back don't interrupt it.
 void echoIsNotAnInterruption() {
     const char* scenario = "E echo";
-    const pipeline::BackchannelConfig defaults;
+    const pipeline::BackchannelConfig defaults = englishConfig();
     const std::string reply = "Your car will be ready at five, and the total is ninety dollars.";
     check(pipeline::isEcho("your car will be ready", reply, defaults), scenario, "its own words are echo");
     check(pipeline::isEcho("car will be ready at fire", reply, defaults), scenario, "a word misheard still is (5 of 6)");

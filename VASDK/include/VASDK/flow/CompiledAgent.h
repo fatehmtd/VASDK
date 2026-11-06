@@ -85,6 +85,9 @@ public:
     const std::vector<Layer>& layers(PageRef where) const { return _layers[where.flow][where.page]; }
     /** The agent's entities, and the @sys.* ones. */
     const EntityCatalog& entities() const { return _entities; }
+    /** The languages its users may speak, its locale's first: the one its replies are in. */
+    const nlu::Languages& languages() const { return *_languages; }
+    std::shared_ptr<const nlu::Languages> sharedLanguages() const { return _languages; }
 
     /** The C++ steps, page types and envelopes the agent was loaded with. */
     const FlowRegistry& registry() const { return *_registry; }
@@ -120,6 +123,7 @@ private:
     std::map<std::string, int> _goals;                                               // name → index
     std::map<std::string, std::shared_ptr<const goal::GoalDefinition>> _goalDefinitions;   // as GoalState runs them
     EntityCatalog _entities;
+    std::shared_ptr<const nlu::Languages> _languages;
     std::map<std::string, int> _envelopes;                                           // name → index
     std::vector<std::vector<std::vector<Layer>>> _layers;                            // per flow, per page
     std::shared_ptr<const ImportedTypes> _imports;                                   // proto_imports' types

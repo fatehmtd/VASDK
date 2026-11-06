@@ -21,6 +21,8 @@ def save_booking(args):
 def contacts(words, text):
     return [{"start": i, "value": "+15550100", "spoken": "Mom"} for i, word in enumerate(words) if word == "mom"]
 
+registry.add_language("languages/fr-FR.txtpb")   # or a vasdk.Language; vasdk.builtin_language() is en-US
+
 agent = vasdk.Agent.load("agents/garage-menu/agent.txtpb", registry)
 conversation = agent.conversation()
 conversation.start().text

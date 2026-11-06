@@ -205,7 +205,9 @@ if(VASDK_ENABLE_ENGINE_CONFIG)
         ./src/flow/Tools.cpp
         ./src/nlu/NluProvider.cpp
         ./src/nlu/RuleNluProvider.cpp
-        ./src/nlu/English.cpp
+        ./src/nlu/Calendar.cpp
+        ./src/nlu/Language.cpp
+        ${CMAKE_CURRENT_BINARY_DIR}/generated/BuiltInLanguage.cpp
         ./src/nlu/EmbeddingNluProvider.cpp
         ./src/nlu/LlmNluProvider.cpp
         ./src/c/vasdk_c.cpp
@@ -214,6 +216,7 @@ if(VASDK_ENABLE_ENGINE_CONFIG)
         ./proto/vasdk/engine/engine_config.proto
         ./proto/vasdk/engine/events.proto
         ./proto/vasdk/nlu/entity.proto
+        ./proto/vasdk/nlu/language.proto
         ./proto/vasdk/flow/expectation.proto
         ./proto/vasdk/flow/trigger.proto
         ./proto/vasdk/goal/goal.proto
@@ -225,6 +228,23 @@ if(VASDK_ENABLE_ENGINE_CONFIG)
         ./proto/vasdk/engine/session.proto
         ./proto/vasdk/flow/snapshot.proto
     )
+    # VASDK's own language pack (languages/en-US.txtpb), built in: what an agent that names no
+    # language speaks (nlu::Language::builtIn). Its bytes, so any text goes in unescaped.
+    set(_vasdk_language ${CMAKE_CURRENT_SOURCE_DIR}/languages/en-US.txtpb)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${_vasdk_language})
+    file(READ ${_vasdk_language} _vasdk_language_hex HEX)
+    string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," _vasdk_language_bytes "${_vasdk_language_hex}")
+    file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/generated/BuiltInLanguage.cpp.in
+        "// Generated from languages/en-US.txtpb by CMake: edit that file.\n"
+        "#include <string>\n"
+        "namespace va { namespace nlu {\n"
+        "std::string builtInLanguagePack() {\n"
+        "    const unsigned char bytes[] = {${_vasdk_language_bytes}};\n"
+        "    return std::string(reinterpret_cast<const char*>(bytes), sizeof(bytes));\n"
+        "}\n"
+        "} }\n")
+    configure_file(${CMAKE_CURRENT_BINARY_DIR}/generated/BuiltInLanguage.cpp.in
+                   ${CMAKE_CURRENT_BINARY_DIR}/generated/BuiltInLanguage.cpp COPYONLY)
     # A Windows DLL exports only what's marked: the generated messages are marked VASDK_EXPORT, so
     # apps and tests can use vasdk::flow::Agent, vasdk::engine::Event... The generated headers
     # don't include vasdk_export.h, so every file that may include them gets it first.
@@ -483,6 +503,10 @@ if(VASDK_BUILD_TESTS)
         add_executable(vasdk_entity_extractor_test tests/entity_extractor_test.cpp)
         target_link_libraries(vasdk_entity_extractor_test PRIVATE VASDK)
         add_test(NAME vasdk_entity_extractor COMMAND vasdk_entity_extractor_test)
+        add_executable(vasdk_language_test tests/language_test.cpp)
+        target_link_libraries(vasdk_language_test PRIVATE VASDK)
+        target_compile_definitions(vasdk_language_test PRIVATE VASDK_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/tests/data")
+        add_test(NAME vasdk_language COMMAND vasdk_language_test)
         add_executable(vasdk_turn_policy_test tests/turn_policy_test.cpp)
         target_link_libraries(vasdk_turn_policy_test PRIVATE VASDK)
         add_test(NAME vasdk_turn_policy COMMAND vasdk_turn_policy_test)

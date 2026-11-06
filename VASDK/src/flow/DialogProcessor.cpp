@@ -651,6 +651,7 @@ void DialogProcessor::speak(const Reply& reply, bool filler) {
         text->interruptible = segments[i].interruptible;
         text->voice = segments[i].voice;
         text->speed = segments[i].speed;
+        text->language = _agent->languages().speaking().code();
         text->isFinal = i + 1 == segments.size();
         text->sourceId = getName();
         text->sensitiveValues = reply.sensitiveValues;

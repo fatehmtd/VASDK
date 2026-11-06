@@ -77,7 +77,7 @@ Intents are understood from their examples, with no model and no LLM. When sever
 | Speech-recognition misspellings | "cancel my apointment" matches `cancel my appointment`. Words of 4 letters or more match when at least 80% alike (an edit, or two letters swapped, in a 5-letter word); shorter ones must be exact. List entity synonyms match the same way ("tyres" is `tires`). An entity can opt out with `matching { fuzzy: false }`, or ask for more or less with `min_similarity`. |
 | Entities in examples | `examples: ["book @service"]` matches "book my tyres": the words around the entity in order, the entity anywhere in the words. Each entity counts as one word. |
 | Negation | "I don't want to cancel" doesn't match `cancel`: a negating word (not, no, never, don't, can't, ...) up to three words before the example. `negative_examples: ["don't cancel"]` rules an intent out whenever they're in the words. |
-| Built-in intents | `sys.yes`, `sys.no`, `sys.cancel`, `sys.repeat`, `sys.help` and `sys.skip` work in routes without declaring them. Declaring an intent of the same name replaces its examples. |
+| Built-in intents | `sys.yes`, `sys.no`, `sys.cancel`, `sys.repeat`, `sys.help` and `sys.skip` work in routes without declaring them, with the examples of each of the agent's languages. Declaring an intent of the same name replaces its examples. |
 | Did you mean...? | When two routes' intents fit equally well, a `clarify` handler runs. `$nlu.alternatives` lists those intents: `handlers { event: "clarify" steps { say { text: "Did you mean $nlu.alternatives?" } } }`. Without a handler, the first route wins. |
 
 `$nlu.intent` is the matched route's intent. `$nlu.confidence` (0 to 1) is how fully its example matched, and `$nlu.stage` is what understood it (`rules`). `vasdk_agentc try` shows the best three.
@@ -243,7 +243,7 @@ envelope_defs {
 
 | Event | When | Built in |
 |---|---|---|
-| `no-match` | No route understood the user | "Sorry, I can't help with that here." and the question again |
+| `no-match` | No route understood the user | "Sorry, I can't help with that here." (the language's `replies`) and the question again |
 | `no-input` | Silence for `no_input_ms` after a question has played | The question again |
 | `max-reprompts` | More than `max_reprompts` (default 2) no-match or no-input in a row on a page | The no-match or no-input behaviour again |
 | `resumed` | The conversation picked up where an earlier one left it (below): its steps run before the page is entered, its `target` isn't used | Nothing: the page is entered |
@@ -497,7 +497,7 @@ Braces also take an expression, with `$` on its references: `${$session.points *
 |---|---|---|
 | `raw` | The value, not as said | `${form.date\|raw}` → "2026-11-10" |
 | `count` | A list's items | `${session.cars\|count}` → "2" |
-| `plural:"one":"many"` | A number (or a list's count) and its noun | `${session.cars\|plural:'car':'cars'}` → "2 cars" |
+| `plural:"one":"many"` | A number (or a list's count) and its noun, in as many forms as the reply's language has (2 to 6) | `${session.cars\|plural:'car':'cars'}` → "2 cars" |
 | `round`, `round:digits` | | `${$session.total / 3\|round:2}` → "16.33" |
 | `lower`, `upper`, `capitalize` | | `${session.name\|capitalize}` → "Sam" |
 | `default:"text"` | For a missing or empty value | `${session.agent\|default:'our team'}` |
@@ -619,7 +619,7 @@ entity_types { name: "free_time"  dynamic: true list { values { value: "09:00" s
 
 **Entity packs.** `entity_files: ["../shared/cars.txtpb"]` imports entity types from files of their own (`vasdk.nlu.EntityPack`), relative to the agent, so agents can share them. A type the agent declares itself wins over a pack's. VASDK ships three in [`VASDK/entities`](../../VASDK/entities/): `@country` (197 countries, with `iso2` and `iso3` attributes), `@us_state` (the states and DC, with their postal `code`) and `@currency` (32, with their ISO `code`). Their values are snake_case names (`united_kingdom`, `new_york`, `us_dollar`), never codes, because many codes are also words ("in", "or", "try").
 
-**System entities.** These need no declaring. Each reads English as speech recognizers write it, in words or in digits. Dates count from the conversation's clock.
+**System entities.** These need no declaring. Each reads the agent's languages as speech recognizers write them, in words or in digits; the examples below are VASDK's built-in English ([Languages](languages.md)). Dates count from the conversation's clock.
 
 | Entity | Example → value | Said in a reply |
 |---|---|---|
@@ -636,9 +636,9 @@ entity_types { name: "free_time"  dynamic: true list { values { value: "09:00" s
 
 A bare number is neither a time nor a date ("I have 3 cars"). With choices on offer, "the second one" or "number two" picks the choice in that place.
 
-**Speaking them.** A voice that doesn't read numbers well itself is given text it can say. That is the default: `GenericVoiceSynthesisProvider::normalizesText()` is false.
+**Speaking them.** A voice that doesn't read numbers well itself is given text it can say, in the reply's language. That is the default: `GenericVoiceSynthesisProvider::normalizesText()` is false.
 - ISO dates are said as dates.
-- 24-hour times are said with AM or PM.
+- 24-hour times are said as the language says times (with AM or PM in English).
 - Phone numbers are said digit by digit, in their groups: "five five five, one two three, four five six seven".
 
 **Where they're used:**

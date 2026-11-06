@@ -1,6 +1,6 @@
 #include "flow/Entities.h"
 #include "flow/FlowRegistry.h"
-#include "nlu/English.h"
+#include "nlu/Language.h"
 #include "nlu/NluProvider.h"
 
 #include <algorithm>
@@ -28,29 +28,6 @@ bool isDigits(const std::string& word, bool decimals) {
     return digit;
 }
 
-const std::map<std::string, int>& units() {   // 0-19
-    static const std::map<std::string, int> words{
-        {"zero", 0}, {"one", 1}, {"two", 2}, {"three", 3}, {"four", 4}, {"five", 5}, {"six", 6}, {"seven", 7},
-        {"eight", 8}, {"nine", 9}, {"ten", 10}, {"eleven", 11}, {"twelve", 12}, {"thirteen", 13},
-        {"fourteen", 14}, {"fifteen", 15}, {"sixteen", 16}, {"seventeen", 17}, {"eighteen", 18}, {"nineteen", 19}};
-    return words;
-}
-
-const std::map<std::string, int>& tens() {
-    static const std::map<std::string, int> words{{"twenty", 20}, {"thirty", 30}, {"forty", 40}, {"fifty", 50},
-                                                  {"sixty", 60}, {"seventy", 70}, {"eighty", 80}, {"ninety", 90}};
-    return words;
-}
-
-// A digit said or written: "five", "oh", "5".
-std::optional<char> digitOf(const std::string& word) {
-    if (word.size() == 1 && std::isdigit(static_cast<unsigned char>(word[0]))) return word[0];
-    if (word == "oh") return '0';
-    const auto unit = units().find(word);
-    if (unit != units().end() && unit->second < 10) return static_cast<char>('0' + unit->second);
-    return std::nullopt;
-}
-
 EntityMatch matchOf(const std::string& entity, Value value, const std::vector<std::string>& words, size_t start,
                     size_t length) {
     EntityMatch match;
@@ -63,132 +40,20 @@ EntityMatch matchOf(const std::string& entity, Value value, const std::vector<st
     return match;
 }
 
-// Numbers in digits ("25", "2.5") or words ("twenty five", "a hundred and two"); "five five" is two.
-std::vector<EntityMatch> numbers(const std::string& entity, const std::vector<std::string>& words, bool decimals) {
-    std::vector<EntityMatch> found;
-    for (size_t i = 0; i < words.size();) {
-        if (isDigits(words[i], decimals)) {
-            found.push_back(matchOf(entity, numberValue(std::strtod(words[i].c_str(), nullptr)), words, i, 1));
-            ++i;
-            continue;
-        }
-        long long total = 0, current = 0;
-        size_t end = i, last = i;
-        bool any = false, unitLast = false;
-        for (size_t j = i; j < words.size(); ++j) {
-            const auto& word = words[j];
-            const auto unit = units().find(word);
-            const auto ten = tens().find(word);
-            if (unit != units().end()) {
-                if (unitLast || (any && current % 10 != 0)) break;   // "five five": a new number
-                current += unit->second;
-                unitLast = true;
-            } else if (ten != tens().end()) {
-                if (any && current % 100 != 0) break;
-                current += ten->second;
-                unitLast = false;
-            } else if (word == "hundred") {
-                current = std::max<long long>(current, 1) * 100;
-                unitLast = false;
-            } else if (word == "thousand") {
-                total += std::max<long long>(current, 1) * 1000;
-                current = 0;
-                unitLast = false;
-            } else if ((word == "and" && any) || (word == "a" && j + 1 < words.size() &&
-                                                  (words[j + 1] == "hundred" || words[j + 1] == "thousand"))) {
-                continue;
-            } else {
-                break;
-            }
-            any = true;
-            last = j;
-            end = j + 1;
-        }
-        if (!any) {
-            ++i;
-            continue;
-        }
-        double number = static_cast<double>(total + current);
-        if (decimals && end + 1 < words.size() && words[end] == "point") {   // "twenty three point five"
-            std::string fraction;
-            size_t after = end + 1;
-            for (; after < words.size(); ++after) {
-                const auto digit = digitOf(words[after]);
-                if (!digit) break;
-                fraction += *digit;
-            }
-            if (!fraction.empty()) {
-                number += std::stod("0." + fraction);
-                last = after - 1;
-                end = after;
-            }
-        }
-        found.push_back(matchOf(entity, numberValue(number), words, i, last - i + 1));
-        i = end;
+// What a language found, as matches of `entity`: text, a number, or yes/no.
+enum class Kind { Text, Number, YesNo };
+std::vector<EntityMatch> converted(const std::string& entity, const std::vector<nlu::Found>& found,
+                                   const std::vector<std::string>& words, Kind kind) {
+    std::vector<EntityMatch> matches;
+    for (const auto& value : found) {
+        const Value said = kind == Kind::Number ? numberValue(std::stod(value.value))
+                         : kind == Kind::YesNo  ? boolValue(value.value == "true")
+                                                : stringValue(value.value);
+        auto match = matchOf(entity, said, words, value.start, value.length);
+        match.spoken = value.spoken;
+        matches.push_back(std::move(match));
     }
-    return found;
-}
-
-// Runs of digits, written or said one by one ("double four" too): "5551234567". sys.phone keeps
-// the runs of 7 to 11; sys.digits any.
-std::vector<EntityMatch> digitRuns(const std::string& entity, const std::vector<std::string>& words, size_t fewest,
-                                   size_t most) {
-    std::vector<EntityMatch> found;
-    for (size_t i = 0; i < words.size();) {
-        std::string digits;
-        size_t j = i;
-        int repeat = 1;
-        for (; j < words.size(); ++j) {
-            if (words[j] == "double" || words[j] == "triple") {
-                repeat = words[j] == "double" ? 2 : 3;
-                continue;
-            }
-            if (isDigits(words[j], false)) {
-                for (int r = 0; r < repeat; ++r) digits += words[j];
-            } else if (const auto digit = digitOf(words[j])) {
-                digits.append(static_cast<size_t>(repeat), *digit);
-            } else {
-                break;
-            }
-            repeat = 1;
-        }
-        if (digits.size() >= fewest && digits.size() <= most) found.push_back(matchOf(entity, stringValue(digits), words, i, j - i));
-        i = j > i ? j : i + 1;
-    }
-    return found;
-}
-
-std::vector<EntityMatch> yesNo(const std::vector<std::string>& words) {
-    static const std::map<std::string, bool> answers{
-        {"yes", true}, {"yeah", true}, {"yep", true}, {"yup", true}, {"sure", true}, {"correct", true},
-        {"right", true}, {"ok", true}, {"okay", true}, {"absolutely", true}, {"definitely", true},
-        {"true", true}, {"no", false}, {"nope", false}, {"nah", false}, {"not", false}, {"wrong", false},
-        {"incorrect", false}, {"don't", false}, {"false", false}};
-    std::vector<EntityMatch> found;
-    for (size_t i = 0; i < words.size(); ++i) {
-        const auto answer = answers.find(words[i]);
-        if (answer == answers.end()) continue;
-        auto match = matchOf("sys.yes_no", boolValue(answer->second), words, i, 1);
-        match.spoken = answer->second ? "yes" : "no";
-        found.push_back(std::move(match));
-    }
-    return found;
-}
-
-// A word as spelled out: "alpha" → "a", "five" → "5", "ab" → "ab".
-std::optional<std::string> spelledOf(const std::string& word) {
-    static const std::map<std::string, char> alphabet{
-        {"alpha", 'a'}, {"alfa", 'a'}, {"bravo", 'b'}, {"charlie", 'c'}, {"delta", 'd'}, {"echo", 'e'},
-        {"foxtrot", 'f'}, {"golf", 'g'}, {"hotel", 'h'}, {"india", 'i'}, {"juliet", 'j'}, {"juliett", 'j'},
-        {"kilo", 'k'}, {"lima", 'l'}, {"mike", 'm'}, {"november", 'n'}, {"oscar", 'o'}, {"papa", 'p'},
-        {"quebec", 'q'}, {"romeo", 'r'}, {"sierra", 's'}, {"tango", 't'}, {"uniform", 'u'}, {"victor", 'v'},
-        {"whiskey", 'w'}, {"xray", 'x'}, {"yankee", 'y'}, {"zulu", 'z'}};
-    const auto letter = alphabet.find(word);
-    if (letter != alphabet.end()) return std::string(1, letter->second);
-    if (const auto digit = digitOf(word)) return std::string(1, *digit);
-    // Letters and digits written as heard ("AB 123" from the STT) are kept as they are.
-    if (std::all_of(word.begin(), word.end(), [](unsigned char c) { return c < 0x80 && std::isalnum(c); })) return word;
-    return std::nullopt;
+    return matches;
 }
 
 std::string upper(std::string text) {
@@ -204,7 +69,8 @@ std::string withoutAt(const std::string& reference) { return !reference.empty() 
 
 } // namespace
 
-std::vector<std::string> entityWords(const std::string& text) {
+std::vector<std::string> entityWords(const std::string& said) {
+    const std::string text = nlu::foldedText(said);
     std::vector<std::string> words;
     std::string word;
     for (size_t i = 0; i < text.size(); ++i) {
@@ -235,6 +101,11 @@ std::vector<std::string> entityWords(const std::string& text) {
     if (!word.empty()) words.push_back(std::move(word));
     return words;
 }
+
+EntityCatalog::EntityCatalog() : _languages(std::make_shared<const nlu::Languages>()) {}
+
+EntityCatalog::EntityCatalog(std::shared_ptr<const nlu::Languages> languages)
+    : _languages(languages ? std::move(languages) : std::make_shared<const nlu::Languages>()) {}
 
 void EntityCatalog::build(const google::protobuf::RepeatedPtrField<vasdk::nlu::EntityType>& types,
                           std::vector<std::string>& errors, std::shared_ptr<const FlowRegistry> registry) {
@@ -361,28 +232,29 @@ int EntityCatalog::kindRank(const std::string& name) const {
 
 std::vector<EntityMatch> EntityCatalog::matches(const std::string& name, const std::vector<std::string>& words,
                                                 const DynamicEntityValues& dynamic, std::chrono::system_clock::time_point now) const {
-    // English values said either way: "next Tuesday", "half past three", "john dot doe at gmail dot com".
-    auto english = [&](const std::vector<nlu::english::Found>& found, bool number) {
-        std::vector<EntityMatch> converted;
-        for (const auto& value : found) {
-            auto match = matchOf(name, number ? numberValue(std::stod(value.value)) : stringValue(value.value), words, value.start,
-                                 value.length);
-            match.spoken = value.spoken;
-            converted.push_back(std::move(match));
-        }
-        return converted;
-    };
-    if (name == "sys.date") return english(nlu::english::dates(words, nlu::english::dateAt(now)), false);
-    if (name == "sys.time") return english(nlu::english::times(words), false);
-    if (name == "sys.datetime") return english(nlu::english::dateTimes(words, nlu::english::dateAt(now)), false);
-    if (name == "sys.duration") return english(nlu::english::durations(words), false);
-    if (name == "sys.email") return english(nlu::english::emails(words), false);
-    if (name == "sys.ordinal") return english(nlu::english::ordinals(words), true);
-    if (name == "sys.integer") return numbers(name, words, false);
-    if (name == "sys.number") return numbers(name, words, true);
-    if (name == "sys.phone") return digitRuns(name, words, 7, 11);
-    if (name == "sys.digits") return digitRuns(name, words, 1, std::string::npos);
-    if (name == "sys.yes_no") return yesNo(words);
+    // Values in any of the agent's languages, said either way: "next Tuesday", "half past three",
+    // "john dot doe at gmail dot com", "demain".
+    if (name.rfind("sys.", 0) == 0) {
+        const auto& languages = *_languages;
+        const auto today = nlu::dateAt(now);
+        auto system = [&](auto find, Kind kind) { return converted(name, languages.each(find), words, kind); };
+        if (name == "sys.date") return system([&](const nlu::Language& language) { return language.dates(words, today); }, Kind::Text);
+        if (name == "sys.time") return system([&](const nlu::Language& language) { return language.times(words); }, Kind::Text);
+        if (name == "sys.datetime")
+            return system([&](const nlu::Language& language) { return language.dateTimes(words, today); }, Kind::Text);
+        if (name == "sys.duration") return system([&](const nlu::Language& language) { return language.durations(words); }, Kind::Text);
+        if (name == "sys.email") return system([&](const nlu::Language& language) { return language.emails(words); }, Kind::Text);
+        if (name == "sys.ordinal") return system([&](const nlu::Language& language) { return language.ordinals(words); }, Kind::Number);
+        if (name == "sys.integer")
+            return system([&](const nlu::Language& language) { return language.numbers(words, false); }, Kind::Number);
+        if (name == "sys.number")
+            return system([&](const nlu::Language& language) { return language.numbers(words, true); }, Kind::Number);
+        if (name == "sys.phone")
+            return system([&](const nlu::Language& language) { return language.digitRuns(words, 7, 11); }, Kind::Text);
+        if (name == "sys.digits")
+            return system([&](const nlu::Language& language) { return language.digitRuns(words, 1, std::string::npos); }, Kind::Text);
+        if (name == "sys.yes_no") return system([&](const nlu::Language& language) { return language.yesNo(words); }, Kind::YesNo);
+    }
     const auto* entity = type(name);
     if (!entity) return {};
     std::vector<EntityMatch> found;
@@ -439,7 +311,9 @@ std::vector<EntityMatch> EntityCatalog::matches(const std::string& name, const s
             for (size_t length = 1; length <= kMaxWords && start + length <= words.size(); ++length) {
                 const auto& word = words[start + length - 1];
                 if (pattern.spelled()) {
-                    const auto spelled = spelledOf(word);
+                    std::optional<std::string> spelled;   // "alpha" → "a", "five" → "5", "ab" → "ab"
+                    for (const auto& language : _languages->all())
+                        if ((spelled = language->spelledLetter(word))) break;
                     if (!spelled) break;
                     candidate += *spelled;
                 } else {
@@ -573,18 +447,20 @@ EntityMatch EntityCatalog::describe(const std::string& name, const Value& value,
     std::vector<vasdk::nlu::EntityValue> declared;
     const auto* entity = type(name);
     const std::string base = entity && entity->has_derived() ? withoutAt(entity->derived().base()) : name;
-    // A system value as a reply says it: "Tuesday, November 10th", not 2026-11-10.
-    if (value.kind_case() == Value::kStringValue) {
+    // A system value as a reply says it, in the agent's language: "Tuesday, November 10th", not 2026-11-10.
+    if (value.kind_case() == Value::kStringValue && !_languages->empty()) {
         const auto& text = value.string_value();
-        if (base == "sys.date") match.spoken = nlu::english::spokenDate(text);
-        else if (base == "sys.time") match.spoken = nlu::english::spokenTime(text);
-        else if (base == "sys.duration") match.spoken = nlu::english::spokenDuration(text);
-        else if (base == "sys.datetime" && text.find('T') != std::string::npos) {
-            const auto day = nlu::english::spokenDate(text.substr(0, text.find('T')));
-            const auto time = nlu::english::spokenTime(text.substr(text.find('T') + 1));
-            if (!day.empty() && !time.empty()) match.spoken = day + " at " + time;
-        }
+        const auto& language = _languages->speaking();
+        if (base == "sys.date") match.spoken = language.spokenDate(text);
+        else if (base == "sys.time") match.spoken = language.spokenTime(text);
+        else if (base == "sys.duration") match.spoken = language.spokenDuration(text);
+        else if (base == "sys.datetime") match.spoken = language.spokenDateTime(text);
+        else if (base == "sys.yes_no") match.spoken = text;
         if (match.spoken.empty()) match.spoken = text;
+    } else if (value.kind_case() == Value::kBoolValue && base == "sys.yes_no" && !_languages->empty()) {
+        const auto& pack = _languages->speaking().pack();   // as it was said: "yes"
+        const auto& words = value.bool_value() ? pack.yes() : pack.no();
+        if (!words.empty()) match.spoken = words.Get(0);
     }
     if (const auto* values = listValues(base, dynamic, declared)) {
         for (const auto& candidate : *values) {

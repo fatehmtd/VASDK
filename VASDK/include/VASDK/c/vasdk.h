@@ -110,6 +110,15 @@ typedef void (*vasdk_entity_extractor_fn)(const char* request_json, vasdk_result
 VASDK_EXPORT int vasdk_registry_add_entity_extractor(vasdk_registry* registry, const char* name,
                                                      vasdk_entity_extractor_fn extractor, void* user);
 
+/* A language agents may name in locale or languages: a vasdk.nlu.Language pack
+ * (vasdk/nlu/language.proto) in `format`, `length` bytes; one of the same code replaces it. 1 when
+ * it checks; 0, with *error set, when it doesn't. A pack the agent lists in language_files needs
+ * no call. vasdk_language_builtin gives VASDK's own en-US pack, to start one from. */
+VASDK_EXPORT int vasdk_registry_add_language(vasdk_registry* registry, const void* pack, size_t length, vasdk_format format,
+                                             char** error);
+/* VASDK's built-in en-US pack in `format`, *length bytes long. Free it with vasdk_free. */
+VASDK_EXPORT void* vasdk_language_builtin(vasdk_format format, size_t* length);
+
 /* ---- Turn: only inside a step's or envelope's callback. ---- */
 
 /* What the user said this turn; valid until the callback returns. */

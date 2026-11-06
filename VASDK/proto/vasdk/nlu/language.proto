@@ -1,0 +1,172 @@
+// A language as VASDK reads and says it: the words for numbers, dates and times, yes and no, the
+// built-in intents and back-channels, the replies the engine says itself, and how values are said.
+// Data only, written by whoever deploys the agent: one file per language its users speak (the
+// agent's language_files), starting from VASDK's own languages/en-US.txtpb. Grammar these
+// fields can't express goes in code: subclass va::nlu::Language and add it with
+// FlowRegistry::addLanguage.
+//
+// Words are matched as what was heard is split (flow::entityWords): lower case, punctuation
+// dropped, an apostrophe kept ("o'clock", "aujourd'hui"). A phrase may be several words ("day after
+// tomorrow"); the longest phrase that fits wins.
+syntax = "proto3";
+
+package vasdk.nlu;
+
+message Language {
+  string code = 1;   // BCP 47: "en-US", "fr-FR", "fr"; an agent's "fr-CA" falls back to "fr"
+  string name = 2;   // "French", for people and logs
+
+  Numbers numbers = 3;
+  Calendar calendar = 4;
+  Clock clock = 5;
+  Durations durations = 6;
+  Emails emails = 7;
+  // One-word answers for @sys.yes_no and yes/no questions: "yes", "yeah", "sure" / "no", "nope".
+  repeated string yes = 8;
+  repeated string no = 9;
+  // Examples of the built-in intents: sys.yes, sys.no, sys.cancel, sys.repeat, sys.help and
+  // sys.skip. An agent's own intent of the same name replaces them.
+  map<string, Phrases> intents = 10;
+  repeated string negations = 11;    // a word that negates the words after it: "not", "don't" ("I don't want to book")
+  repeated string articles = 12;     // before a day or a choice: "the" ("the fifth", "the second one"), "le", "la"
+  repeated string stop_words = 13;   // ignored when knowledge questions are matched by their words: "the", "a", "please"
+  // Spelled-out letters for pattern entities with `spelled` ("alpha bravo" → "ab"): the NATO alphabet, or your own.
+  map<string, string> spelling_alphabet = 14;
+  TurnTaking turn_taking = 15;
+  Replies replies = 16;
+  Speaking speaking = 17;
+}
+
+message Phrases {
+  repeated string phrases = 1;
+}
+
+// @sys.integer, @sys.number, @sys.digits, @sys.phone and @sys.ordinal.
+message Numbers {
+  // A number's words and what they add: "one": 1 ... "nineteen": 19, "twenty": 20 ... "ninety": 90.
+  // Words follow each other while each fills a smaller place ("twenty" "five" → 25; "five"
+  // "five" is two numbers). A phrase for what that rule doesn't cover: "soixante dix": 70,
+  // "quatre vingt": 80; or every compound of a language that writes them as one word: "einundzwanzig": 21.
+  map<string, int64> words = 1;
+  // Multiply what comes before: "hundred": 100, "thousand": 1000, "million": 1000000.
+  map<string, int64> scales = 2;
+  repeated string connectors = 3;      // inside a number: "and" ("a hundred and two"), "et" ("vingt et un")
+  repeated string ones = 4;            // 1, before a scale: "a" ("a hundred"), "un"
+  repeated string decimal_points = 5;  // "point" ("two point five"), "virgule"
+  // More words for a digit said alone, in a phone number or after a decimal point: "oh": 0.
+  map<string, int32> digit_aliases = 6;
+  map<string, int32> repeats = 7;      // "double": 2, "triple": 3 ("double four" → 44)
+  // Ordinal words: "first": 1 ... "thirtieth": 30. After a number word, an ordinal below 10
+  // adds to it ("twenty" "first" → 21).
+  map<string, int32> ordinals = 8;
+  // What follows the digits of a written ordinal, as a regex: "st|nd|rd|th" ("5th"), "er|e|ème".
+  string ordinal_suffix = 9;
+  repeated string ordinal_leads = 10;     // before a number that means a place: "number", "option" ("option 3")
+  repeated string ordinal_trailers = 11;  // after an ordinal, part of it: "one" ("the second one")
+}
+
+// @sys.date: "today", "next Tuesday", "the fifth", "November 10th", "in two weeks", "2026-11-10".
+message Calendar {
+  // 7 entries, Monday first. Each entry's first phrase is how a reply says the day: "Monday".
+  repeated Phrases weekdays = 1;
+  // 12 entries, January first, said by their first phrase: "September", "sept", "sep".
+  repeated Phrases months = 2;
+  // Days from today: "today": 0, "tomorrow": 1, "day after tomorrow": 2, "yesterday": -1, "next week": 7.
+  map<string, int32> relative_days = 3;
+  repeated string from_today = 4;   // before an amount of time from today: "in" ("in two weeks"), "dans"
+  repeated string day_units = 5;    // "day", "days"
+  repeated string week_units = 6;   // "week", "weeks"
+  // Before or after a weekday: "next" ("next Tuesday", "mardi prochain"). The day of next week,
+  // or with next_is_coming, the next one from today.
+  repeated string next = 7;
+  bool next_is_coming = 8;
+  repeated string coming = 9;       // before or after a weekday: the next one from today: "this", "on", "ce"
+  repeated string day_of_month = 10;   // between a day and its month: "of" ("the 10th of November"), "de"
+}
+
+// @sys.time: "3:30 pm", "15:30", "half past three in the afternoon", "quarter to five", "noon".
+message Clock {
+  repeated string noon = 1;         // "noon", "midday"; the first is how a reply says 12:00
+  repeated string midnight = 2;     // the first is how a reply says 00:00
+  repeated string am = 3;           // after a time: "am", "a m", "in the morning", "du matin"
+  repeated string pm = 4;           // "pm", "p m", "in the afternoon", "tonight", "de l'après midi"
+  repeated string at = 5;           // before a time, part of it: "at", "à"
+  repeated string hour_words = 6;   // after the hour: "o'clock"; "heures", "h" ("trois heures trente")
+  map<string, int32> fractions = 7; // minutes, before past or to: "half": 30, "quarter": 15
+  repeated string past = 8;         // between minutes and the hour: "past", "after" ("twenty past six")
+  repeated string to = 9;           // "to", "before" ("quarter to five")
+  // Minutes after the hour, said as a phrase: "et quart": 15, "et demie": 30, "moins le quart": -15.
+  map<string, int32> after_hour = 10;
+  repeated string zero = 11;        // before a minute below 10: "oh" ("nine oh five")
+  repeated string minus = 12;       // after the hour, minutes before it: "moins" ("cinq heures moins dix" → 4:50)
+}
+
+// @sys.duration: "an hour and a half", "45 minutes", "half an hour", "two days".
+message Durations {
+  // Each unit's seconds: "second": 1, "minutes": 60, "hrs": 3600, "days": 86400, "week": 604800.
+  map<string, int64> units = 1;
+  // An amount said before a unit, as a phrase: "a": 1, "an": 1, "half an": 0.5, "a quarter of an": 0.25.
+  map<string, float> amounts = 2;
+  repeated string and_a_half = 3;   // after an amount or its unit: "and a half" ("an hour and a half"), "et demie"
+  repeated string joiners = 4;      // between parts: "and" ("an hour and 20 minutes"), "et"
+}
+
+// @sys.email, said: "john dot doe at gmail dot com". A written address is read whatever the language.
+message Emails {
+  repeated string at = 1;                 // "at", "arobase"
+  map<string, string> symbols = 2;        // "dot": ".", "underscore": "_", "dash": "-"
+}
+
+// What may be said over the assistant without interrupting it, and what always interrupts.
+// The engine config's turn_taking.backchannel phrases and interrupt_words replace these.
+message TurnTaking {
+  repeated string backchannels = 1;    // "yeah", "mm-hmm", "uh huh", "i see"
+  repeated string interruptions = 2;   // "stop", "wait", "actually"
+}
+
+// What the engine says when the agent doesn't say otherwise (a handler, a reprompt).
+message Replies {
+  string not_understood = 1;    // no route understood the user: "Sorry, I can't help with that here."
+  string tool_failed = 2;       // a call_tool failed: "Sorry, I can't do that right now."
+  string did_not_get_that = 3;  // a slot's answer wasn't read: "Sorry, I didn't get that."
+  string say_yes_or_no = 4;     // "Please say yes or no."
+  string what_to_change = 5;    // a form's confirmation was declined: "What would you like to change?"
+  string declined = 6;          // a trigger's offer was declined: "Okay."
+  string ask_slot = 7;          // a slot with no prompt: "What's the {slot}?"
+  // Fewer digits than a slot needs: forms by plural_rules, {count} the digits heard:
+  // ["I only got {count} digit.", "I only got {count} digits."].
+  repeated string too_few_digits = 8;
+}
+
+// How values are said in replies, and in text for a voice that doesn't read numbers itself.
+message Speaking {
+  // A date: {weekday} {month} {day} {day_ordinal} (the day and its suffix) {year}:
+  // "{weekday}, {month} {day_ordinal}" → "Tuesday, November 10th"; "{weekday} {day} {month}" → "mardi 10 novembre".
+  string date = 1;
+  bool twelve_hour = 2;      // 3:30 PM rather than 15:30
+  // A time: {hour} {minute} (two digits) {period} (am or pm, with twelve_hour):
+  // "{hour}:{minute} {period}" → "3:30 PM"; "{hour} h {minute}" → "15 h 30".
+  string time = 3;
+  string whole_hour = 4;     // on the hour: "{hour} {period}" → "9 AM"; "{hour} heures"
+  string am = 5;             // "AM"
+  string pm = 6;             // "PM"
+  string date_time = 7;      // "{date} at {time}"
+  // A day's ordinal suffix, for {day_ordinal}: the first whose condition holds on $n.
+  //   { condition: "$n % 100 >= 11 and $n % 100 <= 13" suffix: "th" } { condition: "$n % 10 = 1" suffix: "st" }
+  repeated OrdinalSuffix ordinal_suffixes = 8;
+  // Which form of a word goes with a count $n: form i where rule i is the first that holds, else
+  // the last form. English: ["$n = 1"] (2 forms); French: ["$n < 2"]; Russian has 2 rules, 3 forms.
+  // The |plural filter's forms and the units below follow them.
+  repeated string plural_rules = 9;
+  // A duration's units, each with its forms by plural_rules: "day": ["day", "days"]; keys day, hour, minute, second.
+  map<string, Phrases> units = 10;
+  string list_separator = 11;   // between items of a list: ", "
+  string list_last = 12;        // before its last item: " and " ("a, b and c")
+  // How each digit is said, 0 to 9, for a phone number read digit by digit: "zero", "one", ...
+  repeated string digits = 13;
+}
+
+message OrdinalSuffix {
+  string condition = 1;
+  string suffix = 2;
+}
