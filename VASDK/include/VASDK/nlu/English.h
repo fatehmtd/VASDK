@@ -28,6 +28,16 @@ struct Date {
 };
 /** The local date at `now`. */
 VASDK_EXPORT Date dateAt(std::chrono::system_clock::time_point now);
+/** Days since 1970-01-01, and back. */
+VASDK_EXPORT long daysFromCivil(int year, int month, int day);
+VASDK_EXPORT long daysOf(Date date);
+VASDK_EXPORT Date civilFromDays(long days);
+/** 0: Sunday ... 6: Saturday. */
+VASDK_EXPORT int weekdayOf(long days);
+VASDK_EXPORT Date addDays(Date date, long days);
+VASDK_EXPORT bool validDate(int year, int month, int day);
+/** "2026-11-10". */
+VASDK_EXPORT std::string iso(Date date);
 
 /** "today", "tomorrow", "next Tuesday" (the Tuesday of next week), "the fifth", "November 10th", "in two weeks", "2026-11-10". */
 VASDK_EXPORT std::vector<Found> dates(const std::vector<std::string>& words, Date today);

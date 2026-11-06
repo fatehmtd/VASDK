@@ -522,7 +522,7 @@ std::vector<EntityMatch> EntityCatalog::matches(const std::string& name, const s
                 if (derived.has_max() && match.value.number_value() > derived.max()) continue;
             }
             if (condition != _conditions.end() &&
-                !condition->second->test([&](const Path& path) { return valueAt(match.value, path, 1); }))
+                !condition->second->test([&](const Path& path) { return valueAt(match.value, path, 1); }, now))
                 continue;
             match.entity = name;
             found.push_back(std::move(match));

@@ -4,8 +4,10 @@
 
 #include <google/protobuf/struct.pb.h>
 
+#include <chrono>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -17,17 +19,32 @@ using Value = google::protobuf::Value;
 using Path = std::vector<std::string>;
 /** Resolves a reference; a null Value when there's nothing there. */
 using Lookup = std::function<Value(const Path& path)>;
+using TimePoint = std::chrono::system_clock::time_point;
 
 /**
  * @brief A condition or value written as a string in an agent, parsed once and evaluated per turn.
  *
  *   $session.tier : ("gold", "platinum") AND NOT empty($input.text)
+ *   days_until($form.date) <= 1
+ *   $session.points + 10 * len($form.services)
  *
  * Operands: references ($root.name.field, $root.list[0]), "strings" or 'strings', numbers, true,
- * false, null, lists ("a", "b"), calls exists(x) empty(x) len(x) lower(x) upper(x), and
- * parentheses. Operators: = != < <= > >= and ":" (in a list, or a string contains another,
- * ignoring case), then NOT, AND, OR (keywords in any case). A missing value is null; a string that
- * reads as a number compares as one.
+ * false, null, lists ("a", "b"), function calls and parentheses. Operators, tightest first:
+ * - (negation); * / %; + -; = != < <= > >= and ":" (in a list, or a string contains another,
+ * ignoring case); then NOT, AND, OR (keywords in any case). A missing value is null; a string that
+ * reads as a number compares and adds as one. In + and -, null is 0; + joins text when either side
+ * isn't a number. Division by zero is null.
+ *
+ * Functions:
+ *   exists(x) empty(x) len(x) lower(x) upper(x) number(x)
+ *   round(x) round(x, digits) floor(x) ceil(x) abs(x) min(a, b, ...) max(a, b, ...)
+ *   now()               the local date and time: "2026-11-05T14:30:00"
+ *   today()             the local date: "2026-11-05"
+ *   days_until(date)    whole days from today to a date (or the date of a date and time); null when it isn't one
+ *   days_since(date)    the same, the other way
+ *   add_days(date, n)   "2026-11-05", 3 → "2026-11-08"
+ *   weekday(date)       1 Monday ... 7 Sunday
+ * Dates are ISO text, so they also compare in order: $form.date > today().
  */
 class VASDK_EXPORT Expression {
 public:
@@ -36,8 +53,9 @@ public:
     /** nullptr, with "column 12: expected ')'" in `error`, when `text` doesn't parse. */
     static std::shared_ptr<const Expression> parse(const std::string& text, std::string* error = nullptr);
 
-    Value evaluate(const Lookup& lookup) const;
-    bool test(const Lookup& lookup) const;
+    /** `now` is what now() and today() read, and days count from; unset: the clock. */
+    Value evaluate(const Lookup& lookup, std::optional<TimePoint> now = std::nullopt) const;
+    bool test(const Lookup& lookup, std::optional<TimePoint> now = std::nullopt) const;
     /** Every reference in it, for checking them when the agent loads. */
     const std::vector<Path>& references() const { return _references; }
     /** When the whole expression is one reference ($session.tier): its path; else nullptr. */
@@ -49,11 +67,29 @@ private:
 };
 
 /**
- * Replaces the references in a reply: "You have $session.points points." or ${session.points};
- * "$$" is a "$". A missing value renders as "". Lists render as "a, b and c".
+ * What a reply's template reads: a value as a reply says it ("Tuesday, November 10th") and as it
+ * is ("2026-11-10").
  */
+struct TemplateScope {
+    Lookup spoken;
+    Lookup raw;                      // empty: `spoken`
+    std::optional<TimePoint> now;    // for now(), today() and days_until(); unset: the clock
+};
+
+/**
+ * Replaces the references in a reply: "You have $session.points points.", ${session.points}, or
+ * an expression in braces: ${$session.points * 2}, ${days_until($form.date)}. "$$" is a "$". A
+ * missing value renders as "". Lists render as "a, b and c".
+ *
+ * Filters after "|", in order: ${form.date|raw} (the value, not as said: "2026-11-10"), |count (a
+ * list's items), |plural:"car":"cars" ("1 car", "3 cars"; a list counts its items), |round or
+ * |round:2, |lower, |upper, |capitalize, |default:"no one". A reference is said, unless a filter
+ * needs the value (raw, count, plural, round); an expression reads the values.
+ */
+VASDK_EXPORT std::string renderTemplate(const std::string& text, const TemplateScope& scope);
 VASDK_EXPORT std::string renderTemplate(const std::string& text, const Lookup& lookup);
-/** The references in a template; false, with `error` set, for an unclosed ${. */
+/** The references in a template; false, with `error` set, for an unclosed ${, an expression
+ *  that doesn't parse or an unknown filter. */
 VASDK_EXPORT bool templateReferences(const std::string& text, std::vector<Path>& references,
                                      std::string* error = nullptr);
 

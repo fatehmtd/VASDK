@@ -324,6 +324,45 @@ int main() {
         }
     }
 
+    // filler_after_ms: the filler only when the call is slow, heard while it runs.
+    {
+        const auto slowAgent = CompiledAgent::compile(parse<vasdk::flow::Agent>(R"agent(
+start_flow: "main"
+session_params { name: "found" type: STRUCT }
+intents { name: "quick" examples: ["quick"] }
+intents { name: "slow" examples: ["slow"] }
+tools { name: "lookup" }
+flows { name: "main" start_page: "start" pages {
+  name: "start"
+  on_enter { ask { say { text: "Hi." } } }
+  routes { intent: "quick" steps { call_tool { name: "lookup" args { key: "wait" value: "0" } into: "$session.found"
+                                               filler: "One moment." filler_after_ms: 200 } }
+           steps { say { text: "Found $session.found.id." } } }
+  routes { intent: "slow" steps { call_tool { name: "lookup" args { key: "wait" value: "600" } into: "$session.found"
+                                              filler: "One moment." filler_after_ms: 200 } }
+           steps { say { text: "Found $session.found.id." } } } } }
+)agent"), &error);
+        check(slowAgent != nullptr, "the slow tool agent compiles");
+        if (slowAgent) {
+            FlowRuntime conversation(slowAgent);
+            conversation.setToolCaller([](const std::string&, const nlohmann::json& args) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(args.value("wait", 0)));
+                ToolResult result;
+                result.ok = true;
+                result.value = {{"id", "S-9"}};
+                return result;
+            });
+            std::vector<std::string> heard;
+            conversation.setFillerSink([&](const Reply& sofar) { heard.push_back(sofar.text); });
+            conversation.start();
+            auto reply = conversation.handleText("quick");
+            check(heard.empty() && reply.text == "Found S-9. Hi.", "a quick call: no filler");
+            reply = conversation.handleText("slow");
+            check(heard == std::vector<std::string>{"One moment."} && reply.text == "Found S-9. Hi.",
+                  "a slow call: the filler is heard while it runs");
+        }
+    }
+
     if (failures == 0) std::printf("security_test: all passed\n");
     return failures == 0 ? 0 : 1;
 }

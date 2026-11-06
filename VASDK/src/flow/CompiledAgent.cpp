@@ -721,6 +721,7 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::build(vasdk::flow::Agent age
                     compileExpression(expression, stepWhere + " call_tool arg " + quoted(arg));
                 if (!call.into().empty()) checkWritable(call.into(), stepWhere, "call_tool into");
                 for (const auto& text : call.filler()) checkTemplate(text, stepWhere + " filler");
+                if (call.has_filler_after_ms() && call.filler_after_ms() < 0) check.error(stepWhere, "filler_after_ms is negative");
                 break;
             }
             case vasdk::flow::Step::kLlm:
@@ -789,6 +790,34 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::build(vasdk::flow::Agent age
         if (envelope.settings().has_max_reprompts() && envelope.settings().max_reprompts() < 0)
             check.error(where, "max_reprompts is negative");
         if (envelope.settings().has_follow_up_listen_ms()) checkListenMs(envelope.settings().follow_up_listen_ms(), where);
+        for (int g = 0; g < envelope.guards_size(); ++g) {
+            const auto& guard = envelope.guards(g);
+            const std::string guardWhere = where + " guard " + std::to_string(g + 1);
+            compileExpression(guard.condition(), guardWhere + " condition");
+            checkSteps(guard.steps(), guardWhere);
+            checkTarget(guard.target(), guardWhere);
+        }
+        checkSteps(envelope.before(), where + " before");
+        checkSteps(envelope.after(), where + " after");
+        // After the reply is ready, nothing moves: a step that would is in a route or before.
+        std::function<void(const Steps&, const std::string&)> checkStill = [&](const Steps& steps, const std::string& at) {
+            for (int s = 0; s < steps.size(); ++s) {
+                const auto& step = steps.Get(s);
+                const std::string stepWhere = at + " step " + std::to_string(s + 1);
+                if (step.has_goto_() || step.has_end() || step.has_ask() || step.has_llm())
+                    check.error(stepWhere, "an after step can't move or ask (goto, end, ask, llm): put it in before or a route");
+                if (step.has_branch()) {
+                    checkStill(step.branch().then(), stepWhere + " then");
+                    checkStill(step.branch().else_(), stepWhere + " else");
+                }
+                if (step.has_switch_()) {
+                    for (int c = 0; c < step.switch_().cases_size(); ++c)
+                        checkStill(step.switch_().cases(c).steps(), stepWhere + " case " + std::to_string(c + 1));
+                    checkStill(step.switch_().default_(), stepWhere + " default");
+                }
+            }
+        };
+        checkStill(envelope.after(), where + " after");
     }
     inEnvelope = false;
     checkEnvelopeNames(definition.envelopes(), "agent envelopes");
@@ -899,7 +928,7 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::build(vasdk::flow::Agent age
                                 break;
                             }
                             const auto& envelope = definition.envelope_defs(compiled->_envelopes.at(at));
-                            layers.push_back({&envelope.routes(), &envelope.handlers(), &envelope.settings()});
+                            layers.push_back({&envelope.routes(), &envelope.handlers(), &envelope.settings(), &envelope});
                             at = envelope.extends();
                         }
                 };

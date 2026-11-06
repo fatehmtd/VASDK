@@ -400,7 +400,7 @@ Value FlowRuntime::evaluate(const std::string& expression) const {
     auto compiled = _agent->expression(expression);
     if (!compiled) compiled = Expression::parse(expression);   // checked when the agent loaded
     if (!compiled) return nullValue();
-    return compiled->evaluate([this](const Path& path) { return lookup(path); });
+    return compiled->evaluate([this](const Path& path) { return lookup(path); }, now());
 }
 
 bool FlowRuntime::holds(const std::string& condition) const {
@@ -581,16 +581,35 @@ void FlowRuntime::takeTurn(const std::string& text, Reply& reply) {
     _entity.reset();
     _understood.reset();
     _alternatives.clear();
+    auto answer = [&](Outcome outcome) {
+        _replyCut = false;
+        _misses = 0;
+        follow(answered(std::move(outcome), reply), reply);
+    };
+    // A condition the page's envelopes need that doesn't hold (the user signed out) answers the turn.
+    if (const auto* guard = failingGuard(_position)) {
+        auto outcome = run(guard->steps(), reply);
+        if (!outcome.moves()) outcome = toTarget(guard->target(), "guard");
+        answer(std::move(outcome));
+        return;
+    }
+    const auto& layers = _agent->layers(_position);
     // Envelopes written in C++, outermost first, then a page type written in C++: each may
     // answer the turn itself.
     const auto& extensions = _agent->extensions(_position);
     for (auto envelope = extensions.envelopes.rbegin(); envelope != extensions.envelopes.rend(); ++envelope) {
         TurnContext turn(*this, reply);
         if (!(*envelope)->before || !(*envelope)->before(turn)) continue;
-        _replyCut = false;
-        _misses = 0;
-        follow(answered(fromContext(turn), reply), reply);
+        answer(fromContext(turn));
         return;
+    }
+    // The envelopes' before steps, outermost first: a step that moves answers the turn.
+    for (auto layer = layers.rbegin(); layer != layers.rend(); ++layer) {
+        if (!layer->envelope || layer->envelope->before().empty()) continue;
+        if (auto outcome = run(layer->envelope->before(), reply); outcome.moves()) {
+            answer(std::move(outcome));
+            return;
+        }
     }
     _inputText = chosenValue(_inputText);
     if (const auto* type = extensions.registeredType; type && type->onTurn) {
@@ -680,9 +699,25 @@ FlowRuntime::Outcome FlowRuntime::fromContext(const TurnContext& turn) const {
     return outcome;
 }
 
-// Envelopes written in C++, innermost first, once the reply is ready.
+const vasdk::flow::Guard* FlowRuntime::failingGuard(CompiledAgent::PageRef where) const {
+    if (!where.valid()) return nullptr;
+    const auto& layers = _agent->layers(where);
+    const std::string flow = _agent->flow(where).name();
+    for (auto layer = layers.rbegin(); layer != layers.rend(); ++layer) {
+        if (!layer->envelope) continue;
+        for (const auto& guard : layer->envelope->guards()) {
+            if (guard.target() == "flow:" + flow || holds(guard.condition())) continue;
+            return &guard;
+        }
+    }
+    return nullptr;
+}
+
+// Once the reply is ready, innermost first: the envelopes' after steps, then those written in C++.
 void FlowRuntime::runAfterEnvelopes(Reply& reply) {
     if (!started()) return;
+    for (const auto& layer : _agent->layers(_position))
+        if (layer.envelope && !layer.envelope->after().empty()) (void)run(layer.envelope->after(), reply);   // they don't move
     for (const auto* envelope : _agent->extensions(_position).envelopes) {
         if (!envelope->after) continue;
         TurnContext turn(*this, reply);
@@ -1080,7 +1115,7 @@ FlowRuntime::Outcome FlowRuntime::run(const google::protobuf::RepeatedPtrField<v
 }
 
 FlowRuntime::Outcome FlowRuntime::callTool(const vasdk::flow::CallTool& call, Reply& reply) {
-    if (!call.filler().empty()) {
+    if (!call.filler().empty() && !call.has_filler_after_ms()) {
         sayOne(call.filler(), &call, reply);
         if (_fillerSink) {   // heard now, while the tool runs
             _fillerSink(reply);
@@ -1091,7 +1126,15 @@ FlowRuntime::Outcome FlowRuntime::callTool(const vasdk::flow::CallTool& call, Re
     nlohmann::json args = nlohmann::json::object();
     for (const auto& [name, expression] : call.args()) args[name] = toJson(evaluate(expression));
     if (!_toolCaller) _toolCaller = ToolRunner::caller(std::make_shared<ToolRunner>(_agent));
-    const auto result = _toolCaller(call.name(), args);
+    ToolResult result;
+    if (call.has_filler_after_ms()) {   // the filler only when it's slow; the call runs to its end (its timeout)
+        auto finished = std::make_shared<ToolResult>();
+        waitWhile([finished, caller = _toolCaller, name = call.name(), args] { *finished = caller(name, args); }, &call.filler(),
+                  &call, call.filler_after_ms(), false, reply);
+        result = *finished;
+    } else {
+        result = _toolCaller(call.name(), args);
+    }
     ReplyToolCall record;
     record.name = call.name();
     record.argumentsJson = args.dump();
@@ -1275,51 +1318,61 @@ std::optional<FlowRuntime::LlmTurn> FlowRuntime::askLlm(const std::string& instr
     return turn;
 }
 
-// The LLM's answer, asked on a thread of its own while the turn waits: past _llmFillerAfterMs,
-// what the turn has said so far and a filler phrase go to the filler sink, to be heard meanwhile.
-// When the turn is given up (_interrupted), it stops waiting: nullopt, and the reply is givenUp.
-// The request runs to its own timeout; its answer is then dropped.
+// The LLM's answer, asked on a thread of its own while the turn waits. When the turn is given up
+// (_interrupted), it stops waiting: nullopt, and the reply is givenUp. The request runs to its own
+// timeout; its answer is then dropped.
 std::optional<std::string> FlowRuntime::waitForLlm(std::shared_ptr<const llm::Completion> llm,
                                                    std::vector<llm::ConversationMessage> messages, const Texts* filler,
                                                    const void* fillerKey, Reply& reply) {
+    auto answer = std::make_shared<std::optional<std::string>>();
+    const bool answered = waitWhile([answer, llm = std::move(llm), messages = std::move(messages)] { *answer = llm->complete(messages); },
+                                    filler, fillerKey, _llmFillerAfterMs, true, reply);
+    if (!answered) {
+        spdlog::info("[FlowRuntime] the turn was given up while the LLM thought, on page \"{}\"", pageName());
+        return std::nullopt;
+    }
+    return *answer;
+}
+
+// Past fillerAfterMs, what the turn has said so far and a filler phrase go to the filler sink, to
+// be heard meanwhile.
+bool FlowRuntime::waitWhile(std::function<void()> work, const Texts* filler, const void* fillerKey, int fillerAfterMs,
+                            bool mayGiveUp, Reply& reply) {
     struct Pending {
         std::mutex mutex;
-        std::condition_variable answered;
+        std::condition_variable finished;
         bool done = false;
-        std::optional<std::string> answer;
     };
     auto pending = std::make_shared<Pending>();
-    std::thread([pending, llm = std::move(llm), messages = std::move(messages)] {
-        auto answer = llm->complete(messages);
+    std::thread([pending, work = std::move(work)] {
+        work();
         std::lock_guard<std::mutex> lock(pending->mutex);
-        pending->answer = std::move(answer);
         pending->done = true;
-        pending->answered.notify_all();
+        pending->finished.notify_all();
     }).detach();
 
     const auto pollEvery = std::chrono::milliseconds(50);
-    const auto fillerAt = std::chrono::steady_clock::now() + std::chrono::milliseconds(std::max(0, _llmFillerAfterMs));
+    const auto fillerAt = std::chrono::steady_clock::now() + std::chrono::milliseconds(std::max(0, fillerAfterMs));
     bool fillerSaid = false;
     std::unique_lock<std::mutex> lock(pending->mutex);
     while (!pending->done) {
-        if (_interrupted && _interrupted()) {
-            spdlog::info("[FlowRuntime] the turn was given up while the LLM thought, on page \"{}\"", pageName());
+        if (mayGiveUp && _interrupted && _interrupted()) {
             reply.givenUp = true;
-            return std::nullopt;
+            return false;
         }
-        pending->answered.wait_for(lock, pollEvery);
+        pending->finished.wait_for(lock, pollEvery);
         if (pending->done || fillerSaid || std::chrono::steady_clock::now() < fillerAt) continue;
         fillerSaid = true;
         lock.unlock();
         if (filler && !filler->empty()) sayOne(*filler, fillerKey, reply);
-        if (_fillerSink && !reply.text.empty()) {   // heard now, while the LLM thinks
+        if (_fillerSink && !reply.text.empty()) {   // heard now, while it runs
             _fillerSink(reply);
             reply.text.clear();
             reply.segments.clear();
         }
         lock.lock();
     }
-    return pending->answer;
+    return true;
 }
 
 bool FlowRuntime::answerFromKnowledge(float atLeast, Reply& reply) {
@@ -1731,7 +1784,8 @@ std::string FlowRuntime::say(const vasdk::flow::Say& say, Reply& reply) {
 }
 
 std::string FlowRuntime::render(const std::string& text) const {
-    return renderTemplate(text, [this](const Path& path) { return resolve(path, true); });
+    return renderTemplate(text, TemplateScope{[this](const Path& path) { return resolve(path, true); },
+                                              [this](const Path& path) { return resolve(path, false); }, now()});
 }
 
 std::string FlowRuntime::pick(const Texts& texts, const void* key) {
@@ -2055,6 +2109,23 @@ void FlowRuntime::moveTo(CompiledAgent::PageRef target, std::string reason, Repl
             spdlog::error("[FlowRuntime] {} pages entered in one turn (a goto loop?): staying on \"{}\"",
                           kMaxTransitions, pageName());
             return;
+        }
+        // A page its envelopes' guards keep the user from: the guard's steps, and its target instead.
+        if (const auto* guard = failingGuard(*next)) {
+            auto outcome = run(guard->steps(), reply);
+            if (!outcome.moves()) outcome = toTarget(guard->target(), "guard");
+            if (outcome.ended || outcome.endFlow) {
+                follow(std::move(outcome), reply);
+                return;
+            }
+            if (!outcome.jump || *outcome.jump == *next) {   // nowhere else to go: stay, and ask again
+                if (started() && !reply.expectsReply) askAgain(reply);
+                return;
+            }
+            if (outcome.pushFlow) pushFrame();
+            next = outcome.jump;
+            reason = outcome.reason;
+            continue;
         }
         reply.pageChanges.push_back(changeTo(*next, reason));
         const bool samePage = _position == *next;

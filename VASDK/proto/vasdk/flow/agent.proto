@@ -92,12 +92,32 @@ message PageType {
 // when nothing matches or the user is silent, and settings. Applied by name with `envelopes`
 // on the agent, a flow or a page. A turn tries the page's own routes first, then its envelopes,
 // the flow's, and the agent's, in the order listed; handlers and settings are found the same way.
+//
+// Around each turn of its pages, outermost envelope first (the agent's, the flow's, then the
+// page's): its guards, then what is written in C++ (FlowRegistry::addEnvelope), then its before
+// steps. Once the reply is ready, its after steps, innermost envelope first.
 message Envelope {
   string name = 1;
   string extends = 2;              // another envelope whose routes, handlers and settings come after these
   repeated Route routes = 3;       // targets: "flow:<name>", END_FLOW, END_SESSION, CURRENT_PAGE or none
   repeated Handler handlers = 4;
   Settings settings = 5;
+  // What its pages need. Moving into one of them, or taking a turn there, the first guard whose
+  // condition doesn't hold runs its steps instead, then moves to its target ("Please sign in
+  // first." → flow:sign_in; END_FLOW there comes back to where the user was). It doesn't apply in
+  // its target flow.
+  repeated Guard guards = 6;
+  // Before the page's routes: extract a value said at any point, count the turns. A step that
+  // moves (goto, end) answers the turn; anything said comes before the reply.
+  repeated Step before = 7;
+  // Once the reply is ready: add to it, keep values. These steps don't move (no goto, end or ask).
+  repeated Step after = 8;
+}
+
+message Guard {
+  string condition = 1;            // what must hold: "$session.verified"
+  repeated Step steps = 2;
+  string target = 3;               // "flow:<name>", END_FLOW, END_SESSION; empty: stay, and ask the page's question again
 }
 
 // What happens on an event instead of the built-in behaviour:
@@ -303,6 +323,9 @@ message CallTool {
   map<string, string> args = 2;        // arg name → an expression for its value
   string into = 3;                     // a `set` key for the result; empty: not kept
   repeated string filler = 4;          // said, in turn, before the call
+  // Say the filler only when the call takes longer than this: "One moment." for a slow lookup,
+  // nothing for a quick one. The call still runs to its end, or to the tools' timeout_ms.
+  optional int32 filler_after_ms = 5;
 }
 
 // Lets an LLM answer the turn: it reads the instructions, the conversation so far and the

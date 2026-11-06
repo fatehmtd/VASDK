@@ -1,11 +1,13 @@
 // Expressions and templates in agents: the grammar (AND/OR/NOT, comparisons, ":" membership and
 // contains, lists, functions, parentheses), missing values as null, numbers in strings,
 // references into lists and objects, parse errors with their column, and templates with
-// $ref, ${ref}, $$ and a sentence's full stop.
+// $ref, ${ref}, $$ and a sentence's full stop. Arithmetic, dates against a fixed clock, and
+// templates with expressions and filters.
 
 #include <VASDK/flow/Expression.h>
 
 #include <cstdio>
+#include <ctime>
 #include <map>
 #include <string>
 
@@ -47,6 +49,28 @@ bool holds(const std::string& text) {
     }
     return expression->test(lookup);
 }
+
+// 2026-11-05 (a Thursday), noon, local time.
+TimePoint thursdayNoon() {
+    std::tm local{};
+    local.tm_year = 2026 - 1900;
+    local.tm_mon = 10;
+    local.tm_mday = 5;
+    local.tm_hour = 12;
+    local.tm_isdst = -1;
+    return std::chrono::system_clock::from_time_t(std::mktime(&local));
+}
+
+Value valueOf(const std::string& text) {
+    std::string error;
+    auto expression = Expression::parse(text, &error);
+    if (!expression) {
+        std::fprintf(stderr, "  parse error in %s: %s\n", text.c_str(), error.c_str());
+        return nullValue();
+    }
+    return expression->evaluate(lookup, thursdayNoon());
+}
+std::string textOf(const std::string& text) { return toText(valueOf(text)); }
 
 std::string parseError(const std::string& text) {
     std::string error;
@@ -100,6 +124,37 @@ int main() {
     check(parseError("$session.tier = ") == "column 17: expected a value, found 'end'", "missing operand");
     check(parseError("size($session.cars)") == "column 1: unknown word 'size' (strings need quotes)", "unknown function");
 
+    // Arithmetic
+    check(textOf("$session.points + 10 * 2") == "140" && textOf("($session.points + 10) * 2") == "260",
+          "* binds tighter than +, parentheses first");
+    check(textOf("$session.points - 20") == "100" && textOf("$session.points-20") == "100" && textOf("-$session.points") == "-120",
+          "minus, with or without spaces, and negation");
+    check(textOf("$session.count * 2") == "14" && textOf("7 / 2") == "3.5" && textOf("7 % 3") == "1", "/ and %, a numeric string");
+    check(valueOf("1 / 0").kind_case() == Value::kNullValue && valueOf("'a' * 2").kind_case() == Value::kNullValue,
+          "division by zero and text times a number are null");
+    check(textOf("$session.missing + 1") == "1", "a missing value adds as 0");
+    check(textOf("'Hi ' + $session.tier") == "Hi gold" && textOf("0.1 + 0.2") == "0.3", "+ joins text; 0.1 + 0.2 reads as 0.3");
+    check(holds("$session.points * 2 > 200") && holds("$session.points + 1 = 121"), "arithmetic in a condition");
+    check(textOf("('a', -5)") == "a and -5", "a negative number in a list");
+    check(textOf("round(2.567, 2)") == "2.57" && textOf("round(2.5)") == "3" && textOf("floor(2.9)") == "2" &&
+              textOf("ceil(2.1)") == "3" && textOf("abs(-4)") == "4", "round, floor, ceil, abs");
+    check(textOf("min(3, $session.points, 7)") == "3" && textOf("max(3, $session.points)") == "120" &&
+              textOf("number('42') + 1") == "43", "min, max, number");
+
+    // Dates, against the clock given
+    check(textOf("today()") == "2026-11-05" && textOf("now()") == "2026-11-05T12:00:00", "today() and now()");
+    check(textOf("days_until('2026-11-10')") == "5" && textOf("days_until('2026-11-10T08:00')") == "5" &&
+              textOf("days_since('2026-11-01')") == "4" && textOf("days_until(today())") == "0", "days_until and days_since");
+    check(holds("days_until('2026-11-06') <= 1") && !holds("days_until('2026-11-09') <= 1"), "a booking for tomorrow");
+    check(valueOf("days_until('next week')").kind_case() == Value::kNullValue && valueOf("days_until('2026-02-30')").kind_case() == Value::kNullValue,
+          "not a date: null");
+    check(textOf("add_days('2026-11-05', 30)") == "2026-12-05" && textOf("add_days(today(), -5)") == "2026-10-31", "add_days");
+    check(textOf("weekday('2026-11-05')") == "4" && textOf("weekday('2026-11-08')") == "7" && textOf("weekday('2026-11-09')") == "1",
+          "weekday: 1 Monday ... 7 Sunday");
+    check(holds("'2026-11-10' > today()") && holds("weekday(today()) <= 5"), "ISO dates compare in order");
+    check(parseError("today(1)") == "column 1: today takes 0 values" && parseError("add_days(today())") == "column 1: add_days takes 2 values" &&
+              parseError("round()") == "column 1: round takes 1 or 2 values", "a function's values are counted");
+
     // Templates
     check(renderTemplate("You have $session.points points.", lookup) == "You have 120 points.",
           "a full stop isn't part of the reference");
@@ -112,6 +167,30 @@ int main() {
     check(templateReferences("$session.tier and ${session.points}", references, &error) && references.size() == 2,
           "template references found");
     check(!templateReferences("broken ${session.tier", references, &error) && !error.empty(), "unclosed ${ is an error");
+
+    // Templates: expressions and filters. "spoken" says a date; raw is the value.
+    TemplateScope scope;
+    scope.raw = lookup;
+    scope.spoken = [](const Path& path) { return path.size() == 2 && path[1] == "tier" ? stringValue("Gold member") : lookup(path); };
+    scope.now = thursdayNoon();
+    check(renderTemplate("You are $session.tier (${session.tier|raw}).", scope) == "You are Gold member (gold).", "|raw: the value, not as said");
+    check(renderTemplate("${$session.points * 2} points, in ${days_until('2026-11-10')} days.", scope) == "240 points, in 5 days.",
+          "an expression in braces");
+    check(renderTemplate("${session.cars|count} cars; ${session.cars|plural:\"car\":\"cars\"}; ${1|plural:'car':'cars'}", scope) ==
+              "2 cars; 2 cars; 1 car", "|count and |plural");
+    check(renderTemplate("${session.missing|default:\"no one\"} and ${session.tier|raw|upper} ${'tea'|capitalize}", scope) ==
+              "no one and GOLD Tea", "|default, filters in order, |capitalize");
+    check(renderTemplate("${$session.points / 7|round:1}", scope) == "17.1", "|round:1");
+    check(renderTemplate("${'a|b'|upper}", scope) == "A|B", "a | inside quotes isn't a filter");
+    references.clear();
+    check(templateReferences("${$session.points + $session.count|round} ${session.tier|raw}", references, &error) && references.size() == 3,
+          "references in expressions and filtered ones");
+    check(!templateReferences("${session.tier|shout}", references, &error) && error.find("unknown filter 'shout'") != std::string::npos,
+          "an unknown filter is an error");
+    check(!templateReferences("${session.tier|plural:'car'}", references, &error) && error.find("takes 2 values") != std::string::npos,
+          "a filter's values are counted");
+    check(!templateReferences("${$session.points +}", references, &error) && error.find("expected a value") != std::string::npos,
+          "an expression that doesn't parse is an error");
 
     if (failures == 0) std::printf("expression_test: all passed\n");
     return failures == 0 ? 0 : 1;

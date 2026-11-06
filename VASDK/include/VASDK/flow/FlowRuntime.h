@@ -305,6 +305,10 @@ private:
                                   const Texts* filler = nullptr, const void* fillerKey = nullptr, const std::string& profile = {});
     std::optional<std::string> waitForLlm(std::shared_ptr<const llm::Completion> llm, std::vector<llm::ConversationMessage> messages,
                                           const Texts* filler, const void* fillerKey, Reply& reply);
+    // Runs `work` on a thread of its own while the turn waits; past `fillerAfterMs`, a filler is
+    // heard meanwhile. False when the turn was given up first (only when `mayGiveUp`).
+    bool waitWhile(std::function<void()> work, const Texts* filler, const void* fillerKey, int fillerAfterMs, bool mayGiveUp,
+                   Reply& reply);
     std::shared_ptr<const llm::Completion> completionFor(const std::string& profile) const;
     const vasdk::flow::GenerativeParams* generativePage() const;
     bool privateTurn() const;
@@ -340,6 +344,9 @@ private:
     Outcome fromContext(const TurnContext& turn) const;
     Outcome answered(Outcome outcome, Reply& reply);
     void runAfterEnvelopes(Reply& reply);
+    // The first guard of `where`'s envelopes, outermost first, whose condition doesn't hold;
+    // nullptr when all hold. A guard doesn't apply in the flow it sends the user to.
+    const vasdk::flow::Guard* failingGuard(CompiledAgent::PageRef where) const;
     void finish(Reply& reply);
     vasdk::flow::Expectation formExpectation() const;
     std::vector<ReplyChoice> slotChoices(const vasdk::goal::Slot& slot) const;

@@ -86,6 +86,8 @@ std::optional<int> ordinalNumber(const std::vector<std::string>& words, size_t i
     return std::nullopt;
 }
 
+} // namespace
+
 // Days since 1970-01-01 and back (Howard Hinnant's civil calendar algorithms).
 long daysFromCivil(int year, int month, int day) {
     year -= month <= 2;
@@ -124,6 +126,9 @@ std::string iso(Date date) {
     std::snprintf(text, sizeof(text), "%04d-%02d-%02d", date.year, date.month, date.day);
     return text;
 }
+
+namespace {
+
 
 std::string clock(int hour, int minute) {
     char text[8];

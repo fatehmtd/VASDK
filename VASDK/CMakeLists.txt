@@ -418,6 +418,10 @@ if(VASDK_BUILD_TESTS)
         target_link_libraries(vasdk_envelope_layering_test PRIVATE VASDK)
         add_test(NAME vasdk_envelope_layering COMMAND vasdk_envelope_layering_test)
 
+        add_executable(vasdk_envelope_steps_test tests/envelope_steps_test.cpp)
+        target_link_libraries(vasdk_envelope_steps_test PRIVATE VASDK)
+        add_test(NAME vasdk_envelope_steps COMMAND vasdk_envelope_steps_test)
+
         add_executable(vasdk_flow_navigation_test tests/flow_navigation_test.cpp)
         target_link_libraries(vasdk_flow_navigation_test PRIVATE VASDK)
         add_test(NAME vasdk_flow_navigation COMMAND vasdk_flow_navigation_test)

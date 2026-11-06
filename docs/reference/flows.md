@@ -218,6 +218,26 @@ flows { name: "booking" envelopes: ["booking"] … }   # a flow's pages; pages t
 
 **Layering.** For each turn, the page's own routes come first, then the page's envelopes, the flow's and the agent's, in the order listed, each followed by the envelope it `extends`. A page route that matches wins. Otherwise the envelopes' intent routes compete, as a page's do: the best score wins, wherever it is, so "stop navigation" is the navigation envelope's even when a music envelope listed first has "stop". On a tie, the first layer's, so an inner envelope's route for the same intent replaces an outer one's. With no intent match, the first layer's entity or condition route is taken. Handlers and settings are found in layer order: the first layer that has one wins, so an inner one replaces an outer one. An envelope's targets can't name a page (it would be a different page wherever it's used): `flow:<name>`, `END_FLOW`, `END_SESSION` or `CURRENT_PAGE`.
 
+**Guards, before and after.** An envelope can also hold what runs around every turn of its pages:
+
+```textproto
+envelope_defs {
+  name: "account"
+  # What its pages need: entering one, or taking a turn there, without it runs the guard instead.
+  guards { condition: "$session.verified" steps { say { text: "Let me check it's you first." } } target: "flow:verify" }
+}
+envelope_defs {
+  name: "standard"
+  before { extract { entity: "@license_plate" into: "$session.plate" } }   # a plate said at any point
+  before { set { key: "$session.turns" value: "$session.turns + 1" } }
+  after  { branch { if: "$session.turns = 20" then { say { text: "We've been at this a while: say 'a person' any time." } } } }
+}
+```
+
+- **Guards** come first, outermost envelope first. The first whose `condition` doesn't hold runs its steps, then moves to its `target`, instead of the page being entered or the turn being taken. Its target flow is exempt, so `flow:verify` can carry the same envelope, and its `END_FLOW` comes back to the page the user was on before the guard sent them away. With no target, the user stays where they were and is asked the question again.
+- **Before** steps run next, after the envelopes written in C++, before the page's routes. What they say comes before the reply; a step that moves (`goto`, `end`) answers the turn.
+- **After** steps run once the reply is ready, innermost envelope first, before the C++ envelopes' `after`. They can say, set, extract and call tools, but not move or ask: `goto`, `end`, `ask` and `llm` are refused when the agent loads.
+
 **Handlers** replace the built-in behaviour for an event. Pages take `handlers` too:
 
 | Event | When | Built in |
@@ -300,7 +320,7 @@ Answered by a C++ envelope or page type, and staying on the page with nothing as
 
 ## Tools and security
 
-**Calling a tool.** `call_tool` calls a tool by name with its `args` (each an expression) as a JSON object, and stores the result in `into`. A STRUCT session param keeps a whole result, read field by field: `$session.booking.id`. While the tool runs, its `filler` is spoken, so the caller isn't left in silence. The conversation waits for the tool on a thread of its own, so the rest of the pipeline keeps running.
+**Calling a tool.** `call_tool` calls a tool by name with its `args` (each an expression) as a JSON object, and stores the result in `into`. A STRUCT session param keeps a whole result, read field by field: `$session.booking.id`. While the tool runs, its `filler` is spoken, so the caller isn't left in silence. With `filler_after_ms: 800`, the filler is said only when the call takes longer than that: nothing for a quick lookup, "One moment." for a slow one. The conversation waits for the tool on a thread of its own, so the rest of the pipeline keeps running; the tools' `timeout_ms` (below) ends a call that takes too long, as a `tool-error`.
 
 ```textproto
 session_params { name: "booking" type: STRUCT }
@@ -455,16 +475,35 @@ Objects and lists are walked with `.field` and `[index]`: `$context.system.batte
 | Form | Example |
 |---|---|
 | Compare: `=` `!=` `<` `<=` `>` `>=` | `$session.points >= 100`, `$session.tier != 'gold'` |
+| Arithmetic: `+` `-` `*` `/` `%`, and `-x` | `$session.points + 10 * len($form.services)`, `$session.turns % 3 = 0` |
 | In a list, or contains (ignoring case): `:` | `$session.tier : ('gold', 'platinum')`, `$input.text : 'oil'` |
 | Logic: `AND` `OR` `NOT`, parentheses | `$session.verified AND NOT ($session.tier = 'basic')` |
 | Values | `'text'` or `"text"`, `42`, `3.5`, `true`, `false`, `null`, lists `('a', 'b')` |
-| Functions | `exists(x)`, `empty(x)`, `len(x)`, `lower(x)`, `upper(x)` |
+| Functions | `exists(x)`, `empty(x)`, `len(x)`, `lower(x)`, `upper(x)`, `number(x)`, `round(x)` or `round(x, digits)`, `floor(x)`, `ceil(x)`, `abs(x)`, `min(a, b, …)`, `max(a, b, …)` (or of one list) |
+| Dates | `now()` (`"2026-11-05T14:30:00"`), `today()` (`"2026-11-05"`), `days_until(date)`, `days_since(date)`, `add_days(date, n)`, `weekday(date)` (1 Monday … 7 Sunday) |
 
-A missing value is `null` and compares false to anything but `null`. A string that reads as a number compares as one (`"7" = 7`). In text proto, quote strings with `'…'` to avoid escaping.
+Operators bind as usual: `-x`, then `*` `/` `%`, then `+` `-`, then the comparisons, `NOT`, `AND`, `OR`. A missing value is `null` and compares false to anything but `null`; in `+` and `-` it counts as 0. A string that reads as a number compares and adds as one (`"7" = 7`), and `+` joins text when either side isn't a number (`'Hi ' + $session.name`). Dividing by zero gives `null`.
 
-**In replies**, `$session.tier` or `${session.tier}` is replaced by its value; `$$` is a dollar sign, and a missing value is empty. A full stop after a reference isn't part of it ("You have $session.points."). Lists read naturally: "Corolla, Civic and Prius".
+Dates are ISO text, as date slots and `@sys.date` keep them, so they also compare in order: `$form.date > today()`, `days_until($form.date) <= 1` (the booking is today or tomorrow), `weekday($value) <= 5` (a derived entity for weekdays). `days_until` takes a date and time too, and gives `null` for text that isn't a date. They count from the conversation's clock: the local date, or the one a test sets with `FlowRuntime::setClock`.
 
-**Checked at load.** Every expression and reply is parsed when the agent loads; an error says where it is: `flow "main" page "welcome" on_enter step 3 branch if: "$session.tier = gold": column 17: unknown word 'gold' (strings need quotes)`. References must name a declared session param or one of the roots above, `set` keys must be `$session.<name>`, `$page.locals.<name>` or (on a form page) `$form.<slot>`, and defaults must fit their type.
+In text proto, quote strings with `'…'` to avoid escaping.
+
+**In replies**, `$session.tier` or `${session.tier}` is replaced by its value; `$$` is a dollar sign, and a missing value is empty. A full stop after a reference isn't part of it ("You have $session.points."). Lists read naturally: "Corolla, Civic and Prius". A form's values are said as a person would: `$form.date` is "Tuesday, November 10th".
+
+Braces also take an expression, with `$` on its references: `${$session.points * 2}`, `${days_until($form.date)}`. Filters after `|` change the value, in order:
+
+| Filter | | Example → |
+|---|---|---|
+| `raw` | The value, not as said | `${form.date\|raw}` → "2026-11-10" |
+| `count` | A list's items | `${session.cars\|count}` → "2" |
+| `plural:"one":"many"` | A number (or a list's count) and its noun | `${session.cars\|plural:'car':'cars'}` → "2 cars" |
+| `round`, `round:digits` | | `${$session.total / 3\|round:2}` → "16.33" |
+| `lower`, `upper`, `capitalize` | | `${session.name\|capitalize}` → "Sam" |
+| `default:"text"` | For a missing or empty value | `${session.agent\|default:'our team'}` |
+
+A reference is said as a reply says it, unless a filter needs the value itself (`raw`, `count`, `plural`, `round`); an expression always reads the values.
+
+**Checked at load.** Every expression and reply, with its filters, is parsed when the agent loads; an error says where it is: `flow "main" page "welcome" on_enter step 3 branch if: "$session.tier = gold": column 17: unknown word 'gold' (strings need quotes)`. References must name a declared session param or one of the roots above, `set` keys must be `$session.<name>`, `$page.locals.<name>` or (on a form page) `$form.<slot>`, and defaults must fit their type.
 
 **From the app:** `session->setSessionParam("tier", value)` (a `google::protobuf::Value`) sets one, for example from a CRM when a call starts. Values are kept for the whole conversation, also after it ends and starts over, until the caller disconnects. A wrong type is logged and ignored; a number given for a STRING param, or a numeric string for a NUMBER one, is converted.
 
@@ -693,4 +732,4 @@ $ vasdk_agentc try agents/garage-menu/agent.txtpb --entity @sys.phone "five five
 
 ## Not yet
 
-These come in later milestones: arithmetic and dates in expressions (`days_until`, `now`), filters in replies (`|raw`), guards and before/after steps in envelopes, a different voice or speed per part, and page types written outside C++. Steps, tools and envelopes can be written in C (and so in any language that calls C) with [the C API](c-api.md).
+Steps, tools, envelopes, page types and entity extractors can be written in C, and so in any language that calls C, with [the C API](c-api.md).

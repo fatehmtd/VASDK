@@ -79,6 +79,7 @@ public:
         const google::protobuf::RepeatedPtrField<vasdk::flow::Route>* routes;
         const google::protobuf::RepeatedPtrField<vasdk::flow::Handler>* handlers;
         const vasdk::flow::Settings* settings;   // nullptr for the page's own layer
+        const vasdk::flow::Envelope* envelope = nullptr;   // its guards and before and after steps; nullptr for the page's and its type's
     };
     const std::vector<Layer>& layers(PageRef where) const { return _layers[where.flow][where.page]; }
     /** The agent's entities, and the @sys.* ones. */
