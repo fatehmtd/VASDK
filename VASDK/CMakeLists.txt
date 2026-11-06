@@ -220,6 +220,8 @@ if(VASDK_ENABLE_ENGINE_CONFIG)
         ./proto/vasdk/flow/page_types.proto
         ./proto/vasdk/flow/test_case.proto
         ./proto/vasdk/flow/step_outcome.proto
+        ./proto/vasdk/flow/conversation.proto
+        ./proto/vasdk/engine/session.proto
     )
     # A Windows DLL exports only what's marked: the generated messages are marked VASDK_EXPORT, so
     # apps and tests can use vasdk::flow::Agent, vasdk::engine::Event... The generated headers
@@ -236,6 +238,42 @@ if(VASDK_ENABLE_ENGINE_CONFIG)
         IMPORT_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/proto
         PROTOC_OUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/proto)
     target_include_directories(VASDK PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/proto>)
+    # The same messages for Python (bindings/python: vasdk.engine.events_pb2, ...), by the same
+    # protoc, into build/bindings/python/vasdk, where the binding looks for them (bundle.py copies
+    # them into a wheel). Python's protobuf package must be this protoc's version or newer.
+    if(NOT ANDROID AND (TARGET protobuf::protoc OR Protobuf_PROTOC_EXECUTABLE))
+        if(TARGET protobuf::protoc)
+            set(_vasdk_protoc $<TARGET_FILE:protobuf::protoc>)
+        else()
+            set(_vasdk_protoc ${Protobuf_PROTOC_EXECUTABLE})
+        endif()
+        set(_vasdk_python_out ${CMAKE_BINARY_DIR}/bindings/python/vasdk)
+        get_target_property(_vasdk_protos VASDK SOURCES)
+        list(FILTER _vasdk_protos INCLUDE REGEX "[.]proto$")
+        set(_vasdk_python_protos)
+        set(_vasdk_python_inputs)
+        set(_vasdk_python_depends)
+        foreach(_proto IN LISTS _vasdk_protos)
+            string(REGEX REPLACE "^[.]/proto/" "" _relative ${_proto})
+            string(REGEX REPLACE "[.]proto$" "_pb2.py" _module ${_relative})
+            string(REGEX REPLACE "^vasdk/" "" _module ${_module})
+            list(APPEND _vasdk_python_protos ${_vasdk_python_out}/${_module})
+            list(APPEND _vasdk_python_inputs ${_relative})
+            list(APPEND _vasdk_python_depends ${CMAKE_CURRENT_SOURCE_DIR}/proto/${_relative})
+            get_filename_component(_package ${_vasdk_python_out}/${_module} DIRECTORY)
+            if(NOT EXISTS ${_package}/__init__.py)
+                file(WRITE ${_package}/__init__.py "")
+            endif()
+        endforeach()
+        add_custom_command(OUTPUT ${_vasdk_python_protos}
+            COMMAND ${_vasdk_protoc} --python_out=${CMAKE_BINARY_DIR}/bindings/python --pyi_out=${CMAKE_BINARY_DIR}/bindings/python
+                    -I ${CMAKE_CURRENT_SOURCE_DIR}/proto ${_vasdk_python_inputs}
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/proto
+            DEPENDS ${_vasdk_python_depends}
+            COMMENT "Python messages for bindings/python"
+            VERBATIM)
+        add_custom_target(vasdk_python_protos ALL DEPENDS ${_vasdk_python_protos})
+    endif()
     target_link_libraries(VASDK PUBLIC protobuf::libprotobuf)
     target_compile_definitions(VASDK PUBLIC VASDK_HAS_ENGINE_CONFIG)
     target_compile_definitions(VASDK PRIVATE VASDK_C_VERSION="${CMAKE_PROJECT_VERSION}")

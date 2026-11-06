@@ -1877,12 +1877,26 @@ bool FlowRuntime::formActive() const {
 // any with `overwrite`. True when a value changed.
 bool FlowRuntime::fillNamedValues(const std::string& text, bool overwrite) {
     bool filled = false;
+    // A system entity that only one slot of the form takes: "set a timer for 10 minutes" fills the
+    // duration, but a form with a start and an end date can't tell which "Tuesday" is.
+    auto onlySlotOf = [this](const std::string& entityRef) {
+        return std::count_if(_form->goal->slots().begin(), _form->goal->slots().end(),
+                             [&entityRef](const vasdk::goal::Slot& other) { return other.entity() == entityRef; }) == 1;
+    };
+    auto unmistakableSystem = [](const std::string& name) {   // not numbers: "3 eggs" isn't a quantity slot's
+        return name == "sys.duration" || name == "sys.date" || name == "sys.time" || name == "sys.datetime" ||
+               name == "sys.email" || name == "sys.phone";
+    };
     for (const auto& slot : _form->goal->slots()) {
-        // Only values that can't be mistaken: a list value, or a list, pattern or code entity (the
-        // app's own values: "text Sam" names a contact).
-        const auto* entity = _agent->entities().type(entityName(slot.entity()));
-        const bool named = slot.entity().empty() ? slot.type() == vasdk::goal::Slot::ENUM
-                                                 : entity && (entity->has_list() || entity->has_pattern() || entity->has_code());
+        // Only values that can't be mistaken: a list value, a list, pattern or code entity (the
+        // app's own values: "text Sam" names a contact), or a date, time, duration, email or phone
+        // number that only this slot takes.
+        const auto name = entityName(slot.entity());
+        const auto* entity = _agent->entities().type(name);
+        const bool named = slot.entity().empty()
+                               ? slot.type() == vasdk::goal::Slot::ENUM
+                               : (entity && (entity->has_list() || entity->has_pattern() || entity->has_code())) ||
+                                     (unmistakableSystem(name) && onlySlotOf(slot.entity()));
         if (!named || slot.name() == _form->asking) continue;
         if (!overwrite && !_form->state->slotValueJson(slot.name()).is_null()) continue;
         const auto value = readSlot(slot, text);

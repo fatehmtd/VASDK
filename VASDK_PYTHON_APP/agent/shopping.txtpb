@@ -1,0 +1,65 @@
+# proto-file: vasdk/flow/agent.proto
+# proto-message: vasdk.flow.Agent
+#
+# The shopping list. The "shopping" tool and the @ingredient entity are Python (kitchen/pantry.py):
+# @ingredient knows every recipe's ingredients and the usual pantry items. Something it doesn't
+# know ("add paper towels") goes to the LLM, which has a shopping list tool too.
+# Part of kitchen.txtpb (include_files); recipes.txtpb uses @ingredient.
+envelopes: ["shopping"]
+
+session_params { name: "list" type: STRUCT }   # what the shopping tool last returned
+
+entity_types { name: "ingredient" description: "Something to cook with or buy" code { extractor: "ingredients" } }
+
+intents { name: "add_item" examples: ["add @ingredient to the shopping list", "add @ingredient to the list", "put @ingredient on the list",
+                                      "we need @ingredient", "we're out of @ingredient", "buy @ingredient", "add @ingredient",
+                                      "to the shopping list", "to the list", "on the shopping list", "on the list"] }   # an item it doesn't know: the LLM's
+intents { name: "add_recipe" examples: ["add the ingredients to the list", "add the ingredients to the shopping list",
+                                        "add everything to the shopping list", "add the ingredients for @recipe to the list",
+                                        "shopping list for @recipe", "what do i need to buy for @recipe"] }
+intents { name: "remove_item" examples: ["remove @ingredient from the list", "take @ingredient off the list", "cross off @ingredient",
+                                         "i got @ingredient", "we have @ingredient"] }
+intents { name: "read_list" examples: ["what's on the shopping list", "read the shopping list", "read the list",
+                                       "what do we need to buy", "the shopping list", "what's on the list"] }
+intents { name: "clear_list" examples: ["clear the shopping list", "empty the list", "start a new list", "clear the list"] }
+
+envelope_defs {
+  name: "shopping"
+  routes {
+    intent: "add_item"
+    entity: "@ingredient"
+    steps { call_tool { name: "shopping" args { key: "action" value: "'add'" } args { key: "item" value: "$entity" } into: "$session.list" } }
+    steps { say { text: "Added ${session.list.item}. ${session.list.summary}" } }
+  }
+  # An item @ingredient doesn't know: the LLM's, with its shopping tool
+  routes { intent: "add_item" steps { say { text: "What should I add? Say, for example, add eggs to the list." } } target: "LLM" }
+  routes {
+    intent: "add_recipe"
+    entity: "@recipe"
+    steps { call_tool { name: "shopping" args { key: "action" value: "'add_recipe'" } args { key: "recipe" value: "$entity" } into: "$session.list" } }
+    steps { say { text: "I added what ${session.list.recipe} needs. ${session.list.summary}" } }
+  }
+  routes {
+    intent: "add_recipe"
+    condition: "$session.cooking.active"
+    steps { call_tool { name: "shopping" args { key: "action" value: "'add_recipe'" } args { key: "recipe" value: "$session.cooking.recipe" } into: "$session.list" } }
+    steps { say { text: "I added what ${session.list.recipe} needs. ${session.list.summary}" } }
+  }
+  routes { intent: "add_recipe" steps { say { text: "Which recipe? Say, for example, add the ingredients for pancakes to the list." } } }
+  routes {
+    intent: "remove_item"
+    entity: "@ingredient"
+    steps { call_tool { name: "shopping" args { key: "action" value: "'remove'" } args { key: "item" value: "$entity" } into: "$session.list" } }
+    steps { say { text: "${session.list.summary}" } }
+  }
+  routes {
+    intent: "read_list"
+    steps { call_tool { name: "shopping" args { key: "action" value: "'read'" } into: "$session.list" } }
+    steps { say { text: "${session.list.summary}" } }
+  }
+  routes {
+    intent: "clear_list"
+    steps { call_tool { name: "shopping" args { key: "action" value: "'clear'" } into: "$session.list" } }
+    steps { say { text: "The shopping list is empty." } }
+  }
+}

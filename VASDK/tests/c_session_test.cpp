@@ -9,6 +9,8 @@
 #include <VASDK/c/vasdk_cpp.h>
 
 #include <nlohmann/json.hpp>
+#include <vasdk/engine/events.pb.h>
+#include <vasdk/engine/session.pb.h>
 
 #include <atomic>
 #include <chrono>
@@ -52,6 +54,15 @@ void onEvent(const char* json, void* user) {
     if (!event.contains("agentReply") || !event["agentReply"].value("isFinal", false)) return;
     std::lock_guard<std::mutex> lock(heard.mutex);
     heard.replies.push_back(event["agentReply"].value("text", std::string()));
+}
+
+// The same, each event the vasdk.engine.Event itself, serialized.
+void onEventMessage(const void* data, size_t length, void* user) {
+    auto& heard = *static_cast<Heard*>(user);
+    vasdk::engine::Event event;
+    if (!event.ParseFromArray(data, static_cast<int>(length)) || !event.has_agent_reply() || !event.agent_reply().is_final()) return;
+    std::lock_guard<std::mutex> lock(heard.mutex);
+    heard.replies.push_back(event.agent_reply().text());
 }
 
 void onAudio(const short*, size_t samples, void* user) { static_cast<Heard*>(user)->samples += samples; }
@@ -134,6 +145,42 @@ int main() {
     check(vasdk_session_start(later, &error) == 1, "the later session starts");
     check(again.waitFor("Welcome back. Your name?"), "it resumes: only what's missing is asked");
     vasdk_session_free(later);
+
+    // The same through protos, serialized: SessionOptions in, Events out, a Command, a Struct context, a ToolDeclaration.
+    vasdk::engine::SessionOptions options;
+    options.set_id("c-proto");
+    const std::string optionsData = options.SerializeAsString();
+    vasdk_session* typed = vasdk_session_create_message(configPath.c_str(), providers, agent, optionsData.data(), optionsData.size(),
+                                                        VASDK_FORMAT_BINARY, &error);
+    check(typed != nullptr, std::string("a session from SessionOptions: ") + (error ? error : ""));
+    if (typed) {
+        Heard typedHeard;
+        vasdk_session_on_event_message(typed, onEventMessage, VASDK_FORMAT_BINARY, &typedHeard);
+        vasdk::engine::ToolDeclaration tool;
+        tool.set_name("lookup_hours");
+        tool.add_parameters()->set_name("day");
+        const std::string toolData = tool.SerializeAsString();
+        check(vasdk_session_add_tool_message(typed, toolData.data(), toolData.size(), VASDK_FORMAT_BINARY,
+                                             [](const char*, vasdk_result* result, void*) { vasdk_result_set(result, "{}"); }, nullptr,
+                                             &error) == 1,
+              "a tool from a ToolDeclaration");
+        check(vasdk_session_start(typed, &error) == 1, "it starts");
+        check(typedHeard.waitFor("How can I help?"), "the greeting, as an Event");
+        vasdk::engine::Command command;
+        command.set_inject_text("when are you open");
+        const std::string commandData = command.SerializeAsString();
+        check(vasdk_session_send(typed, commandData.data(), commandData.size(), VASDK_FORMAT_BINARY, &error) == 1, "a Command is taken");
+        check(typedHeard.waitFor("We're open 8 to 6. How can I help?"), "and answered");
+        check(vasdk_session_send(typed, "", 0, VASDK_FORMAT_BINARY, &error) == 0 && error, "an empty Command fails");
+        vasdk_free(error);
+        error = nullptr;
+        google::protobuf::Struct context;
+        (*context.mutable_fields())["kitchen"].set_string_value("open");
+        const std::string contextData = context.SerializeAsString();
+        check(vasdk_session_set_context_message(typed, contextData.data(), contextData.size(), VASDK_FORMAT_BINARY, &error) == 1,
+              "the context from a Struct");
+        vasdk_session_free(typed);
+    }
 
     vasdk_agent_free(agent);
     vasdk_providers_free(providers);

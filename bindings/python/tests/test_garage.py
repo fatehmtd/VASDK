@@ -64,14 +64,14 @@ def main():
 
     # By hand: a booking from Python, with the Python step and tool.
     conversation = agent.conversation()
-    assert "Acme Garage" in conversation.start()["text"]
+    assert "Acme Garage" in conversation.start().text
     reply = conversation.say("book a tire repair on tuesday")
-    assert reply["page"] == "booking", reply
+    assert reply.page == "booking", reply
     conversation.say("2 pm")
     conversation.say("555 123 4567")
     reply = conversation.say("yes")
-    assert reply["page"] == "booked" and "AG-" in reply["text"], reply
-    assert any(call["name"] == "save_booking" and call["ok"] for call in reply["tool_calls"]), reply
+    assert reply.page == "booked" and "AG-" in reply.text, reply
+    assert any(call.name == "save_booking" and call.ok for call in reply.tool_calls), reply
     assert conversation.lookup("$session.reference").startswith("AG-")
     assert bookings, "save_booking was called"
     try:

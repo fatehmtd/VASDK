@@ -330,6 +330,3 @@ void registerAllProviders(engine::ProviderRegistry& registry) {
 } // namespace thirdparty
 } // namespace va
 
-extern "C" void vasdk_providers_add_all(vasdk_providers* providers) {
-    if (providers) va::thirdparty::registerAllProviders(vasdk_providers_registry(providers));
-}

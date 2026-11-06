@@ -1,0 +1,18 @@
+# proto-file: vasdk/flow/test_case.proto
+# proto-message: vasdk.flow.FlowTestCase
+name: "a recipe by its nickname, step by step, a timer where a step needs one, and back"
+turns { expect { page: "ready" } }
+turns { user: "what can I make" expect { said_contains: ["pancakes", "guacamole"] tools_called: ["recipes"] } }
+turns { user: "let's make the garlic pasta" expect { said_contains: ["spaghetti aglio e olio", "200 grams of spaghetti", "Say next"] page: "ready" } }
+turns { user: "next" expect { said: "Step 1 of 6. Bring a large pot of well salted water to a boil." page: "ready" } }
+turns { user: "next" expect { said_contains: "Step 2 of 6" page: "ready" } }
+turns { user: "next" expect { said_contains: ["Step 3 of 6", "Want a 9 minute timer for the pasta?"] page: "offer" choices: ["Yes", "No"] } }
+turns { user: "yes please" expect { said: "Timer set: 9 minutes for the pasta. Say next when you're ready." page: "ready" tools_called: ["timers"] } }
+turns { user: "say that again" expect { said_contains: "Step 3." } }
+turns { user: "where am I" expect { said: "You're on step 3 of 6 of the spaghetti aglio e olio." } }
+turns { user: "what do I need" expect { said_contains: "4 cloves of garlic" } }
+turns { user: "go back" expect { said_contains: "Back to step 2." } }
+turns { user: "next" expect { said_contains: "Step 3 of 6" page: "offer" } }
+turns { user: "no" expect { said: "Okay, no timer." page: "ready" } }
+turns { user: "stop cooking" expect { said: "Okay, we'll stop there." } }
+turns { user: "repeat the step" expect { said_contains: "not cooking anything" } }

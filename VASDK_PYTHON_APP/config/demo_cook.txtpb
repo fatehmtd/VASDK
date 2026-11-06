@@ -1,0 +1,10 @@
+# proto-file: vasdk/engine/engine_config.proto
+# proto-message: vasdk.engine.EngineConfig
+#
+# The demo's cook (app.py --demo): a second session, with no agent and no LLM, that only speaks
+# the cook's lines in a voice of its own. Its audio is the assistant's microphone.
+providers {
+  vad { id: "silero" }
+  stt { id: "whistle" fallback: ["parakeet", "moonshine"] }
+  tts { id: "phonon" options { [type.googleapis.com/vasdk.providers.LocalTtsOptions] { voice: "Zoey" } } }
+}

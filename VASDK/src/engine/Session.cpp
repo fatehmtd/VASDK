@@ -815,6 +815,22 @@ void Session::fireTrigger(const std::string& name, const google::protobuf::Struc
     _state->dialog->fireTrigger(name, payload);
 }
 
+bool Session::handle(const vasdk::engine::Command& command, std::string* error) {
+    switch (command.kind_case()) {
+    case vasdk::engine::Command::kInjectText: injectUserText(command.inject_text()); return true;
+    case vasdk::engine::Command::kSelectChoice: selectChoice(command.select_choice()); return true;
+    case vasdk::engine::Command::kFireTrigger: fireTrigger(command.fire_trigger().name(), command.fire_trigger().payload()); return true;
+    case vasdk::engine::Command::kSay: say(command.say()); return true;
+    case vasdk::engine::Command::kInterrupt: interrupt(); return true;
+    case vasdk::engine::Command::kSetSessionParam:
+        setSessionParam(command.set_session_param().name(), command.set_session_param().value());
+        return true;
+    case vasdk::engine::Command::KIND_NOT_SET: break;
+    }
+    if (error) *error = "an empty command";
+    return false;
+}
+
 void Session::resetConversation() {
     interrupt();
     if (_state->llm) _state->llm->clearHistory();

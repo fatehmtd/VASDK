@@ -2,6 +2,7 @@
 # va::engine::ProviderRegistry, so apps pick providers by id from an engine config.
 add_library(vasdk_provider_catalog STATIC
     ProviderCatalog.cpp
+    ProviderCatalogC.cpp
     proto/vasdk/providers/options.proto
 )
 protobuf_generate(TARGET vasdk_provider_catalog
@@ -53,6 +54,15 @@ foreach(_index RANGE 0 ${_last} 2)
         target_compile_definitions(vasdk_provider_catalog PRIVATE VASDK_HAS_${_define})
     endif()
 endforeach()
+
+# The providers as a shared library beside a shared VASDK, for code that loads them at run time:
+# Python's vasdk.Providers (bindings/python). Exports vasdk_providers_add_all.
+get_target_property(_vasdk_library_type VASDK TYPE)
+if(_vasdk_library_type STREQUAL "SHARED_LIBRARY")
+    add_library(vasdk_providers SHARED ProvidersShared.cpp)
+    target_link_libraries(vasdk_providers PRIVATE vasdk_provider_catalog)
+    vasdk_test_dlls(vasdk_providers)   # VASDK.dll, onnxruntime.dll and the rest beside it, on Windows
+endif()
 
 # A spoken conversation with no network, through the C API: VAD, STT and TTS on this machine.
 if(VASDK_BUILD_TESTS AND TARGET vasdk_silero_vad AND TARGET vasdk_whistle_stt AND TARGET vasdk_pocket_tts AND TARGET vasdk_phonon_tts)

@@ -151,3 +151,9 @@ option(VASDK_BUILD_CAR "Build the in-car assistant showcase" ON)
 if(VASDK_BUILD_CAR)
     add_subdirectory(VASDK_CAR_APP)
 endif()
+
+#  Kitchen assistant in Python, on the C API's binding: tests only (the app is Python)
+
+if(VASDK_BUILD_TESTS)
+    add_subdirectory(VASDK_PYTHON_APP)
+endif()

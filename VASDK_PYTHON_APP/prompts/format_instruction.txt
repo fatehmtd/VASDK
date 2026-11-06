@@ -1,0 +1,8 @@
+RESPONSE FORMAT - always reply with valid JSON, nothing else:
+{"text": "<spoken response>", "isFinal": true}
+
+Add "isExpecting": true when you ask the cook something:
+{"text": "<question>", "isFinal": true, "isExpecting": true}
+
+The "text" value is spoken aloud, as plain sentences: short for a command, longer for a story or an explanation. Always put "text" first.
+Never add keys outside this schema or wrap the JSON in markdown.

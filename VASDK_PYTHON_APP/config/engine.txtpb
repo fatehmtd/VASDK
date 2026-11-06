@@ -1,0 +1,46 @@
+# proto-file: vasdk/engine/engine_config.proto
+# proto-message: vasdk.engine.EngineConfig
+#
+# The kitchen assistant's engine: speech both ways on this machine, and an LLM when there is one
+# (LLM_ENDPOINT, LLM_MODEL, LLM_API_KEY in the env file; unset: the agent alone, offline).
+# The models folder is passed in by app.py (--models), as Session(models_dir=...).
+providers {
+  vad { id: "silero" }
+  stt { id: "whistle" fallback: ["parakeet", "moonshine"] }
+  tts { id: "phonon" fallback: ["pocket"] }   # PHONON_TTS_VOICE picks the voice
+}
+turn_taking {
+  preset: BALANCED                     # hands busy, words slower: not as snappy as the car
+  backchannel { pending_playback: DUCK commit_after_ms: 300 }
+}
+activation {
+  mode: ALWAYS_ON
+  follow_up { listen_ms: 8000 }
+}
+llm {
+  endpoint: "${LLM_ENDPOINT:-}"
+  model: "${LLM_MODEL:-}"
+  api_key: "${LLM_API_KEY:-}"
+  effort: "${LLM_REASONING_EFFORT:-}"
+  history: 12
+  offline_replies: ["I can't reach the internet right now, but I can still walk you through a recipe and set timers."]
+  failure_replies: ["Sorry, I couldn't get an answer just now. Could you ask me again?"]
+}
+# The right LLM for each task; each variable left unset is llm's (docs/reference/engine-config.md).
+#   fast:   which command was meant, when the rules aren't sure
+#   smart:  cooking questions (questions.txtpb's llm_profile: "smart")
+llm_profiles {
+  name: "fast"
+  endpoint: "${LLM_FAST_ENDPOINT:-}"
+  model: "${LLM_FAST_MODEL:-}"
+  api_key: "${LLM_FAST_API_KEY:-}"
+  effort: "${LLM_FAST_REASONING_EFFORT:-}"
+}
+llm_profiles {
+  name: "smart"
+  endpoint: "${LLM_SMART_ENDPOINT:-}"
+  model: "${LLM_SMART_MODEL:-}"
+  api_key: "${LLM_SMART_API_KEY:-}"
+  effort: "${LLM_SMART_REASONING_EFFORT:-}"
+}
+understanding { llm_profile: "fast" }

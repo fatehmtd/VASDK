@@ -1,0 +1,12 @@
+# proto-file: vasdk/flow/test_case.proto
+# proto-message: vasdk.flow.FlowTestCase
+name: "the shopping list: known items, a recipe's ingredients, and what only the LLM can add"
+turns { expect { page: "ready" } }
+turns { user: "add eggs to the shopping list" expect { said: "Added eggs. There is 1 thing on the list: eggs." tools_called: ["shopping"] } }
+turns { user: "we're out of tomatoes" expect { said_contains: "Added tomatoes" } }
+turns { user: "add the ingredients for guacamole to the list" expect { said_contains: ["I added what guacamole needs", "avocados"] } }
+turns { user: "cross off eggs" expect { said_contains: "on the list" } }
+turns { user: "add paper towels to the list" expect { to_llm: true llm_profile: "" } }   # @ingredient doesn't know it: the LLM's tool
+turns { user: "read the list" expect { said_contains: ["tomatoes", "avocados", "lime"] } }
+turns { user: "clear the shopping list" expect { said: "The shopping list is empty." } }
+turns { user: "what's on the list" expect { said: "The shopping list is empty." } }

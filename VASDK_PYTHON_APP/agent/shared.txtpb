@@ -1,0 +1,17 @@
+# proto-file: vasdk/flow/agent.proto
+# proto-message: vasdk.flow.Agent
+#
+# What every part shares: help, thanks, "never mind", and what happens when nothing understood
+# the words or a tool failed. Included last by kitchen.txtpb.
+intents { name: "help"   examples: ["help", "what can you do", "what can i say", "what do you do"] }
+intents { name: "thanks" examples: ["thanks", "thank you", "cheers", "perfect", "great thanks"] }
+
+envelopes: ["standard"]
+envelope_defs {
+  name: "standard"
+  routes { intent: "help" steps { say { text: "I can walk you through a recipe step by step, set timers, keep your shopping list, and answer cooking questions. Try \"what can I make\", \"set a timer for 10 minutes\" or \"add eggs to the list\"." } } }
+  routes { intent: "thanks" steps { say { text: ["You're welcome.", "Happy cooking!"] } } }
+  routes { intent: "sys.cancel" steps { say { text: "Okay." } } }
+  handlers { event: "no-match" steps { say { text: ["Sorry, I didn't get that.", "Sorry, I can't help with that one."] } } }
+  handlers { event: "tool-error" steps { say { text: "Sorry, that didn't work." } } }
+}

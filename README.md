@@ -92,6 +92,14 @@ The third is an in-car assistant:
 
 It's built from self-contained verticals: drive, climate, media, phone, messages, navigation, driver profiles, the owner's manual, a companion for stories and games, and general knowledge. Each vertical's folder holds its code, its part of the [agent](VASDK_CAR_APP/agents/car/agent.txtpb) (merged with `include_files`), its tests and its panel on a live dashboard (http://127.0.0.1:8090, with a Talk button over WebRTC). The car speaks first when a call or a text comes in, when the cabin is hot, when fuel runs low or won't last the trip, and when a driver gets in. With an LLM, what no vertical covers goes to the LLM, which knows the car's state and calls the same tools. It also tells stories, plays trivia and answers questions about anything, while the car's commands keep working mid-story. See the [VASDK_Car guide](docs/apps/car.md).
 
+The fourth is the same kind of assistant, written in Python:
+
+```bash
+python VASDK_PYTHON_APP/app.py --demo
+```
+
+A kitchen assistant on the [Python binding](bindings/python/README.md): recipes step by step, timers that ring over whatever is being said, a shopping list, and cooking questions for an LLM. The agent's tools and entities and the LLM's tools are Python functions; speech is recognized and spoken on the machine. `--demo` has a second session speak a cook's lines into it, so the whole spoken loop runs with no microphone. See the [VASDK_PYTHON_APP guide](docs/apps/python.md).
+
 With multi-config generators (Visual Studio, Xcode) the binaries land one level deeper, under a `Release/` subdirectory (e.g. `./build/VASDK_APP/Release/VASDK_Pipeline`). The apps print an error and exit if they can't find the models directory or a required provider wasn't built; check the CMake configure output, which lists exactly which providers were enabled.
 
 ## Core architecture
@@ -259,6 +267,8 @@ VASDK_APP/             General-purpose voice assistant showcase (VASDK_Pipeline)
 VASDK_CALLCENTER_APP/  Goal-oriented call center showcase (VASDK_CallCenter)
 VASDK_CAR_APP/         In-car assistant showcase with a live dashboard (VASDK_Car)
 VASDK_ANDROID/         Android app + JNI bindings around the core library
+VASDK_PYTHON_APP/      Kitchen assistant in Python, on the Python binding
+bindings/python/       The Python binding (the C API, over ctypes)
 docs/apps/             The example apps' guides
 docs/examples/         Worked examples (pipelines, tools, goals, testing)
 prometheus/, grafana/  docker-compose stack for local metrics visualization
@@ -439,7 +449,7 @@ docker compose up -d
 
 ## Documentation
 
-Everything beyond this README lives under [`docs/`](docs/README.md), organized by audience. The [example apps' guides](docs/apps/README.md) walk through the four apps in this repository, with what each shows and how it's built. There's also a [plain-language overview](docs/overview.md) for product and project people evaluating VASDK, and a [reference section](docs/README.md#core-concepts-reference) documenting every core interface and abstract class (frames, processors, pipeline, providers, transports, the LLM stack, the goal layer) with diagrams, contracts, and extension guides. The [docs index](docs/README.md) routes you to the right starting point.
+Everything beyond this README lives under [`docs/`](docs/README.md), organized by audience. The [example apps' guides](docs/apps/README.md) walk through the five apps in this repository, with what each shows and how it's built. There's also a [plain-language overview](docs/overview.md) for product and project people evaluating VASDK, and a [reference section](docs/README.md#core-concepts-reference) documenting every core interface and abstract class (frames, processors, pipeline, providers, transports, the LLM stack, the goal layer) with diagrams, contracts, and extension guides. The [docs index](docs/README.md) routes you to the right starting point.
 
 ## Examples
 
@@ -454,6 +464,7 @@ Beyond those, the [example apps](docs/apps/README.md) are the real-world referen
 - [`VASDK_APP/main_pipeline.cpp`](VASDK_APP/main_pipeline.cpp) adds audio I/O, tools, recording and a terminal UI around `VAEngine`.
 - [`VASDK_CALLCENTER_APP/callcenter_pipeline.cpp`](VASDK_CALLCENTER_APP/callcenter_pipeline.cpp) runs one engine session per call, from agent files.
 - [`VASDK_CAR_APP/car_pipeline.cpp`](VASDK_CAR_APP/car_pipeline.cpp) feeds the car's state to the agent and the LLM, and serves a dashboard.
+- [`VASDK_PYTHON_APP/kitchen/assistant.py`](VASDK_PYTHON_APP/kitchen/assistant.py) does the same from Python: the agent's tools, the LLM's tools and the context.
 
 ## Adding a provider
 

@@ -1,0 +1,147 @@
+# proto-file: vasdk/flow/agent.proto
+# proto-message: vasdk.flow.Agent
+#
+# The recipe book, and cooking step by step. The "recipes" tool and the @recipe entity are Python
+# (kitchen/recipes.py): the tool keeps where you are in the recipe and returns it, into
+# $session.cooking. A step that needs timing offers a timer (the "timers" tool, timers.txtpb).
+# @ingredient is shopping.txtpb's. Part of kitchen.txtpb (include_files).
+envelopes: ["recipes"]
+
+session_params { name: "cooking" type: STRUCT }   # what the recipes tool last returned
+session_params { name: "book" type: STRUCT }      # the recipes it knows
+
+# The recipes in the book, by name or a nickname ("garlic pasta"); found by Python ("recipes").
+entity_types { name: "recipe" description: "A recipe in the book" code { extractor: "recipes" } }
+
+intents { name: "list_recipes" examples: ["what can i cook", "what can i make", "what recipes do you have", "give me some ideas",
+                                          "what should i cook", "what should i make", "recipe ideas", "what do you know how to make"] }
+intents { name: "cook" examples: ["let's make @recipe", "let's cook @recipe", "how do i make @recipe", "i want to make @recipe",
+                                  "recipe for @recipe", "cook @recipe", "make @recipe", "start @recipe", "let's cook",
+                                  "i want to cook something", "help me cook"] }
+intents { name: "find_by_ingredient" examples: ["what can i make with @ingredient", "what can i cook with @ingredient",
+                                                "recipes with @ingredient", "something with @ingredient", "i have @ingredient"] }
+intents { name: "ingredients" examples: ["what do i need", "what are the ingredients", "ingredients", "the ingredient list",
+                                         "what goes in it", "read the ingredients"] }
+intents { name: "next_step" examples: ["next step", "next", "what's next", "done", "okay next", "i'm ready", "ready", "go on",
+                                       "then what", "continue", "what now"] }
+intents { name: "previous_step" examples: ["go back", "previous step", "back a step", "the step before", "last step"] }
+intents { name: "repeat_step" examples: ["repeat", "say that again", "what was that", "repeat the step", "repeat that",
+                                         "come again"] }
+intents { name: "which_step" examples: ["where am i", "what step am i on", "which step", "how many steps are left"] }
+intents { name: "stop_cooking" examples: ["stop cooking", "i'm done cooking", "stop the recipe", "forget the recipe",
+                                          "cancel the recipe"] }
+
+envelope_defs {
+  name: "recipes"
+  routes {
+    intent: "list_recipes"
+    steps { call_tool { name: "recipes" args { key: "action" value: "'list'" } into: "$session.book" } }
+    steps { say { text: "I know how to make ${session.book.names}. Which one sounds good?" } }
+  }
+  routes { intent: "cook" target: "flow:cook" }
+  routes {
+    intent: "find_by_ingredient"
+    entity: "@ingredient"
+    steps { call_tool { name: "recipes" args { key: "action" value: "'find'" } args { key: "ingredient" value: "$entity" } into: "$session.book" } }
+    steps { branch { if: "$session.book.count > 0"
+                     then { say { text: "With $entity you could make ${session.book.names}." } }
+                     else { say { text: "None of my recipes use $entity. I know ${session.book.all}." } } } }
+  }
+  # Cooking: only while a recipe is on (else the routes below say so)
+  routes {
+    intent: "next_step" condition: "$session.cooking.active"
+    steps { call_tool { name: "recipes" args { key: "action" value: "'next'" } into: "$session.cooking" } }
+    steps { branch { if: "$session.cooking.done"
+                     then { say { text: "That's everything. Your ${session.cooking.name} is ready. Enjoy!" } }
+                     else { say { text: "Step ${session.cooking.step} of ${session.cooking.step_count}. ${session.cooking.text}" } } } }
+    target: "flow:offer_timer"
+  }
+  routes {
+    intent: "previous_step" condition: "$session.cooking.active"
+    steps { call_tool { name: "recipes" args { key: "action" value: "'previous'" } into: "$session.cooking" } }
+    steps { say { text: "Back to step ${session.cooking.step}. ${session.cooking.text}" } }
+  }
+  routes {
+    intent: "repeat_step" condition: "$session.cooking.active"
+    steps { call_tool { name: "recipes" args { key: "action" value: "'status'" } into: "$session.cooking" } }
+    steps { branch { if: "$session.cooking.step > 0"
+                     then { say { text: "Step ${session.cooking.step}. ${session.cooking.text}" } }
+                     else { say { text: "We're about to start ${session.cooking.name}. Say next for the first step." } } } }
+  }
+  routes {
+    intent: "which_step" condition: "$session.cooking.active"
+    steps { call_tool { name: "recipes" args { key: "action" value: "'status'" } into: "$session.cooking" } }
+    steps { say { text: "You're on step ${session.cooking.step} of ${session.cooking.step_count} of the ${session.cooking.name}." } }
+  }
+  routes {
+    intent: "ingredients" condition: "$session.cooking.active"
+    steps { say { text: "For ${session.cooking.name} you need ${session.cooking.ingredients_text}." } }
+  }
+  routes {
+    intent: "stop_cooking" condition: "$session.cooking.active"
+    steps { call_tool { name: "recipes" args { key: "action" value: "'stop'" } into: "$session.cooking" } }
+    steps { say { text: "Okay, we'll stop there." } }
+  }
+  # Not cooking yet
+  routes { intent: "next_step" target: "flow:cook" }
+  routes { intent: "ingredients" target: "flow:cook" }
+  routes { intent: "repeat_step" steps { say { text: "We're not cooking anything yet. Say, for example, let's make pancakes." } } }
+  routes { intent: "which_step" steps { say { text: "We're not cooking anything yet. Say, for example, let's make pancakes." } } }
+  routes { intent: "previous_step" steps { say { text: "We're not cooking anything yet." } } }
+  routes { intent: "stop_cooking" steps { say { text: "We're not cooking anything right now." } } }
+}
+
+# Cooking a recipe: the one named ("let's make pancakes"), else asked for. Starting it says what it
+# takes, then it's step by step with "next", back where the conversation was.
+flows {
+  name: "cook"
+  start_page: "start"
+  pages {
+    name: "start"
+    on_enter { extract { entity: "@recipe" into: "$page.locals.recipe" } }
+    on_enter { branch { if: "empty($page.locals.recipe)" then { goto { target: "which" } } } }
+    on_enter { call_tool { name: "recipes" args { key: "action" value: "'start'" } args { key: "recipe" value: "$page.locals.recipe" } into: "$session.cooking" } }
+    on_enter { say { text: "Let's make ${session.cooking.name}. It serves ${session.cooking.servings} and takes about ${session.cooking.minutes} minutes. You'll need ${session.cooking.ingredients_text}. Say next when you're ready." } }
+    on_enter { goto { target: "END_FLOW" } }
+  }
+  pages {
+    name: "which"
+    on_enter { call_tool { name: "recipes" args { key: "action" value: "'list'" } into: "$session.book" } }
+    on_enter { ask { say { text: "Sure. I know how to make ${session.book.names}. Which one?" } } }
+    routes { entity: "@recipe" target: "start" }
+    routes { intent: "sys.cancel" steps { say { text: "Okay." } } target: "END_FLOW" }
+    routes { intent: "sys.no" steps { say { text: "Okay, another time." } } target: "END_FLOW" }
+    handlers { event: "no-match" steps { say { text: "I don't have that one. I know ${session.book.names}." } } }
+  }
+}
+
+# After a step: a timer, when the step needs one ("cook it for 9 minutes").
+flows {
+  name: "offer_timer"
+  start_page: "offer"
+  pages {
+    name: "offer"
+    on_enter { branch {
+      if: "$session.cooking.timer_minutes > 0"
+      then { ask { say { text: "Want a ${session.cooking.timer_minutes} minute timer for the ${session.cooking.timer_label}?" }
+                   choices { label: "Yes" value: "yes" } choices { label: "No" value: "no" }
+                   expect { intents: ["sys.yes", "sys.no"] } } }
+      else { goto { target: "END_FLOW" } } } }
+    routes {
+      intent: "sys.yes"
+      steps { call_tool { name: "timers" args { key: "action" value: "'start'" } args { key: "minutes" value: "$session.cooking.timer_minutes" }
+                          args { key: "label" value: "$session.cooking.timer_label" } into: "$session.timer" } }
+      steps { say { text: "Timer set: ${session.timer.duration_text} for the ${session.timer.label}. Say next when you're ready." } }
+      target: "END_FLOW"
+    }
+    routes { intent: "sys.no" steps { say { text: "Okay, no timer." } } target: "END_FLOW" }
+  }
+}
+
+# Cooking, and quiet for a while: a nudge.
+triggers {
+  name: "still_cooking"
+  source { inactivity { after_ms: 180000 } }
+  condition: "$session.cooking.active"
+  action { say { text: "Still with me? Say next when you're ready to go on with the ${session.cooking.name}." } }
+}

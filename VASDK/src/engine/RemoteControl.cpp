@@ -131,19 +131,7 @@ bool RemoteControl::handle(const vasdk::engine::Command& command, std::string* e
         return false;
     };
     if (_state->config.mode() != vasdk::engine::RemoteControl::CONTROL) return fail("observe only: this session takes no commands");
-    auto& session = _state->session;
-    switch (command.kind_case()) {
-    case vasdk::engine::Command::kInjectText: session.injectUserText(command.inject_text()); break;
-    case vasdk::engine::Command::kSelectChoice: session.selectChoice(command.select_choice()); break;
-    case vasdk::engine::Command::kFireTrigger: session.fireTrigger(command.fire_trigger().name(), command.fire_trigger().payload()); break;
-    case vasdk::engine::Command::kSay: session.say(command.say()); break;
-    case vasdk::engine::Command::kInterrupt: session.interrupt(); break;
-    case vasdk::engine::Command::kSetSessionParam:
-        session.setSessionParam(command.set_session_param().name(), command.set_session_param().value());
-        break;
-    case vasdk::engine::Command::KIND_NOT_SET: return fail("an empty command");
-    }
-    return true;
+    return _state->session.handle(command, error);
 }
 
 std::unique_ptr<RemoteControl> RemoteControl::start(Session& session, const vasdk::engine::RemoteControl& config, std::string* error) {

@@ -186,6 +186,28 @@ int main(void) {
     if (strstr(reply, "Calling Mom (mobile).") == NULL) fprintf(stderr, "  reply: %s\n", reply);
     vasdk_free(reply);
 
+    /* The same conversation as protos: a vasdk.flow.ConversationInput in, a ConversationReply
+       out, here in text format (a language with protobuf uses binary). */
+    {
+        size_t length = 0;
+        const char* input = "text: \"my points\"";
+        char* message = vasdk_conversation_send(conversation, input, strlen(input), VASDK_FORMAT_TEXT, &length, &error);
+        check(message != NULL && length == strlen(message) && strstr(message, "120 points") != NULL &&
+              strstr(message, "page: \"welcome\"") != NULL, "a turn as protos");
+        if (message && !strstr(message, "120 points")) fprintf(stderr, "  reply: %s\n", message);
+        vasdk_free(message);
+        check(vasdk_conversation_send(conversation, "", 0, VASDK_FORMAT_TEXT, &length, &error) == NULL && error,
+              "an empty input fails");
+        vasdk_free(error);
+        error = NULL;
+        const char* value = "string_value: \"silver\"";
+        check(vasdk_conversation_set_param_message(conversation, "tier", value, strlen(value), VASDK_FORMAT_TEXT, &error) == 1,
+              "a session param from a Value");
+        char* tier = vasdk_conversation_lookup_message(conversation, "$session.tier", VASDK_FORMAT_TEXT, &length);
+        check(tier != NULL && strstr(tier, "silver") != NULL, "and read back as a Value");
+        vasdk_free(tier);
+    }
+
     /* A test case file, played through the same agent. */
     FILE* file = fopen("vasdk_c_test_case.txtpb", "w");
     if (file) {

@@ -13,6 +13,7 @@ Think of it as the plumbing between a microphone and a speaker, with interchange
 - **In-vehicle voice assistants** - the original motivation. The [VASDK_Car app](apps/car.md) is a working one: climate, music, calls, texts, navigation and driver profiles answered instantly on the device, the car speaking first when a call comes in or fuel runs low, and a language model, when there is one, for questions, stories and requests nobody scripted.
 - **Call center or goal-oriented agents** - an [agent file](reference/flows.md) turns the assistant from a chatbot into a task-completer: it finds out why someone is calling, collects the required information field by field (with validation), confirms before acting, and hands off to a person when stuck, with or without an LLM. The [VASDK_CallCenter app](apps/callcenter.md) is a working demonstration. The LLM-driven `goal/` layer is the other way to build one.
 - **On-device mobile assistants** - the [Android app](apps/android.md) runs the full stack on a phone, including a local language model, and gives the assistant real device capabilities: placing calls, sending texts, reading the calendar, taking photos, with spoken confirmation before anything sensitive.
+- **Assistants written in Python** - the [VASDK_PYTHON_APP](apps/python.md) is a kitchen assistant in Python: the same on-device speech, agents and language models, with its actions written in Python.
 - **Desktop / kiosk assistants** - the [VASDK_Pipeline app](apps/pipeline.md) is the general-purpose reference: full voice loop with barge-in (you can talk over it), tool calling, and live metrics.
 
 ## Key concepts
@@ -43,7 +44,8 @@ An overview based on [root README](../README.md):
 
 | Area | Status |
 | --- | --- |
-| Core pipeline (audio → VAD → STT → LLM → TTS) | Stable in daily use across four showcase apps |
+| Core pipeline (audio → VAD → STT → LLM → TTS) | Stable in daily use across five showcase apps |
+| Python binding (agents, and spoken sessions) | Working; tested in `ctest`, no wheel published yet |
 | Agents (rules, forms, triggers, handing turns to an LLM, a model per task) | Working and tested in every app; new features land often |
 | Local/offline providers (Silero, Parakeet, llama.cpp, …) | Working; models and parameters still being tuned. Whisper.cpp is WIP |
 | Cloud providers (Gladia, Soniox, Deepgram, Cartesia, Fish Audio, Gradium, OpenAI, Anthropic) | Working; APIs evolve, pin a commit. Gladia is WIP |

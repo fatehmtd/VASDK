@@ -1,0 +1,13 @@
+# proto-file: vasdk/flow/test_case.proto
+# proto-message: vasdk.flow.FlowTestCase
+name: "timers: the length said on the way in or asked, checked, cancelled, and one ringing over a reply"
+turns { expect { page: "ready" } }
+turns { user: "set a timer for 10 minutes" expect { said: "Timer set for 10 minutes." page: "ready" tools_called: ["timers"] } }
+turns { user: "set a timer" expect { said: "For how long?" page: "how_long" } }
+turns { user: "an hour and a half" expect { said: "Timer set for 1 hour and 30 minutes." page: "ready" } }
+turns { user: "how long is left on the timer" expect { said_contains: ["10 minutes", "left on the kitchen timer"] } }
+turns { user: "cancel all timers" expect { said: "I cancelled 2 timers." } }
+turns { user: "how long left" expect { said: "There's no timer running." } }
+# Timers ring from Python: Timers fires "timer-done" with the timer's label
+turns { fire_trigger: "timer-done" trigger_payload { fields { key: "label" value { string_value: "pasta" } } }
+        expect { trigger_decision: STARTED said_contains: "pasta" } }

@@ -98,6 +98,11 @@ scratchbook/
 # Python wheel builds: the libraries bundle.py copies into the package, and build output
 bindings/python/vasdk/*.dll
 bindings/python/vasdk/*.dylib
+# VASDK's messages, copied in by bundle.py (generated into build/bindings/python/vasdk)
+bindings/python/vasdk/engine/
+bindings/python/vasdk/flow/
+bindings/python/vasdk/goal/
+bindings/python/vasdk/nlu/
 bindings/python/build/
 bindings/python/*.egg-info/
 dist/

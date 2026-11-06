@@ -1,0 +1,31 @@
+# proto-file: vasdk/flow/agent.proto
+# proto-message: vasdk.flow.Agent
+#
+# Cooking questions and conversions: the agent knows they're the LLM's (target LLM), and the LLM
+# answers them with the kitchen's state and tools (a "convert" tool written in Python). Cooking
+# questions go to the config's "smart" LLM profile; conversions to the default, which has the tool.
+# Offline, each route's steps are the answer. Part of kitchen.txtpb (include_files).
+envelopes: ["questions"]
+
+intents { name: "cooking_question" examples: ["what can i substitute for", "what can i use instead of", "how do i know when",
+                                              "how long should i", "how long does it take to", "what temperature", "is it safe to",
+                                              "why did my", "why is my", "how do i keep", "can i freeze", "how do i store",
+                                              "what goes well with", "what wine goes with", "how do i fix", "too salty", "too spicy",
+                                              "what's the difference between", "any tips for"] }
+intents { name: "convert" examples: ["how many grams in", "how many grams is", "how many cups", "how many ounces", "convert",
+                                     "in grams", "in cups", "in ounces", "how much is a cup of", "how many tablespoons",
+                                     "how many teaspoons", "in fahrenheit", "in celsius", "degrees fahrenheit"] }
+
+envelope_defs {
+  name: "questions"
+  routes {
+    intent: "cooking_question"
+    steps { say { text: "I need the internet for questions like that. I can still walk you through a recipe, set timers and keep your shopping list." } }
+    target: "LLM" llm_profile: "smart"
+  }
+  routes {
+    intent: "convert"
+    steps { say { text: "I need the internet to work out conversions." } }
+    target: "LLM"
+  }
+}

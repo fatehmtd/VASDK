@@ -13,6 +13,7 @@
 
 #include <google/protobuf/struct.pb.h>
 namespace vasdk::nlu { class EntityValue; }
+namespace vasdk::engine { class Command; }
 
 namespace va {
 
@@ -122,6 +123,12 @@ public:
      * said (a trigger_fired event tells). Thread-safe; needs Options::agent.
      */
     void fireTrigger(const std::string& name, const google::protobuf::Struct& payload = {});
+    /**
+     * Does what a vasdk.engine.Command asks (inject_text, select_choice, fire_trigger, say,
+     * interrupt, set_session_param): what remote_control's POST /command and the C API's
+     * vasdk_session_send take. False, with `error` set, for an empty one. Thread-safe.
+     */
+    bool handle(const vasdk::engine::Command& command, std::string* error = nullptr);
     /**
      * Starts the conversation over: the reply is cut, the LLM's history dropped, and an agent goes
      * back to its start page with its session params at their defaults (greeting on the next

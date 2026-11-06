@@ -1,0 +1,30 @@
+# proto-file: vasdk/flow/agent.proto
+# proto-message: vasdk.flow.Agent
+#
+# A kitchen assistant. The start page is here; each part of the kitchen is a file of its own,
+# merged in below. Their tools and entities are written in Python (../kitchen/), registered with
+# the agent's vasdk.Registry. With an LLM, cooking questions and what no part understands go to it,
+# and it has the kitchen's tools too.
+#   python kitchen.py --text          type to it: the agent alone, no models, no LLM
+#   python tests/test_kitchen.py      every conversation in tests/, and the kitchen's code
+schema_version: 1
+name: "kitchen"
+locale: "en-US"
+start_flow: "kitchen"
+
+include_files: [
+  "recipes.txtpb",     # the recipe book, cooking step by step, a timer offered where a step needs one
+  "timers.txtpb",      # kitchen timers: set, check, cancel, and the one that rings
+  "shopping.txtpb",    # the shopping list
+  "questions.txtpb",   # cooking questions and conversions, handed to the LLM
+  "shared.txtpb"       # last: help, thanks, never mind, what nothing understood
+]
+
+flows {
+  name: "kitchen"
+  start_page: "ready"
+  pages {
+    name: "ready"
+    on_enter { say { text: "Hi! I'm your kitchen assistant. Pick a recipe, set a timer, or ask me anything about cooking." } }
+  }
+}

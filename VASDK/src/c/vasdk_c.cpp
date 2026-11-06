@@ -1,5 +1,6 @@
 // The C API (VASDK/c/vasdk.h) over FlowRegistry, CompiledAgent, FlowRuntime and FlowTestRunner.
 
+#include "vasdk_c_internal.h"
 #include "c/vasdk.h"
 #include "c/vasdk_cpp.h"
 
@@ -8,8 +9,10 @@
 #include "flow/FlowRegistry.h"
 #include "flow/FlowRuntime.h"
 #include "flow/FlowTestRunner.h"
+#include "vasdk/flow/conversation.pb.h"
 #include "vasdk/flow/step_outcome.pb.h"
 
+#include <google/protobuf/text_format.h>
 #include <google/protobuf/util/json_util.h>
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
@@ -35,11 +38,6 @@ struct vasdk_conversation {
 };
 struct vasdk_turn {
     va::flow::TurnContext& context;
-};
-struct vasdk_result {
-    std::string json;
-    std::string error;
-    bool failed = false;
 };
 
 namespace {
@@ -97,12 +95,92 @@ char* replyJson(const va::flow::Reply& reply, const va::flow::FlowRuntime& runti
 
 std::string valueJson(const va::flow::Value& value) { return toJson(value); }
 
+vasdk::flow::ConversationReply replyMessage(const va::flow::Reply& reply, const va::flow::FlowRuntime& runtime) {
+    vasdk::flow::ConversationReply out;
+    out.set_text(reply.text);
+    for (const auto& segment : reply.segments) {
+        auto* added = out.add_segments();
+        added->set_text(segment.text);
+        added->set_interruptible(segment.interruptible);
+    }
+    for (const auto& choice : reply.choices) {
+        auto* added = out.add_choices();
+        added->set_label(choice.label);
+        added->set_value(choice.value);
+    }
+    out.set_matched(reply.matched);
+    out.set_intent(reply.intent);
+    out.set_event(reply.event);
+    out.set_expects_reply(reply.expectsReply);
+    out.set_ends_session(reply.endsSession);
+    out.set_to_llm(reply.toLlm);
+    out.set_llm_profile(reply.llmProfile);
+    out.set_flow(runtime.flowName());
+    out.set_page(runtime.pageName());
+    for (const auto& call : reply.toolCalls) {
+        auto* added = out.add_tool_calls();
+        added->set_name(call.name);
+        added->set_arguments_json(call.argumentsJson);
+        added->set_result_json(call.resultJson);
+        added->set_ok(call.ok);
+    }
+    for (const auto& trigger : reply.triggers) {
+        auto* added = out.add_triggers();
+        added->set_name(trigger.name);
+        added->set_decision(trigger.decision);
+    }
+    return out;
+}
+
 } // namespace
+
+namespace vasdk_c {
+
+std::string written(const google::protobuf::Message& message, vasdk_format format) {
+    std::string out;
+    switch (format) {
+    case VASDK_FORMAT_BINARY: message.SerializeToString(&out); break;
+    case VASDK_FORMAT_JSON:
+        if (!google::protobuf::util::MessageToJsonString(message, &out).ok()) out = "null";
+        break;
+    case VASDK_FORMAT_TEXT: google::protobuf::TextFormat::PrintToString(message, &out); break;
+    }
+    return out;
+}
+
+void* writtenCopy(const google::protobuf::Message& message, vasdk_format format, size_t* length) {
+    const std::string data = written(message, format);
+    if (length) *length = data.size();
+    void* out = std::malloc(data.size() + 1);   // + 1: never 0 bytes, and text ends in a NUL
+    if (!out) {
+        if (length) *length = 0;
+        return nullptr;
+    }
+    std::memcpy(out, data.data(), data.size());
+    static_cast<char*>(out)[data.size()] = '\0';
+    return out;
+}
+
+bool read(const void* data, size_t length, vasdk_format format, google::protobuf::Message& message, std::string* error) {
+    message.Clear();
+    if (!data || length == 0) return true;
+    return va::engine::parseProto(std::string(static_cast<const char*>(data), length), formatOf(format), message, error);
+}
+
+} // namespace vasdk_c
 
 extern "C" {
 
 void vasdk_free(void* text) { std::free(text); }
 const char* vasdk_version(void) { return VASDK_C_VERSION; }
+
+int vasdk_set_log_level(const char* level) {
+    if (!level) return 0;
+    const auto parsed = spdlog::level::from_str(level);
+    if (parsed == spdlog::level::off && std::string(level) != "off") return 0;   // from_str gives off for what it doesn't know
+    spdlog::set_level(parsed);
+    return 1;
+}
 
 //  Registry
 
@@ -114,6 +192,17 @@ int vasdk_registry_add_step(vasdk_registry* registry, const char* params_type, v
     registry->registry->addStep(params_type, [step, user](const google::protobuf::Message& params, va::flow::TurnContext& context) {
         vasdk_turn turn{context};
         step(toJson(params).c_str(), &turn, user);
+    });
+    return 1;
+}
+
+int vasdk_registry_add_step_message(vasdk_registry* registry, const char* params_type, vasdk_format format,
+                                    vasdk_step_message_fn step, void* user) {
+    if (!registry || !params_type || !step) return 0;
+    registry->registry->addStep(params_type, [step, user, format](const google::protobuf::Message& params, va::flow::TurnContext& context) {
+        vasdk_turn turn{context};
+        const std::string data = vasdk_c::written(params, format);
+        step(data.data(), data.size(), &turn, user);
     });
     return 1;
 }
@@ -182,6 +271,29 @@ int vasdk_registry_add_page_type(vasdk_registry* registry, const char* name, con
     return 1;
 }
 
+int vasdk_registry_add_page_type_message(vasdk_registry* registry, const char* name, const char* params_type,
+                                         vasdk_format format, vasdk_page_enter_message_fn on_enter,
+                                         vasdk_page_turn_message_fn on_turn, void* user) {
+    if (!registry || !name || !*name) return 0;
+    va::flow::FlowRegistry::PageType type;
+    type.paramsType = params_type ? params_type : "";
+    const bool hasParams = !type.paramsType.empty();
+    if (on_enter)
+        type.onEnter = [on_enter, user, format, hasParams](const google::protobuf::Message& params, va::flow::TurnContext& context) {
+            vasdk_turn turn{context};
+            const std::string data = hasParams ? vasdk_c::written(params, format) : std::string();
+            on_enter(data.data(), data.size(), &turn, user);
+        };
+    if (on_turn)
+        type.onTurn = [on_turn, user, format, hasParams](const google::protobuf::Message& params, va::flow::TurnContext& context) {
+            vasdk_turn turn{context};
+            const std::string data = hasParams ? vasdk_c::written(params, format) : std::string();
+            return on_turn(data.data(), data.size(), &turn, user) != 0;
+        };
+    registry->registry->addPageType(name, std::move(type));
+    return 1;
+}
+
 int vasdk_registry_add_entity_extractor(vasdk_registry* registry, const char* name, vasdk_entity_extractor_fn extractor,
                                         void* user) {
     if (!registry || !name || !*name || !extractor) return 0;
@@ -223,6 +335,11 @@ const char* vasdk_turn_text(vasdk_turn* turn) { return turn ? turn->context.text
 char* vasdk_turn_lookup(vasdk_turn* turn, const char* reference) {
     if (!turn || !reference) return copy("null");
     return copy(valueJson(turn->context.lookup(reference)));
+}
+
+void* vasdk_turn_lookup_message(vasdk_turn* turn, const char* reference, vasdk_format format, size_t* length) {
+    const va::flow::Value value = turn && reference ? turn->context.lookup(reference) : va::flow::Value();
+    return vasdk_c::writtenCopy(value, format, length);
 }
 
 void vasdk_turn_say(vasdk_turn* turn, const char* text) {
@@ -319,6 +436,51 @@ char* vasdk_conversation_lookup(vasdk_conversation* conversation, const char* re
     const va::flow::Path* path = expression ? expression->reference() : nullptr;
     if (!path) return copy("null");
     return copy(valueJson(conversation->runtime.lookup(*path)));
+}
+
+void* vasdk_conversation_send(vasdk_conversation* conversation, const void* input, size_t length, vasdk_format format,
+                              size_t* reply_length, char** error) {
+    if (reply_length) *reply_length = 0;
+    if (!conversation) return fail(error, "no conversation", static_cast<void*>(nullptr));
+    vasdk::flow::ConversationInput parsed;
+    std::string reason;
+    if (!vasdk_c::read(input, length, format, parsed, &reason))
+        return fail(error, "ConversationInput: " + reason, static_cast<void*>(nullptr));
+    auto& runtime = conversation->runtime;
+    va::flow::Reply reply;
+    switch (parsed.kind_case()) {
+    case vasdk::flow::ConversationInput::kStart: reply = runtime.start(); break;
+    case vasdk::flow::ConversationInput::kText: reply = runtime.handleText(parsed.text()); break;
+    case vasdk::flow::ConversationInput::kNoInput: reply = runtime.handleNoInput(); break;
+    case vasdk::flow::ConversationInput::kSelectChoice: reply = runtime.selectChoice(parsed.select_choice()); break;
+    case vasdk::flow::ConversationInput::kFireTrigger:
+        if (parsed.fire_trigger().name().empty()) return fail(error, "fire_trigger: no name", static_cast<void*>(nullptr));
+        reply = runtime.fireTrigger(parsed.fire_trigger().name(), parsed.fire_trigger().payload());
+        break;
+    case vasdk::flow::ConversationInput::KIND_NOT_SET:
+        return fail(error, "ConversationInput: empty", static_cast<void*>(nullptr));
+    }
+    return vasdk_c::writtenCopy(replyMessage(reply, runtime), format, reply_length);
+}
+
+int vasdk_conversation_set_param_message(vasdk_conversation* conversation, const char* name, const void* value, size_t length,
+                                         vasdk_format format, char** error) {
+    if (!conversation || !name) return fail(error, "no conversation or name", 0);
+    va::flow::Value parsed;
+    std::string reason;
+    if (!vasdk_c::read(value, length, format, parsed, &reason)) return fail(error, "Value: " + reason, 0);
+    if (!conversation->runtime.setSessionParam(name, parsed, &reason)) return fail(error, reason, 0);
+    return 1;
+}
+
+void* vasdk_conversation_lookup_message(vasdk_conversation* conversation, const char* reference, vasdk_format format,
+                                        size_t* length) {
+    va::flow::Value value;
+    if (conversation && reference) {
+        auto expression = va::flow::Expression::parse(reference);
+        if (const va::flow::Path* path = expression ? expression->reference() : nullptr) value = conversation->runtime.lookup(*path);
+    }
+    return vasdk_c::writtenCopy(value, format, length);
 }
 
 //  Tests

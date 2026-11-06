@@ -1,0 +1,4 @@
+# VASDK's messages (the binding's events, replies and commands): every mode.
+protobuf>=5.29.5
+# Only for voice mode (python app.py): the microphone and speaker.
+sounddevice>=0.4

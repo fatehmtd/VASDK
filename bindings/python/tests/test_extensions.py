@@ -47,16 +47,16 @@ def main():
     conversation = vasdk.Agent.parse(AGENT, registry).conversation()
     conversation.start()
     reply = conversation.say("a quiz")
-    assert reply["page"] == "quiz" and "What colour is the sky?" in reply["text"], reply
+    assert reply.page == "quiz" and "What colour is the sky?" in reply.text, reply
     reply = conversation.say("help")
-    assert "Guess a colour." in reply["text"], reply   # not answered by the page type: its routes get it
+    assert "Guess a colour." in reply.text, reply   # not answered by the page type: its routes get it
     reply = conversation.say("blue")
-    assert "Right!" in reply["text"] and reply["page"] == "welcome", reply
+    assert "Right!" in reply.text and reply.page == "welcome", reply
 
     reply = conversation.say("make a call")
-    assert "Who should I call?" in reply["text"], reply
+    assert "Who should I call?" in reply.text, reply
     reply = conversation.say("ring my dentist")
-    assert "Calling Doctor Lee on work." in reply["text"], reply
+    assert "Calling Doctor Lee on work." in reply.text, reply
     print("test_extensions: all passed")
     return 0
 
