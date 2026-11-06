@@ -1,5 +1,7 @@
 #include "TurnAssemblerProcessor.h"
 
+#include "VASDK/Masking.h"
+
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
@@ -9,7 +11,9 @@ namespace pipeline {
 
 namespace {
 
-std::string preview(const std::string& text) { return text.substr(0, std::min<size_t>(60, text.size())); }
+std::string preview(const std::string& text, bool privateAnswer) {
+    return privateAnswer ? va::maskValue(text) : text.substr(0, std::min<size_t>(60, text.size()));
+}
 
 int countWords(const std::string& text) {
     int words = 0;
@@ -57,6 +61,7 @@ bool TurnAssemblerProcessor::shouldProcess(std::shared_ptr<transport::Frame> fra
 
 void TurnAssemblerProcessor::processFrame(std::shared_ptr<transport::Frame> frame, FlowDirection direction) {
     if (direction != FlowDirection::DOWNSTREAM) {
+        if (auto policy = std::dynamic_pointer_cast<transport::TurnPolicyFrame>(frame)) _privateAnswer = policy->privateAnswer;
         pushUpstream(frame);
         return;
     }
@@ -132,7 +137,7 @@ void TurnAssemblerProcessor::handleInterrupt(transport::AgentStateTransition tra
         std::chrono::steady_clock::now() - _lastTurnAt <= std::chrono::milliseconds(_resumeMergeMs);
     if (_resumeMergeMs > 0 && !_lastTurnText.empty() && (stillThinking || withinWindow)) {
         spdlog::info("[TurnAssembler] User resumed after a pause; \"{}\" will be merged into the next turn",
-                     preview(_lastTurnText));
+                     preview(_lastTurnText, _privateAnswer));
         _carriedText = _lastTurnText;
         _carriedReplacesPrevious = true;
     }
@@ -151,7 +156,7 @@ void TurnAssemblerProcessor::keepUnsentTurn() {
     if (unsent.empty() || _resumeMergeMs == 0) return;
     // The turn detector judged the utterance unfinished and the user proved it right: keep their words.
     spdlog::info("[TurnAssembler] User resumed before \"{}\" was sent; it will be merged into the next turn",
-                 preview(unsent));
+                 preview(unsent, _privateAnswer));
     _carriedText = _carriedText.empty() ? unsent : _carriedText + " " + unsent;
 }
 
@@ -171,7 +176,7 @@ void TurnAssemblerProcessor::handleTranscriptionReady() {
         return;
     }
     spdlog::info("[TurnAssembler] {} FIRE_NOW on TRANSCRIPTION_READY - partial: \"{}\" (partialConf={:.2f}, words={})",
-                 _firePolicy->name(), preview(partial), partialConfidence, words);
+                 _firePolicy->name(), preview(partial, _privateAnswer), partialConfidence, words);
     {
         std::lock_guard<std::mutex> lock(_mutex);
         _partialAlreadySent = true;
@@ -192,7 +197,7 @@ void TurnAssemblerProcessor::handleUserStoppedSpeaking() {
         } else {
             spdlog::info("[TurnAssembler] USER_STOPPED_SPEAKING - waiting for the final transcription "
                          "(fallback partial: \"{}\" conf={:.2f})",
-                         preview(_latestPartialText), _latestPartialConfidence);
+                         preview(_latestPartialText, _privateAnswer), _latestPartialConfidence);
             _pendingTurnEnd = true;
             _pendingFallbackText = _latestPartialText;
             _pendingFallbackConfidence = _latestPartialConfidence;
@@ -206,7 +211,7 @@ void TurnAssemblerProcessor::handleUserStoppedSpeaking() {
     }
     cancelFinalWatchdog();
     spdlog::info("[TurnAssembler] USER_STOPPED_SPEAKING - final already staged: \"{}\" (conf={:.2f})",
-                 preview(staged), stagedConfidence);
+                 preview(staged, _privateAnswer), stagedConfidence);
     emitTurn(staged, stagedConfidence);
 }
 
@@ -223,7 +228,7 @@ void TurnAssemblerProcessor::handleTurnStateEnd() {
     }
     cancelFinalWatchdog();
     spdlog::info("[TurnAssembler] TurnStateFrame END - final already staged: \"{}\" (conf={:.2f})",
-                 preview(staged), stagedConfidence);
+                 preview(staged, _privateAnswer), stagedConfidence);
     emitTurn(staged, stagedConfidence);
 }
 
@@ -250,7 +255,7 @@ void TurnAssemblerProcessor::handleFinal(const transport::TranscriptionFrame& fr
             _partialAlreadySent = false;
             return;
         } else if (!incoming.empty()) {
-            spdlog::info("[TurnAssembler] Final transcription before the turn end - staged: \"{}\"", preview(incoming));
+            spdlog::info("[TurnAssembler] Final transcription before the turn end - staged: \"{}\"", preview(incoming, _privateAnswer));
             _pendingTurnEnd = true;
             _pendingFallbackText = incoming;
             _pendingFallbackConfidence = incomingConfidence;
@@ -265,7 +270,7 @@ void TurnAssemblerProcessor::handleFinal(const transport::TranscriptionFrame& fr
     cancelFinalWatchdog();
     if (!text.empty()) {
         spdlog::info("[TurnAssembler] Final transcription after the turn end: \"{}\" (conf={:.2f})",
-                     preview(text), confidence);
+                     preview(text, _privateAnswer), confidence);
         emitTurn(text, confidence);
         return;
     }
@@ -281,10 +286,10 @@ void TurnAssemblerProcessor::emitPartialIfAllowed(const std::string& text, float
     }
     const int words = countWords(text);
     if (_firePolicy->evaluate({text, confidence, 0.0f, words}) != llm::LLMFireDecision::FIRE_NOW) {
-        spdlog::warn("[TurnAssembler] {}; {} kept the partial back: \"{}\"", why, _firePolicy->name(), preview(text));
+        spdlog::warn("[TurnAssembler] {}; {} kept the partial back: \"{}\"", why, _firePolicy->name(), preview(text, _privateAnswer));
         return;
     }
-    spdlog::warn("[TurnAssembler] {}; sending the partial: \"{}\" (conf={:.2f}, words={})", why, preview(text),
+    spdlog::warn("[TurnAssembler] {}; sending the partial: \"{}\" (conf={:.2f}, words={})", why, preview(text, _privateAnswer),
                  confidence, words);
     emitTurn(text, confidence);
 }
@@ -308,7 +313,7 @@ void TurnAssemblerProcessor::emitTurn(const std::string& said, float confidence)
     turn->timestamp = transport::Frame::getCurrentTimestamp();
     turn->sourceId = getName();
     if (turn->text.size() != said.size()) {
-        spdlog::info("[TurnAssembler] Follow-up merged with the interrupted turn: \"{}\"", preview(turn->text));
+        spdlog::info("[TurnAssembler] Follow-up merged with the interrupted turn: \"{}\"", preview(turn->text, _privateAnswer));
         // Tell UIs and transports what is actually answered for this turn.
         auto merged = std::make_shared<transport::TranscriptionFrame>();
         merged->isFinal = true;
@@ -364,7 +369,7 @@ void TurnAssemblerProcessor::finalWatchdogLoop() {
         }
         if (isFinalText) {
             spdlog::info("[TurnAssembler] Watchdog timeout - sending the staged final: \"{}\" (conf={:.2f})",
-                         preview(text), confidence);
+                         preview(text, _privateAnswer), confidence);
             emitTurn(text, confidence);
         } else {
             emitPartialIfAllowed(text, confidence, "Watchdog timeout - no final transcription");

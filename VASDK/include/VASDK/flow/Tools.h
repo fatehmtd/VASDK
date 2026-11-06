@@ -1,6 +1,7 @@
 #pragma once
 
 #include "vasdk_export.h"
+#include "../Masking.h"
 #include "vasdk/engine/engine_config.pb.h"
 #include "vasdk/flow/agent.pb.h"
 
@@ -55,10 +56,9 @@ private:
     std::shared_ptr<network::HttpInterface> _http;
 };
 
-/** "555-123-4567" → "***-***-4567": letters and all but the last 4 digits starred. */
-VASDK_EXPORT std::string maskValue(const std::string& value);
-/** `text` with each of `values` in it masked. */
-VASDK_EXPORT std::string redact(std::string text, const std::vector<std::string>& values);
+// maskValue("555-123-4567") → "***-***-4567", and redact(text, values): VASDK/Masking.h.
+using va::maskValue;
+using va::redact;
 
 } // namespace flow
 } // namespace va

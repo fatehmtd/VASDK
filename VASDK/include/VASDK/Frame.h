@@ -262,6 +262,7 @@ namespace va {
 
             TurnEnd turnEnd = TurnEnd::Normal;   // Patient: pauses don't end it (a phone number); Snappy: a quick yes
             std::vector<std::string> hints;      // words the answer may hold
+            bool privateAnswer = false;          // the answer to a private question (a card number): masked in every log
         };
 
         /**

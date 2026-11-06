@@ -1,4 +1,5 @@
 #include "VASDK/TTSFrameProcessor.h"
+#include "VASDK/Masking.h"
 #include "VASDK/nlu/English.h"
 #include <VASDK/profiling/CTrack.h>
 #include <spdlog/spdlog.h>
@@ -247,8 +248,9 @@ namespace va {
             for (const auto& choice : frame->choices) {
                 choicesStr += choice.text + "; ";
             }
+            const std::string logged = redact(frame->text, frame->sensitiveValues);
             spdlog::info("[TTSFrameProcessor] Received Structured Text frame: '{}', isFinal={}, isExpecting={}, choices={}",
-                frame->text, frame->isFinal, frame->isExpecting, choicesStr);
+                logged, frame->isFinal, frame->isExpecting, redact(choicesStr, frame->sensitiveValues));
 
             bool mergeIntoDrainingTurn = false;
             {
@@ -264,7 +266,8 @@ namespace va {
                                                  : _synthesisProvider->normalizesText() ? frame->text
                                                                                         : nlu::english::speakable(frame->text),
                                                  frame->interruptible,
-                                                 {frame->voice, frame->speed}});
+                                                 {frame->voice, frame->speed},
+                                                 logged});
                 if (frame->isFinal) _textClosed = true;
             }
             if (mergeIntoDrainingTurn) cancelDrainWait();
@@ -273,7 +276,12 @@ namespace va {
         }
 
         void TTSFrameProcessor::pumpSentences() {
-            std::vector<std::pair<std::string, va::audio::SpeechStyle>> toSend;
+            struct ToSend {
+                std::string text;
+                va::audio::SpeechStyle style;
+                std::string logged;
+            };
+            std::vector<ToSend> toSend;
             {
                 std::lock_guard<std::mutex> lock(_turnMutex);
                 const bool queued = _synthesisProvider->acceptsQueuedSynthesis();
@@ -292,14 +300,15 @@ namespace va {
                         _protectedStart = _protectedEnd = _turnActive ? std::max(now, _playbackEndTime) : now;
                     }
                     _sentParts.push_back({_pendingSentences.front(), false, {}});
-                    toSend.emplace_back(std::move(_pendingSentences.front().text), _pendingSentences.front().style);
+                    toSend.push_back({std::move(_pendingSentences.front().text), _pendingSentences.front().style,
+                                      _pendingSentences.front().logged});
                     _pendingSentences.pop_front();
                     _providerBusy = true;
                 }
             }
             // Outside the lock: cloud providers fire onSynthesisStarted() from inside this call.
-            for (const auto& [text, style] : toSend) {
-                spdlog::info("[TTSFrameProcessor] Synthesizing: {}", text);
+            for (const auto& [text, style, logged] : toSend) {
+                spdlog::info("[TTSFrameProcessor] Synthesizing: {}", logged);
                 _metrics.requests.increment();
                 if (style.isDefault()) _synthesisProvider->synthesizeSpeech(text);
                 else _synthesisProvider->synthesizeStyledSpeech(text, style);

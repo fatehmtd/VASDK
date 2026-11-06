@@ -3,6 +3,7 @@
 #include "FrameProcessor.h"
 #include "llm/LLMFirePolicy.h"
 
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <memory>
@@ -68,6 +69,8 @@ private:
     // Sends the partial as the turn if the fire policy lets it stand in for the final.
     void emitPartialIfAllowed(const std::string& text, float confidence, const char* why);
     void emitTurn(const std::string& said, float confidence);
+
+    std::atomic<bool> _privateAnswer{false};   // the answer to a private question: masked in the logs
 
     void startFinalWatchdog();
     void cancelFinalWatchdog();

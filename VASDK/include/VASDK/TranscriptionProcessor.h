@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include "FrameProcessor.h"
 #include "GenericTranscriptionProvider.h"
 #include <functional>
@@ -125,6 +126,7 @@ private:
     std::shared_ptr<audio::GenericTranscriptionProvider> _replacement;              // under _providerMutex
     std::function<void(const std::string&)> _onProviderError;
     bool _collectingAudio{false};
+    std::atomic<bool> _privateAnswer{false};   // the next answer is to a private question: its transcriptions are sensitive
     // Streaming: lookback speech start from the STARTING frame, flushed on the next AUDIO
     // frame so the pre-speech context is contiguous with the incrementally-fed audio.
     bool     _hasPendingPreSpeech{false};

@@ -67,6 +67,7 @@ add_library(VASDK ${VASDK_LIBRARY_TYPE}
     ./src/Pipeline.cpp
     ./src/TurnDetectionProcessor.cpp
     ./src/TurnAssemblerProcessor.cpp
+    ./src/Masking.cpp
     ./src/WakeWordProcessor.cpp
     ./src/SpeakerIdentificationProcessor.cpp
     ./src/AgentStateProcessor.cpp

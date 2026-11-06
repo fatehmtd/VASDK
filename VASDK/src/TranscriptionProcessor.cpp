@@ -267,8 +267,10 @@ namespace va {
         void TranscriptionFrameProcessor::processFrame(std::shared_ptr<transport::Frame> frame, FlowDirection direction) {
             VASDK_CTRACK_NAME("STT::processFrame");
             if (direction == FlowDirection::UPSTREAM) {   // words the next answer may hold
-                if (auto policy = std::dynamic_pointer_cast<transport::TurnPolicyFrame>(frame); policy && _transcriptionProvider)
-                    _transcriptionProvider->setContextHints(policy->hints);
+                if (auto policy = std::dynamic_pointer_cast<transport::TurnPolicyFrame>(frame)) {
+                    _privateAnswer.store(policy->privateAnswer);
+                    if (_transcriptionProvider) _transcriptionProvider->setContextHints(policy->hints);
+                }
                 pushUpstream(frame);
                 return;
             }
@@ -347,6 +349,7 @@ namespace va {
             }
             auto transcriptionFrame = std::make_shared<transport::TranscriptionFrame>();
             transcriptionFrame->isFinal = false;
+            transcriptionFrame->sensitive = _privateAnswer.load();
             transcriptionFrame->transcriptionResult = result;
             transcriptionFrame->timestamp = transport::Frame::getCurrentTimestamp();
             transcriptionFrame->sourceId = getName();
@@ -366,6 +369,7 @@ namespace va {
 
             auto transcriptionFrame = std::make_shared<transport::TranscriptionFrame>();
             transcriptionFrame->isFinal = true;
+            transcriptionFrame->sensitive = _privateAnswer.load();
             transcriptionFrame->transcriptionResult = result;
             transcriptionFrame->timestamp = transport::Frame::getCurrentTimestamp();
             transcriptionFrame->sourceId = getName();

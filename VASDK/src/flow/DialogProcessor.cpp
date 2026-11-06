@@ -639,6 +639,7 @@ void DialogProcessor::speak(const Reply& reply, bool filler) {
                         : turnEnd == vasdk::flow::Expectation::SNAPPY  ? TurnEnd::Snappy
                                                                         : TurnEnd::Normal;
         if (reply.expectsReply) policy->hints.assign(reply.expectation.hints().begin(), reply.expectation.hints().end());
+        policy->privateAnswer = _privateAnswer;
         pushUpstream(policy);
     }
     // A frame per part: a part that can't be interrupted, or has SSML, is spoken on its own.

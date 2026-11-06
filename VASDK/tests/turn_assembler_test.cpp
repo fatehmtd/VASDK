@@ -1,13 +1,17 @@
 // TurnAssemblerProcessor: one UserTurnFrame per user turn, whichever of the final transcription and
 // the turn end comes first; the watchdog and the fire policy when the final is late or empty; a
 // turn sent on its partial drops the late final; resumed turns are merged (replacing the previous
-// one only when it was already sent, and only within the window); back-channels are not turns.
+// one only when it was already sent, and only within the window); back-channels are not turns; the
+// answer to a private question is marked sensitive from the speech recognizer on.
 
 #include <VASDK/AgentStateProcessor.h>
+#include <VASDK/TranscriptionProcessor.h>
 #include <VASDK/TurnAssemblerProcessor.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
+#include <sstream>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -40,6 +44,16 @@ public:
     std::mutex mutex;
     std::vector<transport::UserTurnFrame> turns;
     std::vector<std::string> followUps;
+};
+
+// Whether each transcription it gets is marked sensitive.
+class SensitivityRecorder : public pipeline::FrameProcessor {
+public:
+    std::string getName() const override { return "SensitivityRecorder"; }
+    void processFrame(std::shared_ptr<transport::Frame> frame, pipeline::FlowDirection) override {
+        if (auto t = std::dynamic_pointer_cast<transport::TranscriptionFrame>(frame)) marks.push_back(t->sensitive);
+    }
+    std::vector<bool> marks;
 };
 
 struct Rig {
@@ -228,6 +242,30 @@ int main() {
         rig.stopped();
         rig.transcript("What about Tuesday?", true);
         check(texts(rig.recorder->settledTurns()) == Texts{"What about Tuesday?"}, "back-channel is not a turn");
+    }
+
+    // A private answer (the turn policy says so): the speech recognizer's frames of it are marked
+    // sensitive, so events and logs mask it. (The assembler masks what it logs too; a test can't
+    // read the library's log: on Windows the DLL has its own spdlog.)
+    {
+        auto recognizer = std::make_shared<pipeline::TranscriptionFrameProcessor>(nullptr);
+        auto recorder = std::make_shared<SensitivityRecorder>();
+        recognizer->setDownstream(recorder);
+        recorder->initialize();
+        recorder->start();
+        auto policy = std::make_shared<transport::TurnPolicyFrame>();
+        policy->privateAnswer = true;
+        recognizer->processFrame(policy, pipeline::FlowDirection::UPSTREAM);
+        audio::TranscriptionResult said;
+        said.text = "4111 1111 1111 1234";
+        recognizer->onPartialTranscription(said);
+        recognizer->onFinalTranscription(said);
+        recognizer->processFrame(std::make_shared<transport::TurnPolicyFrame>(), pipeline::FlowDirection::UPSTREAM);
+        said.text = "thanks a lot";
+        recognizer->onFinalTranscription(said);
+        std::this_thread::sleep_for(60ms);
+        recorder->stop();
+        check(recorder->marks == std::vector<bool>{true, true, false}, "a private answer's transcriptions are sensitive; the next one's aren't");
     }
 
     if (failures == 0) std::printf("turn_assembler_test: all passed\n");

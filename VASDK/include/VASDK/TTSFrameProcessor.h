@@ -154,6 +154,7 @@ private:
         std::string text;          // what the provider is given: plain text, or SSML when it supportsSsml()
         bool interruptible = true;
         va::audio::SpeechStyle style;   // another voice or pace for it
+        std::string logged;             // the text as logs show it: sensitive values masked
     };
     std::deque<Sentence>    _pendingSentences;  // not yet handed to the provider
     // The parts of this reply handed to the provider, and when each one's audio ends playing
