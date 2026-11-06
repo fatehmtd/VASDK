@@ -366,7 +366,7 @@ tools {
 **Sensitive values.** Mark a slot or a session param `sensitive: true` (a phone or card number). Then:
 - Its value is masked wherever the conversation is reported: `***-***-4567`, keeping the last 4 digits of a long number.
 - That covers listener events (replies, tool calls) and the logs: the dialog's, and the voice's (`TTSFrameProcessor`) for the replies it says.
-- A question for a sensitive slot expects a private answer: `secure_entry`, so the app can hide what's typed. Its answer is marked private from the speech recognizer on (the turn policy tells `TranscriptionFrameProcessor`), so its transcript is masked in events and in the turn assembler's and the dialog's logs, and it never goes on to an LLM. A speech provider's own logging is its own: the bundled ones log no transcripts, except Gradium's at turn ends.
+- A question for a sensitive slot expects a private answer: `secure_entry`, so the app can hide what's typed. Its answer is marked private from the speech recognizer on (the turn policy tells `TranscriptionFrameProcessor`), so its transcript is masked in events and in the turn assembler's and the dialog's logs, and it never goes on to an LLM. The bundled speech providers don't log what they heard, except at debug level (Gradium).
 
 **Steps written outside C++** (the C API, later Kotlin) answer with a [`StepOutcome`](../../VASDK/proto/vasdk/flow/step_outcome.proto): values to `set` and `unset`, texts to `say`, a `goto`. `TurnContext::apply` checks it first, and applies all of it or none:
 - Only `$session.<declared param>`, `$page.locals.<name>` and `$form.<slot>` can be written.

@@ -460,8 +460,9 @@ void GradiumppTranscriptionProvider::connectCallbacks()
                 }
             }
             if (shouldFire && _listener) {
-                spdlog::info("[GradiumSTT] Turn finalized on flush (id={}): \"{}\"",
-                             message.flush_id, finalResult.text);
+                // The words only at debug: an answer may be private (VASDK masks it in its own logs).
+                spdlog::info("[GradiumSTT] Turn finalized on flush (id={}), {} characters", message.flush_id, finalResult.text.size());
+                spdlog::debug("[GradiumSTT] final: \"{}\"", finalResult.text);
                 _listener->onFinalTranscription(finalResult);
             }
             break;
