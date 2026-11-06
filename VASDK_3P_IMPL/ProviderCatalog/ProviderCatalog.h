@@ -18,5 +18,4 @@ void registerAllProviders(engine::ProviderRegistry& registry);
 } // namespace thirdparty
 } // namespace va
 
-/** For C code (VASDK/c/vasdk.h): adds the providers registerAllProviders() registers. */
-extern "C" void vasdk_providers_add_all(vasdk_providers* providers);
+#include "ProviderCatalogC.h"   // vasdk_providers_add_all, for C code

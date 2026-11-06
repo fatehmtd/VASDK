@@ -52,6 +52,8 @@ Text VASDK returns as `char*` is the caller's: free it with `vasdk_free`. On fai
 A `vasdk_session` is a spoken conversation: the speech providers an [engine config](engine-config.md) names (VAD, STT, TTS, an LLM) and, optionally, an agent. The app brings the audio. It pushes the user's 16-bit mono PCM in with `vasdk_session_push_audio`, in pieces of any size, and gets the assistant's speech through its audio callback. That fits a phone line, a file, or the app's own audio device.
 
 ```c
+#include "ProviderCatalog/ProviderCatalogC.h"   /* vasdk_providers_add_all; includes VASDK/c/vasdk.h */
+
 vasdk_providers* providers = vasdk_providers_create();
 vasdk_providers_add_all(providers);               /* ProviderCatalog: every provider built in */
 vasdk_session* session = vasdk_session_create("engine.txtpb", providers, agent, "{\"id\": \"call-1\"}", &error);
@@ -66,7 +68,7 @@ vasdk_providers_free(providers);
 
 | Function | What it does |
 |---|---|
-| `vasdk_providers_create`, `vasdk_providers_add_all` | The providers a config can name. `vasdk_providers_add_all` is in ProviderCatalog (`VASDK_3P_IMPL`): link `vasdk_provider_catalog`, or load the shared `vasdk_providers` library, built beside a shared VASDK for code that loads it at run time (Python). C++ code adds its own through `vasdk_providers_registry` (`VASDK/c/vasdk_cpp.h`). |
+| `vasdk_providers_create`, `vasdk_providers_add_all` | The providers a config can name. `vasdk_providers_add_all` is in ProviderCatalog (`VASDK_3P_IMPL`, declared in `ProviderCatalog/ProviderCatalogC.h`): link `vasdk_provider_catalog`, or load the shared `vasdk_providers` library, built beside a shared VASDK for code that loads it at run time (Python). C++ code adds its own through `vasdk_providers_registry` (`VASDK/c/vasdk_cpp.h`). |
 | `vasdk_session_create(config_path, providers, agent, options_json, &error)` | The config file (`${ENV}` expanded) and an agent, or `NULL` for the LLM alone. Options: `id`, `models_dir`, `system_prompt` (`{context}` in it is `vasdk_session_set_context`'s), `format_instruction` (how the LLM's replies are formatted). The config's audio must be 16-bit mono (the default). |
 | `vasdk_session_on_event`, `vasdk_session_on_audio` | Set before `vasdk_session_start`. Events come on the session's event thread (`{"agentReply": {"text": ..., "isFinal": true}}`, `pageChanged`, `agentTurn`, ...), speech on a pipeline thread. |
 | `vasdk_session_push_audio`, `vasdk_session_inject_text`, `vasdk_session_say` | The user's audio, a user turn by text, words the assistant says. Thread-safe. |
@@ -94,9 +96,14 @@ registry = vasdk.Registry()
 def save_booking(booking):
     return {"reference": booking["reference"], "status": "confirmed"}   # raising fails it: tool-error
 
-@registry.step("garage.BookingReference")
+@registry.step("garage.BookingReference")   # params: a garage.BookingReference message
 def booking_reference(params, turn):
-    turn.apply({"set": {params["into"]: "AG-" + turn.lookup("$form.phone")[-4:]}})
+    # "AG-" and four digits from the booking (FNV-1a), as the C++ step in GarageExtensions.cpp makes it
+    booking = "".join(f"{turn.lookup(slot) or ''}|" for slot in ("$form.service", "$form.day", "$form.time", "$form.phone"))
+    value = 2166136261
+    for byte in booking.encode("utf-8"):
+        value = ((value ^ byte) * 16777619) & 0xFFFFFFFF
+    turn.apply({"set": {params.into: f"AG-{1000 + value % 9000}"}})
 
 registry.envelope("thanks", before=lambda turn: turn.text == "thanks" and (turn.say("You're welcome.") or True))
 

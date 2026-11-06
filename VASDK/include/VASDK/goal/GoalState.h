@@ -2,6 +2,7 @@
 
 #include "vasdk_export.h"
 #include <VASDK/goal/GoalDefinition.h>
+#include <chrono>
 #include <mutex>
 #include <nlohmann/json.hpp>
 #include <optional>
@@ -24,6 +25,7 @@ public:
         , _awaitingConfirmation(o._awaitingConfirmation)
         , _confirmationAttempts(o._confirmationAttempts)
         , _confirmed(o._confirmed)
+        , _now(o._now)
         , _summaryCacheDirty(o._summaryCacheDirty)
         , _cachedMissing(std::move(o._cachedMissing))
         , _cachedCollected(std::move(o._cachedCollected)) {}
@@ -37,6 +39,7 @@ public:
         _awaitingConfirmation = o._awaitingConfirmation;
         _confirmationAttempts = o._confirmationAttempts;
         _confirmed            = o._confirmed;
+        _now                  = o._now;
     }
 
     GoalState& operator=(const GoalState& o) {
@@ -52,6 +55,7 @@ public:
             _awaitingConfirmation = o._awaitingConfirmation;
             _confirmationAttempts = o._confirmationAttempts;
             _confirmed            = o._confirmed;
+            _now                  = o._now;
             _summaryCacheDirty    = o._summaryCacheDirty;
             _cachedMissing        = std::move(o._cachedMissing);
             _cachedCollected      = std::move(o._cachedCollected);
@@ -65,6 +69,10 @@ public:
     /// or a COMPOSITE sub-slot via dot-path (e.g. "address.city").
     /// rawValue is a plain string extracted from speech; validated & normalised internally.
     SlotValidationResult updateSlot(const std::string& dotPath, const std::string& rawValue);
+
+    /// The time `must_be_future` compares with: the conversation's clock (a test's, say).
+    /// Unset, the system clock.
+    void setNow(std::chrono::system_clock::time_point now) { _now = now; }
 
     /// Update an OBJECT-type slot directly from a parsed json object.
     SlotValidationResult updateObjectSlot(const std::string& name, const nlohmann::json& obj);
@@ -123,6 +131,7 @@ private:
     bool _awaitingConfirmation   = false;
     int  _confirmationAttempts   = 0;
     bool _confirmed              = false;
+    std::optional<std::chrono::system_clock::time_point> _now;
 
     // recursive_mutex so condition lambdas can call slotValueStr() while a
     // summary is being rebuilt (both paths acquire _mutex on the same thread).

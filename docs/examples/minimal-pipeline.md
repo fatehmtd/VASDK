@@ -27,7 +27,7 @@ Each processor wraps a provider. For a fully local stack:
 
 ```cpp
 // Shared audio ring buffer: AudioFrames reference ranges in it instead of carrying samples
-auto ringBuffer = std::make_shared<va::AudioRingBuffer>(/* capacity */);
+auto ringBuffer = std::make_shared<va::AudioRingBuffer>(16000 * 90, sizeof(int16_t));   // 90 s of 16 kHz 16-bit samples
 
 // VAD: Silero ONNX model
 auto vadProvider  = std::make_shared<SileroVAD>(modelsPath + "/silero_vad.onnx");

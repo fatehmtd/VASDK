@@ -370,7 +370,7 @@ tools {
 - That covers listener events (replies, tool calls) and the logs: the dialog's, and the voice's (`TTSFrameProcessor`) for the replies it says.
 - A question for a sensitive slot expects a private answer: `secure_entry`, so the app can hide what's typed. Its answer is marked private from the speech recognizer on (the turn policy tells `TranscriptionFrameProcessor`), so its transcript is masked in events and in the turn assembler's and the dialog's logs, and it never goes on to an LLM. The bundled speech providers don't log what they heard, except at debug level (Gradium).
 
-**Steps written outside C++** (the C API, later Kotlin) answer with a [`StepOutcome`](../../VASDK/proto/vasdk/flow/step_outcome.proto): values to `set` and `unset`, texts to `say`, a `goto`. `TurnContext::apply` checks it first, and applies all of it or none:
+**Steps written outside C++** (the [C API](c-api.md), Python, [Kotlin](../apps/android.md#an-agent-before-the-llm)) answer with a [`StepOutcome`](../../VASDK/proto/vasdk/flow/step_outcome.proto): values to `set` and `unset`, texts to `say`, a `goto`. `TurnContext::apply` checks it first, and applies all of it or none:
 - Only `$session.<declared param>`, `$page.locals.<name>` and `$form.<slot>` can be written.
 - A value that doesn't fit its type is refused.
 - So is an unknown target.
@@ -439,7 +439,7 @@ Each fired trigger is reported in a `trigger_fired` event, with its decision: `S
 An agent can remember things and branch on them. Declare the values a conversation keeps:
 
 ```textproto
-session_params { name: "tier"    type: STRING default { string_value: "standard" } }   # STRING, NUMBER, BOOL or LIST
+session_params { name: "tier"    type: STRING default { string_value: "standard" } }   # STRING, NUMBER, BOOL, LIST or STRUCT
 session_params { name: "service" type: STRING }                                        # no default: null
 ```
 
@@ -678,16 +678,20 @@ $ garage_agentc lint agents/garage-menu/agent.txtpb
 agents/garage-menu/agent.txtpb: ok (3 flows, 5 pages, 10 intents, 2 entities)
 
 $ garage_agentc test agents/garage-menu/agent.txtpb agents/garage-menu/tests/*.txtpb
+PASS the app replaces the free times for the day
 PASS book a tire repair, then say goodbye
 PASS the booking form: values on the way in, a closed day, the hours, and changing the answers
-PASS asking for a person hands off and ends
 …
-10 of 10 passed
+13 of 13 passed
 
-$ vasdk_agentc chat agents/garage-menu/agent.txtpb
+$ garage_agentc chat agents/garage-menu/agent.txtpb
 bot: Hi, this is Acme Garage. Would you like to book a service, hear our hours, or talk to a person?   [main/welcome]
+     choices: Book a service | Opening hours | Talk to a person   (#1 taps the first)
+     expects: CHOICE
 you: I'd like to bring my car in
 bot: Sure. Is it for an oil change or a tire repair?   [main/booking]
+     choices: an oil change | a tire repair   (#1 taps the first)
+     expects: SLOT service
 ```
 
 - **`lint`** prints every problem with where it is. Errors stop the agent from loading (`flow "main" page "welcome" route 1: unknown intent "bok"`): a missing start flow or page, an unknown intent or target, a duplicate name, an empty step. Warnings don't: a page never reached, an intent no route uses, a page with no routes.
@@ -709,11 +713,12 @@ turns { user: "my windshield is cracked" expect { matched: false said_contains: 
 - **`try`** shows what a sentence matches, without running the conversation:
 
 ```
-$ vasdk_agentc try agents/garage-menu/agent.txtpb "can I book a lube for the afternoon"
-intent: book (score 2.00, confidence 1.00)
+$ garage_agentc try agents/garage-menu/agent.txtpb "can I book a lube for the afternoon"
+stage: rules
+intent: book (score 1.00, confidence 1.00)
 @service = oil_change  spoken "an oil change"  heard "lube"  price=49  minutes=30
 @available_time = 14:00  spoken "2 PM"  heard "afternoon"
-$ vasdk_agentc try agents/garage-menu/agent.txtpb --entity @sys.phone "five five five, one two three, double four six seven"
+$ garage_agentc try agents/garage-menu/agent.txtpb --entity @sys.phone "five five five, one two three, double four six seven"
 @sys.phone = 5551234467  heard "five five five one two three double four six seven"
 ```
 
@@ -733,6 +738,6 @@ $ vasdk_agentc try agents/garage-menu/agent.txtpb --entity @sys.phone "five five
 | `flow::EntityCatalog` | `agent->entities()`: `find(name, text)`, `findAll(text)`, `describe(name, value)` → `EntityMatch` (value, spoken, raw, attributes). |
 | `goal::GoalState` | A form's values: `updateSlot`, `clearSlot`, `missingSlots`, `isConfirmed`. Shared with the LLM goal path (`GoalManager`). |
 
-## Not yet
+## In other languages
 
-Steps, tools, envelopes, page types and entity extractors can be written in C, and so in any language that calls C, with [the C API](c-api.md).
+Steps, tools, envelopes, page types and entity extractors can be written in C, and so in any language that calls C, with [the C API](c-api.md). The [Python binding](../../bindings/python/README.md) is built on it. On Android, Kotlin registers steps and tools through JNI (`VasdkEngine.registerAgentStep`, see [the Android app](../apps/android.md#an-agent-before-the-llm)).

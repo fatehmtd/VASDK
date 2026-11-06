@@ -78,8 +78,7 @@ std::string stripNonDigits(const std::string& s) {
     return out;
 }
 
-std::string todayISO() {
-    auto now = std::chrono::system_clock::now();
+std::string todayISO(std::chrono::system_clock::time_point now) {
     std::time_t tt = std::chrono::system_clock::to_time_t(now);
     std::tm tm{};
 #ifdef _WIN32
@@ -153,7 +152,7 @@ SlotValidationResult GoalState::validateAndNormalize(const GoalSlot& slot,
     case SlotType::DATE: {
         if (!isValidISODate(raw))
             return {false, {}, "date must be in ISO 8601 format YYYY-MM-DD (got '" + raw + "')"};
-        if (slot.constraints.mustBeFuture && raw <= todayISO())
+        if (slot.constraints.mustBeFuture && raw <= todayISO(_now.value_or(std::chrono::system_clock::now())))
             return {false, {}, "date must be in the future (got '" + raw + "')"};
         return {true, nlohmann::json(raw), ""};
     }
@@ -173,7 +172,7 @@ SlotValidationResult GoalState::validateAndNormalize(const GoalSlot& slot,
             return {false, {}, "datetime must be a valid ISO 8601 datetime"};
         if (slot.constraints.mustBeFuture) {
             std::string datePrefix = raw.size() >= 10 ? raw.substr(0, 10) : raw;
-            if (datePrefix <= todayISO())
+            if (datePrefix <= todayISO(_now.value_or(std::chrono::system_clock::now())))
                 return {false, {}, "datetime must be in the future (got '" + raw + "')"};
         }
         return {true, nlohmann::json(raw), ""};

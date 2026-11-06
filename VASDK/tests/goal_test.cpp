@@ -10,6 +10,7 @@
 #include <VASDK/llm/OpenAITransport.h>
 
 #include <cstdio>
+#include <ctime>
 #include <nlohmann/json.hpp>
 
 using namespace va;
@@ -150,6 +151,22 @@ void testAttachKeepsHistoryWhenAsked() {
     check(transport.getHistory().empty(), "attach: history cleared by default");
 }
 
+// must_be_future counts from the clock it's given (a test's), not the system's.
+void testMustBeFutureUsesGivenClock() {
+    goal::GoalDefinition def;
+    def.name = "callback";
+    auto day = slot("day", goal::SlotType::DATE);
+    day.constraints.mustBeFuture = true;
+    def.slots = {day};
+    goal::GoalState state(def);
+    std::tm monday{};
+    monday.tm_year = 2026 - 1900; monday.tm_mon = 10; monday.tm_mday = 2; monday.tm_hour = 9;   // 2026-11-02 09:00, local
+    state.setNow(std::chrono::system_clock::from_time_t(std::mktime(&monday)));
+    check(state.updateSlot("day", "2026-11-06").valid, "must_be_future: a later day than the given clock's");
+    check(!state.updateSlot("day", "2026-11-02").valid, "must_be_future: the given clock's own day isn't future");
+    check(!state.updateSlot("day", "2026-11-01").valid, "must_be_future: a day before the given clock's");
+}
+
 } // namespace
 
 int main() {
@@ -159,6 +176,7 @@ int main() {
     testLoader();
     testPersistenceRoundTrip();
     testAttachKeepsHistoryWhenAsked();
+    testMustBeFutureUsesGivenClock();
     if (failures == 0) std::printf("goal_test: all passed\n");
     return failures == 0 ? 0 : 1;
 }

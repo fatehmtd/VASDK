@@ -49,12 +49,12 @@ VASDK has strong low and mid-level building blocks: frames and processors, provi
 
 | Problem | Evidence |
 |---|---|
-| No facade: every app hand-wires the pipeline | [VAEngine.h](VASDK/include/VASDK/VAEngine.h) is a deprecated stub. The same ~10-processor backbone is wired three times with different settings and order: [main_pipeline.cpp:1115](VASDK_APP/main_pipeline.cpp#L1115), [callcenter_pipeline.cpp:1118](VASDK_CALLCENTER_APP/callcenter_pipeline.cpp#L1118), [vasdk_jni.cpp:534](VASDK_ANDROID/app/src/main/cpp/vasdk_jni.cpp#L534) |
-| Provider choice is compile-time code per app | `#if/#elif` chains in the desktop apps; only Android has a runtime factory ([SttProviderFactory.cpp](VASDK_ANDROID/app/src/main/cpp/SttProviderFactory.cpp)) |
+| No facade: every app hand-wires the pipeline | [VAEngine.h](../../VASDK/include/VASDK/VAEngine.h) is a deprecated stub. The same ~10-processor backbone is wired three times with different settings and order: [main_pipeline.cpp](../../VASDK_APP/main_pipeline.cpp), [callcenter_pipeline.cpp](../../VASDK_CALLCENTER_APP/callcenter_pipeline.cpp), [vasdk_jni.cpp](../../VASDK_ANDROID/app/src/main/cpp/vasdk_jni.cpp) |
+| Provider choice is compile-time code per app | `#if/#elif` chains in the desktop apps; only Android has a runtime factory ([SttProviderFactory.cpp](https://github.com/fatehmtd/VASDK/blob/a7777b3/VASDK_ANDROID/app/src/main/cpp/SttProviderFactory.cpp)) |
 | No event API | Apps write processors only to observe events: `VasdkBridgeProcessor`, `STTDebugProcessor`, `BargeInHandler`, `SynthesisObserver` |
-| Only one goal at a time; switching loses context | `IntentRouter` + one `GoalManager`; every switch calls `clearHistory()` ([GoalManager.cpp:20](VASDK/src/goal/GoalManager.cpp#L20)) |
-| Nothing works without an LLM | The LLM classifies, fills slots, phrases replies and normalises values; the validators ([GoalState.cpp:124](VASDK/src/goal/GoalState.cpp#L124)) accept only ISO dates, digit strings and exact enum values |
-| Turn assembly is locked inside LLMProcessor | Accumulating finals, gating on turn end, staged finals and the resume-merge window all live in [LLMProcessor.cpp:486-506](VASDK/src/llm/LLMProcessor.cpp#L486) and [:835-902](VASDK/src/llm/LLMProcessor.cpp#L835) |
+| Only one goal at a time; switching loses context | `IntentRouter` + one `GoalManager`; every switch calls `clearHistory()` ([GoalManager.cpp](../../VASDK/src/goal/GoalManager.cpp)) |
+| Nothing works without an LLM | The LLM classifies, fills slots, phrases replies and normalises values; the validators ([GoalState.cpp](../../VASDK/src/goal/GoalState.cpp)) accept only ISO dates, digit strings and exact enum values |
+| Turn assembly is locked inside LLMProcessor | Accumulating finals, gating on turn end, staged finals and the resume-merge window all live in [LLMProcessor.cpp](../../VASDK/src/llm/LLMProcessor.cpp) and [](../../VASDK/src/llm/LLMProcessor.cpp) |
 | No extension points above the frame level | A new conversation step means writing a FrameProcessor |
 
 **Outcome.** Developers describe *what* the assistant does (an engine config, an agent definition and a few handlers) instead of *how* frames flow.
@@ -613,7 +613,7 @@ func     := exists | empty | len | lower | upper | days_until | now
 
 - **CMake:** FetchContent protobuf (with abseil as a module, tests off). Generate code with `protobuf_generate()` into a `vasdk_proto` static library that `VASDK` links PUBLIC.
 - **Android:**
-  - Protobuf is cross-compiled through the NDK; a host `protoc` is downloaded as a prebuilt release, the same pattern as [FindONNXRuntime.cmake](VASDK_3P_IMPL/cmake/FindONNXRuntime.cmake).
+  - Protobuf is cross-compiled through the NDK; a host `protoc` is downloaded as a prebuilt release, the same pattern as [FindONNXRuntime.cmake](../../VASDK_3P_IMPL/cmake/FindONNXRuntime.cmake).
   - Kotlin classes are generated from the same `.proto` files by the protobuf-gradle-plugin (`lite`).
   - JNI passes serialized bytes.
 - **M1 spike:** measure the `.so` size added by full protobuf + abseil on arm64. If it is too large, Android loads `vasdk_agentc`-compiled `.pb` with protobuf-lite instead. That loses runtime `.proto` import and text parsing on-device; config-only custom params then need compiling ahead of time.
@@ -624,10 +624,10 @@ func     := exists | empty | len | lower | upper | days_until | now
 
 | # | Fix | Example |
 |---|---|---|
-| 1 | Lock `_tools` in [ToolDispatchProcessor.cpp](VASDK/src/llm/ToolDispatchProcessor.cpp) (data race with `switch_goal` threads) | `std::shared_lock lock(_toolsMutex);` in `handleToolCall`; `unique_lock` in register/unregister |
+| 1 | Lock `_tools` in [ToolDispatchProcessor.cpp](../../VASDK/src/llm/ToolDispatchProcessor.cpp) (data race with `switch_goal` threads) | `std::shared_lock lock(_toolsMutex);` in `handleToolCall`; `unique_lock` in register/unregister |
 | 2 | Goal attach can keep history | `goalManager->attach(transport, dispatcher, {.clearHistory = false});` |
-| 3 | Enforce confirmation | `requireConfirmation` → `complete_goal` returns `{"error":"confirm first"}` until confirmed ([GoalManager.cpp:217](VASDK/src/goal/GoalManager.cpp#L217)) |
-| 4 | COMPOSITE sub-slot `condition`s are ignored ([GoalState.cpp:50-55](VASDK/src/goal/GoalState.cpp#L50)) | Evaluate `sub.condition` the same way as top-level slots |
+| 3 | Enforce confirmation | `requireConfirmation` → `complete_goal` returns `{"error":"confirm first"}` until confirmed ([GoalManager.cpp](../../VASDK/src/goal/GoalManager.cpp)) |
+| 4 | COMPOSITE sub-slot `condition`s are ignored ([GoalState.cpp](../../VASDK/src/goal/GoalState.cpp)) | Evaluate `sub.condition` the same way as top-level slots |
 | 5 | First goal tests: `VASDK/tests/goal_test.cpp` | `check(state.updateSlot("phone","555 123 4567").valid, "phone");` |
 
 ---
@@ -723,7 +723,7 @@ session->start();
 
 **Rules:**
 - Primitives are **stateless after `configure`**; all per-conversation state lives in the turn envelope and session. Debug builds assert that `run()` is `const`-correct via a `const Primitive&` call path.
-- Model pools reuse `ResourcePool` from [SessionManager.h](VASDK/include/VASDK/SessionManager.h); `SessionManager` becomes a thin wrapper over `Runtime::createSession`.
+- Model pools reuse `ResourcePool` from [SessionManager.h](../../VASDK/include/VASDK/SessionManager.h); `SessionManager` becomes a thin wrapper over `Runtime::createSession`.
 
 **`VAEngine` = Runtime + one Session**, the single-conversation convenience (desktop, Android):
 ```cpp
@@ -774,7 +774,7 @@ int main(int argc, char** argv) {
 
 ### 4.4 Turn assembly extracted from LLMProcessor (new; blocking for M2)
 
-**Problem.** Accumulating finals, waiting for `TurnStateFrame END`, staged finals and the resume-merge window (`_followUpPrefix`, `keepUnsentTurnAsFollowUp`) live inside [LLMProcessor.cpp](VASDK/src/llm/LLMProcessor.cpp#L486). A deterministic path that reacts to raw final transcriptions would fire mid-sentence and lose the merge behaviour.
+**Problem.** Accumulating finals, waiting for `TurnStateFrame END`, staged finals and the resume-merge window (`_followUpPrefix`, `keepUnsentTurnAsFollowUp`) live inside [LLMProcessor.cpp](../../VASDK/src/llm/LLMProcessor.cpp). A deterministic path that reacts to raw final transcriptions would fire mid-sentence and lose the merge behaviour.
 
 **Change.** A `TurnAssemblerProcessor` (core) placed after AgentState emits one frame per completed user turn:
 ```cpp
@@ -787,7 +787,7 @@ public:
 };
 ```
 - `LLMProcessor` consumes `UserTurnFrame` instead of doing its own assembly.
-- Speculative firing still sees partials: the assembler forwards them, and LLMProcessor keeps its `VAD_STATE` path ([LLMProcessor.cpp:1094](VASDK/src/llm/LLMProcessor.cpp#L1094)).
+- Speculative firing still sees partials: the assembler forwards them, and LLMProcessor keeps its `VAD_STATE` path ([LLMProcessor.cpp](../../VASDK/src/llm/LLMProcessor.cpp)).
 - Behaviour stays identical, guarded by `backchannel_test`, `vad_turn_end_test` and `llm_stream_speech_test`, plus a new `turn_assembler_test` that ports the resume/merge cases.
 
 **Canonical order:**
@@ -820,7 +820,7 @@ struct ConsoleListener : va::engine::EngineListener {
   }
 };
 ```
-- **Source:** one `EventTapProcessor`, generalised from [VasdkBridgeProcessor.cpp:37](VASDK_ANDROID/app/src/main/cpp/VasdkBridgeProcessor.cpp#L37), plus transport errors, TTS drain and `MetricsReporter`.
+- **Source:** one `EventTapProcessor`, generalised from [VasdkBridgeProcessor.cpp](https://github.com/fatehmtd/VASDK/blob/a7777b3/VASDK_ANDROID/app/src/main/cpp/VasdkBridgeProcessor.cpp), plus transport errors, TTS drain and `MetricsReporter`.
 - **Threading:** one dispatcher thread with a bounded queue.
 - **Sensitive data:** events for `sensitive` slots and pages are masked (§5.9).
 
@@ -828,8 +828,8 @@ struct ConsoleListener : va::engine::EngineListener {
 
 | Order | App | Change |
 |---|---|---|
-| 1 | VASDK_APP | `engine.txtpb` + CLI overrides; TUI/viz via `addProcessor`; fix the forced `metricsEnabled=false` ([main_pipeline.cpp:1269](VASDK_APP/main_pipeline.cpp#L1269)) |
-| 2 | Android | `nativeInit(engineConfigBytes, agentBytes)` (serialized protos built in Kotlin with lite classes); `VasdkSession` holds a `VAEngine`; the Kotlin `Listener` ([VasdkEngine.kt:142](VASDK_ANDROID/app/src/main/kotlin/com/vasdk/android/VasdkEngine.kt#L142)) stays and is fed from `Event` |
+| 1 | VASDK_APP | `engine.txtpb` + CLI overrides; TUI/viz via `addProcessor`; fix the forced `metricsEnabled=false` ([main_pipeline.cpp](../../VASDK_APP/main_pipeline.cpp)) |
+| 2 | Android | `nativeInit(engineConfigBytes, agentBytes)` (serialized protos built in Kotlin with lite classes); `VasdkSession` holds a `VAEngine`; the Kotlin `Listener` ([VasdkEngine.kt](../../VASDK_ANDROID/app/src/main/kotlin/com/vasdk/android/VasdkEngine.kt)) stays and is fed from `Event` |
 | 3 | Call center | `Runtime` + `Session` per call; goal code uses the escape hatches until M3 |
 
 **Android (Kotlin, generated lite classes):**
@@ -846,7 +846,7 @@ nativeInit(config.toByteArray(), assets.open("agents/assistant.pb").readBytes())
 
 ### 4.7 Activation modes + trigger plumbing (the base for §5.11)
 
-Today `TriggerFrame` only moves AgentState from IDLE to LISTENING ([AgentStateProcessor.cpp:409-450](VASDK/src/AgentStateProcessor.cpp#L409)). `SCHEDULED` is never handled, and Android picks always-on with a bare `setAlwaysOn(true)`. M1 makes activation an explicit setting:
+Today `TriggerFrame` only moves AgentState from IDLE to LISTENING ([AgentStateProcessor.cpp](../../VASDK/src/AgentStateProcessor.cpp)). `SCHEDULED` is never handled, and Android picks always-on with a bare `setAlwaysOn(true)`. M1 makes activation an explicit setting:
 
 ```textproto
 activation {
@@ -864,7 +864,7 @@ activation {
 | `PUSH_TO_TALK` | Listens only while the button is held or toggled | **LISTENING for the follow-up window** (hands-free reply) | IDLE (button needed again) |
 | `HYBRID` | Wake word or button | **LISTENING for the follow-up window** | IDLE |
 
-**Behaviour change.** Today a non-always-on agent goes straight to IDLE after speaking (`transitionTo(_alwaysOn ? LISTENING : IDLE, SYNTHESIS_COMPLETED)`, [AgentStateProcessor.cpp:765](VASDK/src/AgentStateProcessor.cpp#L765)). With this change it goes to LISTENING and starts the follow-up timer.
+**Behaviour change.** Today a non-always-on agent goes straight to IDLE after speaking (`transitionTo(_alwaysOn ? LISTENING : IDLE, SYNTHESIS_COMPLETED)`, [AgentStateProcessor.cpp](../../VASDK/src/AgentStateProcessor.cpp)). With this change it goes to LISTENING and starts the follow-up timer.
 
 #### 4.7.1 Follow-up listening window: global value, local overrides
 
@@ -918,7 +918,7 @@ listening_window { state: CLOSED reason: "timeout" }
 
 **Short acknowledgements.** "Thanks", "ok" or "got it" inside the window match a built-in `sys.ack` intent. The default handler closes the window **without replying**, so the assistant doesn't answer "you're welcome" to every "ok". Agents can override the handler.
 
-**Naming collision.** `LLMProcessor::setFollowUpWindowMs` ([LLMProcessor.h:107](VASDK/include/VASDK/llm/LLMProcessor.h#L107)) is a different feature: it merges an utterance the user resumes into the previous turn. It moves into `TurnAssembler` in milestone 4 and is renamed `resume_merge_ms` (deprecated alias kept), so "follow-up" means only this listening window.
+**Naming collision.** `LLMProcessor::setFollowUpWindowMs` ([LLMProcessor.h](../../VASDK/include/VASDK/llm/LLMProcessor.h)) is a different feature: it merges an utterance the user resumes into the previous turn. It moves into `TurnAssembler` in milestone 4 and is renamed `resume_merge_ms` (deprecated alias kept), so "follow-up" means only this listening window.
 
 **Implementation:**
 - `AgentStateProcessor` gets `setFollowUpListenMs(int)`, a per-reply override read from the TextFrame's `expectBytes`/`followUpListenMs`, a `FOLLOW_UP_WINDOW_CLOSED` transition, and timer handling next to the existing interrupt timer.
@@ -1038,7 +1038,7 @@ expect { mode: CONFIRMATION timing { no_input_ms: 6000 } }
 ```
 
 **Pipeline work** (none of it exists today; confirmed by searching core):
-- `TextFrame` ([Frame.h:189](VASDK/include/VASDK/Frame.h#L189)) gains `ssml`, `interruptible`, `uiJson` and `expectBytes`.
+- `TextFrame` ([Frame.h](../../VASDK/include/VASDK/Frame.h)) gains `ssml`, `interruptible`, `uiJson` and `expectBytes`.
 - TTS uses `ssml` when the provider's `supportsSsml()` is true, and strips tags otherwise.
 - `AgentStateProcessor` gains a barge-in-suppressed state for non-interruptible segments.
 - The expectation drives the next turn's end-of-turn policy (§6.3).
@@ -1363,7 +1363,7 @@ turns { user: "yes"
 ```
 - Cases also run from C++ (`FlowTestRunner`), in CI and without an LLM.
 - `runPrimitive(...)` unit-tests a single primitive.
-- [GoalConversationSimulator](VASDK/include/VASDK/goal/GoalConversationSimulator.h) becomes a thin wrapper.
+- [GoalConversationSimulator](../../VASDK/include/VASDK/goal/GoalConversationSimulator.h) becomes a thin wrapper.
 
 ### 5.11 Triggers: what starts or interrupts a conversation
 
@@ -1777,7 +1777,7 @@ Extractors accept **both STT output styles** (digits and words), because provide
 | `SLOT(date)` | `BALANCED` |
 | `ANY` | Envelope setting |
 
-  Needs runtime setters on `VADFrameProcessor`/`SmartTurnV3Provider`. `TurnDetectionProcessor` has no config struct today ([TurnDetectionProcessor.h:26](VASDK/include/VASDK/TurnDetectionProcessor.h#L26)); adding one is part of this step.
+  Needs runtime setters on `VADFrameProcessor`/`SmartTurnV3Provider`. `TurnDetectionProcessor` has no config struct today ([TurnDetectionProcessor.h](../../VASDK/include/VASDK/TurnDetectionProcessor.h)); adding one is part of this step.
 - **STT hints:** a new optional `GenericTranscriptionProvider::setContextHints(const ContextHints&)` with `{phrases, boost, expected_class}`. The FlowRuntime sends per-page hints (entity synonyms, choice labels, examples). Map it to Whisper `initial_prompt`; check Parakeet/Moonshine and the cloud providers' keyword-boost APIs. No-op where unsupported.
 
 ### 6.4 Form edge cases
@@ -1875,8 +1875,8 @@ pages {
 
 | Before | After |
 |---|---|
-| `IntentRouter` + `activateGoalForIntent` + `shared_ptr<shared_ptr<GoalManager>>` ([callcenter_pipeline.cpp:603](VASDK_CALLCENTER_APP/callcenter_pipeline.cpp#L603)) | `agent/callcenter.txtpb`: routing page → `form` pages |
-| C++ goals ([callcenter_pipeline.cpp:403](VASDK_CALLCENTER_APP/callcenter_pipeline.cpp#L403)) | `goals/*.txtpb` |
+| `IntentRouter` + `activateGoalForIntent` + `shared_ptr<shared_ptr<GoalManager>>` ([callcenter_pipeline.cpp](../../VASDK_CALLCENTER_APP/callcenter_pipeline.cpp)) | `agent/callcenter.txtpb`: routing page → `form` pages |
+| C++ goals ([callcenter_pipeline.cpp](../../VASDK_CALLCENTER_APP/callcenter_pipeline.cpp)) | `goals/*.txtpb` |
 | CRM prefill in C++ | `welcome.on_enter { call_tool { name: "lookup_account" args: "$session.caller" into: "$session.account" } }` |
 | `goalSetForDNIS` stub | `Runtime::compileAgent` per DNIS, sessions per call |
 

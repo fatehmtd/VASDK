@@ -360,8 +360,9 @@ bool FlowRuntime::store(const std::string& key, const Value& value, std::string*
                            [&](const auto& slot) { return slot.name() == path[1]; })) {
         if (value.kind_case() == Value::kNullValue) {
             _form->state->clearSlot(path[1]);
-        } else if (const auto result = _form->state->updateSlot(path[1], toText(value)); !result.valid) {
-            problem = result.errorMessage;
+        } else {
+            _form->state->setNow(now());   // must_be_future counts from the conversation's clock
+            if (const auto result = _form->state->updateSlot(path[1], toText(value)); !result.valid) problem = result.errorMessage;
         }
     } else {
         problem = "can't be written: use $session.<declared param>, $page.locals.<name> or, on a form page, $form.<slot>";
@@ -1910,6 +1911,7 @@ nlohmann::json FlowRuntime::readList(const vasdk::goal::Slot& slot, const std::s
 // clears the tire size), so they're asked again if they still apply.
 bool FlowRuntime::setSlot(const std::string& name, const std::string& value) {
     const auto before = _form->state->slotValueJson(name);
+    _form->state->setNow(now());   // must_be_future counts from the conversation's clock
     if (!_form->state->updateSlot(name, value).valid) return false;
     if (before.is_null() || before == _form->state->slotValueJson(name)) return true;
     for (const auto& slot : _form->goal->slots()) {
