@@ -1982,7 +1982,12 @@ bool FlowRuntime::fillForm(const std::string& text) {
     bool used = false;
     if (form.awaitingConfirmation) {
         const auto answer = extractYesNo(text, _agent->entities());
-        if (!answer) return false;
+        if (!answer) {
+            // "To John" at "Send it to Sarah?": a new value is a no with it, and is read back again.
+            if (!fillNamedValues(text, true)) return false;
+            form.awaitingConfirmation = false;
+            return true;
+        }
         form.awaitingConfirmation = false;
         // "No, make it Tuesday": a value in the same answer changes it straight away.
         if (*answer) {

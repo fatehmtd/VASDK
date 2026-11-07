@@ -9,7 +9,9 @@
 #include <VASDK/Pipeline.h>
 #include <VASDK/VADFrameProcessor.h>
 #include <VASDK/VAEngine.h>
+#include <VASDK/network/WebRtcInterface.h>
 
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 
@@ -28,6 +30,16 @@ bool contains(const std::string& text, const std::string& part) { return text.fi
 bool before(const std::string& text, const std::string& first, const std::string& second) {
     return contains(text, first) && contains(text, second) && text.find(first) < text.find(second);
 }
+
+// A WebRTC peer that only says whether it was opened.
+class FakePeer : public network::WebRtcInterface {
+public:
+    bool open(int input, int output) override { opened = input == 16000 && output == 16000; return opened; }
+    void close() override {}
+    bool isConnected() const override { return false; }
+    bool sendAudio(const int16_t*, size_t) override { return false; }
+    std::atomic<bool> opened{false};
+};
 
 } // namespace
 
@@ -140,6 +152,23 @@ int main() {
     badAudio.mutable_audio()->mutable_input()->set_sample_rate(0);
     check(!VAEngine::create(badAudio, registry, options, &error) && contains(error, "audio.input.sample_rate"),
           "an impossible sample rate is reported with its field");
+
+    // The config's webrtc: a browser brings the audio, through the registry's peer; no app transport needed.
+    {
+        auto peer = std::make_shared<FakePeer>();
+        auto withPeer = makeRegistry(tts);
+        withPeer.add<network::WebRtcInterface>("fake", [peer](const engine::ProviderContext&) { return peer; });
+        vasdk::engine::EngineConfig webrtc;
+        webrtc.mutable_providers()->mutable_webrtc()->set_id("fake");
+        auto browserEngine = VAEngine::create(webrtc, withPeer, VAEngine::Options{}, &error);
+        check(browserEngine != nullptr, "an engine over the config's WebRTC peer, without an app transport");
+        if (browserEngine) {
+            check(browserEngine->start(&error) && peer->opened, "the peer is opened at the engine's rates");
+            browserEngine->stop();
+        }
+        check(!VAEngine::create(webrtc, registry, VAEngine::Options{}, &error) && contains(error, "webrtc:"),
+              "a WebRTC peer that isn't built in is reported");
+    }
 
     if (failures == 0) std::printf("engine_assembly_test: all passed\n");
     return failures == 0 ? 0 : 1;

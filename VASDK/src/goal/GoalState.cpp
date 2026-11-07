@@ -78,7 +78,8 @@ std::string stripNonDigits(const std::string& s) {
     return out;
 }
 
-std::string todayISO(std::chrono::system_clock::time_point now) {
+// The local time as `format` writes it: "%Y-%m-%d", or "%Y-%m-%dT%H:%M".
+std::string localISO(std::chrono::system_clock::time_point now, const char* format) {
     std::time_t tt = std::chrono::system_clock::to_time_t(now);
     std::tm tm{};
 #ifdef _WIN32
@@ -86,9 +87,13 @@ std::string todayISO(std::chrono::system_clock::time_point now) {
 #else
     localtime_r(&tt, &tm);
 #endif
-    char buf[11];
-    std::strftime(buf, sizeof(buf), "%Y-%m-%d", &tm);
+    char buf[17];
+    std::strftime(buf, sizeof(buf), format, &tm);
     return buf;
+}
+
+std::string todayISO(std::chrono::system_clock::time_point now) {
+    return localISO(now, "%Y-%m-%d");
 }
 
 bool isValidISODate(const std::string& s) {
@@ -171,8 +176,13 @@ SlotValidationResult GoalState::validateAndNormalize(const GoalSlot& slot,
         if (raw.empty())
             return {false, {}, "datetime must be a valid ISO 8601 datetime"};
         if (slot.constraints.mustBeFuture) {
-            std::string datePrefix = raw.size() >= 10 ? raw.substr(0, 10) : raw;
-            if (datePrefix <= todayISO(_now.value_or(std::chrono::system_clock::now())))
+            // With a time ("2026-11-06T17:00"), later than now to the minute: later today counts.
+            // A date alone must be a later day, as for DATE.
+            auto now = _now.value_or(std::chrono::system_clock::now());
+            bool hasTime = raw.size() >= 16 && raw[10] == 'T';
+            bool future = hasTime ? raw.substr(0, 16) > localISO(now, "%Y-%m-%dT%H:%M")
+                                  : raw.substr(0, std::min<size_t>(raw.size(), 10)) > todayISO(now);
+            if (!future)
                 return {false, {}, "datetime must be in the future (got '" + raw + "')"};
         }
         return {true, nlohmann::json(raw), ""};

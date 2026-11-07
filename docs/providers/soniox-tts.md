@@ -26,9 +26,10 @@ In an engine config, the catalog's `CloudOptions` message ([options.proto](../..
 | Config field | Environment variable | Sets |
 | --- | --- | --- |
 | `api_key` | `SONIOX_API_KEY` | `apiKey` |
+| `voice_id` | `SONIOX_VOICE_ID` | `voice` |
 | `ca_bundle_path` | `VASDK_CA_BUNDLE` | `caBundlePath` |
 
-The engine config sets the key and the certificate bundle; `language` and `voice` are set in C++.
+The engine config sets the key, the voice and the certificate bundle; `language` is set in C++. Without a key (neither `api_key` nor `SONIOX_API_KEY`) the catalog makes no provider, so the spec's `fallback` starts instead.
 
 ## Models and licenses
 

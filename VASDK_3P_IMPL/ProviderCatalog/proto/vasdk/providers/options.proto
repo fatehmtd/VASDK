@@ -51,3 +51,11 @@ message GlinerOptions {
   string model_dir = 1;             // model.onnx, spm.model, added_tokens.json, gliner_config.json; unset: <models_dir>/gliner
   optional float threshold = 2;     // a span's score must reach it, 0 to 1; unset: 0.5
 }
+
+// WebRTC: libdatachannel. The peer serves its signaling (POST /offer) and a page over HTTP.
+message LibDataChannelWebRtcOptions {
+  repeated string ice_servers = 1;  // STUN/TURN URLs; unset: stun:stun.l.google.com:19302
+  uint32 port = 2;                  // the signaling server's port; unset: VASDK_WEBRTC_PORT, then 8080
+  string host = 3;                  // unset: 127.0.0.1. There's no authentication: keep loopback unless the network is trusted
+  string page = 4;                  // the HTML served at GET /; unset: VASDK_WEBRTC_PAGE, then VASDK's demo page (assets/webrtc/index.html)
+}

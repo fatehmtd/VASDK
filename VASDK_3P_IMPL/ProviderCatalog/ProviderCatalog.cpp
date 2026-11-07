@@ -11,6 +11,7 @@
 #include <VASDK/nlu/EmbeddingNluProvider.h>
 
 #include <cstdlib>
+#include <spdlog/spdlog.h>
 
 #ifdef VASDK_HAS_SILERO_VAD
 #include "SileroVAD/SileroVAD.h"
@@ -78,6 +79,9 @@
 #ifdef VASDK_HAS_GLINER_NER
 #include "GlinerNer/GlinerEntityExtractor.h"
 #endif
+#ifdef VASDK_HAS_LIBDATACHANNEL_WEBRTC
+#include "LibDataChannelWebRtc/LibDataChannelWebRtcProvider.h"
+#endif
 
 namespace va {
 namespace thirdparty {
@@ -115,6 +119,17 @@ template <class Provider>
     return provider;
 }
 
+// A cloud provider can't start without its key: no provider then, so the spec's next fallback
+// starts instead (ProviderRegistry::create), as it does for a local model that won't load.
+template <class Provider, class Options>
+[[maybe_unused]] std::shared_ptr<Provider> cloud(const Options& options, const char* keyVariable, const ProviderContext& context) {
+    if (options.apiKey.empty()) {
+        spdlog::warn("[ProviderCatalog] no API key: set the provider's api_key option or {}", keyVariable);
+        return nullptr;
+    }
+    return configured(std::make_shared<Provider>(options), context);
+}
+
 // Each provider's options struct holds its defaults; a registration fills only what the config
 // (or the provider's environment variable) sets.
 
@@ -138,7 +153,7 @@ void registerStt([[maybe_unused]] engine::ProviderRegistry& registry) {
     registry.add<Stt, CloudOptions>("gradium", [](const CloudOptions& options, const ProviderContext& context) {
         stt::GradiumppTranscriptionOptions gradium;
         gradium.apiKey = orEnvironment(options.api_key(), "GRADIUM_API_KEY");
-        return configured(std::make_shared<stt::GradiumppTranscriptionProvider>(gradium), context);
+        return cloud<stt::GradiumppTranscriptionProvider>(gradium, "GRADIUM_API_KEY", context);
     });
 #endif
 #ifdef VASDK_HAS_SONIOXPP_STT
@@ -146,7 +161,7 @@ void registerStt([[maybe_unused]] engine::ProviderRegistry& registry) {
         stt::SonioxppTranscriptionOptions soniox;
         soniox.apiKey       = orEnvironment(options.api_key(), "SONIOX_API_KEY");
         soniox.caBundlePath = caBundle(options);
-        return configured(std::make_shared<stt::SonioxppTranscriptionProvider>(soniox), context);
+        return cloud<stt::SonioxppTranscriptionProvider>(soniox, "SONIOX_API_KEY", context);
     });
 #endif
 #ifdef VASDK_HAS_DEEPGRAMPP_STT
@@ -154,7 +169,7 @@ void registerStt([[maybe_unused]] engine::ProviderRegistry& registry) {
         stt::DeepgramppTranscriptionOptions deepgram;
         deepgram.apiKey       = orEnvironment(options.api_key(), "DEEPGRAM_API_KEY");
         deepgram.caBundlePath = caBundle(options);
-        return configured(std::make_shared<stt::DeepgramppTranscriptionProvider>(deepgram), context);
+        return cloud<stt::DeepgramppTranscriptionProvider>(deepgram, "DEEPGRAM_API_KEY", context);
     });
 #endif
 #ifdef VASDK_HAS_CARTESIAPP_STT
@@ -162,7 +177,7 @@ void registerStt([[maybe_unused]] engine::ProviderRegistry& registry) {
         stt::CartesiappTranscriptionOptions cartesia;
         cartesia.apiKey       = orEnvironment(options.api_key(), "CARTESIA_API_KEY");
         cartesia.caBundlePath = caBundle(options);
-        return configured(std::make_shared<stt::CartesiappTranscriptionProvider>(cartesia), context);
+        return cloud<stt::CartesiappTranscriptionProvider>(cartesia, "CARTESIA_API_KEY", context);
     });
 #endif
 #ifdef VASDK_HAS_FISHAUDIOPP_STT
@@ -170,7 +185,7 @@ void registerStt([[maybe_unused]] engine::ProviderRegistry& registry) {
         stt::FishaudioppTranscriptionOptions fishaudio;
         fishaudio.apiKey       = orEnvironment(options.api_key(), "FISHAUDIO_API_KEY");
         fishaudio.caBundlePath = caBundle(options);
-        return configured(std::make_shared<stt::FishaudioppTranscriptionProvider>(fishaudio), context);
+        return cloud<stt::FishaudioppTranscriptionProvider>(fishaudio, "FISHAUDIO_API_KEY", context);
     });
 #endif
 #ifdef VASDK_HAS_GLADIAPP
@@ -178,7 +193,7 @@ void registerStt([[maybe_unused]] engine::ProviderRegistry& registry) {
         stt::GladiaPPTranscriptionOptions gladia;
         gladia.apiKey       = orEnvironment(options.api_key(), "GLADIA_API_KEY");
         gladia.caBundlePath = caBundle(options);
-        return configured(std::make_shared<stt::GladiaPPTranscriptionProvider>(gladia), context);
+        return cloud<stt::GladiaPPTranscriptionProvider>(gladia, "GLADIA_API_KEY", context);
     });
 #endif
 #ifdef VASDK_HAS_WHISTLE_STT
@@ -222,15 +237,16 @@ void registerTts([[maybe_unused]] engine::ProviderRegistry& registry) {
         tts::GradiumppVoiceSynthesisOptions gradium;
         gradium.apiKey  = orEnvironment(options.api_key(), "GRADIUM_API_KEY");
         gradium.voiceId = orEnvironment(options.voice_id(), "GRADIUM_VOICE_ID");
-        return configured(std::make_shared<tts::GradiumppVoiceSynthesisProvider>(gradium), context);
+        return cloud<tts::GradiumppVoiceSynthesisProvider>(gradium, "GRADIUM_API_KEY", context);
     });
 #endif
 #ifdef VASDK_HAS_SONIOXPP_TTS
     registry.add<Tts, CloudOptions>("soniox", [](const CloudOptions& options, const ProviderContext& context) {
         tts::SonioxppVoiceSynthesisOptions soniox;
         soniox.apiKey       = orEnvironment(options.api_key(), "SONIOX_API_KEY");
+        soniox.voice        = orEnvironment(options.voice_id(), "SONIOX_VOICE_ID", soniox.voice.c_str());
         soniox.caBundlePath = caBundle(options);
-        return configured(std::make_shared<tts::SonioxppVoiceSynthesisProvider>(soniox), context);
+        return cloud<tts::SonioxppVoiceSynthesisProvider>(soniox, "SONIOX_API_KEY", context);
     });
 #endif
 #ifdef VASDK_HAS_SUPERTONIC_TTS
@@ -251,7 +267,7 @@ void registerTts([[maybe_unused]] engine::ProviderRegistry& registry) {
         tts::DeepgramppVoiceSynthesisOptions deepgram;
         deepgram.apiKey       = orEnvironment(options.api_key(), "DEEPGRAM_API_KEY");
         deepgram.caBundlePath = caBundle(options);
-        return configured(std::make_shared<tts::DeepgramppVoiceSynthesisProvider>(deepgram), context);
+        return cloud<tts::DeepgramppVoiceSynthesisProvider>(deepgram, "DEEPGRAM_API_KEY", context);
     });
 #endif
 #ifdef VASDK_HAS_CARTESIAPP_TTS
@@ -260,7 +276,7 @@ void registerTts([[maybe_unused]] engine::ProviderRegistry& registry) {
         cartesia.apiKey       = orEnvironment(options.api_key(), "CARTESIA_API_KEY");
         cartesia.voiceId      = orEnvironment(options.voice_id(), "CARTESIA_VOICE_ID");
         cartesia.caBundlePath = caBundle(options);
-        return configured(std::make_shared<tts::CartesiappVoiceSynthesisProvider>(cartesia), context);
+        return cloud<tts::CartesiappVoiceSynthesisProvider>(cartesia, "CARTESIA_API_KEY", context);
     });
 #endif
 #ifdef VASDK_HAS_FISHAUDIOPP_TTS
@@ -269,7 +285,7 @@ void registerTts([[maybe_unused]] engine::ProviderRegistry& registry) {
         fishaudio.apiKey       = orEnvironment(options.api_key(), "FISHAUDIO_API_KEY");
         fishaudio.referenceId  = orEnvironment(options.voice_id(), "FISHAUDIO_VOICE_ID", fishaudio.referenceId.c_str());
         fishaudio.caBundlePath = caBundle(options);
-        return configured(std::make_shared<tts::FishaudioppVoiceSynthesisProvider>(fishaudio), context);
+        return cloud<tts::FishaudioppVoiceSynthesisProvider>(fishaudio, "FISHAUDIO_API_KEY", context);
     });
 #endif
 #ifdef VASDK_HAS_MOSS_TTS
@@ -342,6 +358,24 @@ void registerEncoders([[maybe_unused]] engine::ProviderRegistry& registry) {
 #endif
 }
 
+void registerWebRtc([[maybe_unused]] engine::ProviderRegistry& registry) {
+#ifdef VASDK_HAS_LIBDATACHANNEL_WEBRTC
+    registry.add<va::network::WebRtcInterface, providers::LibDataChannelWebRtcOptions>("libdatachannel",
+        [](const providers::LibDataChannelWebRtcOptions& options, const ProviderContext&) -> std::shared_ptr<va::network::WebRtcInterface> {
+            transport::LibDataChannelWebRtcOptions webrtc;
+            if (options.ice_servers_size() > 0) webrtc.iceServers.assign(options.ice_servers().begin(), options.ice_servers().end());
+            const std::string port = orEnvironment(options.port() ? std::to_string(options.port()) : "", "VASDK_WEBRTC_PORT");
+            if (!port.empty()) webrtc.signalingPort = static_cast<uint16_t>(std::atoi(port.c_str()));
+            if (!options.host().empty()) webrtc.signalingHost = options.host();
+            const std::string page = orEnvironment(options.page(), "VASDK_WEBRTC_PAGE", VASDK_WEBRTC_DEMO_PAGE);
+            auto peer = std::make_shared<transport::LibDataChannelWebRtcProvider>(webrtc);
+            if (!peer->startSignalingServer(webrtc.signalingPort, webrtc.signalingHost, page)) return nullptr;
+            spdlog::info("[ProviderCatalog] WebRTC: open http://{}:{} to talk", webrtc.signalingHost, webrtc.signalingPort);
+            return peer;
+        });
+#endif
+}
+
 } // namespace
 
 void registerAllProviders(engine::ProviderRegistry& registry) {
@@ -350,6 +384,7 @@ void registerAllProviders(engine::ProviderRegistry& registry) {
     registerStt(registry);
     registerTts(registry);
     registerTurn(registry);
+    registerWebRtc(registry);
 }
 
 } // namespace thirdparty

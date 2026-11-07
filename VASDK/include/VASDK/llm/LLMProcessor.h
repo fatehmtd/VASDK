@@ -62,6 +62,9 @@ public:
      *  the user cut it off). Empty: silence, as before. */
     void setFailureReplies(std::vector<std::string> replies) { _failureReplies = std::move(replies); }
 
+    /** Words the assistant said that the LLM didn't write (the app's say()): in its history, as
+     *  the agent's replies are. Thread-safe. */
+    void noteSaid(const std::string& text);
     void setHistoryEnabled(bool enabled);
     void clearHistory();
     void setMaxHistoryLength(size_t maxMessages);
@@ -168,6 +171,11 @@ private:
     std::mutex  _lastTurnMutex;
     std::string _lastTurnRequestText;
     uint64_t    _lastTurnId = 0;   // its UserTurnFrame::turnId; on the frame thread
+
+    // The agent's replies pass through on their way to TTS: each goes into the history with the
+    // user's words it answers, so the LLM knows what the agent did ("you called John").
+    void recordAgentReply(const transport::TextFrame& said);
+    std::string _agentReply;   // the parts of the agent's reply so far; on the frame thread
 
     void handleVadStateFrame(std::shared_ptr<transport::VADStateFrame> frame);
     void cancelSpeculation(const char* reason);

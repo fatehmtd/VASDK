@@ -6,6 +6,7 @@ Every skill is short: what the part does, where its contract lives, which existi
 
 | Skill | Use it to |
 | --- | --- |
+| [vasdk-setup](vasdk-setup/SKILL.md) | start a new app or change an existing one as a wizard: language, providers and their options, LLM, pipeline, entities, flows, pages and turns |
 | [vasdk-provider](vasdk-provider/SKILL.md) | add any provider: the shared touch list, code rules, doc page, tests |
 | [vasdk-vad](vasdk-vad/SKILL.md) | use or add a voice activity detector |
 | [vasdk-stt](vasdk-stt/SKILL.md) | use or add speech-to-text |

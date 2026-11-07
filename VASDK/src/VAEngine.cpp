@@ -1,4 +1,5 @@
 #include "VAEngine.h"
+#include "WebRtcTransport.h"
 
 #include "engine/ProtoFileLoader.h"
 #include "engine/Runtime.h"
@@ -33,6 +34,17 @@ std::unique_ptr<VAEngine> VAEngine::create(const std::string& configPath, const 
 std::unique_ptr<VAEngine> VAEngine::create(const vasdk::engine::EngineConfig& config,
                                            const engine::ProviderRegistry& registry, Options options,
                                            std::string* error) {
+    if (config.providers().has_webrtc()) {   // a browser brings the audio, not the app
+        const engine::ProviderContext context{options.modelsDir, options.inputAudio, options.frameSize, nullptr};
+        std::string reason;
+        auto peer = registry.create<network::WebRtcInterface>(config.providers().webrtc(), context, &reason);
+        if (!peer) {
+            if (error) *error = "webrtc: " + reason;
+            return nullptr;
+        }
+        options.transport = std::make_shared<transport::WebRtcTransport>(peer);
+        options.sendAllFramesToTransport = true;   // the page shows the agent's state
+    }
     if (!options.transport) {
         if (error) *error = "Options::transport is required";
         return nullptr;

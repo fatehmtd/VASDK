@@ -551,6 +551,15 @@ if(VASDK_BUILD_LLAMACPP)
     add_subdirectory(LlamaCpp)
 endif()
 
+# SonioxPP's libwebsockets runs on mbedTLS with an OpenSSL-compatible wrapper (X509_new, SSL_CTX_new,
+# ...); linked beside libdatachannel, which uses OpenSSL, those names take over some of its calls
+# and its DTLS handshake crashes. Pick one per build until SonioxPP stops exporting them.
+if(TARGET vasdk_libdatachannel_webrtc AND (TARGET vasdk_sonioxpp_stt OR TARGET vasdk_sonioxpp_tts))
+    message(WARNING "LibDataChannelWebRtc: not usable beside SonioxPP: its libwebsockets exports OpenSSL's "
+                    "X509/SSL names, which break libdatachannel's DTLS. Turn off VASDK_BUILD_SONIOXPP_STT/TTS "
+                    "or VASDK_BUILD_LIBDATACHANNEL_WEBRTC.")
+endif()
+
 # Provider catalog (engine config ids -> providers); needs the protobuf-based engine config
 if(VASDK_ENABLE_ENGINE_CONFIG)
     add_subdirectory(ProviderCatalog)

@@ -400,6 +400,13 @@ int main() {
               "it's given the instructions and the allowed targets");
         check(lastUserWords(llm->lastMessages) == "how often should I change my oil" && llm->lastMessages.size() > 3,
               "and the conversation so far");
+        // What the assistant said outside the agent (the session's LLM, the app's say()) is in it too.
+        conversation.noteSaid("Here's a story about a fox.");
+        conversation.handleText("tell me more about tires");
+        bool noted = false;
+        for (const auto& message : llm->lastMessages)
+            noted = noted || (message.role == llm::MessageRole::ASSISTANT && message.content == "Here's a story about a fox.");
+        check(noted, "words said outside the agent are in the conversation it's given");
         answer = {{"say", "Let's go."}, {"goto", "done"}};
         conversation.handleText("just end it");
         check(conversation.pageName() == "advice", "a target it isn't allowed: ignored");

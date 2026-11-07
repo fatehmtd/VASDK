@@ -35,6 +35,13 @@ message Providers {
   //   llm:    the LLM the agent's understanding asks (llm, or understanding.llm_profile)
   // Unset: values are found by their words alone, misspellings anywhere.
   ProviderSpec entity_model = 8;
+  // Talk to a browser instead of the app's own audio: the session's audio comes and goes over
+  // WebRTC, and its events go to the page beside it (VAEngine, and the C API's sessions, whose
+  // pushed audio and audio callback then go unused).
+  //   libdatachannel: a direct PeerConnection; the signaling and a demo page are served on
+  //                   LibDataChannelWebRtcOptions.port (VASDK_BUILD_LIBDATACHANNEL_WEBRTC)
+  // Unset: the app brings the audio (its transport, or the C API's vasdk_session_push_audio).
+  ProviderSpec webrtc = 9;
 }
 
 message LlmConfig {

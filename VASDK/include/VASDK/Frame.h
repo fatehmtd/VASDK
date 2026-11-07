@@ -218,6 +218,7 @@ namespace va {
                 cloned->expectBytes = expectBytes;
                 cloned->sensitiveValues = sensitiveValues;
                 cloned->turnId = turnId;
+                cloned->answers = answers;
                 return cloned;
             }
 
@@ -234,6 +235,7 @@ namespace va {
             std::string expectBytes;           // what the user is expected to say, a serialized vasdk.flow.Expectation (an agent's final chunk only)
             std::vector<std::string> sensitiveValues;   // values to mask wherever the text is shown or logged (an agent's replies)
             uint64_t turnId = 0;               // the UserTurnFrame::turnId this answers; 0: not a reply (a greeting, a trigger)
+            std::string answers;               // an agent's final chunk: the user's words it answers, for the LLM's history; empty: none, or private
         };
 
         /**

@@ -212,7 +212,9 @@ typedef void (*vasdk_audio_fn)(const short* pcm, size_t samples, void* user);
 /* An engine config file (.txtpb, .json or .pb; ${ENV} expanded) and an agent (NULL: the LLM only).
  * options_json may be NULL: {"id": "call-1", "models_dir": "models", "system_prompt": "...", "format_instruction": "..."}
  * (the LLM's instructions, with {context} for vasdk_session_set_context's; how its replies are formatted).
- * The config's audio must be 16-bit PCM (the default). providers and agent must outlive it. */
+ * The config's audio must be 16-bit PCM (the default). providers and agent must outlive it.
+ * A config whose providers name a webrtc peer talks to a browser instead: the pushed audio and
+ * the audio callback then go unused, and the page shows the session's state. */
 VASDK_EXPORT vasdk_session* vasdk_session_create(const char* config_path, const vasdk_providers* providers,
                                                  const vasdk_agent* agent, const char* options_json, char** error);
 /* The same, its options a vasdk.engine.SessionOptions (vasdk/engine/session.proto) in `format`; options may be NULL. */
