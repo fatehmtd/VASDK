@@ -28,6 +28,7 @@ Prerequisites, CMake options and model downloads: [docs/building.md](docs/buildi
 
 | Task | Skill |
 | --- | --- |
+| Start or reconfigure an app by answering questions (setup wizard: language, providers, LLM, pipeline, entities, flows and pages) | [vasdk-setup](skills/vasdk-setup/SKILL.md) |
 | Any new provider (shared touch list, code rules, doc page) | [vasdk-provider](skills/vasdk-provider/SKILL.md) |
 | Voice activity detection | [vasdk-vad](skills/vasdk-vad/SKILL.md) |
 | Speech-to-text | [vasdk-stt](skills/vasdk-stt/SKILL.md) |
