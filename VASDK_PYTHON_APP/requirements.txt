@@ -1,4 +1,6 @@
-# VASDK's messages (the binding's events, replies and commands): every mode.
-protobuf>=5.29.5
+# The kitchen assistant's Python packages, for pip (uv: pyproject.toml beside this file).
+#   pip install -r VASDK_PYTHON_APP/requirements.txt          (from the repository's root)
+# VASDK's binding, from the source tree (it brings protobuf). Editable, so it finds the build.
+-e bindings/python
 # Only for voice mode (python app.py): the microphone and speaker.
 sounddevice>=0.4

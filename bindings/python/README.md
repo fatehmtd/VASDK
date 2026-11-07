@@ -124,18 +124,21 @@ A wheel carries a shared build of VASDK for one platform. It works with any Pyth
 
    For spoken sessions, add the speech providers' folder: `python bindings/python/bundle.py build/VASDK/Release build/VASDK_3P_IMPL/ProviderCatalog/Release`. That copies `vasdk_providers` and ONNX Runtime too; the models stay outside the wheel (`Session(models_dir=...)`).
 
-3. Build and install the wheel:
+3. Build and install the wheel, with uv or pip:
 
    ```sh
-   pip wheel bindings/python -w dist                       # dist/vasdk-1.0.0-py3-none-win_amd64.whl
-   pip install dist/vasdk-*.whl
+   uv build bindings/python --out-dir dist                 # dist/vasdk-1.0.0-py3-none-<platform>.whl and the sdist
+   pip wheel bindings/python -w dist                       # the same wheel, with pip
+   pip install dist/vasdk-*.whl                            # or: uv pip install dist/vasdk-*.whl
    ```
+
+   [`pyproject.toml`](pyproject.toml) holds the metadata and the one dependency, `protobuf>=5.29.5`; `setup.py` only tags the wheel for its platform, since it carries a native library.
 
 To remove the copied libraries from the source tree, run `python bindings/python/bundle.py --clean`.
 
 ## Without a wheel
 
-To use the package from the source tree instead, set `VASDK_LIBRARY` to the shared library. If it isn't set, the package looks in `./build/VASDK`. The messages are found in `build/bindings/python/vasdk`, or where `VASDK_PYTHON_PROTOS` points.
+To use the package from the source tree instead, install it editable (`uv pip install -e bindings/python` or `pip install -e bindings/python`), or put `bindings/python` on `sys.path` as the tests do, and set `VASDK_LIBRARY` to the shared library. If it isn't set, the package looks in `./build/VASDK`. The messages are found in `build/bindings/python/vasdk`, or where `VASDK_PYTHON_PROTOS` points.
 
 ```sh
 VASDK_LIBRARY=build/VASDK/Release/VASDK.dll python bindings/python/tests/test_garage.py VASDK_APP/agents/garage-menu
