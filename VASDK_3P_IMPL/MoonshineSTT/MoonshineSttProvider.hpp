@@ -10,6 +10,22 @@
 #include <condition_variable>
 #include <chrono>
 
+namespace va::thirdparty {
+
+// Forward declaration - ORT and tokenizer headers are hidden from consumers.
+class MoonshineSttProviderImpl;
+
+/** Settings of MoonshineSttProvider; every field but the model folder has a default. */
+struct MoonshineSttOptions {
+    /** Folder holding the streaming .ort graphs, streaming_config.json and tokenizer.bin
+     *  (VASDK_3P_IMPL/cmake/DownloadMoonshineModel.cmake). */
+    std::string modelDir;
+    /** Silence on the input that finalizes the utterance. */
+    int idleTimeoutMs = 350;
+    /** Shortest time between two partial decodes. */
+    int partialIntervalMs = 160;
+};
+
 /**
  * @brief MoonshineSttProvider
  *
@@ -26,13 +42,10 @@
  * Model source:
  *   https://huggingface.co/UsefulSensors/moonshine-streaming
  */
-// Forward declaration - ORT and tokenizer headers are hidden from consumers.
-class MoonshineSttProviderImpl;
-
 class MoonshineSttProvider : public va::audio::GenericTranscriptionProvider
 {
 public:
-    explicit MoonshineSttProvider(const std::string& modelDir);
+    explicit MoonshineSttProvider(MoonshineSttOptions options);
     ~MoonshineSttProvider() override;
 
     bool initializeTranscriptionProvider() override;
@@ -54,18 +67,6 @@ public:
     va::audio::AudioConfig getAudioConfiguration() const override;
 
     /**
-     * @brief InferenceConfig
-     * Configurable parameters for the inference loop.
-     */
-    struct InferenceConfig {
-        int idleTimeoutMs     = 350;  // finalize the utterance after this much silence on the input
-        int partialIntervalMs = 200;  // minimum spacing between partial decodes
-    };
-
-    void setInferenceConfig(const InferenceConfig& config);
-    InferenceConfig getInferenceConfig() const;
-
-    /**
      * @brief clearAudioBuffer
      * Discards in-progress audio accumulated for the current segment (e.g. on barge-in).
      */
@@ -79,7 +80,7 @@ private:
     void emit(const std::string& text, bool isFinal);
 
     // --- model state ---
-    std::string _modelDir;
+    MoonshineSttOptions _options;  // fixed after construction
     std::unique_ptr<MoonshineSttProviderImpl> _impl;
 
     // --- provider state ---
@@ -97,7 +98,7 @@ private:
     bool _endOfSpeech    = false;
     bool _resetRequested = false;
 
-    InferenceConfig _inferenceConfig;
-
     va::metrics::TimingObserverInterface* _timingObserver = nullptr;
 };
+
+} // namespace va::thirdparty

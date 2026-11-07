@@ -12,6 +12,33 @@
 
 struct whisper_context;
 
+namespace va::thirdparty {
+
+/** Settings of WhisperCppTranscriptionProvider; every field but the model path has a default.
+ *  Whisper runs a whole batch per pass, so partials are infrequent by default. */
+struct WhisperCppTranscriptionOptions {
+    /** A whisper.cpp GGML model file, .bin (VASDK_3P_IMPL/cmake/DownloadWhisperCppModel.cmake). */
+    std::string modelPath;
+    /** Silence after the last audio that finalizes the utterance when no end of speech arrives. */
+    int idleTimeoutMs = 100;
+    /** Shortest time between two partial results. */
+    int partialIntervalMs = 500;
+    /** New audio needed before another partial, in samples (8000: 500 ms at 16 kHz). */
+    size_t minNewSamplesForPartial = 8000;
+    /** New audio needed before the final pass re-runs, in samples (2000: 125 ms at 16 kHz). */
+    size_t minNewSamplesForFinal = 2000;
+    /** CPU threads for inference. */
+    int threads = 4;
+    /** Translate the speech to English instead of transcribing it. */
+    bool translateToEnglish = false;
+    /** Language code, or "auto" to detect it. */
+    std::string language = "auto";
+    /** Below whisper.cpp's 0.6 so short VAD-gated clips aren't dropped as "no speech". */
+    float noSpeechThreshold = 0.3f;
+    /** Every clip stands alone, so stale context from earlier segments can't leak into the prompt. */
+    bool noContext = true;
+};
+
 /**
  * @brief WhisperCppTranscriptionProvider
  * Implements GenericTranscriptionProvider using whisper.cpp for local,
@@ -26,7 +53,7 @@ struct whisper_context;
 class VASDK_WHISPERCPP_EXPORT WhisperCppTranscriptionProvider : public va::audio::GenericTranscriptionProvider
 {
 public:
-    explicit WhisperCppTranscriptionProvider(const std::string& modelPath);
+    explicit WhisperCppTranscriptionProvider(WhisperCppTranscriptionOptions options);
     ~WhisperCppTranscriptionProvider() override;
 
     bool initializeTranscriptionProvider() override;
@@ -46,31 +73,6 @@ public:
     void setAudioConfiguration(const va::audio::AudioConfig& config) override;
     va::audio::AudioConfig getAudioConfiguration() const override;
 
-    /**
-     * @brief InferenceConfig
-     * Tunable parameters for the inference loop.
-     * Whisper batch inference is heavier than streaming models, so partial
-     * intervals and sample thresholds are set conservatively by default.
-     */
-    struct InferenceConfig {
-        int idleTimeoutMs       = 100;
-        int partialIntervalMs   = 500;    // whisper is slower; keep partials infrequent
-        size_t minNewSamplesForPartial = 8000;  // ~500 ms @ 16 kHz
-        size_t minNewSamplesForFinal   = 2000;  // ~125 ms @ 16 kHz
-        int threads             = 4;
-        bool translateToEnglish = false;
-        std::string language    = "auto";
-        // Lower than the whisper.cpp default (0.6) so short VAD-gated clips
-        // are not suppressed as "no speech" before any tokens are emitted.
-        float noSpeechThreshold = 0.3f;
-        // Treat every clip as standalone; avoids stale context from prior
-        // (possibly empty) segments polluting the decoder prompt.
-        bool  noContext         = true;
-    };
-
-    void setInferenceConfig(const InferenceConfig& config);
-    InferenceConfig getInferenceConfig() const;
-
 private:
     struct InferenceResult {
         std::string text;
@@ -81,8 +83,7 @@ private:
     void inferenceLoop();
     void appendAudioAsFloat(const uint8_t* data, size_t size);
     InferenceResult runInference(const std::vector<float>& audio);
-
-    std::string _modelPath;
+    WhisperCppTranscriptionOptions _options;  // fixed after construction
     whisper_context* _ctx = nullptr;
 
     va::audio::TranscriptionResultListener* _listener = nullptr;
@@ -105,6 +106,6 @@ private:
     std::vector<va::audio::TranscriptionResult::Word> _cachedPartialWords;
     size_t _lastInferSamples = 0;
     size_t _bufferSizeAtEndOfSpeech = 0;
-
-    InferenceConfig _inferenceConfig;
 };
+
+} // namespace va::thirdparty

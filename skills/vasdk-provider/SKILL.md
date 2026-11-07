@@ -16,7 +16,7 @@ A provider is the swappable engine behind one pipeline stage. It implements one 
 5. Full names, no abbreviations. Logs through `spdlog` with a `[<Name>]` prefix; never log what the user said at `info` (see `VASDK/include/VASDK/Masking.h`).
 6. Async results go out through the stage's listener from your own thread; `stop*()` joins cleanly; no blocking inside callbacks.
 
-Templates that already follow rules 1 and 2: `VASDK_3P_IMPL/CartesiappVoiceSynthesis/` and `VASDK_3P_IMPL/CartesiappTranscription/` (cloud), `VASDK_3P_IMPL/SmartTurnV3/`, `VASDK_3P_IMPL/PyannoteSpeaker/`, `VASDK_3P_IMPL/MiniLmNlu/`, `VASDK_3P_IMPL/GlinerNer/` (local ONNX). None takes an options struct yet (rule 3): write that part fresh.
+Every integration in `VASDK_3P_IMPL/` follows rules 1 to 3, so any of them is a template; the stage skill names the closest one. `VASDK_3P_IMPL/check_rules.py` checks rules 1 and 2 in `ctest` (`vasdk_thirdparty_rules`). Its one exemption is `VASDK_3P_IMPL/WhistleSTT/impl/NeedleEngine.cpp`: the needle engine it wraps is itself process-global, so the wrapper is too. Rule 3 in practice: the struct sits next to the class in its header; the catalog fills only the fields the config or the environment sets (`VASDK_3P_IMPL/ProviderCatalog/ProviderCatalog.cpp`), so every default lives in the struct. Settings that change while running (a TTS voice) stay methods; the rest leave no setter.
 
 ## Files to touch
 

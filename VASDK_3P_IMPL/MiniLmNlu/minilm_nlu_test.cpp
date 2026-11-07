@@ -43,7 +43,7 @@ int main(int argc, char** argv) {
         std::printf("minilm_nlu_test: skipped, no model in %s\n", modelDir.c_str());
         return 77;
     }
-    auto encoder = std::make_shared<thirdparty::MiniLmSentenceEncoder>(modelDir);
+    auto encoder = std::make_shared<thirdparty::MiniLmSentenceEncoder>(thirdparty::MiniLmSentenceEncoderOptions{modelDir});
     check(encoder->initialize(), "the model loads");
     check(encoder->tokenize("Hello, world!").size() == 6, "WordPiece: [CLS] hello , world ! [SEP]");
     const auto vector = encoder->encode("is the shop open on saturday");

@@ -35,7 +35,7 @@ int main(int argc, char** argv) {
     config.model = argv[1];
     config.maxTokens = 120;
     config.nCtx = 2048;
-    auto llm = std::make_shared<va::transport::LlamaCppCompletion>(config);
+    auto llm = std::make_shared<va::thirdparty::LlamaCppCompletion>(config);
     check(llm->loaded(), std::string("the model loads: ") + argv[1]);
     if (!llm->loaded()) return 1;
 

@@ -20,7 +20,11 @@
 #endif
 
 namespace va {
-namespace transport {
+namespace thirdparty {
+
+using transport::Frame;
+using transport::TextFrame;
+using transport::TransportState;
 
 // ---------------------------------------------------------------------------
 // Impl - holds all llama.cpp state; defined here to keep llama.h off the
@@ -884,5 +888,5 @@ std::string LlamaCppTransport::sendLLMRequest(const std::string& userMessage) {
     return "";
 }
 
-} // namespace transport
+} // namespace thirdparty
 } // namespace va

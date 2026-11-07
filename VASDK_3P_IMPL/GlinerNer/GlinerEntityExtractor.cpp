@@ -1,4 +1,5 @@
 #include "GlinerEntityExtractor.h"
+#include <utility>
 
 #include <nlohmann/json.hpp>
 #include <onnxruntime_cxx_api.h>
@@ -22,8 +23,8 @@ struct GlinerEntityExtractor::Model {
     size_t maxTokens = 384;
 };
 
-GlinerEntityExtractor::GlinerEntityExtractor(const std::string& modelDir, float threshold)
-    : _modelDir(modelDir), _threshold(threshold) {}
+GlinerEntityExtractor::GlinerEntityExtractor(GlinerEntityExtractorOptions options)
+    : _modelDir(std::move(options.modelDir)), _threshold(options.threshold) {}
 GlinerEntityExtractor::~GlinerEntityExtractor() = default;
 
 bool GlinerEntityExtractor::initialize() {

@@ -10,8 +10,7 @@
 #include <thread>
 #include <vector>
 
-namespace va {
-namespace miniaudio {
+namespace va::thirdparty {
 
 //  helpers (translation-unit local) 
 
@@ -30,9 +29,12 @@ ma_format toMaFormat(va::audio::AudioFormat fmt)
 
 //  Impl 
 
+namespace {
+constexpr size_t kFifoCapacity = 8 * 1024 * 1024; // 8 MB - accommodates ~45s of 44100/16-bit/mono TTS
+} // namespace
+
 struct MiniAudioSink::Impl
 {
-    static constexpr size_t kFifoCapacity = 8 * 1024 * 1024; // 8 MB - accommodates ~45s of 44100/16-bit/mono TTS
 
     ma_device           device{};
     bool                isReady       = false;
@@ -209,15 +211,15 @@ int MiniAudioSink::writeAudio(const char *buffer, int offset, int length)
         size_t toWrite = 0;
         {
             std::lock_guard<std::mutex> lock(_impl->fifoMutex);
-            size_t available = Impl::kFifoCapacity - _impl->fifoSize;
+            size_t available = kFifoCapacity - _impl->fifoSize;
             if (available > 0) {
                 toWrite = std::min(bytes - written, available);
                 const char *fromPtr = src + written;
-                size_t seg1 = std::min(toWrite, Impl::kFifoCapacity - _impl->fifoWritePos);
+                size_t seg1 = std::min(toWrite, kFifoCapacity - _impl->fifoWritePos);
                 std::memcpy(_impl->fifo.data() + _impl->fifoWritePos, fromPtr, seg1);
                 if (toWrite > seg1)
                     std::memcpy(_impl->fifo.data(), fromPtr + seg1, toWrite - seg1);
-                _impl->fifoWritePos = (_impl->fifoWritePos + toWrite) % Impl::kFifoCapacity;
+                _impl->fifoWritePos = (_impl->fifoWritePos + toWrite) % kFifoCapacity;
                 _impl->fifoSize += toWrite;
                 written += toWrite;
             }
@@ -292,7 +294,7 @@ void MiniAudioSink::fadeAndFlush()
     // then drop the remainder.  This prevents a hard click on barge-in.
     std::lock_guard<std::mutex> lock(_impl->fifoMutex);
 
-    const size_t kFifoCapacity = Impl::kFifoCapacity;
+    const size_t kFifoCapacity = kFifoCapacity;
     const int    bytesPerFrame = _impl->bytesPerFrame;
 
     // Number of fade samples: 50 ms worth, capped to what's actually buffered.
@@ -338,5 +340,4 @@ void MiniAudioSink::setPlaybackCallback(va::audio::GenericAudioSink::PlaybackCal
     _impl->playbackCallback = std::move(cb);
 }
 
-} // namespace miniaudio
-} // namespace va
+} // namespace va::thirdparty

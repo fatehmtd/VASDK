@@ -8,12 +8,9 @@
 #include <cstring>
 #include <spdlog/spdlog.h>
 
-EnergyZCRVAD::EnergyZCRVAD(int frameSizeMs, double energyThreshold, double zcrThreshold)
-    : frameSizeMs_(frameSizeMs),
-      _energyThreshold(energyThreshold),
-       zcrThreshold_(zcrThreshold)
-{
-}
+namespace va::thirdparty {
+
+EnergyZCRVAD::EnergyZCRVAD(EnergyZCRVADOptions options) : _options(options) {}
 
 std::vector<va::audio::VADProvider::VADResult> EnergyZCRVAD::detectVoiceActivity(const char *buffer, size_t offset, size_t length) const
 {
@@ -54,16 +51,16 @@ std::vector<va::audio::VADProvider::VADResult> EnergyZCRVAD::detectVoiceActivity
             return {};
     }
 
-    for (size_t i = 0; i < audioBuffer.size(); i += frameSizeSamples_)
+    for (size_t i = 0; i < audioBuffer.size(); i += _frameSizeSamples)
     {
-        size_t currentFrameEnd = std::min(i + frameSizeSamples_, audioBuffer.size());
+        size_t currentFrameEnd = std::min(i + _frameSizeSamples, audioBuffer.size());
         std::vector<float> currentFrame(audioBuffer.begin() + i, audioBuffer.begin() + currentFrameEnd);
 
         // Zero-pad the final partial frame to a full frame size rather than discarding it,
         // so speech at the tail of a buffer is not missed.
-        if (currentFrame.size() < frameSizeSamples_)
+        if (currentFrame.size() < _frameSizeSamples)
         {
-            currentFrame.resize(frameSizeSamples_, 0.0f);
+            currentFrame.resize(_frameSizeSamples, 0.0f);
         }
         if (currentFrame.empty())
         {
@@ -75,9 +72,9 @@ std::vector<va::audio::VADProvider::VADResult> EnergyZCRVAD::detectVoiceActivity
 
         // Voice if energy is above threshold and ZCR stays below the upper bound,
         // which rejects high-frequency noise that would otherwise pass on energy alone.
-        if (frameEnergy > _energyThreshold)
+        if (frameEnergy > _options.energyThreshold)
         {
-            if (frameZCR < zcrThreshold_)
+            if (frameZCR < _options.zeroCrossingRateThreshold)
             {
                 return {
                     {i, currentFrame.size()}
@@ -107,12 +104,14 @@ void EnergyZCRVAD::release()
 bool EnergyZCRVAD::initialize(const va::audio::AudioConfig &audioConfig, int bufferSize)
 {
     _audioConfig = audioConfig;
-    frameSizeSamples_ = static_cast<int>((frameSizeMs_ * audioConfig.sampleRate) / 1000.0);
-    spdlog::info("Frame size in samples: {}", frameSizeSamples_);
-    if (frameSizeSamples_ <= 0)
+    _frameSizeSamples = static_cast<int>((_options.frameSizeMs * audioConfig.sampleRate) / 1000.0);
+    spdlog::debug("EnergyZCRVAD: {} samples per frame", _frameSizeSamples);
+    if (_frameSizeSamples <= 0)
     {
-        std::cerr << "Error: Calculated frame size in samples is zero or negative. Adjust frameSizeMs or sampleRate." << std::endl;
-        frameSizeSamples_ = 1; // Prevent division by zero
+        spdlog::warn("EnergyZCRVAD: a {} ms frame at {} Hz has no samples; using 1", _options.frameSizeMs, audioConfig.sampleRate);
+        _frameSizeSamples = 1; // Prevent division by zero
     }
     return true;
 }
+
+} // namespace va::thirdparty

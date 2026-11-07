@@ -13,6 +13,9 @@
 #include <cstring>
 #include <filesystem>
 #include <stdexcept>
+#include <utility>
+
+namespace va::thirdparty {
 
 namespace {
 
@@ -32,24 +35,24 @@ std::string join(const std::vector<std::string>& items, const char* sep) {
 // thread waits in waitForStream().
 // ---------------------------------------------------------------------------
 
-class PhononVoiceSynthesisProvider::StreamListener : public gradium::tts::SynthesisListener {
+class PhononVoiceSynthesisProvider::StreamListener : public va::thirdparty::phonon::SynthesisListener {
 public:
     explicit StreamListener(PhononVoiceSynthesisProvider* owner) : _owner(owner) {}
 
-    void onStart(gradium::tts::StreamId, const std::string&) override {}
+    void onStart(va::thirdparty::phonon::StreamId, const std::string&) override {}
 
-    void onAudioChunk(gradium::tts::StreamId, std::vector<float> chunk) override {
+    void onAudioChunk(va::thirdparty::phonon::StreamId, std::vector<float> chunk) override {
         if (_owner->cancelled()) return;
         _owner->onModelAudio(chunk.data(), chunk.size());
     }
 
-    void onFinish(gradium::tts::StreamId, const std::vector<float>&,
-                  const gradium::tts::SynthesisStats& stats) override {
+    void onFinish(va::thirdparty::phonon::StreamId, const std::vector<float>&,
+                  const va::thirdparty::phonon::SynthesisStats& stats) override {
         spdlog::debug("[PhononTTS] {:.2f} s of audio in {:.1f} ms (RTF {:.3f})",
             stats.duration_sec, stats.synthesis_ms, stats.rtf);
     }
 
-    void onError(gradium::tts::StreamId, const std::string& message) override {
+    void onError(va::thirdparty::phonon::StreamId, const std::string& message) override {
         failed = true;
         error  = message;
     }
@@ -65,14 +68,19 @@ private:
 // Constructor / Destructor
 // ---------------------------------------------------------------------------
 
-PhononVoiceSynthesisProvider::PhononVoiceSynthesisProvider(
-    const std::string& modelDir, const std::string& voiceName, const std::string& language)
+PhononVoiceSynthesisProvider::PhononVoiceSynthesisProvider(PhononVoiceSynthesisOptions options)
     : QueuedVoiceSynthesisProvider("PhononTTS", Delivery::Direct),
-      _modelDir(modelDir), _voice(voiceName),
-      _ruleBits(gradium::tts::text::Rules::defaults().bits)
+      _modelDir(std::move(options.modelDir)), _voice(std::move(options.voice)),
+      _ruleBits(phonon::text::Rules::defaults().bits)
 {
-    if (!setLanguage(language))
-        spdlog::warn("[PhononTTS] Unknown language '{}'; normalizing as English.", language);
+    if (!setLanguage(options.language))
+        spdlog::warn("[PhononTTS] Unknown language '{}'; normalizing as English.", options.language);
+    setNormalizationRules(options.normalizationRules);  // logs and keeps the defaults when it doesn't parse
+    setTemperature(options.temperature);
+    _durationDelta.store(options.durationDelta);
+    setStreamChunkFrames(options.streamChunkFrames);
+    setMaxTokensPerChunk(options.maxTokensPerChunk);
+    setSilenceDuration(options.silenceDurationSeconds);
 }
 
 PhononVoiceSynthesisProvider::~PhononVoiceSynthesisProvider() {
@@ -108,13 +116,13 @@ bool PhononVoiceSynthesisProvider::loadEngine() {
         }
 
         const std::filesystem::path dir(_modelDir);
-        gradium::tts::Paths paths;
+        va::thirdparty::phonon::Paths paths;
         paths.model_gguf  = (dir / "model.q8.gguf").string();
         paths.config_json = (dir / "config.json").string();
         paths.tokenizer   = (dir / "tokenizer.model").string();
         paths.voice       = voicePath(voice);
         try {
-            _engine = std::make_unique<gradium::tts::PhononTTS>(paths);
+            _engine = std::make_unique<va::thirdparty::phonon::PhononTTS>(paths);
         }
         catch (const std::exception& e) {
             spdlog::error("[PhononTTS] Failed to load model from '{}': {}", _modelDir, e.what());
@@ -164,7 +172,7 @@ bool PhononVoiceSynthesisProvider::setLanguage(const std::string& language) {
     for (char c : language)
         if (!std::isspace(static_cast<unsigned char>(c))) code += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     if (code == "off") code = "none";
-    if (code != "none" && !gradium::tts::text::parseLang(code)) return false;
+    if (code != "none" && !va::thirdparty::phonon::text::parseLang(code)) return false;
     std::lock_guard<std::mutex> lock(_settingsMutex);
     _language = code;
     return true;
@@ -176,7 +184,7 @@ std::string PhononVoiceSynthesisProvider::getLanguage() const {
 }
 
 bool PhononVoiceSynthesisProvider::setNormalizationRules(const std::string& rules) {
-    const auto parsed = gradium::tts::text::Rules::parse(rules);
+    const auto parsed = va::thirdparty::phonon::text::Rules::parse(rules);
     if (!parsed) {
         spdlog::warn("[PhononTTS] Unknown normalization rules '{}'; keeping the current set.", rules);
         return false;
@@ -268,7 +276,7 @@ bool PhononVoiceSynthesisProvider::synthesizeOne(const std::string& text) {
     applyPendingVoice();
     _resampler.reset(modelSampleRate(), audioConfig().sampleRate);
 
-    gradium::tts::SynthOpts opts;
+    va::thirdparty::phonon::SynthOpts opts;
     opts.temperature         = _temperature.load();
     opts.duration_delta      = _durationDelta.load();
     opts.stream_chunk_frames = _streamChunkFrames.load();
@@ -285,7 +293,7 @@ bool PhononVoiceSynthesisProvider::synthesizeOne(const std::string& text) {
         language = _language;
         ruleBits = _ruleBits;
     }
-    namespace ptext = gradium::tts::text;
+    namespace ptext = va::thirdparty::phonon::text;
     std::vector<ptext::Chunk> chunks;
     try {
         chunks = ptext::planChunks(_engine->tokenizer(), text, ptext::parseLang(language),
@@ -342,3 +350,5 @@ void PhononVoiceSynthesisProvider::flushResampler() {
     _resampler.flush(_resampleBuf);
     deliverAudio(_resampleBuf.data(), _resampleBuf.size());
 }
+
+} // namespace va::thirdparty

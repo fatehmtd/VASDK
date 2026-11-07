@@ -14,6 +14,8 @@
 #include <string>
 #include <vector>
 
+namespace va::thirdparty {
+
 // ---------------------------------------------------------------------------
 // Helpers (file-local, defined inline so multiple TUs can include this header)
 // ---------------------------------------------------------------------------
@@ -211,3 +213,5 @@ private:
     std::unique_ptr<MoonshineStreamingModel> _model;
     va::metrics::TimingObserverInterface*    _timingObserver = nullptr;
 };
+
+} // namespace va::thirdparty

@@ -4,13 +4,16 @@
 
 #include <chrono>
 #include <thread>
+#include <utility>
 #include <vector>
+
+namespace va::thirdparty {
 
 //  Lifecycle 
 
-FileTransport::FileTransport(const std::string& filePath)
-    : filePath_(filePath)
-    , _audioSource(std::make_shared<FFmpegAudioSource>(filePath))
+FileTransport::FileTransport(FileTransportOptions options)
+    : filePath_(options.filePath)
+    , _audioSource(std::make_shared<FFmpegAudioSource>(FFmpegAudioSourceOptions{std::move(options.filePath)}))
 {
     // Default: 16 kHz, mono, 16-bit PCM (matches LocalTransport defaults).
     audioConfig_.sampleRate = 16000;
@@ -185,3 +188,5 @@ FileTransport::bufferToFrame(const char* buffer, uint32_t numSamples) {
     _absoluteOffset += numSamples;
     return frame;
 }
+
+} // namespace va::thirdparty

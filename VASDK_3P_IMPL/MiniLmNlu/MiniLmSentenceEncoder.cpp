@@ -1,4 +1,5 @@
 #include "MiniLmSentenceEncoder.h"
+#include <utility>
 
 #include <onnxruntime_cxx_api.h>
 #include <spdlog/spdlog.h>
@@ -18,7 +19,8 @@ struct MiniLmSentenceEncoder::Model {
     std::string outputName;
 };
 
-MiniLmSentenceEncoder::MiniLmSentenceEncoder(const std::string& modelDir) : _modelDir(modelDir) {}
+MiniLmSentenceEncoder::MiniLmSentenceEncoder(MiniLmSentenceEncoderOptions options)
+    : _modelDir(std::move(options.modelDir)) {}
 MiniLmSentenceEncoder::~MiniLmSentenceEncoder() = default;
 
 bool MiniLmSentenceEncoder::initialize() {

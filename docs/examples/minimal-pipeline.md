@@ -29,20 +29,28 @@ Each processor wraps a provider. For a fully local stack:
 // Shared audio ring buffer: AudioFrames reference ranges in it instead of carrying samples
 auto ringBuffer = std::make_shared<va::AudioRingBuffer>(16000 * 90, sizeof(int16_t));   // 90 s of 16 kHz 16-bit samples
 
+// Every integration takes an options struct whose fields have defaults: set what you need
+using namespace va::thirdparty;
+
 // VAD: Silero ONNX model
-auto vadProvider  = std::make_shared<SileroVAD>(modelsPath + "/silero_vad.onnx");
+SileroVADOptions vadOptions;
+vadOptions.modelPath = modelsPath + "/silero_vad.onnx";
+auto vadProvider  = std::make_shared<SileroVAD>(vadOptions);
 auto vadProcessor = std::make_shared<va::pipeline::VADFrameProcessor>(vadProvider);
 vadProcessor->setRingBuffer(ringBuffer);
 
 // STT: Parakeet ONNX model
-auto sttProvider   = std::make_shared<ParakeetTranscriptionProvider>(modelsPath + "/parakeet");
+ParakeetTranscriptionOptions sttOptions;
+sttOptions.modelDir = modelsPath + "/parakeet";
+auto sttProvider   = std::make_shared<ParakeetTranscriptionProvider>(sttOptions);
 auto transcription = std::make_shared<va::pipeline::TranscriptionFrameProcessor>(sttProvider);
 transcription->setRingBuffer(ringBuffer);
 
 // TTS: Supertonic ONNX model
-auto ttsProvider = std::make_shared<SupertonicVoiceSynthesisProvider>(
-    modelsPath + "/supertonic3/onnx",
-    modelsPath + "/supertonic3/voice_styles/M1.json");
+SupertonicVoiceSynthesisOptions ttsOptions;
+ttsOptions.onnxDir        = modelsPath + "/supertonic3/onnx";
+ttsOptions.voiceStylePath = modelsPath + "/supertonic3/voice_styles/M1.json";
+auto ttsProvider = std::make_shared<SupertonicVoiceSynthesisProvider>(ttsOptions);
 auto tts = std::make_shared<va::pipeline::TTSFrameProcessor>(ttsProvider);
 ```
 

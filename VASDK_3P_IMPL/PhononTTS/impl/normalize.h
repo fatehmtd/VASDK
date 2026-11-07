@@ -15,7 +15,7 @@
 #include <string_view>
 #include <vector>
 
-namespace gradium::tts::text {
+namespace va::thirdparty::phonon::text {
 
     // Language driving the spoken forms. There is deliberately no default: normalizing German
     // as English speaks "@" as "at" rather than "ät", so guessing is worse than not normalizing.
@@ -89,4 +89,4 @@ namespace gradium::tts::text {
         std::vector<std::string_view> splitWhitespace(std::string_view s);
     } // namespace detail
 
-} // namespace gradium::tts::text
+} // namespace va::thirdparty::phonon::text

@@ -22,6 +22,8 @@
 #include <nnapi_provider_factory.h>
 #endif
 
+namespace va::thirdparty {
+
 // timestamp_t class: stores the start and end (in samples) of a speech segment.
 class timestamp_t {
 public:
@@ -311,3 +313,5 @@ public:
         init_onnx_model(ModelPath);
     }
 };
+
+} // namespace va::thirdparty

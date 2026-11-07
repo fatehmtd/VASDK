@@ -4,32 +4,31 @@
 #include <spdlog/spdlog.h>
 #include <algorithm>
 #include <fstream>
+#include <utility>
 
-SileroVAD::SileroVAD(const std::string& modelPath, SileroVAD::SileroVADConfig sileroVadConfig) :
-    _modelPath(modelPath),
-    _sileroVadConfig(sileroVadConfig)
-{
-}
+namespace va::thirdparty {
+
+SileroVAD::SileroVAD(SileroVADOptions options) : _options(std::move(options)) {}
 
 bool SileroVAD::initialize(const va::audio::AudioConfig& audioConfig, int bufferSize)
 {
     try
     {
         // Check if model file exists
-        std::ifstream file(_modelPath);
+        std::ifstream file(_options.modelPath);
         if (!file.good())
         {
-            spdlog::error("Cannot find model file: {}", _modelPath);
+            spdlog::error("Cannot find model file: {}", _options.modelPath);
             return false;
         }
-        spdlog::debug("Model file found: {}", _modelPath);
-        _vadIterator = std::make_unique<VadIterator>(_modelPath,
+        spdlog::debug("Model file found: {}", _options.modelPath);
+        _vadIterator = std::make_unique<VadIterator>(_options.modelPath,
             /* Sample_rate = */ audioConfig.sampleRate,
-            /* windows_frame_size = */ _sileroVadConfig.windows_frame_size,
-            /* Threshold = */ _sileroVadConfig.threshold,
-            /* min_silence_duration_ms = */ _sileroVadConfig.min_silence_duration_ms,
-            /* speech_pad_ms = */ _sileroVadConfig.speech_pad_ms,
-            /* min_speech_duration_ms = */ _sileroVadConfig.min_speech_duration_ms);
+            /* windows_frame_size = */ _options.windowFrameSizeMs,
+            /* Threshold = */ _options.threshold,
+            /* min_silence_duration_ms = */ _options.minSilenceDurationMs,
+            /* speech_pad_ms = */ _options.speechPadMs,
+            /* min_speech_duration_ms = */ _options.minSpeechDurationMs);
         _bufferSize = bufferSize;
         _audioConfig = audioConfig;
     }
@@ -134,3 +133,5 @@ SileroVAD::~SileroVAD()
 {
     release();
 }
+
+} // namespace va::thirdparty

@@ -3,8 +3,15 @@
 #include <memory>
 #include <chrono>
 
-namespace va {
-namespace miniaudio {
+namespace va::thirdparty {
+
+/** Settings of MiniAudioSource; every field has a default. */
+struct MiniAudioSourceOptions {
+    /** Captured audio the source can hold before the oldest is overwritten, in seconds of the
+     *  configured format. Several seconds absorb a stalled reader. */
+    int bufferSeconds = 30;
+};
+
 
 /**
  * @brief The MiniAudioSource class
@@ -17,13 +24,7 @@ namespace miniaudio {
 class MiniAudioSource : public va::audio::GenericAudioSource
 {
 public:
-    /**
-     * @brief Construct a new MiniAudioSource object
-     *
-     * @param internalBufferCapacity  Size of the internal ring buffer in bytes.
-     *                                Should be large enough to hold several seconds of audio to avoid overflow under load.
-     */
-    MiniAudioSource(size_t internalBufferCapacity);
+    explicit MiniAudioSource(MiniAudioSourceOptions options = {});
     ~MiniAudioSource() override;
 
     // GenericAudioSource interface
@@ -54,5 +55,4 @@ private:
     std::unique_ptr<Impl> _impl;
 };
 
-} // namespace miniaudio
-} // namespace va
+} // namespace va::thirdparty

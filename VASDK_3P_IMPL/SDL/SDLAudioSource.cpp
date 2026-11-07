@@ -1,6 +1,8 @@
 #include "SDLAudioSource.h"
 #include <limits>
 
+namespace va::thirdparty {
+
 SDLAudioSource::SDLAudioSource() : _audioDeviceId(0) {}
 
 bool SDLAudioSource::isAudioSourceReady() const { return _isReady; }
@@ -180,3 +182,5 @@ void SDLAudioSource::stopAudioSource()
 }
 
 bool SDLAudioSource::isAudioSourceStarted() const { return _isStarted; }
+
+} // namespace va::thirdparty

@@ -159,14 +159,17 @@ if(VASDK_BUILD_TESTS)
 endif()
 
 #  The agent skills (skills/, AGENTS.md): every path, link, heading and provider id they name
-#  still exists, so a rename fails here instead of leaving a skill stale
+#  still exists, so a rename fails here instead of leaving a skill stale. And the third-party code
+#  rules (va::thirdparty, no static variables) on every integration in VASDK_3P_IMPL
 
 if(VASDK_BUILD_TESTS)
     find_package(Python3 COMPONENTS Interpreter QUIET)
     if(Python3_Interpreter_FOUND)
         add_test(NAME vasdk_skills COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/skills/check_skills.py)
         add_test(NAME vasdk_skills_self_test COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/skills/check_skills.py --self-test)
+        add_test(NAME vasdk_thirdparty_rules COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/VASDK_3P_IMPL/check_rules.py)
+        add_test(NAME vasdk_thirdparty_rules_self_test COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/VASDK_3P_IMPL/check_rules.py --self-test)
     else()
-        message(WARNING "Python 3 not found: the vasdk_skills tests are not registered")
+        message(WARNING "Python 3 not found: the vasdk_skills and vasdk_thirdparty_rules tests are not registered")
     endif()
 endif()

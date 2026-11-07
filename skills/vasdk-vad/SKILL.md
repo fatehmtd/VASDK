@@ -18,7 +18,7 @@ description: Voice activity detection in VASDK - choosing and tuning a VAD (Sile
 | Id | Folder | Kind | Options | Notes |
 | --- | --- | --- | --- | --- |
 | `silero` | `VASDK_3P_IMPL/SileroVAD/` | local ONNX, on by default | `SileroOptions`: `model_path`, `threshold` (0.75) | model from `VASDK_3P_IMPL/cmake/DownloadSileroVADModel.cmake` |
-| (code only) | `VASDK_3P_IMPL/EnergyZCRVAD/` | energy + zero-crossing, no model | constructor | embedded targets; not in the catalog |
+| (code only) | `VASDK_3P_IMPL/EnergyZCRVAD/` | energy + zero-crossing, no model | `EnergyZCRVADOptions` | embedded targets; not in the catalog |
 
 ## Using it
 
@@ -38,7 +38,7 @@ A lower `threshold` catches quiet speakers, and more noise. Timing (how long a p
 ## Adding one
 
 1. The steps, files and code rules in [vasdk-provider](../vasdk-provider/SKILL.md). Interface: `va::audio::VADProvider`. Options message: a new `<Name>Options`, or reuse `SileroOptions` if it is exactly `model_path` + `threshold`.
-2. Template: no VAD follows the third-party code rules yet. Copy the structure of `VASDK_3P_IMPL/SileroVAD/` (ONNX session, model download) or `VASDK_3P_IMPL/EnergyZCRVAD/` (no model), and write it in `va::thirdparty`, with an options struct and no statics.
+2. Template: `VASDK_3P_IMPL/SileroVAD/` (ONNX session, model download, `SileroVADOptions`) or `VASDK_3P_IMPL/EnergyZCRVAD/` (no model, `EnergyZCRVADOptions`, with a model-free unit test on synthetic audio: `VASDK_3P_IMPL/EnergyZCRVAD/tests/energy_zcr_vad_test.cpp`).
 3. Register it with `registry.add<va::audio::VADProvider, providers::<Name>Options>("<id>", ...)`.
 
 ## Tests

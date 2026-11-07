@@ -10,20 +10,26 @@
 namespace va {
     namespace thirdparty {
 
+        /** Settings of PyannoteEmbeddingProvider. */
+        struct PyannoteEmbeddingOptions {
+            /** The embedding model, ONNX (VASDK_3P_IMPL/cmake/DownloadPyannoteEmbeddingModel.cmake). */
+            std::string modelPath;
+        };
+
         /**
          * @brief Speaker embedding provider running the embedding model of
          *        pyannote/speaker-diarization-3.1 (pyannote/wespeaker-voxceleb-resnet34-LM)
          *        exported to ONNX: 80-bin Kaldi fbank in, 256-dim voice print out.
          *
          * Usage:
-         *   auto provider = std::make_shared<PyannoteEmbeddingProvider>(modelPath);
+         *   auto provider = std::make_shared<PyannoteEmbeddingProvider>(PyannoteEmbeddingOptions{modelPath});
          *   provider->initialize(audioConfig);
          *   auto speakerProc = std::make_shared<SpeakerIdentificationProcessor>(provider);
          *   speakerProc->setRingBuffer(ringBuffer);
          */
         class VASDK_PYANNOTE_SPEAKER_EXPORT PyannoteEmbeddingProvider : public va::audio::SpeakerEmbeddingProvider {
         public:
-            explicit PyannoteEmbeddingProvider(const std::string& modelPath);
+            explicit PyannoteEmbeddingProvider(PyannoteEmbeddingOptions options);
             ~PyannoteEmbeddingProvider() override;
 
             /**

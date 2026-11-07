@@ -1,4 +1,5 @@
 #include "FishaudioppTranscriptionProvider.h"
+#include <utility>
 
 #include <fishaudiopp/transport/curl_http_transport.hpp>
 #include <spdlog/spdlog.h>
@@ -123,13 +124,10 @@ std::shared_ptr<fishaudiopp::transport::HttpTransportInterface> makeHttpTranspor
 namespace va {
 namespace thirdparty {
 
-FishaudioppTranscriptionProvider::FishaudioppTranscriptionProvider(
-    const std::string& apiKey,
-    const std::string& language,
-    const std::string& caFilePath)
-    : _apiKey(apiKey),
-      _language(language),
-      _caFilePath(caFilePath)
+FishaudioppTranscriptionProvider::FishaudioppTranscriptionProvider(FishaudioppTranscriptionOptions options)
+    : _apiKey(std::move(options.apiKey)),
+      _language(std::move(options.language)),
+      _caFilePath(std::move(options.caBundlePath))
 {
 }
 

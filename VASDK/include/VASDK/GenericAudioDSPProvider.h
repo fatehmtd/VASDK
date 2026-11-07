@@ -21,7 +21,7 @@ namespace audio {
  *
  * Usage:
  * @code
- *   auto provider = std::make_shared<RNNoiseDSPProvider>();
+ *   auto provider = std::make_shared<va::thirdparty::RNNoiseDSPProvider>();
  *   provider->initialize(audioConfig);
  *
  *   auto dspProcessor = std::make_shared<va::pipeline::AudioDSPProcessor>(provider);

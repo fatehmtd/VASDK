@@ -11,17 +11,25 @@
 namespace va {
 namespace thirdparty {
 
+/** Settings of CartesiappTranscriptionProvider; every field but the API key has a default. */
+struct CartesiappTranscriptionOptions {
+    /** API key of the service; required (the catalog falls back to the service's *_API_KEY variable). */
+    std::string apiKey;
+    /** Model to use. */
+    std::string model = cartesiapp::stt::models::INK_WHISPER;
+    /** Language code; empty lets the service detect it or use its default. */
+    std::string language;
+    /** PEM file of certificates to trust; empty uses the TLS library's own (Android's mbedTLS can't read the system store). */
+    std::string caBundlePath;
+};
+
 /**
  * @brief Real-time transcription provider backed by the Cartesia STT WebSocket API.
  */
 class CartesiappTranscriptionProvider : public va::audio::GenericTranscriptionProvider
 {
 public:
-    explicit CartesiappTranscriptionProvider(
-        const std::string& apiKey,
-        const std::string& model = cartesiapp::stt::models::INK_WHISPER,
-        const std::string& language = {},
-        const std::string& caFilePath = {});
+    explicit CartesiappTranscriptionProvider(CartesiappTranscriptionOptions options);
     ~CartesiappTranscriptionProvider() override;
 
     bool initializeTranscriptionProvider() override;

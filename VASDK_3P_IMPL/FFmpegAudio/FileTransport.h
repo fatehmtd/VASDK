@@ -13,6 +13,14 @@
 #include <string>
 #include <thread>
 
+namespace va::thirdparty {
+
+/** Settings of FileTransport. */
+struct FileTransportOptions {
+    /** Audio file in any container and codec FFmpeg reads. */
+    std::string filePath;
+};
+
 /**
  * @brief Transport that feeds the pipeline with audio decoded from a file.
  *
@@ -37,7 +45,7 @@
  * @code
  *   va::audio::AudioConfig cfg{16000, va::audio::AudioFormat::SHORT, 1};
  *
- *   auto transport = std::make_shared<FileTransport>("/path/to/clip.flac");
+ *   auto transport = std::make_shared<FileTransport>(FileTransportOptions{"/path/to/clip.flac"});
  *   transport->setAudioConfig(cfg);
  *   transport->setRingBuffer(myRingBuffer);  // optional
  *   transport->onEndOfFile = [transport]() mutable { transport->stop(); };
@@ -47,7 +55,7 @@
  */
 class VASDK_FFMPEG_AUDIO_EXPORT FileTransport : public va::transport::BaseTransport {
 public:
-    explicit FileTransport(const std::string& filePath);
+    explicit FileTransport(FileTransportOptions options);
     ~FileTransport() override;
 
     //  Transport interface 
@@ -149,3 +157,5 @@ private:
 
     std::shared_ptr<va::AudioRingBuffer> _ringBuffer;
 };
+
+} // namespace va::thirdparty

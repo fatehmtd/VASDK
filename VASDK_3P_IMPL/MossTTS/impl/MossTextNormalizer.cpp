@@ -7,6 +7,8 @@
 #include <string>
 #include <vector>
 
+namespace va::thirdparty {
+
 namespace moss::text {
 
 using U = std::u32string;
@@ -1723,3 +1725,5 @@ std::string normalize(const std::string& text, bool englishVoice) {
 }
 
 } // namespace moss::text
+
+} // namespace va::thirdparty

@@ -1,4 +1,5 @@
 #include "SonioxppVoiceSynthesisProvider.h"
+#include <utility>
 
 #include <cppcodec/base64_rfc4648.hpp>
 #include <sonioxpp/api_constants.hpp>
@@ -19,15 +20,11 @@ std::vector<uint8_t> decodeBase64(const std::string& input)
 namespace va {
 namespace thirdparty {
 
-SonioxppVoiceSynthesisProvider::SonioxppVoiceSynthesisProvider(
-    const std::string& apiKey,
-    const std::string& language,
-    const std::string& voice,
-    const std::string& caFilePath)
-    : _apiKey(apiKey),
-      _language(language),
-      _voice(voice),
-      _caFilePath(caFilePath)
+SonioxppVoiceSynthesisProvider::SonioxppVoiceSynthesisProvider(SonioxppVoiceSynthesisOptions options)
+    : _apiKey(std::move(options.apiKey)),
+      _language(std::move(options.language)),
+      _voice(std::move(options.voice)),
+      _caFilePath(std::move(options.caBundlePath))
 {
 }
 

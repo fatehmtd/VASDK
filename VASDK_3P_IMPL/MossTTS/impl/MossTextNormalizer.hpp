@@ -19,6 +19,8 @@
 
 #include <string>
 
+namespace va::thirdparty {
+
 namespace moss::text {
 
 enum class Lang { En, Zh, Ja };
@@ -49,3 +51,5 @@ std::string    toUtf8(const std::u32string& s);
 } // namespace moss::text
 
 #endif // MOSS_TEXT_NORMALIZER_HPP
+
+} // namespace va::thirdparty

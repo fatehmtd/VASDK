@@ -6,6 +6,8 @@
 #include <vector>
 #include <mutex>
 
+namespace va::thirdparty {
+
 /**
  * @brief PIMPL wrapper around supertonic's ONNX-based TTS engine.
  *
@@ -81,10 +83,14 @@ private:
     SynthesisParams params_;
 
     Ort::Env env_{ORT_LOGGING_LEVEL_WARNING, "SupertonicTTS"};
+    OnnxModels models_;                               // owned here; tts_ holds raw pointers into them
+    std::unique_ptr<UnicodeProcessor> textProcessor_;  // likewise
     std::unique_ptr<TextToSpeech> tts_;
     std::unique_ptr<Style> style_;
     Ort::MemoryInfo memoryInfo_{Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault)};
     mutable std::mutex mutex_; // guard inference and config (ONNX sessions are not thread-safe)
 };
+
+} // namespace va::thirdparty
 
 #endif // SUPERTONIC_INFERENCE_IMPL_HPP

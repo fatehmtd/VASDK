@@ -9,6 +9,32 @@
 #include <thread>
 #include <vector>
 
+namespace va::thirdparty {
+
+/** Settings of WhistleTranscriptionProvider; every field but the model path has a default. */
+struct WhistleTranscriptionOptions {
+    /** Directory holding whistle.cact, or the path of a .cact file (e.g. a fine-tuned build from
+     *  `needle whistle build`). DownloadWhistleSTT.cmake fills the directory. */
+    std::string modelPath;
+    /** Explicit path of the engine library (desktop only). Empty: next to the model, then the
+     *  system search path. */
+    std::string enginePath;
+    /** Silence after the last audio that ends the utterance when no end of speech arrives. */
+    int idleTimeoutMs = 550;
+    /** Time between two partial results. */
+    int partialIntervalMs = 250;
+    /** New audio needed before another partial, in samples (4000: 250 ms at 16 kHz). */
+    size_t minNewSamplesForPartial = 4000;
+    /** New audio needed before the final pass re-runs, in samples (1600: 100 ms at 16 kHz). */
+    size_t minNewSamplesForFinal = 1600;
+    /** "en", "de", "fr", "es", "it", "nl" or "pl"; empty or "auto" detects per utterance. */
+    std::string language;
+    /** Names, product words and jargon to favour (keyword biasing). */
+    std::vector<std::string> keywords;
+    /** Word timings and probabilities; also what the result confidence is averaged from. */
+    bool wordTimestamps = true;
+};
+
 /**
  * @brief WhistleTranscriptionProvider
  * Implements GenericTranscriptionProvider with Cactus Compute's Whistle model for local,
@@ -23,21 +49,16 @@
  * The engine holds one speech model per process and is not thread-safe: all instances
  * share it and their inference calls are serialised.
  *
- * Requirements:
- *  - Audio must be 16 kHz mono. Configure the pipeline accordingly.
- *  - modelPath is a directory holding whistle.cact, or the path of a .cact file
- *    (e.g. a fine-tuned build from `needle whistle build`).
+ * Audio must be 16 kHz mono.
+ *
+ *   WhistleTranscriptionOptions options;
+ *   options.modelPath = modelsDir + "/whistle";
+ *   auto stt = std::make_shared<WhistleTranscriptionProvider>(options);
  */
 class VASDK_WHISTLE_STT_EXPORT WhistleTranscriptionProvider : public va::audio::GenericTranscriptionProvider
 {
 public:
-    /**
-     * @param modelPath  Directory holding whistle.cact, or a .cact file path.
-     * @param enginePath Optional explicit path of the engine library (desktop only). When
-     *                   empty, the library is looked up next to the model, then on the
-     *                   system search path.
-     */
-    explicit WhistleTranscriptionProvider(const std::string& modelPath, const std::string& enginePath = {});
+    explicit WhistleTranscriptionProvider(WhistleTranscriptionOptions options);
     ~WhistleTranscriptionProvider() override;
 
     bool initializeTranscriptionProvider() override;
@@ -59,33 +80,12 @@ public:
     /// The words the next answer may hold (an agent's question): favoured with the config's keywords.
     void setContextHints(const std::vector<std::string>& phrases) override;
 
-    /**
-     * @brief InferenceConfig
-     * Tunable parameters for the inference loop and the model.
-     */
-    struct InferenceConfig {
-        int idleTimeoutMs       = 500;
-        int partialIntervalMs   = 300;
-        size_t minNewSamplesForPartial = 4800;  // ~300 ms @ 16 kHz
-        size_t minNewSamplesForFinal   = 1600;  // ~100 ms @ 16 kHz
-        // "en", "de", "fr", "es", "it", "nl" or "pl"; empty or "auto" detects per utterance.
-        std::string language;
-        // Names, product words and jargon to favour (keyword biasing).
-        std::vector<std::string> keywords;
-        // Word timings and probabilities; also what the result confidence is averaged from.
-        bool wordTimestamps = true;
-    };
-
-    void setInferenceConfig(const InferenceConfig& config);
-    InferenceConfig getInferenceConfig() const;
-
 private:
     void inferenceLoop();
     void appendAudioAsFloat(const uint8_t* data, size_t size, std::vector<float>& out) const;
     va::audio::TranscriptionResult runInference(const std::vector<float>& audio);
 
-    std::string _modelPath;
-    std::string _enginePath;
+    WhistleTranscriptionOptions _options;  // modelPath resolved to the .cact file
     bool _initialized = false;
 
     va::audio::TranscriptionResultListener* _listener = nullptr;
@@ -106,6 +106,7 @@ private:
     va::audio::TranscriptionResult _cachedResult;
     size_t _lastInferSamples = 0;
 
-    InferenceConfig _inferenceConfig;
     std::vector<std::string> _hints;   // under _mtx: from setContextHints
 };
+
+} // namespace va::thirdparty

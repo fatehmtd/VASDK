@@ -1,4 +1,5 @@
 #include "PyannoteEmbeddingProvider.h"
+#include <utility>
 #include "KaldiFbank.h"
 #include <onnxruntime_cxx_api.h>
 #ifdef VASDK_USE_NNAPI
@@ -17,7 +18,8 @@ struct PyannoteEmbeddingProvider::Impl {
     KaldiFbank fbank;
 };
 
-PyannoteEmbeddingProvider::PyannoteEmbeddingProvider(const std::string& modelPath) : _modelPath(modelPath)
+PyannoteEmbeddingProvider::PyannoteEmbeddingProvider(PyannoteEmbeddingOptions options)
+    : _modelPath(std::move(options.modelPath))
 {
 }
 

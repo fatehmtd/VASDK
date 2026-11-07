@@ -117,20 +117,20 @@ Swapping a provider never touches processor or pipeline code. Read the reference
 
 | Stage | Local / offline | Cloud |
 | --- | --- | --- |
-| Audio I/O | MiniAudio, SDL3 | - |
-| VAD | Silero (ONNX), Energy+ZCR | - |
-| Turn detection | SmartTurn v3 | - |
-| Speaker identification | pyannote (WeSpeaker ResNet34-LM, ONNX) | - |
-| Noise suppression | RNNoise | - |
-| Intent understanding | all-MiniLM-L6-v2 sentence encoder (ONNX) | - |
-| Entity finding | GLiNER (ONNX, opt-in), a tagger on MiniLM's word vectors | the agent's LLM |
-| STT | Whistle, Parakeet, Moonshine, Whisper.cpp (WIP), Voz (Android) | Gladia (WIP), Gradium, Soniox, Deepgram, Cartesia, Fish Audio |
-| TTS | PocketTTS, Phonon, MOSS-TTS-Nano, Supertonic 3 | Gradium, Soniox, Deepgram, Cartesia, Fish Audio |
-| LLM | llama.cpp, or any OpenAI-compatible local server | OpenAI, Anthropic |
-| File / batch audio | FFmpeg-backed file transport | - |
-| WebRTC (browser calls) | libdatachannel + Opus | - |
+| Audio I/O | [MiniAudio](docs/providers/miniaudio.md), [SDL3](docs/providers/sdl.md) | - |
+| VAD | [Silero](docs/providers/silero.md) (ONNX), [Energy+ZCR](docs/providers/energy-zcr-vad.md) | - |
+| Turn detection | [SmartTurn v3](docs/providers/smartturn-v3.md) | - |
+| Speaker identification | [pyannote](docs/providers/pyannote.md) (WeSpeaker ResNet34-LM, ONNX) | - |
+| Noise suppression | [RNNoise](docs/providers/rnnoise.md) (not on Android) | - |
+| Intent understanding | [all-MiniLM-L6-v2](docs/providers/minilm.md) sentence encoder (ONNX) | - |
+| Entity finding | [GLiNER](docs/providers/gliner.md) (ONNX, opt-in), a tagger on MiniLM's word vectors | the agent's LLM |
+| STT | [Whistle](docs/providers/whistle.md), [Parakeet](docs/providers/parakeet.md), [Moonshine](docs/providers/moonshine.md), [Whisper.cpp](docs/providers/whispercpp.md) (WIP), [Voz](docs/providers/voz.md) (Android) | [Gladia](docs/providers/gladia.md) (WIP), [Gradium](docs/providers/gradium-stt.md), [Soniox](docs/providers/soniox-stt.md), [Deepgram](docs/providers/deepgram-stt.md), [Cartesia](docs/providers/cartesia-stt.md), [Fish Audio](docs/providers/fishaudio-stt.md) |
+| TTS | [PocketTTS](docs/providers/pocket.md), [Phonon](docs/providers/phonon.md), [MOSS-TTS-Nano](docs/providers/moss.md), [Supertonic 3](docs/providers/supertonic.md) | [Gradium](docs/providers/gradium-tts.md), [Soniox](docs/providers/soniox-tts.md), [Deepgram](docs/providers/deepgram-tts.md), [Cartesia](docs/providers/cartesia-tts.md), [Fish Audio](docs/providers/fishaudio-tts.md) |
+| LLM | [llama.cpp](docs/providers/llamacpp.md), or any OpenAI-compatible local server | OpenAI, Anthropic |
+| File / batch audio | [FFmpeg-backed file transport](docs/providers/ffmpeg.md) (not on Android) | - |
+| WebRTC (browser calls) | [libdatachannel + Opus](docs/providers/webrtc.md) | - |
 
-On by default: MiniAudio, Silero VAD, SmartTurn v3, pyannote, MiniLM, Whistle, PocketTTS, Phonon, RNNoise and VizAnim. The [provider catalog](docs/provider-catalog.md) covers how apps pick between them, each provider's options and models, and every source and license. To write one, follow the [provider checklist](docs/reference/providers.md#writing-a-new-provider-the-checklist).
+On by default: MiniAudio, Silero VAD, SmartTurn v3, pyannote, MiniLM, Whistle, PocketTTS, Phonon, RNNoise and VizAnim. Each name links to the provider's own page. The [provider catalog](docs/provider-catalog.md) covers how apps pick between them, each provider's options and models, and every source and license. To write one, follow the [provider checklist](docs/reference/providers.md#writing-a-new-provider-the-checklist).
 
 ## Documentation
 

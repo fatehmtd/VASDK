@@ -5,7 +5,31 @@
 #include <memory>
 #include <string>
 
+namespace va::thirdparty {
+
 class SupertonicInferenceImpl;
+
+/** Settings of SupertonicVoiceSynthesisProvider; every field but the two paths has a default. */
+struct SupertonicVoiceSynthesisOptions {
+    /** Folder with the ONNX models, tts.json and unicode_indexer.json: <supertonic3>/onnx
+     *  (VASDK_3P_IMPL/cmake/DownloadSupertonicModels.cmake). */
+    std::string onnxDir;
+    /** Voice style JSON, e.g. <supertonic3>/voice_styles/M1.json. */
+    std::string voiceStylePath;
+    /** Any of the 31 codes in the upstream helper.cpp AVAILABLE_LANGS, e.g. en, ko, ja, de, fr. */
+    std::string language = "en";
+    /** Diffusion steps: synthesis time grows about linearly with them. 5 is fast but rougher,
+     *  10 is a good balance for a voice assistant, 15+ adds little. */
+    int totalSteps = 10;
+    /** Speaking speed: 1.0 is natural, 1.05 is 5% faster. */
+    float speed = 1.05f;
+    /** Silence after each synthesized chunk; below about 0.1 s chunks join with hard cuts. */
+    float silenceDurationSeconds = 0.3f;
+    /** When above 0, each chunk is cut to sample_rate * predicted duration * (1 + trimMargin), removing
+     *  the vocoder's silent tail. Off by default: the duration predictor can underestimate and clip
+     *  the last phoneme. */
+    float trimMargin = 0.0f;
+};
 
 /**
  * @brief Voice synthesis provider backed by the Supertonic 3 local ONNX TTS engine.
@@ -15,14 +39,7 @@ class SupertonicInferenceImpl;
  */
 class SupertonicVoiceSynthesisProvider : public va::audio::QueuedVoiceSynthesisProvider {
 public:
-    /**
-     * @param modelDir   Path to directory with ONNX models (tts.json, unicode_indexer.json, *.onnx)
-     * @param stylePath  Path to a voice style JSON file (e.g. M1.json)
-     * @param lang       Language code, any of the 31 in helper.cpp AVAILABLE_LANGS, e.g. en, ko, ja, de, fr (default: "en")
-     */
-    SupertonicVoiceSynthesisProvider(const std::string& modelDir,
-                                     const std::string& stylePath,
-                                     const std::string& lang = "en");
+    explicit SupertonicVoiceSynthesisProvider(SupertonicVoiceSynthesisOptions options);
     ~SupertonicVoiceSynthesisProvider() override;
 
 private:
@@ -38,28 +55,8 @@ private:
     /// Normalize text for TTS: spell out numbers, expand abbreviations, etc.
     static std::string normalizeText(const std::string& text);
 
-public:
-    // --- Synthesis quality / timing knobs ---
-
-    /// Speaking speed multiplier (default 1.05). 1.0 = natural; higher = faster.
-    void  setSpeed(float speed);
-    float getSpeed() const;
-
-    /// Seconds of silence appended after each chunk to separate utterances cleanly (default 0.3).
-    void  setSilenceDuration(float seconds);
-    float getSilenceDuration() const;
-
-    /// Trim margin for vocoder output (default 0.0 = disabled).
-    /// When > 0, each chunk is trimmed to sample_rate * duration * (1 + margin).
-    /// Only enable if you need to remove the silent tail AND the duration predictor
-    /// is accurate enough on your voice style to avoid clipping the last phoneme.
-    void  setTrimMargin(float margin);
-    float getTrimMargin() const;
-
-    /// Number of diffusion sampling steps (default 10). Higher = better quality, slower synthesis.
-    void setTotalSteps(int steps);
-    int  getTotalSteps() const;
-
 };
+
+} // namespace va::thirdparty
 
 #endif // SUPERTONIC_VOICE_SYNTHESIS_PROVIDER_HPP

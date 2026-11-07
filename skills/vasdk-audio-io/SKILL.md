@@ -21,9 +21,9 @@ description: Audio in and out of VASDK - microphone sources and speaker sinks (M
 | --- | --- | --- |
 | MiniAudio | `VASDK_3P_IMPL/MiniAudio/` | mic + speaker, macOS/Linux/Windows, on by default |
 | SDL3 | `VASDK_3P_IMPL/SDL/` | mic + speaker |
-| FFmpeg | `VASDK_3P_IMPL/FFmpegAudio/` (`-DVASDK_BUILD_FFMPEG_AUDIO=ON`) | file source and a file transport for batch audio; turned off with a warning when FFmpeg isn't found |
+| FFmpeg | `VASDK_3P_IMPL/FFmpegAudio/` (`-DVASDK_BUILD_FFMPEG_AUDIO=ON`) | file source and a file transport for batch audio; turned off with a warning when FFmpeg isn't found, and on Android |
 | AAudio | `VASDK_ANDROID/app/src/main/cpp/audio_source/`, `VASDK_ANDROID/app/src/main/cpp/audio_sink/` | Android mic + speaker |
-| RNNoise | `VASDK_3P_IMPL/RNNoise/` | noise suppression DSP, on by default |
+| RNNoise | `VASDK_3P_IMPL/RNNoise/` | noise suppression DSP, on by default; off with a warning on Android |
 
 These are not in the provider catalog: an app constructs them and hands them to `LocalTransport` (see `VASDK_APP/main_pipeline.cpp`).
 
@@ -38,7 +38,7 @@ These are not in the provider catalog: an app constructs them and hands them to 
 ## Adding one
 
 1. Code rules from [vasdk-provider](../vasdk-provider/SKILL.md#code-rules): `va::thirdparty`, `<Name>Options` with defaults (device name, buffer size, latency), no statics, every platform or warn and document. Files: rows 1, 2, 9, 11-16 of its list; there is no catalog row until audio backends become selectable in the engine config.
-2. Templates: `VASDK_3P_IMPL/MiniAudio/` (source and sink) and `VASDK_3P_IMPL/RNNoise/` (DSP). Both predate the namespace rule (MiniAudio is in `va::miniaudio`, RNNoise global): copy the structure, not the namespace.
+2. Templates: `VASDK_3P_IMPL/MiniAudio/` (source and sink; `MiniAudioSourceOptions`) and `VASDK_3P_IMPL/RNNoise/` (DSP; `RNNoiseDSPOptions`).
 3. A backend for one platform only (as AAudio is for Android) states so on its page and in the README, with the CMake warning elsewhere.
 
 ## Tests

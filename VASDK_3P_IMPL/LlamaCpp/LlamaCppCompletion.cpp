@@ -10,7 +10,7 @@
 #include <vector>
 
 namespace va {
-namespace transport {
+namespace thirdparty {
 
 struct LlamaCppCompletion::Impl {
     llama_model* model = nullptr;
@@ -153,5 +153,5 @@ std::optional<std::string> LlamaCppCompletion::completeWithin(const std::vector<
     return answer;
 }
 
-} // namespace transport
+} // namespace thirdparty
 } // namespace va

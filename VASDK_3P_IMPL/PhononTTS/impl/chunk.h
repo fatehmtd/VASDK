@@ -18,7 +18,7 @@
 #include <string_view>
 #include <vector>
 
-namespace gradium::tts::text {
+namespace va::thirdparty::phonon::text {
 
     // The tokenizer the chunker measures text with: the checkpoint's SentencePiece model in
     // the engine, a mock one in the tests.
@@ -80,4 +80,4 @@ namespace gradium::tts::text {
                                   Rules rules, double frameRate, size_t maxTokens = kMaxTokensPerChunk,
                                   std::optional<size_t> fitTo = kMaxFitTokens);
 
-} // namespace gradium::tts::text
+} // namespace va::thirdparty::phonon::text

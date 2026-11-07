@@ -7,7 +7,7 @@
 #include <mutex>
 
 namespace va {
-namespace transport {
+namespace thirdparty {
 
 /**
  * @brief An agent's LLM run in-process by llama.cpp: a GGUF model answers each question in
@@ -41,5 +41,5 @@ private:
     mutable std::mutex _mutex;   // one generation at a time
 };
 
-} // namespace transport
+} // namespace thirdparty
 } // namespace va

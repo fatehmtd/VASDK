@@ -7,7 +7,7 @@
 #include <cmath>
 #include <stdexcept>
 
-namespace gradium::tts::text {
+namespace va::thirdparty::phonon::text {
 
 namespace {
 
@@ -25,7 +25,7 @@ bool isContinuation(char c) { return (static_cast<unsigned char>(c) & 0xC0) == 0
 // `word.trim_end_matches(closers).ends_with(marks)`, with the closers of plan.rs `cut`:
 // a mark can sit inside closing quotes or brackets.
 bool endsWithMark(std::string_view word, std::string_view marks) {
-    static constexpr std::string_view kClosers[] = {"\"", "'", ")", "]", "”", "’", "»"};
+    constexpr std::string_view kClosers[] = {"\"", "'", ")", "]", "”", "’", "»"};
     for (bool stripped = true; stripped;) {
         stripped = false;
         for (std::string_view c : kClosers) {
@@ -231,4 +231,4 @@ std::vector<Chunk> planChunks(const Tokenizer& tok, std::string_view text, std::
     return fitTo ? fitOrError(std::move(planned), *fitTo, tok, frameRate) : planned;
 }
 
-} // namespace gradium::tts::text
+} // namespace va::thirdparty::phonon::text

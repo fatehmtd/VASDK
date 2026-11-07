@@ -1,4 +1,5 @@
 #include "CartesiappTranscriptionProvider.h"
+#include <utility>
 
 #include <cartesiapp/transport/curl_http_transport.hpp>
 #include <spdlog/spdlog.h>
@@ -89,15 +90,11 @@ std::shared_ptr<cartesiapp::transport::IHttpTransport> makeHttpTransport(const s
 namespace va {
 namespace thirdparty {
 
-CartesiappTranscriptionProvider::CartesiappTranscriptionProvider(
-    const std::string& apiKey,
-    const std::string& model,
-    const std::string& language,
-    const std::string& caFilePath)
-    : _apiKey(apiKey),
-      _model(model),
-      _language(language),
-      _caFilePath(caFilePath)
+CartesiappTranscriptionProvider::CartesiappTranscriptionProvider(CartesiappTranscriptionOptions options)
+    : _apiKey(std::move(options.apiKey)),
+      _model(std::move(options.model)),
+      _language(std::move(options.language)),
+      _caFilePath(std::move(options.caBundlePath))
 {
 }
 

@@ -1,18 +1,15 @@
 #include "FishaudioppVoiceSynthesisProvider.h"
+#include <utility>
 #include <spdlog/spdlog.h>
 
 namespace va {
 namespace thirdparty {
 
-FishaudioppVoiceSynthesisProvider::FishaudioppVoiceSynthesisProvider(
-    const std::string& apiKey,
-    const std::string& referenceId,
-    const std::string& model,
-    const std::string& caFilePath)
-    : _apiKey(apiKey),
-      _referenceId(referenceId),
-      _model(model),
-      _caFilePath(caFilePath)
+FishaudioppVoiceSynthesisProvider::FishaudioppVoiceSynthesisProvider(FishaudioppVoiceSynthesisOptions options)
+    : _apiKey(std::move(options.apiKey)),
+      _referenceId(std::move(options.referenceId)),
+      _model(std::move(options.model)),
+      _caFilePath(std::move(options.caBundlePath))
 {
 }
 

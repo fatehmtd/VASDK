@@ -20,6 +20,7 @@ Start here and pick your path.
 
 - **[Building VASDK](building.md)** - prerequisites, build options, model files, air-gapped builds.
 - **[Providers](provider-catalog.md)** - every implementation, how the apps choose between them, per-provider options, sources and licenses.
+- **[Provider pages](providers/README.md)** - one page per integration: platforms, options and defaults, models and licenses, usage, a flow diagram, tests.
 
 ## Core concepts (reference)
 

@@ -3,6 +3,8 @@
 #include <string>
 #include <vector>
 
+namespace va::thirdparty {
+
 /**
  * @brief NeedleEngine
  * Process-wide access to Cactus's needle engine with the Whistle speech model loaded.
@@ -62,3 +64,5 @@ private:
     std::string _modelPath;
     std::vector<char> _out;
 };
+
+} // namespace va::thirdparty

@@ -6,7 +6,7 @@
 #include <memory>
 
 namespace va {
-namespace transport {
+namespace thirdparty {
 
 /**
  * @brief LLM transport for local, offline inference using llama.cpp
@@ -32,7 +32,7 @@ namespace transport {
  * cfg.maxTokens    = 512;
  * cfg.nCtx         = 4096;
  *
- * auto transport = std::make_shared<va::transport::LlamaCppTransport>(cfg);
+ * auto transport = std::make_shared<va::thirdparty::LlamaCppTransport>(cfg);
  * transport->initialize();
  * transport->start();
  * @endcode
@@ -89,15 +89,15 @@ public:
      * Built-in options (see ResponseChunker.h):
      *   - PunctuationChunker  - splits on sentence-ending punctuation (default)
      *   - WordCountChunker    - splits every N words
-     *   - NoChunkingChunker   - emits the entire response as one frame at the end
+     *   - transport::NoChunkingChunker   - emits the entire response as one frame at the end
      *
      * @param chunker  Non-null chunker; null is ignored.
      */
-    void setChunker(std::shared_ptr<ResponseChunkerInterface> chunker) {
+    void setChunker(std::shared_ptr<transport::ResponseChunkerInterface> chunker) {
         if (chunker) chunker_ = std::move(chunker);
     }
 
-    const ResponseChunkerInterface& chunker() const { return *chunker_; }
+    const transport::ResponseChunkerInterface& chunker() const { return *chunker_; }
 
 protected:
     std::string sendLLMRequest(const std::string& userMessage) override;
@@ -105,8 +105,8 @@ protected:
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
-    std::shared_ptr<ResponseChunkerInterface> chunker_{ std::make_shared<NoChunkingChunker>() };
+    std::shared_ptr<transport::ResponseChunkerInterface> chunker_{ std::make_shared<transport::NoChunkingChunker>() };
 };
 
-} // namespace transport
+} // namespace thirdparty
 } // namespace va

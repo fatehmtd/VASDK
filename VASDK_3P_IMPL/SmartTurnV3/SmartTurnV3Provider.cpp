@@ -1,4 +1,5 @@
 #include "SmartTurnV3Provider.h"
+#include <utility>
 #include "SmartTurnV3Impl.h"
 #include <VASDK/Frame.h>
 #include <VASDK/profiling/CTrack.h>
@@ -9,21 +10,16 @@
 namespace va {
 namespace thirdparty {
 
-SmartTurnV3Provider::SmartTurnV3Provider(const std::string& modelPath,
-    float threshold,
-    float maxAudioDurationSec,
-    int numPostAudioFrames,
-    int nFFT,
-    int hopLength,
-    int nMels) : _modelPath(modelPath),
-                 _nFFT(nFFT),
-                 _hopLength(hopLength),
-                 _nMels(nMels),
-                 _maxAudioDurationSec(maxAudioDurationSec),
-                 _numPostAudioFrames(numPostAudioFrames),
-                 _threshold(threshold)
+SmartTurnV3Provider::SmartTurnV3Provider(SmartTurnV3Options options)
+    : _threshold(options.threshold),
+      _maxAudioDurationSec(options.maxAudioDurationSeconds),
+      _numPostAudioFrames(options.postAudioFrames),
+      _nFFT(whisper::N_FFT),
+      _hopLength(whisper::HOP_LENGTH),
+      _nMels(whisper::N_MELS),
+      _modelPath(std::move(options.modelPath))
 {
-
+    setEvaluateOnPause(options.evaluateOnPause);
 }
 
 SmartTurnV3Provider::~SmartTurnV3Provider() = default;

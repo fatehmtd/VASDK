@@ -23,7 +23,7 @@
 #include <iostream>
 #include <string>
 
-using namespace gradium::tts::text;
+using namespace va::thirdparty::phonon::text;
 
 namespace {
 

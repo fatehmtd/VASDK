@@ -29,7 +29,7 @@ int main(int argc, char** argv) {
         std::printf("no GLiNER model: skipped\n");
         return 77;
     }
-    thirdparty::GlinerEntityExtractor gliner(argv[1], 0.5f);
+    thirdparty::GlinerEntityExtractor gliner(thirdparty::GlinerEntityExtractorOptions{argv[1]});
     if (!gliner.initialize()) return 1;
     const std::vector<nlu::EntityLabel> labels{{"service", "car repair", "", {}}, {"time", "appointment time", "", {}},
                                                {"person", "person", "", {}}, {"place", "location", "", {}}};

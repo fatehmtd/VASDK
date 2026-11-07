@@ -26,7 +26,7 @@ description: Speech-to-text in VASDK - choosing and configuring an STT provider 
 | `whistle` | `VASDK_3P_IMPL/WhistleSTT/` | local, on by default; favours the words the agent expects | `LocalSttOptions` |
 | `moonshine` | `VASDK_3P_IMPL/MoonshineSTT/` | local ONNX, streaming and batch | `LocalSttOptions` |
 | `parakeet` | `VASDK_3P_IMPL/Parakeet/` | local ONNX, batch | `LocalSttOptions` |
-| (code only) | `VASDK_3P_IMPL/WhisperCpp/` | local GGUF (WIP) | constructor |
+| (code only) | `VASDK_3P_IMPL/WhisperCpp/` | local GGUF (WIP) | `WhisperCppTranscriptionOptions` |
 | (Android) | `VASDK_3P_IMPL/VozSTT/` | on-device, through JNI | Android app |
 
 Per-provider notes, models and licenses: [docs/provider-catalog.md](../../docs/provider-catalog.md).
@@ -56,7 +56,7 @@ A recognizer's `language` must match the agent's `locale` ([languages](../../doc
 ## Adding one
 
 1. The steps, files and code rules in [vasdk-provider](../vasdk-provider/SKILL.md). Options: `CloudOptions` for a cloud service, `LocalSttOptions` for a local model, or a new message if neither fits exactly.
-2. Templates: cloud streaming over WebSocket: `VASDK_3P_IMPL/CartesiappTranscription/`; cloud REST: `VASDK_3P_IMPL/FishaudioppTranscription/`. Both follow the namespace rule. A local model: copy the structure of `VASDK_3P_IMPL/MoonshineSTT/` (streaming) or `VASDK_3P_IMPL/Parakeet/` (batch), in `va::thirdparty`, with an options struct.
+2. Templates: cloud streaming over WebSocket: `VASDK_3P_IMPL/CartesiappTranscription/`; cloud REST: `VASDK_3P_IMPL/FishaudioppTranscription/`. A local model: `VASDK_3P_IMPL/MoonshineSTT/` (streaming, `MoonshineSttOptions`) or `VASDK_3P_IMPL/Parakeet/` (batch, `ParakeetTranscriptionOptions`).
 3. Register it with `registry.add<va::audio::GenericTranscriptionProvider, ...>("<id>", ...)`, in the order of preference among the STT ids.
 
 ## Tests

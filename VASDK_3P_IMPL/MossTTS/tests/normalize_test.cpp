@@ -17,7 +17,7 @@
 #include <string>
 #include <vector>
 
-using moss::text::Lang;
+using va::thirdparty::moss::text::Lang;
 
 namespace {
 
@@ -47,8 +47,8 @@ void robustParity(Checker& chk, const char* goldenPath) {
         if (line.empty()) continue;
         const auto j = nlohmann::json::parse(line);
         const std::string name = j.at("name"), input = j.at("input"), expected = j.at("expected");
-        chk.expectEq(name, input, moss::text::robustNormalize(input), expected);
-        chk.expectEq(name + "_idempotence", expected, moss::text::robustNormalize(expected), expected);
+        chk.expectEq(name, input, va::thirdparty::moss::text::robustNormalize(input), expected);
+        chk.expectEq(name + "_idempotence", expected, va::thirdparty::moss::text::robustNormalize(expected), expected);
     }
 }
 
@@ -71,16 +71,16 @@ void robustIdempotence(Checker& chk) {
         "【公告】 明天 10:00 开会 —— 请准时",
     };
     for (const char* in : inputs) {
-        const std::string once = moss::text::robustNormalize(in);
-        chk.expectEq("idempotence", in, moss::text::robustNormalize(once), once);
+        const std::string once = va::thirdparty::moss::text::robustNormalize(in);
+        chk.expectEq("idempotence", in, va::thirdparty::moss::text::robustNormalize(once), once);
     }
     // A few fixed expectations outside the reference table. "world..." is kept: the
     // reference's file-name rule protects a letter run containing '.'.
     chk.expectEq("robust_en", "Hello   world...   How are you???",
-             moss::text::robustNormalize("Hello   world...   How are you???"), "Hello world... How are you？");
+             va::thirdparty::moss::text::robustNormalize("Hello   world...   How are you???"), "Hello world... How are you？");
     chk.expectEq("robust_ellipsis", "Wait... what",
-             moss::text::robustNormalize("Wait ... what"), "Wait。what。");
-    chk.expectEq("robust_empty", "", moss::text::robustNormalize("   "), "");
+             va::thirdparty::moss::text::robustNormalize("Wait ... what"), "Wait。what。");
+    chk.expectEq("robust_empty", "", va::thirdparty::moss::text::robustNormalize("   "), "");
 }
 
 struct Case { Lang lang; const char* in; const char* out; };
@@ -180,14 +180,14 @@ void expansion(Checker& chk) {
     const char* const names[] = {"en", "zh", "ja"};
     for (const Case& c : cases)
         chk.expectEq(std::string("expand_") + names[static_cast<int>(c.lang)], c.in,
-                 moss::text::expand(c.in, c.lang), c.out);
+                 va::thirdparty::moss::text::expand(c.in, c.lang), c.out);
 }
 
 void pipeline(Checker& chk) {
-    chk.expectEq("detect_ja", "", moss::text::detectLanguage("今日はいい天気", false) == Lang::Ja ? "ja" : "x", "ja");
-    chk.expectEq("detect_zh", "", moss::text::detectLanguage("今天天气很好", true) == Lang::Zh ? "zh" : "x", "zh");
-    chk.expectEq("detect_en", "", moss::text::detectLanguage("Hello", false) == Lang::En ? "en" : "x", "en");
-    chk.expectEq("detect_voice", "", moss::text::detectLanguage("123", true) == Lang::En ? "en" : "x", "en");
+    chk.expectEq("detect_ja", "", va::thirdparty::moss::text::detectLanguage("今日はいい天気", false) == Lang::Ja ? "ja" : "x", "ja");
+    chk.expectEq("detect_zh", "", va::thirdparty::moss::text::detectLanguage("今天天气很好", true) == Lang::Zh ? "zh" : "x", "zh");
+    chk.expectEq("detect_en", "", va::thirdparty::moss::text::detectLanguage("Hello", false) == Lang::En ? "en" : "x", "en");
+    chk.expectEq("detect_voice", "", va::thirdparty::moss::text::detectLanguage("123", true) == Lang::En ? "en" : "x", "en");
 
     const struct { bool english; const char* in; const char* out; } cases[] = {
         {true,  "**Sure!** It's 25°C today 🌞", "Sure! It's twenty five degrees Celsius today。"},
@@ -198,7 +198,7 @@ void pipeline(Checker& chk) {
         {false, "明日は15時に会いましょう", "明日は十五時に会いましょう。"},
     };
     for (const auto& c : cases)
-        chk.expectEq("normalize", c.in, moss::text::normalize(c.in, c.english), c.out);
+        chk.expectEq("normalize", c.in, va::thirdparty::moss::text::normalize(c.in, c.english), c.out);
 }
 
 } // namespace

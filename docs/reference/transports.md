@@ -78,7 +78,7 @@ The media stack sits behind [`WebRtcInterface`](../../VASDK/include/VASDK/networ
 - DTLS uses OpenSSL (Homebrew `openssl@3` is found automatically on macOS); pass `-DUSE_MBEDTLS=ON` or `-DUSE_GNUTLS=ON` to use those instead.
 
 ```cpp
-auto peer = std::make_shared<va::webrtc::LibDataChannelWebRtcProvider>();  // STUN: stun.l.google.com
+auto peer = std::make_shared<va::thirdparty::LibDataChannelWebRtcProvider>();  // STUN: stun.l.google.com
 auto rtc  = std::make_shared<va::transport::WebRtcTransport>(peer);
 rtc->setRingBuffer(ringBuffer);
 rtc->initialize();

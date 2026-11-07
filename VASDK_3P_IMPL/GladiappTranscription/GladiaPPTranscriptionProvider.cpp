@@ -1,4 +1,5 @@
 #include "GladiaPPTranscriptionProvider.h"
+#include <utility>
 #include <spdlog/spdlog.h>
 
 using namespace gladiapp::v2::ws;
@@ -7,8 +8,9 @@ using namespace gladiapp::v2::response;
 namespace va {
 namespace thirdparty {
 
-GladiaPPTranscriptionProvider::GladiaPPTranscriptionProvider(const std::string &apiKey, const std::string &caFilePath)
-    : _apiKey(apiKey), _caFilePath(caFilePath)
+GladiaPPTranscriptionProvider::GladiaPPTranscriptionProvider(GladiaPPTranscriptionOptions options)
+    : _apiKey(std::move(options.apiKey)),
+      _caFilePath(std::move(options.caBundlePath))
 {
 }
 

@@ -10,6 +10,21 @@
 struct DenoiseState;
 struct RNNModel;
 
+namespace va::thirdparty {
+
+/** Settings of RNNoiseDSPProvider; every field has a default. */
+struct RNNoiseDSPOptions {
+    /** A custom RNNoise model file (.rnnn); empty uses the model built into the library. */
+    std::string modelPath;
+    /** RNNoise voice probability (0-1) under which a frame counts as silence, exposed through
+     *  getLastVADProbability(); 0 disables it. */
+    float vadThreshold = 0.0f;
+    /** Scale the output so its peak stays under normalizationMultiplier of full scale. */
+    bool normalizeOutput = false;
+    /** Headroom for normalizeOutput: 0.8 is 80% of full scale. */
+    float normalizationMultiplier = 0.8f;
+};
+
 /**
  * @brief Noise suppression provider using RNNoise (https://github.com/xiph/rnnoise).
  *
@@ -30,8 +45,6 @@ struct RNNModel;
  * Example:
  * @code
  *   auto provider = std::make_shared<RNNoiseDSPProvider>();
- *   // provider->setModelPath("/path/to/custom.rnnn"); // optional
- *   // provider->setVADThreshold(0.5f);               // optional silence gate
  *   provider->initialize(audioConfig);
  *
  *   auto dspProcessor = std::make_shared<va::pipeline::AudioDSPProcessor>(provider);
@@ -41,7 +54,7 @@ struct RNNModel;
  */
 class VASDK_RNNOISE_EXPORT RNNoiseDSPProvider : public va::audio::GenericAudioDSPProvider {
 public:
-    explicit RNNoiseDSPProvider(const std::string& modelPath = "");
+    explicit RNNoiseDSPProvider(RNNoiseDSPOptions options = {});
     ~RNNoiseDSPProvider() override;
 
     std::string getName() const override { return "RNNoise"; }
@@ -52,32 +65,8 @@ public:
     size_t processAudio(const char* input, char* output,
                         size_t numSamples)                  override;
 
-    /** @brief Path to a custom .rnnn model file (call before initialize()). */
-    void setModelPath(const std::string& path) { modelPath_ = path; }
-
-    /**
-     * @brief VAD probability threshold (0.0 = disabled, default).
-     *
-     * Frames whose RNNoise VAD probability falls below this threshold are
-     * treated as silence; the flag is available for the caller but is not
-     * acted upon internally beyond exposure via getLastVADProbability().
-     */
-    void setVADThreshold(float threshold) { vadThreshold_ = threshold; }
-
-    /** @brief VAD probability returned for the last processed RNNoise frame. */
+    /** @brief RNNoise's voice probability for the last processed 10 ms frame. */
     float getLastVADProbability() const { return lastVADProb_; }
-
-    /**
-     * @brief Whether to normalise output audio to prevent clipping (default: false).
-     */
-    void setNormalizeOutput(bool normalize) { normalizeOutput_ = normalize; }
-    bool getNormalizeOutput() const { return normalizeOutput_; }
-
-    /**
-     * @brief Multiplier for normalisation (default: 0.8, i.e. 80% of max volume).
-     */
-    void setNormalizationMultiplier(float multiplier) { normalizationMultiplier_ = multiplier; }
-    float getNormalizationMultiplier() const { return normalizationMultiplier_; }
 
 private:
     // Linear-interpolation resampling (arbitrary floating-point ratio)
@@ -104,3 +93,5 @@ private:
     std::vector<float> floatIn_;         // raw → float scratch
     std::vector<float> floatOut_;        // float → raw scratch
 };
+
+} // namespace va::thirdparty

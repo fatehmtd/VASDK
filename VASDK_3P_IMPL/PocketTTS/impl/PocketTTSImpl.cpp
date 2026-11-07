@@ -12,6 +12,8 @@
 #include <sstream>
 #include <stdexcept>
 
+namespace va::thirdparty {
+
 // NNAPI is intentionally not used for PocketTTS: the stateful KV-cache ops in
 // flow_lm_main_int8.onnx are not supported by NNAPI's model builder, causing
 // ANEURALNETWORKS_BAD_DATA at compile time. The INT8 models run correctly on CPU.
@@ -20,21 +22,23 @@
 // Constants
 // ---------------------------------------------------------------------------
 
-static constexpr float  kEosThreshold    = -4.0f; // Python DEFAULT_EOS_THRESHOLD
-static constexpr int    kMaxFrames       = 500;    // absolute cap on AR loop length
-static constexpr int    kMaxChunkTokens  = 50;     // Python MAX_TOKEN_PER_CHUNK
+namespace {
+
+constexpr float  kEosThreshold    = -4.0f; // Python DEFAULT_EOS_THRESHOLD
+constexpr int    kMaxFrames       = 500;    // absolute cap on AR loop length
+constexpr int    kMaxChunkTokens  = 50;     // Python MAX_TOKEN_PER_CHUNK
 
 // Python TTSModel._estimate_max_gen_len: gen budget scales with the text length
 // instead of always running to the absolute cap when EOS is missed.
-static constexpr double kTokensPerSecondEstimate = 3.0;  // _TOKENS_PER_SECOND_ESTIMATE
-static constexpr double kGenSecondsPadding       = 2.0;  // _GEN_SECONDS_PADDING
-static constexpr double kFrameRate               = 12.5; // mimi frame_rate
+constexpr double kTokensPerSecondEstimate = 3.0;  // _TOKENS_PER_SECOND_ESTIMATE
+constexpr double kGenSecondsPadding       = 2.0;  // _GEN_SECONDS_PADDING
+constexpr double kFrameRate               = 12.5; // mimi frame_rate
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-static std::vector<std::string> fetchNames(Ort::Session& sess, bool inputs) {
+std::vector<std::string> fetchNames(Ort::Session& sess, bool inputs) {
     Ort::AllocatorWithDefaultOptions alloc;
     const size_t n = inputs ? sess.GetInputCount() : sess.GetOutputCount();
     std::vector<std::string> names(n);
@@ -45,6 +49,8 @@ static std::vector<std::string> fetchNames(Ort::Session& sess, bool inputs) {
     }
     return names;
 }
+
+} // namespace
 
 // ---------------------------------------------------------------------------
 // Constructor
@@ -589,9 +595,9 @@ void PocketTTSImpl::resetMimiDecStates() {
 
 void PocketTTSImpl::appendFlowLMStateInputs(std::vector<Ort::Value>& dst) {
     int kvIdx = 0, stepIdx = 0;
-    static const int64_t kv5dShape[] = {2, 1, 1000, 16, 64};
-    static const int64_t stepShape[] = {1};
-    static const int64_t emptyShape[]= {0};
+    constexpr int64_t kv5dShape[] = {2, 1, 1000, 16, 64};
+    constexpr int64_t stepShape[] = {1};
+    constexpr int64_t emptyShape[]= {0};
 
     for (int s = 0; s < kNumFlowStates; ++s) {
         switch (flowStateType(s)) {
@@ -931,10 +937,10 @@ void PocketTTSImpl::synthesize(const std::string& text,
     spdlog::debug("[PocketTTS] {} sentence chunk(s)", textChunks.size());
 
     // JS mimi-decoder streaming constants
-    static constexpr int kFadeSamples        = 480;   // 20 ms @ 24 kHz
-    static constexpr int kFirstChunkFrames   = 3;     // JS: FIRST_CHUNK_FRAMES
-    static constexpr int kNormalChunkFrames  = 12;    // JS: NORMAL_CHUNK_FRAMES
-    static constexpr int kInterChunkSamples  = 6000;  // JS: CHUNK_GAP_SEC=0.25 s * 24 kHz
+    constexpr int kFadeSamples        = 480;   // 20 ms @ 24 kHz
+    constexpr int kFirstChunkFrames   = 3;     // JS: FIRST_CHUNK_FRAMES
+    constexpr int kNormalChunkFrames  = 12;    // JS: NORMAL_CHUNK_FRAMES
+    constexpr int kInterChunkSamples  = 6000;  // JS: CHUNK_GAP_SEC=0.25 s * 24 kHz
 
     for (size_t chunkIdx = 0; chunkIdx < textChunks.size(); ++chunkIdx) {
         if (cancelFlag.load()) return;
@@ -958,7 +964,7 @@ void PocketTTSImpl::synthesize(const std::string& text,
         std::vector<float> textEmb = runTextConditioner(chunkIds);
         if (cancelFlag.load()) return;
         {
-            static const float kEmptySeq[1] = {};
+            constexpr float kEmptySeq[1] = {};
             runFlowLMMain(kEmptySeq, 0,
                           textEmb.data(), static_cast<int64_t>(chunkIds.size()), 1024);
         }
@@ -969,7 +975,7 @@ void PocketTTSImpl::synthesize(const std::string& text,
         // Initial latent: all NaN - signals BOS to the flow LM
         std::vector<float> seqBuf(32, std::numeric_limits<float>::quiet_NaN());
 
-        static const float kEmptyEmb[1] = {};
+        constexpr float kEmptyEmb[1] = {};
         // Noise std = sqrt(temperature)  (Python: std = temp**0.5, default 0.7)
         const float odeStd = std::sqrt(std::max(0.0f, params.temperature));
         const float dt     = 1.0f / static_cast<float>(params.lsdSteps);
@@ -1095,16 +1101,18 @@ void PocketTTSImpl::synthesize(const std::string& text,
 // Text normalisation
 // ---------------------------------------------------------------------------
 
-static const char* const kOnes[] = {
+namespace {
+
+constexpr const char* kOnes[] = {
     "", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
     "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen",
     "seventeen", "eighteen", "nineteen"
 };
-static const char* const kTens[] = {
+constexpr const char* kTens[] = {
     "", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"
 };
 
-static std::string numberToWords(long long n) {
+std::string numberToWords(long long n) {
     if (n == 0)  return "zero";
     if (n <  0)  return "negative " + numberToWords(-n);
     std::string r;
@@ -1118,8 +1126,8 @@ static std::string numberToWords(long long n) {
     return r;
 }
 
-static std::string digitByDigit(const std::string& digits) {
-    static const char* const kDigitNames[] = {
+std::string digitByDigit(const std::string& digits) {
+    constexpr const char* kDigitNames[] = {
         "zero","one","two","three","four","five","six","seven","eight","nine"
     };
     std::string r;
@@ -1131,6 +1139,8 @@ static std::string digitByDigit(const std::string& digits) {
     }
     return r;
 }
+
+} // namespace
 
 /*static*/ std::string PocketTTSImpl::stripMarkdown(const std::string& text) {
     std::string result;
@@ -1227,3 +1237,5 @@ static std::string digitByDigit(const std::string& digits) {
         result += '.';
     return result;
 }
+
+} // namespace va::thirdparty

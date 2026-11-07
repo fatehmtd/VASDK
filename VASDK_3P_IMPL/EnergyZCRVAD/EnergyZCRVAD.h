@@ -1,27 +1,43 @@
 #pragma once
 
 #include <vector>
-#include <numeric>
-#include <cmath>
-#include <iostream>
-#include <algorithm> // For std::abs and std::min
 #include <VASDK/VADProvider.h>
+#include "vasdk_energy_zcr_vad_export.h"
 
-class EnergyZCRVAD: public va::audio::VADProvider  {
+namespace va::thirdparty {
+
+/** Settings of EnergyZCRVAD; every field has a default. */
+struct EnergyZCRVADOptions {
+    /** Length of one analysed frame. */
+    int frameSizeMs = 20;
+    /** A frame is loud enough for speech when its energy (sum of squared samples in -1..1) exceeds this.
+     *  0.1 is about -34 dBFS RMS for a 20 ms frame at 16 kHz. */
+    double energyThreshold = 0.1;
+    /** A loud frame counts as speech only when its zero-crossing rate (0-1) is below this,
+     *  which rejects hiss and other high-frequency noise. */
+    double zeroCrossingRateThreshold = 0.3;
+};
+
+/**
+ * @brief Voice activity from frame energy and zero-crossing rate: no model, for embedded targets.
+ *
+ *   auto vad = std::make_shared<va::thirdparty::EnergyZCRVAD>();
+ *   vad->initialize(audioConfig, bufferSize);
+ */
+class VASDK_ENERGY_ZCR_VAD_EXPORT EnergyZCRVAD : public va::audio::VADProvider {
 public:
-    EnergyZCRVAD(int frameSizeMs, double energyThreshold, double zcrThreshold);
+    explicit EnergyZCRVAD(EnergyZCRVADOptions options = {});
 
-    virtual std::vector<va::audio::VADProvider::VADResult> detectVoiceActivity(const char *buffer, size_t offset, size_t length) const override;
+    std::vector<va::audio::VADProvider::VADResult> detectVoiceActivity(const char* buffer, size_t offset,
+                                                                       size_t length) const override;
 
-    virtual void release() override;
+    void release() override;
 
-    virtual bool initialize(const va::audio::AudioConfig &audioConfig, int bufferSize) override;
+    bool initialize(const va::audio::AudioConfig& audioConfig, int bufferSize) override;
 
 private:
-    int frameSizeMs_;
-    int frameSizeSamples_; // derived from frameSizeMs_ and the sample rate
-    double _energyThreshold;
-    double zcrThreshold_;
+    EnergyZCRVADOptions _options;
+    int _frameSizeSamples{1};  // derived from the frame length and the sample rate
     va::audio::AudioConfig _audioConfig;
 
     double calculateEnergy(const std::vector<float>& frame) const;
@@ -29,3 +45,4 @@ private:
     double calculateZeroCrossingRate(const std::vector<float>& frame) const;
 };
 
+} // namespace va::thirdparty

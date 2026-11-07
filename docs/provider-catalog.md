@@ -2,27 +2,29 @@
 
 *Every provider implementation under `VASDK_3P_IMPL/`, how the example apps choose between them, and where each comes from. To write a new one, see [Provider interfaces](reference/providers.md).*
 
-Every row is an independent target under `VASDK_3P_IMPL/`. Enable only what you need; each one guards its own CMake option and compiles out cleanly if disabled.
+Every row is an independent target under `VASDK_3P_IMPL/`, and each name links to [its own page](providers/README.md): platforms, options with their defaults, models and licenses, a usage example, how it works and its tests. Enable only what you need; each one guards its own CMake option and compiles out cleanly if disabled.
 
 | Stage | Local / offline | Cloud |
 | --- | --- | --- |
-| Audio I/O | MiniAudio, SDL3 | - |
-| VAD | Silero (ONNX), Energy+ZCR | - |
-| Turn detection | SmartTurn v3 | - |
-| Speaker identification | pyannote (WeSpeaker ResNet34-LM, ONNX) | - |
-| Noise suppression | RNNoise | - |
-| Intent understanding | all-MiniLM-L6-v2 sentence encoder (ONNX) | - |
-| Entity finding | GLiNER (ONNX, opt-in), a tagger on MiniLM's word vectors | the agent's LLM |
-| STT | Whistle (prebuilt engine), Parakeet, Moonshine (streaming), Whisper.cpp (WIP) (ONNX/GGUF), Voz (Android, via the Desert Ant Labs SDK) | Gladia (WIP), Gradium, Soniox, Deepgram, Cartesia, Fish Audio |
-| TTS | PocketTTS (ONNX), Phonon (GGUF), MOSS-TTS-Nano (ONNX), Supertonic 3 (ONNX, 31 languages) | Gradium, Soniox, Deepgram, Cartesia, Fish Audio |
-| LLM | llama.cpp, or any OpenAI-compatible local server | OpenAI, Anthropic |
-| File / batch audio | FFmpeg-backed file transport | - |
-| WebRTC (browser calls) | libdatachannel + Opus, direct peer connection | - |
-| Visualization | VizAnim (audio feature extraction for UI animation) | - |
+| Audio I/O | [MiniAudio](providers/miniaudio.md), [SDL3](providers/sdl.md) | - |
+| VAD | [Silero](providers/silero.md) (ONNX), [Energy+ZCR](providers/energy-zcr-vad.md) | - |
+| Turn detection | [SmartTurn v3](providers/smartturn-v3.md) | - |
+| Speaker identification | [pyannote](providers/pyannote.md) (WeSpeaker ResNet34-LM, ONNX) | - |
+| Noise suppression | [RNNoise](providers/rnnoise.md) (not on Android) | - |
+| Intent understanding | [all-MiniLM-L6-v2](providers/minilm.md) sentence encoder (ONNX) | - |
+| Entity finding | [GLiNER](providers/gliner.md) (ONNX, opt-in), a tagger on MiniLM's word vectors | the agent's LLM |
+| STT | [Whistle](providers/whistle.md) (prebuilt engine), [Parakeet](providers/parakeet.md), [Moonshine](providers/moonshine.md) (streaming), [Whisper.cpp](providers/whispercpp.md) (WIP) (ONNX/GGUF), [Voz](providers/voz.md) (Android, via the Desert Ant Labs SDK) | [Gladia](providers/gladia.md) (WIP), [Gradium](providers/gradium-stt.md), [Soniox](providers/soniox-stt.md), [Deepgram](providers/deepgram-stt.md), [Cartesia](providers/cartesia-stt.md), [Fish Audio](providers/fishaudio-stt.md) |
+| TTS | [PocketTTS](providers/pocket.md) (ONNX), [Phonon](providers/phonon.md) (GGUF), [MOSS-TTS-Nano](providers/moss.md) (ONNX), [Supertonic 3](providers/supertonic.md) (ONNX, 31 languages) | [Gradium](providers/gradium-tts.md), [Soniox](providers/soniox-tts.md), [Deepgram](providers/deepgram-tts.md), [Cartesia](providers/cartesia-tts.md), [Fish Audio](providers/fishaudio-tts.md) |
+| LLM | [llama.cpp](providers/llamacpp.md), or any OpenAI-compatible local server | OpenAI, Anthropic |
+| File / batch audio | [FFmpeg-backed file transport](providers/ffmpeg.md) (not on Android) | - |
+| WebRTC (browser calls) | [libdatachannel + Opus](providers/webrtc.md), direct peer connection | - |
+| Visualization | [VizAnim](providers/vizanim.md) (audio feature extraction for UI animation) | - |
 
 Mix and match freely. With the default build options, both showcase apps run Whistle STT, Phonon TTS (PocketTTS if Phonon is off), pyannote speaker tracking, and a cloud LLM from `.env`. Without an engine config that names one, each app uses the first STT and TTS that was built, in this order ([`ProviderCatalog.cpp`](../VASDK_3P_IMPL/ProviderCatalog/ProviderCatalog.cpp)). STT: Gradium, Soniox, Deepgram, Cartesia, Fish Audio, Gladia, then Whistle, Moonshine, Parakeet. TTS: Gradium, Soniox, Supertonic, Deepgram, Cartesia, Fish Audio, then MOSS-TTS-Nano, Phonon, PocketTTS. Whisper.cpp is a provider target, but none of the apps offers it yet.
 
 Default build options: on are MiniAudio, Silero VAD, SmartTurn v3, pyannote, MiniLM, Whistle, PocketTTS, Phonon, RNNoise and VizAnim. Everything else is off, including every cloud STT/TTS and llama.cpp.
+
+Platforms: every provider builds on macOS, Linux and Windows, with these gaps. On Android, CMake turns RNNoise and FFmpegAudio off with a warning (their dependencies are only fetched for desktop builds). Voz runs only where the platform supplies a recognizer, which so far is the Android app. Whistle needs Cactus's prebuilt engine, which exists for 64-bit Windows, Linux, macOS and Android (arm64, armv7); elsewhere configure warns, and 32-bit Windows stops with an error. A config that selects a provider the build doesn't have fails with "no provider registered" and falls back to the next id in its `fallback` list.
 
 **WIP:** Gladia and Whisper.cpp are still work in progress - expect rough edges, incomplete feature coverage, or breaking changes before they stabilize.
 

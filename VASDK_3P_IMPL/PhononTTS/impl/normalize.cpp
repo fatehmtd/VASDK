@@ -16,9 +16,10 @@
 
 #include <algorithm>
 #include <array>
+#include <iterator>
 #include <cstring>
 
-namespace gradium::tts::text {
+namespace va::thirdparty::phonon::text {
 
 namespace {
 
@@ -364,7 +365,7 @@ std::string power(Lang lang, const std::string& n) {
 }
 
 std::optional<std::string> greek(Lang lang, char32_t c) {
-    static const char* const kNames[24] = {
+    constexpr const char* kNames[24] = {
         "alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta", "iota", "kappa",
         "lambda", "mu", "nu", "xi", "omicron", "pi", "rho", "sigma", "tau", "upsilon", "phi",
         "chi", "psi", "omega",
@@ -614,7 +615,7 @@ bool allDigits(std::string_view s) {
 // ===========================================================================================
 
 std::string spell(std::string_view s, Lang lang) {
-    static const char* const kWords[5][10] = {
+    constexpr const char* kWords[5][10] = {
         {"zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"},
         {"zéro", "un", "deux", "trois", "quatre", "cinq", "six", "sept", "huit", "neuf"},
         {"null", "eins", "zwei", "drei", "vier", "fünf", "sechs", "sieben", "acht", "neun"},
@@ -755,7 +756,7 @@ std::optional<std::pair<std::string, std::string_view>> numberWords(std::string_
         words = std::to_string(value);
     } else {
         struct Scale { int64_t div; const char* one; const char* many; };
-        static const Scale kScales[5][3] = {
+        constexpr Scale kScales[5][3] = {
             {{1000000000, "billion", "billion"}, {1000000, "million", "million"}, {1000, "thousand", "thousand"}},
             {{1000000000, "milliard", "milliards"}, {1000000, "million", "millions"}, {1000, "mille", "mille"}},
             {{1000000000, "Milliarde", "Milliarden"}, {1000000, "Million", "Millionen"}, {1000, "Tausend", "Tausend"}},
@@ -986,7 +987,7 @@ std::optional<std::pair<Currency, std::string_view>> splitSymbol(std::string_vie
 
 std::optional<std::pair<std::string_view, const char*>> splitScale(std::string_view amount, Lang lang) {
     if (lang != Lang::En) return std::nullopt;
-    static const std::pair<const char*, const char*> kSuffixes[] = {
+    constexpr std::pair<const char*, const char*> kSuffixes[] = {
         {"thousand", "thousand"}, {"million", "million"}, {"billion", "billion"},
         {"trillion", "trillion"}, {"bn", "billion"}, {"BN", "billion"}, {"mn", "million"},
         {"tn", "trillion"}, {"k", "thousand"}, {"K", "thousand"}, {"m", "million"},
@@ -1001,7 +1002,8 @@ std::optional<std::pair<std::string_view, const char*>> splitScale(std::string_v
 }
 
 bool scaleWord(std::string_view word, Lang lang) {
-    static const std::vector<std::vector<std::string_view>> kWords = {
+    // Shorter rows end in empty entries, which no word matches.
+    constexpr std::string_view kWords[5][5] = {
         {"thousand", "million", "billion", "trillion"},
         {"mille", "million", "millions", "milliard", "milliards"},
         {"Tausend", "Million", "Millionen", "Milliarde", "Milliarden"},
@@ -1009,13 +1011,14 @@ bool scaleWord(std::string_view word, Lang lang) {
         {"mil", "milhão", "milhões", "bilhão", "bilhões"},
     };
     const auto& words = kWords[int(lang)];
-    return std::find(words.begin(), words.end(), word) != words.end();
+    return !word.empty() && std::find(std::begin(words), std::end(words), word) != std::end(words);
 }
 
 // `amount` followed by the currency's `name`, with the linking "de" a scale noun takes in
 // French, Spanish and Portuguese ("2 millions de dollars", "2 millions d'euros").
 std::string withName(const std::string& amount, std::string_view name, Lang lang) {
-    static const std::vector<std::vector<std::string_view>> kNouns = {
+    // Shorter rows end in empty entries, which are skipped.
+    constexpr std::string_view kNouns[5][4] = {
         {},
         {"million", "millions", "milliard", "milliards"},
         {},
@@ -1023,7 +1026,8 @@ std::string withName(const std::string& amount, std::string_view name, Lang lang
         {"milhão", "milhões", "bilhão", "bilhões"},
     };
     const auto& nouns = kNouns[int(lang)];
-    const bool afterNoun = std::any_of(nouns.begin(), nouns.end(), [&](std::string_view n) { return endsWith(amount, n); });
+    const bool afterNoun = std::any_of(std::begin(nouns), std::end(nouns),
+                                       [&](std::string_view n) { return !n.empty() && endsWith(amount, n); });
     if (!afterNoun) return amount + " " + std::string(name);
     size_t n;
     const char32_t first = firstChar(name, &n);
@@ -1368,7 +1372,7 @@ std::optional<std::string> urls(std::string_view word, Lang lang) {
 
 std::optional<std::string> abbreviations(std::string_view word, Lang lang) {
     if (lang != Lang::En) return std::nullopt;
-    static const std::pair<std::string_view, std::string_view> kEn[] = {
+    constexpr std::pair<std::string_view, std::string_view> kEn[] = {
         {"Lt", "Lieutenant"}, {"Lt.", "Lieutenant"}, {"Col.", "Colonel"}, {"Sgt.", "Sergeant"},
         {"Sgt", "Sergeant"}, {"Capt.", "Captain"}, {"Cpl.", "Corporal"}, {"Gen.", "General"},
         {"Adm.", "Admiral"}, {"Sen.", "Senator"}, {"Sens.", "Senators"}, {"Rep.", "Representative"},
@@ -1473,13 +1477,13 @@ std::string phoneDe(std::string_view number, Lang lang) {
 }
 
 std::optional<std::pair<std::string_view, std::string_view>> countryCode(std::string_view number) {
-    static const std::vector<std::string_view> kCodes1 = {"1", "7"};
-    static const std::vector<std::string_view> kCodes2 = {
+    constexpr std::string_view kCodes1[] = {"1", "7"};
+    constexpr std::string_view kCodes2[] = {
         "20", "27", "30", "31", "32", "33", "34", "36", "39", "40", "41", "43", "44", "45", "46", "47",
         "48", "49", "51", "52", "53", "54", "55", "56", "57", "58", "60", "61", "62", "63", "64", "65",
         "66", "81", "82", "84", "86", "90", "91", "92", "93", "94", "95", "98",
     };
-    static const std::vector<std::string_view> kCodes3 = {
+    constexpr std::string_view kCodes3[] = {
         "211", "212", "213", "216", "218", "220", "221", "222", "223", "224", "225", "226", "227",
         "228", "229", "230", "231", "232", "233", "234", "235", "236", "237", "238", "239", "240",
         "241", "242", "243", "244", "245", "248", "249", "250", "251", "252", "253", "254", "255",
@@ -1493,11 +1497,15 @@ std::optional<std::pair<std::string_view, std::string_view>> countryCode(std::st
         "964", "965", "966", "967", "968", "970", "971", "972", "973", "974", "975", "976", "977",
         "992", "993", "994", "995", "996", "998",
     };
-    const std::vector<std::string_view>* codes[3] = {&kCodes1, &kCodes2, &kCodes3};
+    const std::pair<const std::string_view*, const std::string_view*> codes[3] = {
+        {std::begin(kCodes1), std::end(kCodes1)},
+        {std::begin(kCodes2), std::end(kCodes2)},
+        {std::begin(kCodes3), std::end(kCodes3)},
+    };
     for (size_t i = 0; i < 3; ++i) {
         if (number.size() < i + 1) continue;
         const std::string_view code = number.substr(0, i + 1);
-        if (std::find(codes[i]->begin(), codes[i]->end(), code) != codes[i]->end())
+        if (std::find(codes[i].first, codes[i].second, code) != codes[i].second)
             return std::make_pair(code, number.substr(i + 1));
     }
     return std::nullopt;
@@ -1747,7 +1755,7 @@ namespace {
 
 // Units written with a slash between letters ("mg/kg", "kJ/mol"), which keep it.
 bool isSlashUnit(std::string_view p) {
-    static const std::string_view kUnits[] = {
+    constexpr std::string_view kUnits[] = {
         "km", "kg", "mg", "ml", "mL", "dL", "mol", "kJ", "kW", "kWh", "Hz", "min", "hr", "hrs", "sec",
         "ft", "lb", "lbs", "oz", "mi", "mph", "kph", "yd", "cm", "mm", "yr", "wk", "mo", "kcal", "rpm",
     };
@@ -2050,4 +2058,4 @@ std::vector<std::string_view> splitWhitespace(std::string_view s) {
 
 } // namespace detail
 
-} // namespace gradium::tts::text
+} // namespace va::thirdparty::phonon::text

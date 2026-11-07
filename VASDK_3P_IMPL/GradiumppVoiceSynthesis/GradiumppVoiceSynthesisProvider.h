@@ -11,6 +11,16 @@
 namespace va {
 namespace thirdparty {
 
+/** Settings of GradiumppVoiceSynthesisProvider; every field but the API key has a default. */
+struct GradiumppVoiceSynthesisOptions {
+    /** API key of the service; required (the catalog falls back to the service's *_API_KEY variable). */
+    std::string apiKey;
+    /** Voice to speak with; empty uses the service default. */
+    std::string voiceId;
+    /** Model to use. */
+    std::string model = gradium::tts::models::default_model;
+};
+
 /**
  * @brief Real-time voice synthesis provider backed by the Gradium TTS WebSocket API.
  */
@@ -18,9 +28,7 @@ class GradiumppVoiceSynthesisProvider : public va::audio::GenericVoiceSynthesisP
 public:
     /// voiceId selects a voice from Gradium's catalog (see gradium::voices::*); there
     /// is no library-wide default since voice choice is a caller/account decision.
-    explicit GradiumppVoiceSynthesisProvider(const std::string& apiKey,
-                                              const std::string& voiceId,
-                                              const std::string& model = gradium::tts::models::default_model);
+    explicit GradiumppVoiceSynthesisProvider(GradiumppVoiceSynthesisOptions options);
     ~GradiumppVoiceSynthesisProvider() override;
 
     void setAudioConfiguration(const va::audio::AudioConfig& config) override;

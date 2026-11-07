@@ -19,8 +19,7 @@
 #include <sstream>
 #include <thread>
 
-namespace va {
-namespace webrtc {
+namespace va::thirdparty {
 
 namespace {
 constexpr int kMaxPlcPackets = 5;        // conceal at most 100 ms per gap; longer gaps stay silent
@@ -172,11 +171,11 @@ struct LibDataChannelWebRtcProvider::Impl : std::enable_shared_from_this<Impl> {
     }
 };
 
-LibDataChannelWebRtcProvider::LibDataChannelWebRtcProvider(std::vector<std::string> iceServers)
+LibDataChannelWebRtcProvider::LibDataChannelWebRtcProvider(LibDataChannelWebRtcOptions options)
     : _impl(std::make_shared<Impl>())
 {
     _impl->owner = this;
-    _impl->iceServers = std::move(iceServers);
+    _impl->iceServers = std::move(options.iceServers);
 }
 
 LibDataChannelWebRtcProvider::~LibDataChannelWebRtcProvider() {
@@ -441,5 +440,4 @@ void LibDataChannelWebRtcProvider::stopSignalingServer() {
     _impl->http.reset();
 }
 
-} // namespace webrtc
-} // namespace va
+} // namespace va::thirdparty

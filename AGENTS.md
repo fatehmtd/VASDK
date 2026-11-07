@@ -55,9 +55,9 @@ Prerequisites, CMake options and model downloads: [docs/building.md](docs/buildi
 
 ### Third-party integrations
 
-1. **Namespace `va::thirdparty`.** Older providers (Silero, the local STT/TTS, MiniAudio, SDL, FFmpeg, RNNoise, llama.cpp, WebRTC) sit in the global namespace: don't copy that.
-2. **No `static` variables in source files**, at file scope or inside functions. State lives in the instance, so several instances and sessions run side by side; fixed tables are `constexpr`.
-3. **Config and parameters are an options struct with a default for every field** (`<Name>Options`), mirrored by an options message in `VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto`. Resolution: config field, then the provider's environment variable, then the default.
+1. **Namespace `va::thirdparty`**, an in-tree port's internals in a namespace under it (`va::thirdparty::phonon`).
+2. **No `static` variables in source files**, at file scope or inside functions. State lives in the instance, so several instances and sessions run side by side; fixed tables are `constexpr`, helpers go in an anonymous namespace. `ctest` checks rules 1 and 2 (`vasdk_thirdparty_rules`, `VASDK_3P_IMPL/check_rules.py`); its one exemption wraps a library that is itself process-global (Whistle's needle engine).
+3. **Config and parameters are an options struct with a default for every field** (`<Name>Options`, next to the class), mirrored by an options message in `VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto` (shared ones such as `CloudOptions` where they fit). Resolution: config field, then the provider's environment variable, then the struct's default; the catalog never repeats a default.
 4. **Cross-platform: macOS, Linux, Windows, Android.** Where a backend can't run on one, CMake turns it off there with `message(WARNING "<Name>: not supported on <platform>: <why>")`, selecting it at run time logs a warning, and the gap is written in its doc page, `docs/provider-catalog.md` and the README provider table.
 5. **Its own doc page**: `docs/providers/<id>.md`, from [the template](skills/vasdk-provider/provider-doc-template.md), with options, a usage example and a mermaid flow.
 

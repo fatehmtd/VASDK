@@ -11,6 +11,20 @@
 namespace va {
 namespace thirdparty {
 
+/** Settings of CartesiappVoiceSynthesisProvider; every field but the API key has a default. */
+struct CartesiappVoiceSynthesisOptions {
+    /** API key of the service; required (the catalog falls back to the service's *_API_KEY variable). */
+    std::string apiKey;
+    /** Voice to speak with; empty uses the service default. */
+    std::string voiceId;
+    /** Model to use. */
+    std::string model = cartesiapp::tts::models::SONIC_3_5;
+    /** Language code; empty lets the service detect it or use its default. */
+    std::string language;
+    /** PEM file of certificates to trust; empty uses the TLS library's own (Android's mbedTLS can't read the system store). */
+    std::string caBundlePath;
+};
+
 /**
  * @brief Real-time voice synthesis provider backed by the Cartesia TTS WebSocket API.
  */
@@ -18,11 +32,7 @@ class CartesiappVoiceSynthesisProvider : public va::audio::GenericVoiceSynthesis
 public:
     /// voiceId selects a voice from the caller's Cartesia account/catalog; there is
     /// no library-wide default since voice IDs are account-specific.
-    explicit CartesiappVoiceSynthesisProvider(const std::string& apiKey,
-                                               const std::string& voiceId,
-                                               const std::string& model = cartesiapp::tts::models::SONIC_3_5,
-                                               const std::string& language = {},
-                                               const std::string& caFilePath = {});
+    explicit CartesiappVoiceSynthesisProvider(CartesiappVoiceSynthesisOptions options);
     ~CartesiappVoiceSynthesisProvider() override;
 
     void setAudioConfiguration(const va::audio::AudioConfig &config) override;

@@ -6,7 +6,33 @@
 #include <string>
 #include <vector>
 
+namespace va::thirdparty {
+
 class MossTTSImpl;
+
+/** Settings of MossVoiceSynthesisProvider; every field but the model folder has a default. */
+struct MossVoiceSynthesisOptions {
+    /** Folder containing MOSS-TTS-Nano-100M-ONNX/ and MOSS-Audio-Tokenizer-Nano-ONNX/, or the TTS
+     *  folder itself (VASDK_3P_IMPL/cmake/DownloadMossTTSModels.cmake). */
+    std::string modelDir;
+    /** Built-in voice, e.g. "Ava", "Bella", "Adam", "Nathan", "Junhao", "Xiaoyu", "Soyo";
+     *  unknown falls back to the first voice, with a warning. */
+    std::string voice = "Ava";
+    /** ONNX Runtime intra-op threads per session. */
+    int threads = 4;
+    /** Silence after each utterance. */
+    float silenceDurationSeconds = 0.3f;
+    /** Cap on generated frames per text chunk, 12.5 frames a second; 0 is the manifest's 375. */
+    int maxNewFrames = 0;
+    /** SentencePiece tokens per synthesis chunk; longer text splits at sentence or clause ends. */
+    int maxChunkTokens = 75;
+    /** Spell numbers, dates, times, money, units and abbreviations out before synthesis (English,
+     *  Chinese or Japanese, by script). Off: only markdown markers are stripped. */
+    bool textNormalization = true;
+    /** Audio made before playback starts, against generation jitter on slow CPUs; 0 streams at once
+     *  (QueuedVoiceSynthesisProvider::setPreBufferedSamplesMS). */
+    int prebufferMs = 0;
+};
 
 /**
  * @brief Voice synthesis provider backed by MOSS-TTS-Nano (OpenMOSS, ~100M params) - an
@@ -30,22 +56,13 @@ class MossTTSImpl;
  */
 class MossVoiceSynthesisProvider : public va::audio::QueuedVoiceSynthesisProvider {
 public:
-    /**
-     * @param modelDir    Directory containing MOSS-TTS-Nano-100M-ONNX/ and
-     *                    MOSS-Audio-Tokenizer-Nano-ONNX/ (or the TTS directory itself).
-     * @param voiceName   Built-in voice (e.g. "Ava", "Bella", "Adam", "Nathan", "Junhao", "Xiaoyu",
-     *                    "Soyo"). Falls back to the first voice if not found.
-     * @param numThreads  ONNX Runtime intra-op threads per session.
-     */
-    explicit MossVoiceSynthesisProvider(const std::string& modelDir,
-                                        const std::string& voiceName = "Ava",
-                                        int numThreads = 4);
+    explicit MossVoiceSynthesisProvider(MossVoiceSynthesisOptions options);
     ~MossVoiceSynthesisProvider() override;
 
     MossVoiceSynthesisProvider(const MossVoiceSynthesisProvider&)            = delete;
     MossVoiceSynthesisProvider& operator=(const MossVoiceSynthesisProvider&) = delete;
 
-    // --- Synthesis knobs ---
+    // --- Switching at run time ---
 
     /// Select a built-in voice by name. Applied before the next utterance.
     /// Returns false (and keeps the name, falling back at synthesis time) if the voice is
@@ -55,28 +72,6 @@ public:
 
     /// Built-in voice names from the manifest (empty until the provider is started).
     std::vector<std::string> getAvailableVoices() const;
-
-    /// Seconds of silence appended after each utterance (default 0.3).
-    void  setSilenceDuration(float seconds);
-    float getSilenceDuration() const;
-
-    /// Cap on generated frames per text chunk, 12.5 frames per second (default 0 = manifest's 375).
-    void setMaxNewFrames(int frames);
-    int  getMaxNewFrames() const;
-
-    /// Max SentencePiece tokens per synthesis chunk; longer text is split at sentence /
-    /// clause boundaries (default 75, as upstream).
-    void setMaxChunkTokens(int tokens);
-    int  getMaxChunkTokens() const;
-
-    /// Spell numbers, dates, times, money, units and abbreviations out before synthesis, in
-    /// English, Chinese or Japanese by script (default true). When false, only markdown
-    /// markers are stripped and the model reads the text as written.
-    void setTextNormalization(bool enabled);
-    bool getTextNormalization() const;
-
-    // setPreBufferedSamplesMS() (the base class): absorbs generation jitter on slow CPUs.
-    // Default 0 (stream immediately).
 
 private:
     std::shared_ptr<MossTTSImpl> _impl;
@@ -88,5 +83,7 @@ private:
     bool loadEngine() override;
     bool synthesizeOne(const std::string& text) override;
 };
+
+} // namespace va::thirdparty
 
 #endif // MOSS_VOICE_SYNTHESIS_PROVIDER_HPP

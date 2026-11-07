@@ -19,12 +19,14 @@
 #include <cstring>
 #include <vector>
 
-namespace gradium::tts {
+namespace va::thirdparty::phonon {
 
 // ---------------------------------------------------------------------------
 // Mimi transformer — 2 causal layers, LayerScale, sliding-window attention.
 // ---------------------------------------------------------------------------
-static void mimi_transformer_fwd(float* x, int T, const Config& cfg,
+namespace {
+
+void mimi_transformer_fwd(float* x, int T, const Config& cfg,
                                   const ModelWeights& weights, KVCache& kv,
                                   int past, int pos_base) {
     const auto& mc = cfg.mimi;
@@ -57,6 +59,8 @@ static void mimi_transformer_fwd(float* x, int T, const Config& cfg,
         for (int i = 0; i < T*d; i++) x[i] += lw.ls2[i%d] * ffn_out[i];
     }
 }
+
+} // namespace
 
 // ---------------------------------------------------------------------------
 // Streaming Mimi decode  latents[N, ldim] → PCM[N × 1920], carrying state
@@ -256,4 +260,4 @@ std::vector<float> mimi_decode(const std::vector<std::vector<float>>& latents,
     return mimi_decode_stream(latents, cfg, weights, state);
 }
 
-} // namespace gradium::tts
+} // namespace va::thirdparty::phonon
