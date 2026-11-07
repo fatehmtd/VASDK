@@ -78,6 +78,9 @@ public:
     /** Starts the conversation over at the start page, params at their defaults; the greeting
      *  comes on the next activation. Thread-safe. */
     void restart();
+    /** Words the assistant said that the agent didn't (the LLM's answer, the app's say()): the
+     *  agent's own LLM calls see them, as they see its replies. Thread-safe. */
+    void noteSaid(const std::string& text);
     /** Mid-chat, the share of the words a route must account for (FlowRuntime::setChatMinShare). Before start(). */
     void setChatMinShare(float share);
     /** Before start(): the greeting resumes the conversation from `snapshot` (FlowRuntime::resume), once. */
@@ -115,7 +118,8 @@ public:
 
 private:
     void greetIfReady();
-    void speak(const Reply& reply, bool filler = false, uint64_t turnId = 0);
+    // heard: the user's words the reply answers, for the LLM's history (TextFrame::answers).
+    void speak(const Reply& reply, bool filler = false, uint64_t turnId = 0, const std::string& heard = "");
     // The conversation's thread: tasks run in order, and post their replies back as frames.
     void post(std::function<void()> task);
     void deliver(Reply reply, std::shared_ptr<transport::Frame> turn = nullptr, bool mayPassOn = false, bool fromTrigger = false);

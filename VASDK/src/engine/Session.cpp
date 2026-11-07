@@ -741,6 +741,18 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
             if (auto processor = dialog.lock()) processor->setConnected(false);
         };
     }
+    // Both the LLM and the agent's own LLM calls know everything the assistant said: the LLM's
+    // history gets the agent's replies as they pass it (LLMProcessor), and here the rest.
+    state->eventTap->setSaidObserver([dialog = std::weak_ptr<flow::DialogProcessor>(state->dialog),
+                                      llm = std::weak_ptr<llm::LLMProcessor>(state->llm),
+                                      dialogName = state->dialog ? state->dialog->getName() : std::string(),
+                                      llmName = state->llm ? state->llm->getName() : std::string()](
+                                         const std::string& text, const std::string& source) {
+        if (!dialogName.empty() && source == dialogName) return;   // its own: in its transcript, and passed the LLM on the way
+        if (auto agent = dialog.lock()) agent->noteSaid(text);   // the LLM's answer, or the app's say()
+        if (llmName.empty() || source != llmName)
+            if (auto model = llm.lock()) model->noteSaid(text);   // the app's say(): after the LLM in the pipeline
+    });
     if (state->llm || state->dialog) {
         state->turnAssembler = std::make_shared<pipeline::TurnAssemblerProcessor>();
         state->turnAssembler->setFirePolicy(std::make_shared<llm::FinalOnlyFirePolicy>());

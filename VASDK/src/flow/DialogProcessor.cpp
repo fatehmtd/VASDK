@@ -380,6 +380,10 @@ void DialogProcessor::setToolCaller(ToolCaller caller) {
     _beforeLastTurn.setToolCaller(_toolCaller);
 }
 
+void DialogProcessor::noteSaid(const std::string& text) {
+    post([this, text] { _conversation.noteSaid(text); });
+}
+
 void DialogProcessor::restart() {
     enqueueFrame(std::make_shared<RestartFrame>(), pipeline::FlowDirection::DOWNSTREAM);
 }
@@ -408,7 +412,9 @@ void DialogProcessor::processFrame(std::shared_ptr<transport::Frame> frame, pipe
             return;
         }
         if (ready.reply.endsSession) _greetingPending = true;   // on the next activation or caller
-        speak(ready.reply, false, ready.turnId);
+        // What it answers, for the LLM to know of later turns; not an answer to a private question.
+        const auto turn = std::dynamic_pointer_cast<transport::UserTurnFrame>(ready.turn);
+        speak(ready.reply, false, ready.turnId, turn && !_privateAnswer ? turn->text : std::string());
     };
     if (auto replaced = dynamic_cast<const transport::TurnReplacedFrame*>(frame.get())) {
         // Ahead of the stale turn's reply when it overtook its handling: that reply goes unsaid.
@@ -636,7 +642,7 @@ void DialogProcessor::greetIfReady() {
     post([this] { deliver(_conversation.start()); });
 }
 
-void DialogProcessor::speak(const Reply& reply, bool filler, uint64_t turnId) {
+void DialogProcessor::speak(const Reply& reply, bool filler, uint64_t turnId, const std::string& heard) {
     if (!filler) {
         _awaitingAnswer = reply.expectsReply;
         _privateAnswer = reply.expectsReply && reply.expectation.secure_entry();
@@ -676,6 +682,7 @@ void DialogProcessor::speak(const Reply& reply, bool filler, uint64_t turnId) {
         text->sensitiveValues = reply.sensitiveValues;
         text->turnId = turnId;
         if (text->isFinal) {
+            if (!filler) text->answers = heard;
             text->isExpecting = reply.expectsReply;
             for (const auto& choice : reply.choices) text->choices.push_back({choice.label, choice.value});
             if (reply.ui.fields_size() > 0) (void)google::protobuf::util::MessageToJsonString(reply.ui, &text->uiJson);

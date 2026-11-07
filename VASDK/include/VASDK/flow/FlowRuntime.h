@@ -102,6 +102,9 @@ public:
 
     /** Enters the start page and returns its greeting. Also starts over after an end. */
     Reply start();
+    /** Words the assistant said that the agent didn't write (the LLM's answer, the app's say()):
+     *  in the conversation its own LLM calls are given. */
+    void noteSaid(const std::string& text) { remember(llm::MessageRole::ASSISTANT, text); }
     /**
      * Where the conversation is, to pick it up later (a caller who hangs up mid-form and calls
      * back): its flow and page, the form's filled slots and the session params. Sensitive slots and

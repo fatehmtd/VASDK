@@ -66,10 +66,16 @@ public:
     std::string getName() const override { return "EventTap"; }
     bool shouldProcess(std::shared_ptr<transport::Frame> frame) const override;
     void processFrame(std::shared_ptr<transport::Frame> frame, pipeline::FlowDirection direction) override;
+    /** Each reply once it's whole, masked, with the sourceId of the processor that wrote it
+     *  ("Dialog", "LLMProcessor"; empty: the app's say()). Before the pipeline starts. */
+    void setSaidObserver(std::function<void(const std::string& text, const std::string& source)> observer) {
+        _saidObserver = std::move(observer);
+    }
 
 private:
     std::shared_ptr<EventDispatcher> _dispatcher;
     std::string _reply;   // the agent reply streamed so far
+    std::function<void(const std::string&, const std::string&)> _saidObserver;
     bool _listeningWindowOpen = false;
     void postListeningWindow(const transport::AgentStateFrame& frame);
 };

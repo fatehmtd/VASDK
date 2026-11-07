@@ -33,6 +33,16 @@ flowchart LR
 
 **Conversation history** is owned by the transport: `addMessageToHistory(role, content)`, `clearHistory()`, `getHistory()`, capped at `setMaxHistoryLength()` (default 20 messages), disable with `setHistoryEnabled(false)`. Roles: `SYSTEM`, `USER`, `ASSISTANT`, `TOOL`.
 
+**Everything the assistant said is in it**, whoever wrote it, so the LLM knows what happened ("you called John"):
+
+| Said by | How it gets in |
+| --- | --- |
+| the LLM | its own exchange |
+| an agent | its reply passes `LLMProcessor` on the way to TTS, with the user's words it answered (`TextFrame::answers`); an answer to a private question leaves the words out, and the reply's sensitive values are written `[private]` |
+| the app (`Session::say`, a remote "say") | `LLMProcessor::noteSaid`, from the session's event tap |
+
+The agent's own LLM calls (`llm` steps, generative pages, slots filled by the LLM) are given the same conversation: its transcript gets the LLM's answers and the app's words through `DialogProcessor::noteSaid`.
+
 **Prompt templating** is where dynamic prompts plug in:
 
 - `setPromptTemplate(std::unique_ptr<PromptTemplate>)` installs a template rendered into every request; `setPromptChatFormat()` overrides which `ChatFormat` it renders to (defaults to the provider's idiomatic format).

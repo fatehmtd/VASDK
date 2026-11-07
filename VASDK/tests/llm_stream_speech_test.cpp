@@ -474,6 +474,38 @@ void backchannelGoesWithTheNextMessage() {
           "[backchannel] recorded once");
 }
 
+// The agent's replies pass the LLM on their way to TTS: each goes into its history with the words
+// it answered, so a later turn the LLM answers knows what the agent did; private values are masked.
+void agentRepliesGoInHistory() {
+    Rig rig(R"({"text": "Yes, I did."})");
+    auto part = [](const std::string& text, bool isFinal, const std::string& answers, std::vector<std::string> sensitive = {}) {
+        auto frame = std::make_shared<transport::TextFrame>();
+        frame->text = text;
+        frame->isFinal = isFinal;
+        frame->answers = answers;
+        frame->sensitiveValues = std::move(sensitive);
+        return frame;
+    };
+    rig.send(part("Hi! What can I do for you?", true, ""));                    // a greeting: no user words
+    rig.send(part("Calling John.", false, ""));
+    rig.send(part(" What can I do for you?", true, "call john"));
+    rig.send(part("Your PIN 4321 is set.", true, "", {"4321"}));
+    std::this_thread::sleep_for(100ms);
+    check(rig.http->requests == 0, "[agent] its replies aren't answered");
+    rig.userSays("Did you call John?");
+    std::this_thread::sleep_for(600ms);
+    std::vector<std::pair<llm::MessageRole, std::string>> said;
+    for (const auto& m : rig.transport->getHistory())
+        if (m.role != llm::MessageRole::SYSTEM) said.emplace_back(m.role, m.content);
+    using R = llm::MessageRole;
+    const std::vector<std::pair<llm::MessageRole, std::string>> expected = {
+        {R::ASSISTANT, "Hi! What can I do for you?"}, {R::USER, "call john"}, {R::ASSISTANT, "Calling John. What can I do for you?"},
+        {R::ASSISTANT, "Your PIN [private] is set."}, {R::USER, "Did you call John?"}, {R::ASSISTANT, R"({"text": "Yes, I did."})"}};   // the LLM's own, as it wrote it
+    check(said == expected, "[agent] its turns are in the history, in order, the PIN masked");
+    if (said != expected)
+        for (const auto& [role, content] : said) std::fprintf(stderr, "  %d: %s\n", static_cast<int>(role), content.c_str());
+}
+
 } // namespace
 
 void followUpMergedWithInterruptedTurn() {
@@ -528,6 +560,7 @@ int main() {
     replacingTurnCancelsThePreviousReply();
     failedRequestIsSaid();
     backchannelGoesWithTheNextMessage();
+    agentRepliesGoInHistory();
     followUpMergedWithInterruptedTurn();
     followUpKeepsStagedUnsentFinal();
     std::printf("llm stream speech scenarios done, %d failure(s)\n", failures);

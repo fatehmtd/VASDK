@@ -193,6 +193,8 @@ bool LLMProcessor::shouldProcess(std::shared_ptr<transport::Frame> frame) const 
         case transport::FrameType::TOOL_CALL:
         case transport::FrameType::TOOL_RESULT:
             return true;
+        case transport::FrameType::TEXT:   // an agent's reply, for the history: never this processor's own
+            return frame->sourceId != getName();
         case transport::FrameType::VAD_STATE:
             return _speculativeFiring;
         case transport::FrameType::CONTROL:
@@ -497,6 +499,9 @@ void LLMProcessor::processDownstream(std::shared_ptr<transport::Frame> frame) {
         return;
     }
 
+    if (frame->getType() == transport::FrameType::TEXT)   // the agent's reply, on its way down
+        recordAgentReply(*std::static_pointer_cast<transport::TextFrame>(frame));
+
     if (auto transcription = std::dynamic_pointer_cast<transport::TranscriptionFrame>(frame)) {
         if (transcription->isBackchannel) {
             recordBackchannel(transcription->transcriptionResult.text);
@@ -736,6 +741,30 @@ void LLMProcessor::handleBackchannelTransition() {
     std::lock_guard<std::mutex> lock(_partialCacheMutex);
     _latestPartialText.clear();
     _latestPartialConfidence = 0.0f;
+}
+
+void LLMProcessor::recordAgentReply(const transport::TextFrame& said) {
+    _agentReply += said.text;
+    if (!said.isFinal) return;
+    std::string reply = std::move(_agentReply);
+    _agentReply.clear();
+    for (const auto& value : said.sensitiveValues) {   // what the user keeps private stays out of the prompt
+        if (value.empty()) continue;
+        for (auto at = reply.find(value); at != std::string::npos; at = reply.find(value, at + 9)) reply.replace(at, value.size(), "[private]");
+    }
+    const auto first = reply.find_first_not_of(' ');
+    if (first == std::string::npos) return;
+    reply.erase(0, first);
+    // In order with the requests: after an exchange still being written, before the next.
+    enqueueRequest([this, heard = said.answers, reply] {
+        if (!heard.empty()) _transport->addMessageToHistory(MessageRole::USER, heard);
+        _transport->addMessageToHistory(MessageRole::ASSISTANT, reply);
+    });
+}
+
+void LLMProcessor::noteSaid(const std::string& text) {
+    if (text.empty()) return;
+    enqueueRequest([this, text] { _transport->addMessageToHistory(MessageRole::ASSISTANT, text); });
 }
 
 void LLMProcessor::recordBackchannel(const std::string& text) {
