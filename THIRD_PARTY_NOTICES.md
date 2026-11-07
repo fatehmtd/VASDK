@@ -28,6 +28,7 @@ Library and provider dependencies (spdlog, nlohmann/json, llama.cpp, whisper.cpp
 | LFM2.5 230M (GGUF) | Default local LLM (Android app) | [LiquidAI/LFM2.5-230M-GGUF](https://huggingface.co/LiquidAI/LFM2.5-230M-GGUF) | LFM Open License v1.0 |
 | RNNoise weights | Noise suppression | `rnnoise_data-<hash>.tar.gz` from media.xiph.org, the release matching the fetched [xiph/rnnoise](https://github.com/xiph/rnnoise) source | BSD 3-Clause |
 | all-MiniLM-L6-v2 (ONNX) | Intent understanding: agents match paraphrases their examples miss (`VASDK_BUILD_MINILM_NLU`, on by default) | [sentence-transformers/all-MiniLM-L6-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) | Apache 2.0 |
+| GLiNER small v2.1 / multi v2.1 (ONNX, int8) | Entity finding (opt-in, `VASDK_BUILD_GLINER_NER`; `VASDK_GLINER_MODEL=multi` for the multilingual one) | [onnx-community/gliner_small-v2.1](https://huggingface.co/onnx-community/gliner_small-v2.1), [onnx-community/gliner_multi-v2.1](https://huggingface.co/onnx-community/gliner_multi-v2.1), exported from [urchade/gliner_small-v2.1](https://huggingface.co/urchade/gliner_small-v2.1) and [urchade/gliner_multi-v2.1](https://huggingface.co/urchade/gliner_multi-v2.1) | Apache 2.0 |
 | Llama 3.2 1B Instruct (GGUF) | Optional local LLM (Android app preset) | [bartowski/Llama-3.2-1B-Instruct-GGUF](https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF), quantized from [meta-llama/Llama-3.2-1B-Instruct](https://huggingface.co/meta-llama/Llama-3.2-1B-Instruct) | Llama 3.2 Community License |
 | Qwen2.5 1.5B Instruct (GGUF) | Optional local LLM (Android app preset) | [bartowski/Qwen2.5-1.5B-Instruct-GGUF](https://huggingface.co/bartowski/Qwen2.5-1.5B-Instruct-GGUF), quantized from [Qwen/Qwen2.5-1.5B-Instruct](https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct) | Apache 2.0 |
 | Gemma 3 1B IT (GGUF) | Optional local LLM (Android app preset) | [bartowski/google_gemma-3-1b-it-GGUF](https://huggingface.co/bartowski/google_gemma-3-1b-it-GGUF), quantized from [google/gemma-3-1b-it](https://huggingface.co/google/gemma-3-1b-it) | Gemma Terms of Use |
@@ -51,14 +52,14 @@ Every VAD/STT/TTS/LLM/audio provider under `VASDK_3P_IMPL/`, plus the core libra
 | [snakers4/silero-vad](https://github.com/snakers4/silero-vad) | VAD (Silero) | GitHub | MIT |
 | [marton78/pffft](https://github.com/marton78/pffft) | SmartTurn v3, VizAnim, pyannote speaker embedding (FFT) | GitHub | Permissive NCAR/UCAR license |
 | [xiph/rnnoise](https://github.com/xiph/rnnoise) | Noise suppression | GitHub | BSD 3-Clause |
-| [microsoft/onnxruntime](https://github.com/microsoft/onnxruntime) | Silero, Parakeet, Moonshine, SmartTurn, PocketTTS, Supertonic, MOSS-TTS-Nano, MiniLM, pyannote speaker embedding (ONNX inference) | GitHub release archive (desktop), Maven Central AAR (Android) | MIT |
+| [microsoft/onnxruntime](https://github.com/microsoft/onnxruntime) | Silero, Parakeet, Moonshine, SmartTurn, PocketTTS, Supertonic, MOSS-TTS-Nano, MiniLM, GLiNER, pyannote speaker embedding (ONNX inference) | GitHub release archive (desktop), Maven Central AAR (Android) | MIT |
 | [moonshine-ai/moonshine](https://github.com/moonshine-ai/moonshine) | STT (Moonshine streaming model, ORT utils and tokenizer code) | GitHub | MIT (code and every streaming model; only legacy non-streaming non-English models, which VASDK doesn't use, are under the non-commercial Moonshine Community License) |
 | [ggml-org/whisper.cpp](https://github.com/ggml-org/whisper.cpp) | STT (Whisper.cpp) | GitHub | MIT |
 | Cactus needle engine | STT (Whistle; prebuilt binaries only, no source) | [Cactus-Compute/needle3](https://huggingface.co/Cactus-Compute/needle3) (HuggingFace: `cactus-needle` wheel on desktop, `libneedle.a` on Android) | Apache 2.0 |
 | [fatehmtd/gladiapp](https://github.com/fatehmtd/gladiapp) | STT (Gladia, cloud) | GitHub | MIT |
 | [fatehmtd/SonioxPP](https://github.com/fatehmtd/SonioxPP) | STT/TTS (Soniox, cloud) | GitHub | Apache 2.0 |
 | [supertone-inc/supertonic](https://github.com/supertone-inc/supertonic) | TTS (Supertonic inference code) | GitHub | MIT |
-| [google/sentencepiece](https://github.com/google/sentencepiece) | TTS (PocketTTS, Phonon and MOSS-TTS-Nano tokenizer) | GitHub | Apache 2.0 |
+| [google/sentencepiece](https://github.com/google/sentencepiece) | TTS (PocketTTS, Phonon and MOSS-TTS-Nano tokenizer), GLiNER's tokenizer | GitHub | Apache 2.0 |
 | [ggml-org/ggml](https://github.com/ggml-org/ggml) | TTS (Phonon tensor ops, in-repo port of [gradium-ai/xn-ptts](https://github.com/gradium-ai/xn-ptts) (MIT OR Apache 2.0); shared with llama.cpp's copy when that is built) | GitHub | MIT |
 | [fatehmtd/deepgrampp](https://github.com/fatehmtd/deepgrampp) | STT/TTS (Deepgram, cloud) | GitHub | Apache 2.0 |
 | [fatehmtd/CartesiaPP](https://github.com/fatehmtd/CartesiaPP) | STT/TTS (Cartesia, cloud) | GitHub | Apache 2.0 |

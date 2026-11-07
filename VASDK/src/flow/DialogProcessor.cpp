@@ -129,6 +129,8 @@ void DialogProcessor::prepare(FlowRuntime& conversation) {
     if (_toolCaller) conversation.setToolCaller(_toolCaller);
     if (_nlu) conversation.setNlu(_nlu);
     if (_embeddings) conversation.setEmbeddings(_embeddings);
+    if (_entityExtractor) conversation.setEntityExtractor(_entityExtractor);
+    conversation.setExactRules(_exactRules);
     if (_llm) conversation.setLlm(_llm);
     conversation.setLlmProfiles(_llmProfiles);
     conversation.setInterrupted([this] { return _givenUpBefore.load() > _answering; });

@@ -17,7 +17,9 @@
 #include "context/ContextProvider.h"
 #include "flow/DialogProcessor.h"
 #include "nlu/EmbeddingNluProvider.h"
+#include "nlu/LlmEntityExtractor.h"
 #include "nlu/LlmNluProvider.h"
+#include "nlu/TaggerEntityExtractor.h"
 #include "llm/LLMFirePolicy.h"
 #include "llm/Completion.h"
 #include "llm/LLMProcessor.h"
@@ -592,7 +594,10 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
                                                                              state->llmOffline);
             spdlog::info("{} LLM profile \"{}\": {} ({})", state->logTag, profile.name(), given.endpoint, given.model);
         }
-        std::vector<std::shared_ptr<const nlu::NluProvider>> stages{options.agent->rules()};
+        // With an intent model, the rules match exactly: the model understands the rest.
+        std::vector<std::shared_ptr<const nlu::NluProvider>> stages{
+            runtime->sentenceEncoder() ? options.agent->exactRules() : options.agent->rules()};
+        state->dialog->setExactRules(runtime->sentenceEncoder() != nullptr);
         std::shared_ptr<const nlu::EmbeddingNluProvider> embeddings;
         if (auto encoder = runtime->sentenceEncoder()) {
             embeddings = std::make_shared<nlu::EmbeddingNluProvider>(encoder, options.agent->definition().intents());
@@ -622,6 +627,29 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
             const int intentTimeoutMs = config.llm().has_intent_timeout_ms() ? config.llm().intent_timeout_ms() : 1500;
             stages.push_back(std::make_shared<nlu::LlmNluProvider>(completion, options.agent->definition().intents(), intentTimeoutMs));
             state->dialog->setLlm(completion);
+        }
+        // What finds the agent's entities: the runtime's model, or one of the session's own.
+        const auto& entityModel = config.providers().entity_model().id();
+        std::shared_ptr<const nlu::EntityExtractor> extractor = runtime->entityExtractor();
+        if (entityModel == "tagger") {
+            if (auto encoder = runtime->sentenceEncoder()) {
+                std::vector<std::string> examples;
+                for (const auto& intent : options.agent->definition().intents())
+                    examples.insert(examples.end(), intent.examples().begin(), intent.examples().end());
+                // shortcut: trained per session (about a second); share it across sessions if many start at once.
+                auto tagger = std::make_shared<nlu::TaggerEntityExtractor>(encoder, options.agent->entities().modelLabels(), examples);
+                if (tagger->trained()) extractor = tagger;
+            } else {
+                spdlog::warn("{} entity_model \"tagger\" needs a sentence_encoder: entities by their words alone", state->logTag);
+            }
+        } else if (entityModel == "llm") {
+            if (completion) extractor = std::make_shared<nlu::LlmEntityExtractor>(
+                completion, config.llm().has_intent_timeout_ms() ? config.llm().intent_timeout_ms() : 1500);
+            else spdlog::warn("{} entity_model \"llm\" needs an LLM: entities by their words alone", state->logTag);
+        }
+        if (extractor) {
+            state->dialog->setEntityExtractor(extractor);
+            spdlog::info("{} entities found by {}", state->logTag, extractor->name());
         }
         const auto& understanding = config.understanding();
         if (understanding.has_chat_min_share()) state->dialog->setChatMinShare(understanding.chat_min_share());

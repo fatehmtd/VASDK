@@ -29,11 +29,16 @@ message EntityType {
   Matching matching = 21;
 }
 
-// How a list entity's values are found in the words.
+// How a list entity's values are found in the words. With an entity model in the engine config
+// (providers.entity_model), fuzzy and phonetic matches count only inside the words the model
+// marks as this entity; exact values and synonyms count anywhere.
 message Matching {
   optional bool fuzzy = 1;            // misspelled words still match ("tyres" for "tires"); unset: true
   optional float min_similarity = 2;  // how alike a word must be, 0 to 1; unset: 0.8
   bool phonetic = 3;                  // words that sound alike match too: names ("Catherine" for "Katherine")
+  // What an entity model is told this entity is, a short noun phrase ("car repair"); unset: the
+  // name, with spaces for underscores ("available time"). Zero-shot models (gliner) depend on it.
+  string label = 4;
 }
 
 // Values built from other entities, each template in order: "@color:color @car_make:make" names

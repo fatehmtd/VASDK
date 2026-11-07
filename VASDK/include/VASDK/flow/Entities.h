@@ -2,6 +2,7 @@
 
 #include "vasdk_export.h"
 #include "Expression.h"
+#include "../nlu/EntityExtractor.h"
 #include "../nlu/Language.h"
 #include "vasdk/nlu/entity.pb.h"
 
@@ -62,14 +63,20 @@ public:
     /** The languages values are read in. */
     const nlu::Languages& languages() const { return *_languages; }
 
-    /** Every declared entity in `text`, overlaps resolved, in the order said. */
+    /** Every declared entity in `text`, overlaps resolved, in the order said. `spans`: where an
+     *  entity model found entities (nlu::EntityExtractor) in entityWords(text); given, a list
+     *  entity's misspellings and sound-alikes count only inside its own spans. */
     std::vector<EntityMatch> findAll(const std::string& text, const DynamicEntityValues& dynamic = {},
-                                     std::chrono::system_clock::time_point now = std::chrono::system_clock::now()) const;
+                                     std::chrono::system_clock::time_point now = std::chrono::system_clock::now(),
+                                     const std::vector<nlu::EntitySpan>* spans = nullptr) const;
     /** The longest match of one entity in `text`; the first said on a tie. */
-    /** `now`: what dates count from ("tomorrow"). */
+    /** `now`: what dates count from ("tomorrow"). `spans`: as for findAll. */
     std::optional<EntityMatch> find(const std::string& name, const std::string& text,
                                     const DynamicEntityValues& dynamic = {},
-                                    std::chrono::system_clock::time_point now = std::chrono::system_clock::now()) const;
+                                    std::chrono::system_clock::time_point now = std::chrono::system_clock::now(),
+                                    const std::vector<nlu::EntitySpan>* spans = nullptr) const;
+    /** The list entities, as an entity model is told about them: what it may find. */
+    std::vector<nlu::EntityLabel> modelLabels() const;
     /** A value as if it had been said: a list value's spoken form and attributes. */
     EntityMatch describe(const std::string& name, const Value& value, const DynamicEntityValues& dynamic = {}) const;
     /** Every value of a list entity: this conversation's for a dynamic one; empty for other kinds. */
@@ -79,7 +86,8 @@ public:
 
 private:
     std::vector<EntityMatch> matches(const std::string& name, const std::vector<std::string>& words,
-                                     const DynamicEntityValues& dynamic, std::chrono::system_clock::time_point now) const;
+                                     const DynamicEntityValues& dynamic, std::chrono::system_clock::time_point now,
+                                     const std::vector<nlu::EntitySpan>* spans) const;
     const std::vector<vasdk::nlu::EntityValue>* listValues(const std::string& name, const DynamicEntityValues& dynamic,
                                                            std::vector<vasdk::nlu::EntityValue>& declared) const;
     int kindRank(const std::string& name) const;

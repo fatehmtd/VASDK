@@ -55,8 +55,9 @@ entity_types {
     }
   }
   # One letter off in a 5-letter word (the default 0.8) would hear "times" as "tires"; the spellings
-  # speech recognizers give are listed above.
-  matching { min_similarity: 0.85 }
+  # speech recognizers give are listed above. `label` is what an entity model (engine config
+  # entity_model) is told this is.
+  matching { min_similarity: 0.85 label: "car repair" }
 }
 
 # The times still free. These are the defaults; an app replaces them for each conversation with
@@ -69,6 +70,7 @@ entity_types {
     values { value: "11:00" spoken: "11 AM" synonyms: ["11", "eleven", "11 am"] }
     values { value: "14:00" spoken: "2 PM"  synonyms: ["2", "two", "2 pm", "afternoon"] }
   }
+  matching { label: "appointment time" }
 }
 
 intents { name: "book"    examples: ["book", "appointment", "schedule", "bring my car in", "service"] }

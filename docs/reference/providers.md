@@ -192,6 +192,51 @@ AudioConfig getAudioConfig() const;  // format of the pipeline audio, set by the
 
 Return an empty vector on failure. The `PyannoteSpeaker` implementation in `VASDK_3P_IMPL` (`-DVASDK_BUILD_PYANNOTE_SPEAKER=ON`) runs the embedding model of [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) (WeSpeaker ResNet34-LM, ONNX export downloaded at configure time) with a Kaldi fbank front end matched to torchaudio; it needs 16 kHz mono.
 
+## Understanding: SentenceEncoder and EntityExtractor
+
+Two providers help an [agent](flows.md) understand what was said. An engine config chooses them by id (`providers { sentence_encoder { id } entity_model { id } }`), and a `Session` hands them to the agent. Both are shared by every session, so they must be thread-safe.
+
+### SentenceEncoder
+
+([`EmbeddingNluProvider.h`](../../VASDK/include/VASDK/nlu/EmbeddingNluProvider.h)) Turns a sentence into a vector, so intents can be found by meaning: `EmbeddingNluProvider` compares it with each intent example.
+
+```cpp
+virtual std::string name() const = 0;
+virtual std::vector<float> encode(const std::string& sentence) const = 0;   // normalized to length 1; empty on failure
+virtual std::vector<std::vector<float>> encodeWords(const std::vector<std::string>& words) const;   // optional: one vector per word
+```
+
+`encodeWords` is what the `tagger` entity model reads. An encoder without it can't be used for one. `MiniLmSentenceEncoder` (all-MiniLM-L6-v2, id `minilm`) implements both.
+
+### EntityExtractor
+
+([`EntityExtractor.h`](../../VASDK/include/VASDK/nlu/EntityExtractor.h)) An [entity model](flows.md#entity-models): it finds which words say which of the agent's list entities. `EntityCatalog` then resolves those words to values, and lets misspellings count only inside them.
+
+```cpp
+virtual std::string name() const = 0;
+virtual std::vector<EntitySpan> extract(const std::vector<std::string>& words,     // flow::entityWords(text): lowercased words
+                                        const std::vector<EntityLabel>& labels,    // {entity, label, description, examples}
+                                        bool sensitive) const = 0;
+```
+
+- **Labels:** each one comes from an entity type's `matching { label }` (default: its name) and up to 12 of its values.
+- **Spans:** return `{entity, start, length, score}`, indexing `words`, with `score` from 0 to 1 and no two overlapping. `nlu::nonOverlapping(spans)` keeps the best of overlapping ones.
+- **`sensitive`:** the words may be a secret answer. An extractor that sends them off the device returns nothing.
+
+Implementations: `GlinerEntityExtractor` in `VASDK_3P_IMPL/GlinerNer` (id `gliner`, `GlinerOptions`), and in the core `TaggerEntityExtractor` and `LlmEntityExtractor`. The ids `tagger` and `llm` are built by `Session` itself, so give yours another id:
+
+```cpp
+registry.add<va::nlu::EntityExtractor, acme::MyNerOptions>("myner",
+    [](const acme::MyNerOptions& options, const va::engine::ProviderContext& context)
+        -> std::shared_ptr<va::nlu::EntityExtractor> {
+        auto ner = std::make_shared<MyNer>(context.modelsDir + "/myner", options.threshold());
+        if (!ner->initialize()) return nullptr;   // the Runtime fails with "Entity model: ..."
+        return ner;
+    });
+```
+
+Compare it with the others with `eval … --engine-config`, in a copy of the agent tool given your registry (`runAgentTool(argc, argv, registry, &providers)`, see [Checking and testing](flows.md#checking-and-testing-vasdk_agentc)). Don't confuse it with `FlowRegistry::addEntityExtractor`, which finds the values of one `code` entity, such as a database lookup.
+
 ---
 
 ## Writing a new provider: the checklist

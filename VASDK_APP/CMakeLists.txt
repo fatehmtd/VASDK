@@ -22,6 +22,10 @@ if(VASDK_ENABLE_ENGINE_CONFIG AND TARGET VASDK)
 
     add_executable(garage_agentc ${GARAGE_DIR}/extensions/garage_agentc.cpp)
     target_link_libraries(garage_agentc PRIVATE garage_extensions)
+    if(TARGET vasdk_provider_catalog)   # --engine-config's sentence_encoder and entity_model (minilm, gliner)
+        target_link_libraries(garage_agentc PRIVATE vasdk_provider_catalog)
+        target_compile_definitions(garage_agentc PRIVATE VASDK_HAS_PROVIDER_CATALOG)
+    endif()
     if(WIN32 AND TARGET VASDK)   # a VASDK.dll beside it is loaded first: keep it the current one
         get_target_property(_vasdk_type VASDK TYPE)
         if(_vasdk_type STREQUAL "SHARED_LIBRARY")

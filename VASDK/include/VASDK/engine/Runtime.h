@@ -20,7 +20,7 @@ class GenericVoiceSynthesisProvider;
 class TurnDetectionProvider;
 class WakeWordProvider;
 }
-namespace nlu { class SentenceEncoder; }
+namespace nlu { class SentenceEncoder; class EntityExtractor; }
 
 namespace engine {
 
@@ -93,6 +93,9 @@ public:
     const vasdk::engine::EngineConfig& config() const { return _config; }
     /** The config's sentence_encoder, shared by every session; null without one. */
     std::shared_ptr<const nlu::SentenceEncoder> sentenceEncoder() const { return _sentenceEncoder; }
+    /** The config's entity_model when it's a provider (gliner), shared by every session; null for none,
+     *  and for tagger and llm, which a session makes from its agent and its LLM. */
+    std::shared_ptr<const nlu::EntityExtractor> entityExtractor() const { return _entityExtractor; }
     const Options& options() const { return _options; }
     size_t activeSessions() const;
     /** Provider sets loaded and waiting for a session. */
@@ -119,6 +122,7 @@ private:
     std::vector<std::shared_ptr<ProviderSet>> _idle;
     size_t _active = 0;
     std::shared_ptr<const nlu::SentenceEncoder> _sentenceEncoder;
+    std::shared_ptr<const nlu::EntityExtractor> _entityExtractor;
 };
 
 } // namespace engine

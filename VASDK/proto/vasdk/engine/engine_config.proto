@@ -27,6 +27,14 @@ message Providers {
   // kept in, relative to models_dir: read when a session starts, and written when anything had to
   // be encoded, so later starts (a phone app's) don't encode again. Unset: encoded as needed.
   string sentence_encoder_cache = 7;
+  // What finds where an agent's list entities are said; with one, a value's misspellings and
+  // sound-alikes count only inside the words it marks as that entity ("times" isn't "tires").
+  //   gliner: a zero-shot model on device (VASDK_BUILD_GLINER_NER; options GlinerOptions)
+  //   tagger: trained when a session starts from the agent's examples ("book @service"), on the
+  //           sentence_encoder's word vectors (needs sentence_encoder: minilm)
+  //   llm:    the LLM the agent's understanding asks (llm, or understanding.llm_profile)
+  // Unset: values are found by their words alone, misspellings anywhere.
+  ProviderSpec entity_model = 8;
 }
 
 message LlmConfig {

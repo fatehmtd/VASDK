@@ -75,6 +75,9 @@
 #ifdef VASDK_HAS_MINILM_NLU
 #include "MiniLmNlu/MiniLmSentenceEncoder.h"
 #endif
+#ifdef VASDK_HAS_GLINER_NER
+#include "GlinerNer/GlinerEntityExtractor.h"
+#endif
 
 namespace va {
 namespace thirdparty {
@@ -313,6 +316,15 @@ void registerEncoders([[maybe_unused]] engine::ProviderRegistry& registry) {
             auto encoder = std::make_shared<MiniLmSentenceEncoder>(modelDir(options.model_dir(), context, "minilm"));
             if (!encoder->initialize()) return nullptr;
             return encoder;
+        });
+#endif
+#ifdef VASDK_HAS_GLINER_NER
+    registry.add<nlu::EntityExtractor, providers::GlinerOptions>("gliner",
+        [](const providers::GlinerOptions& options, const ProviderContext& context) -> std::shared_ptr<nlu::EntityExtractor> {
+            auto gliner = std::make_shared<GlinerEntityExtractor>(modelDir(options.model_dir(), context, "gliner"),
+                                                                  options.has_threshold() ? options.threshold() : 0.5f);
+            if (!gliner->initialize()) return nullptr;
+            return gliner;
         });
 #endif
 }

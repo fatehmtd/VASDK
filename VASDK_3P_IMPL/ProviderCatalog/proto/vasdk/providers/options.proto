@@ -45,3 +45,9 @@ message SmartTurnOptions {
 message MiniLmOptions {
   string model_dir = 1;   // model.onnx and vocab.txt; unset: <models_dir>/minilm
 }
+
+// Entity model: gliner.
+message GlinerOptions {
+  string model_dir = 1;             // model.onnx, spm.model, added_tokens.json, gliner_config.json; unset: <models_dir>/gliner
+  optional float threshold = 2;     // a span's score must reach it, 0 to 1; unset: 0.5
+}

@@ -6,6 +6,7 @@
 #include <memory>
 
 namespace va {
+namespace engine { class ProviderRegistry; }
 namespace flow {
 
 /**
@@ -19,8 +20,13 @@ namespace flow {
  *     return va::flow::runAgentTool(argc, argv, registry);   // acme_agentc test agent.txtpb tests/*.txtpb
  * }
  * @endcode
+ *
+ * `providers` (thirdparty::registerAllProviders fills one) lets `--engine-config` load its
+ * sentence_encoder and entity_model (minilm, gliner); without it only the llm and tagger ones that
+ * need no provider work... and tagger needs a sentence encoder.
  */
-VASDK_EXPORT int runAgentTool(int argc, char** argv, std::shared_ptr<const FlowRegistry> registry = nullptr);
+VASDK_EXPORT int runAgentTool(int argc, char** argv, std::shared_ptr<const FlowRegistry> registry = nullptr,
+                              const engine::ProviderRegistry* providers = nullptr);
 
 } // namespace flow
 } // namespace va

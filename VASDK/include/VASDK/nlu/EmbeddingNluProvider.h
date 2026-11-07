@@ -22,6 +22,12 @@ public:
     virtual std::string name() const = 0;
     /** The sentence's vector, normalized to length 1; empty when it can't be encoded. Thread-safe. */
     virtual std::vector<float> encode(const std::string& sentence) const = 0;
+    /** A vector per word of `words`, in its sentence (the tagger's features); empty when the
+     *  encoder can't give them. Thread-safe. */
+    virtual std::vector<std::vector<float>> encodeWords(const std::vector<std::string>& words) const {
+        (void)words;
+        return {};
+    }
 };
 
 /** How alike two normalized vectors are: their cosine, -1 to 1. */

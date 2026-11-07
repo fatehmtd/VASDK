@@ -15,6 +15,10 @@ providers {
 
   # Local: pocket, phonon, moss, supertonic. Cloud: gradium, soniox, deepgram, cartesia, fishaudio.
   tts { id: "phonon" fallback: ["pocket"] }   # voice and language: PHONON_TTS_VOICE, PHONON_TTS_LANG (default Easton, en)
+  # Understanding (docs/reference/flows.md#entity-models): a sentence encoder for intents' paraphrases,
+  # and what finds entities: gliner (VASDK_BUILD_GLINER_NER), tagger (needs minilm) or llm.
+  # sentence_encoder { id: "minilm" }
+  # entity_model { id: "gliner" }
   # End-of-turn model: smartturn-v3. Without one, the VAD's silence ends the turn.
   # turn { id: "smartturn-v3" }
 

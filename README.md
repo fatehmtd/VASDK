@@ -123,6 +123,7 @@ Swapping a provider never touches processor or pipeline code. Read the reference
 | Speaker identification | pyannote (WeSpeaker ResNet34-LM, ONNX) | - |
 | Noise suppression | RNNoise | - |
 | Intent understanding | all-MiniLM-L6-v2 sentence encoder (ONNX) | - |
+| Entity finding | GLiNER (ONNX, opt-in), a tagger on MiniLM's word vectors | the agent's LLM |
 | STT | Whistle, Parakeet, Moonshine, Whisper.cpp (WIP), Voz (Android) | Gladia (WIP), Gradium, Soniox, Deepgram, Cartesia, Fish Audio |
 | TTS | PocketTTS, Phonon, MOSS-TTS-Nano, Supertonic 3 | Gradium, Soniox, Deepgram, Cartesia, Fish Audio |
 | LLM | llama.cpp, or any OpenAI-compatible local server | OpenAI, Anthropic |

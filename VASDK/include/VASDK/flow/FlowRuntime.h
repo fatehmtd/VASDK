@@ -5,6 +5,7 @@
 #include "Tools.h"
 #include "../llm/Completion.h"
 #include "../nlu/EmbeddingNluProvider.h"
+#include "../nlu/EntityExtractor.h"
 #include "vasdk/flow/page_types.pb.h"
 #include "vasdk/flow/snapshot.pb.h"
 
@@ -231,6 +232,16 @@ public:
     /** Answers knowledge questions by meaning with it, instead of by their words. */
     void setEmbeddings(std::shared_ptr<const nlu::EmbeddingNluProvider> embeddings) { _embeddings = std::move(embeddings); }
     /**
+     * What finds where entities are said (the engine config's entity_model): with it, a list
+     * entity's misspellings and sound-alikes count only inside the words it marks as that entity.
+     */
+    void setEntityExtractor(std::shared_ptr<const nlu::EntityExtractor> extractor) {
+        _entityExtractor = std::move(extractor);
+        _spans.reset();
+    }
+    /** The rules match intents exactly, no misspellings: an intent model (setNlu) understands the rest. */
+    void setExactRules(bool exact) { _exactRules = exact; }
+    /**
      * The LLM that `llm` steps and generative pages ask, and that reads form answers the slots
      * can't (only values their entity or type reads are kept). It reads the last turns, with
      * sensitive values masked; an answer to a sensitive slot never reaches it. Unset: those
@@ -430,6 +441,12 @@ private:
     std::map<std::string, bool> _contextHeld;            // per context_change trigger: whether its condition held
     std::shared_ptr<const nlu::NluProvider> _nlu;
     std::shared_ptr<const nlu::EmbeddingNluProvider> _embeddings;
+    std::shared_ptr<const nlu::EntityExtractor> _entityExtractor;
+    mutable std::optional<std::pair<std::string, std::vector<nlu::EntitySpan>>> _spans;   // the last text's
+    bool _exactRules = false;
+    // Where the entity model finds entities in `text`; nullptr without one (every match counts).
+    const std::vector<nlu::EntitySpan>* entitySpans(const std::string& text) const;
+    std::shared_ptr<const nlu::RuleNluProvider> rules() const { return _exactRules ? _agent->exactRules() : _agent->rules(); }
     bool _llmHasConversation = false;
     float _chatMinShare = 0.25f;  // mid-chat, the share of the words an intent or a route's entity must account for
     std::optional<nlu::NluResult> _understood;   // this turn's, worked out when a route first needs it

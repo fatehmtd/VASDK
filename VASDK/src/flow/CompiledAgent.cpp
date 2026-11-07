@@ -423,6 +423,7 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::build(vasdk::flow::Agent age
         compiled->_languages = std::make_shared<const nlu::Languages>(std::move(chosen));
     }
     compiled->_rules = std::make_shared<nlu::RuleNluProvider>(definition.intents(), compiled->_languages);
+    compiled->_exactRules = std::make_shared<nlu::RuleNluProvider>(definition.intents(), compiled->_languages, 1.0f);
     for (int i = 0; i < definition.session_params_size(); ++i) {
         const auto& param = definition.session_params(i);
         const std::string where = "session param " + (param.name().empty() ? std::to_string(i + 1) : quoted(param.name()));

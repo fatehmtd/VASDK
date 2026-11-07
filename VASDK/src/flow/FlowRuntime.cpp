@@ -376,7 +376,7 @@ bool FlowRuntime::store(const std::string& key, const Value& value, std::string*
 // A slot's value in an answer: by its entity, else by its type.
 std::optional<std::string> FlowRuntime::readSlot(const vasdk::goal::Slot& slot, const std::string& text) const {
     if (slot.entity().empty()) return extractSlotValue(slot, text, _agent->entities(), now());
-    const auto match = _agent->entities().find(entityName(slot.entity()), text, _dynamicEntities, now());
+    const auto match = _agent->entities().find(entityName(slot.entity()), text, _dynamicEntities, now(), entitySpans(text));
     if (!match) return std::nullopt;
     _slotEntities[match->entity + '\n' + slotText(match->value)] = *match;
     return slotText(match->value);
@@ -889,9 +889,9 @@ const vasdk::flow::Route* FlowRuntime::sureGlobalRoute() const {
     nlu::NluRequest request;
     request.text = _inputText;
     request.mentions = [this](const std::string& entity) {
-        return _agent->entities().find(entity, _inputText, _dynamicEntities, now()).has_value();
+        return _agent->entities().find(entity, _inputText, _dynamicEntities, now(), entitySpans(_inputText)).has_value();
     };
-    const auto understood = _agent->rules()->understand(request);
+    const auto understood = rules()->understand(request);
     for (const auto& layer : _agent->layers(_position)) {
         if (layer.settings == nullptr) continue;   // the page's own
         for (const auto& route : *layer.routes) {
@@ -909,7 +909,7 @@ const vasdk::flow::Route* FlowRuntime::matchRoute(const google::protobuf::Repeat
     auto entityHolds = [this](const vasdk::flow::Route& route) {
         _entity.reset();
         if (route.entity().empty()) return true;
-        _entity = _agent->entities().find(entityName(route.entity()), _inputText, _dynamicEntities, now());
+        _entity = _agent->entities().find(entityName(route.entity()), _inputText, _dynamicEntities, now(), entitySpans(_inputText));
         return _entity.has_value();
     };
     const auto& understood = understanding();
@@ -1050,7 +1050,7 @@ FlowRuntime::Outcome FlowRuntime::run(const google::protobuf::RepeatedPtrField<v
             store(step.set().key(), evaluate(step.set().value()));
             break;
         case vasdk::flow::Step::kExtract:
-            if (const auto match = _agent->entities().find(entityName(step.extract().entity()), _inputText, _dynamicEntities, now()))
+            if (const auto match = _agent->entities().find(entityName(step.extract().entity()), _inputText, _dynamicEntities, now(), entitySpans(_inputText)))
                 store(step.extract().into(), match->value);
             break;
         case vasdk::flow::Step::kClearSlot:
@@ -1170,11 +1170,11 @@ const nlu::NluResult& FlowRuntime::understanding() {
         nlu::NluRequest request;
         request.text = _inputText;
         request.mentions = [this](const std::string& entity) {
-            return _agent->entities().find(entity, _inputText, _dynamicEntities, now()).has_value();
+            return _agent->entities().find(entity, _inputText, _dynamicEntities, now(), entitySpans(_inputText)).has_value();
         };
         request.sensitive = privateTurn();
         const bool chat = chatting();
-        const std::shared_ptr<const nlu::NluProvider> provider = _nlu && !chat ? _nlu : _agent->rules();
+        const std::shared_ptr<const nlu::NluProvider> provider = _nlu && !chat ? _nlu : rules();
         _understood = provider->understand(request);
         if (chat) {
             auto& intents = _understood->intents;
@@ -1195,6 +1195,17 @@ void FlowRuntime::remember(llm::MessageRole role, const std::string& text) {
 }
 
 // The answer to a sensitive slot: kept from the LLM.
+const std::vector<nlu::EntitySpan>* FlowRuntime::entitySpans(const std::string& text) const {
+    if (!_entityExtractor) return nullptr;
+    if (!_spans || _spans->first != text) {
+        _spans.emplace(text, _entityExtractor->extract(entityWords(text), _agent->entities().modelLabels(), privateTurn()));
+        for (const auto& span : _spans->second)
+            spdlog::debug("[FlowRuntime] {} found @{} at words {}+{} ({:.2f})", _entityExtractor->name(), span.entity,
+                          span.start, span.length, span.score);
+    }
+    return &_spans->second;
+}
+
 bool FlowRuntime::privateTurn() const {
     const auto* slot = askedSlot();
     return slot && slot->sensitive();
@@ -1878,7 +1889,7 @@ bool FlowRuntime::saysSkip(const std::string& text) const {
     nlu::NluRequest request;
     request.text = text;
     request.candidates = {"sys.skip"};
-    return !_agent->rules()->understand(request).intents.empty();
+    return !rules()->understand(request).intents.empty();
 }
 
 // Every value of a list slot named in the words, in the order said: "tires and an oil change".
@@ -1888,7 +1899,7 @@ nlohmann::json FlowRuntime::readList(const vasdk::goal::Slot& slot, const std::s
         if (std::find(values.begin(), values.end(), value) == values.end()) values.push_back(value);
     };
     if (!slot.entity().empty()) {
-        for (const auto& match : _agent->entities().findAll(text, _dynamicEntities, now()))
+        for (const auto& match : _agent->entities().findAll(text, _dynamicEntities, now(), entitySpans(text)))
             if (match.entity == entityName(slot.entity())) {
                 _slotEntities[match.entity + '\n' + slotText(match.value)] = match;
                 add(toText(match.value));

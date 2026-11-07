@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include "nlu/EmbeddingNluProvider.h"
+#include "nlu/EntityExtractor.h"
 
 #include "AudioRingBuffer.h"
 #include "GenericTranscriptionProvider.h"
@@ -90,6 +91,16 @@ std::shared_ptr<Runtime> Runtime::create(const vasdk::engine::EngineConfig& conf
         runtime->_sentenceEncoder = runtime->_registry.create<nlu::SentenceEncoder>(encoder, context, &reason);
         if (!runtime->_sentenceEncoder) {
             if (error) *error = "Sentence encoder: " + reason;
+            return nullptr;
+        }
+    }
+    // An entity model that's a provider, one for every session; tagger and llm are a session's own.
+    if (const auto& model = config.providers().entity_model(); !model.id().empty() && model.id() != "tagger" && model.id() != "llm") {
+        std::string reason;
+        const ProviderContext context{runtime->_options.modelsDir, runtime->_options.inputAudio, runtime->_options.frameSize, nullptr};
+        runtime->_entityExtractor = runtime->_registry.create<nlu::EntityExtractor>(model, context, &reason);
+        if (!runtime->_entityExtractor) {
+            if (error) *error = "Entity model: " + reason;
             return nullptr;
         }
     }

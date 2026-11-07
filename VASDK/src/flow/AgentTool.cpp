@@ -1,8 +1,12 @@
 #include "flow/AgentTool.h"
 #include "engine/ProtoFileLoader.h"
 #include "llm/Completion.h"
+#include "engine/ProviderRegistry.h"
+#include "nlu/EmbeddingNluProvider.h"
+#include "nlu/LlmEntityExtractor.h"
 #include "nlu/LlmNluProvider.h"
 #include "nlu/RuleNluProvider.h"
+#include "nlu/TaggerEntityExtractor.h"
 
 #include <google/protobuf/util/json_util.h>
 #include <algorithm>
@@ -22,6 +26,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
+#include <type_traits>
 #include <string>
 #include <vector>
 
@@ -51,7 +56,11 @@ int usage(const std::string& program) {
                  "  with an LLM after the rules (test, chat, try, eval):\n"
                  "    --llm                   the endpoint, model and key from LLM_ENDPOINT, LLM_MODEL, LLM_API_KEY\n"
                  "                            (or OPENROUTER_API_KEY, OPENAI_API_KEY)\n"
-                 "    --llm-endpoint <url>    an OpenAI-compatible chat completions URL; --llm-model, --llm-api-key\n",
+                 "    --llm-endpoint <url>    an OpenAI-compatible chat completions URL; --llm-model, --llm-api-key\n"
+                 "  with models (test, chat, try, eval):\n"
+                 "    --engine-config <file>  its sentence_encoder, entity_model and understanding settings (minilm and\n"
+                 "                            gliner need a tool built with the providers, such as garage_agentc;\n"
+                 "                            entity_model llm needs --llm)\n",
                  name, name, name, name, name);
     return 2;
 }
@@ -116,6 +125,34 @@ std::shared_ptr<const llm::Completion> takeLlmFlags(std::vector<std::string>& ar
     return std::make_shared<llm::OpenAICompletion>(config);
 }
 
+// Takes --engine-config <file> out of the arguments: the config when given.
+std::optional<vasdk::engine::EngineConfig> takeEngineConfig(std::vector<std::string>& arguments, std::string* error) {
+    for (size_t i = 0; i < arguments.size(); ++i) {
+        if (arguments[i] != "--engine-config") continue;
+        if (i + 1 >= arguments.size()) {
+            *error = "--engine-config needs a file";
+            return std::nullopt;
+        }
+        vasdk::engine::EngineConfig config;
+        if (!engine::loadEngineConfig(arguments[i + 1], config, error)) return std::nullopt;
+        arguments.erase(arguments.begin() + static_cast<long>(i), arguments.begin() + static_cast<long>(i + 2));
+        return config;
+    }
+    return std::nullopt;
+}
+
+// The models folder beside the tool, as the apps look for it: VASDK_3P_IMPL/models up to 3 levels up.
+std::string modelsNear(const std::string& program) {
+    std::error_code error;
+    auto directory = std::filesystem::canonical(program, error).parent_path();
+    for (int level = 0; !error && level <= 3; ++level) {
+        if (std::filesystem::exists(directory / "VASDK_3P_IMPL" / "models")) return (directory / "VASDK_3P_IMPL" / "models").string();
+        if (directory == directory.parent_path()) break;
+        directory = directory.parent_path();
+    }
+    return "models";
+}
+
 std::string describe(const va::flow::EntityMatch& match) {
     std::string text = "@" + match.entity + " = " + va::flow::toText(match.value);
     if (match.spoken != va::flow::toText(match.value)) text += "  spoken \"" + match.spoken + "\"";
@@ -155,7 +192,7 @@ void print(const va::flow::Reply& reply, const va::flow::FlowRuntime& conversati
 
 } // namespace
 
-int runAgentTool(int argc, char** argv, std::shared_ptr<const FlowRegistry> registry) {
+int runAgentTool(int argc, char** argv, std::shared_ptr<const FlowRegistry> registry, const engine::ProviderRegistry* providers) {
     const std::string program = argc > 0 ? std::filesystem::path(argv[0]).filename().string() : "vasdk_agentc";
     auto usage = [&program] { return flow::usage(program); };
     auto load = [&registry](const std::string& path, bool showWarnings) { return flow::load(path, showWarnings, registry); };
@@ -181,10 +218,53 @@ int runAgentTool(int argc, char** argv, std::shared_ptr<const FlowRegistry> regi
 #endif
     std::string flagError;
     const auto completion = takeLlmFlags(arguments, &flagError);
+    const auto engineConfig = flagError.empty() ? takeEngineConfig(arguments, &flagError) : std::nullopt;
     if (!flagError.empty()) {
         std::fprintf(stderr, "%s\n", flagError.c_str());
         return 2;
     }
+    // The engine config's models: a sentence encoder, an entity model, the understanding settings.
+    std::shared_ptr<const nlu::SentenceEncoder> encoder;
+    std::shared_ptr<const nlu::EntityExtractor> providedExtractor;   // a provider's (gliner): every agent's
+    std::string entityModel;
+    vasdk::engine::Understanding understanding;
+    if (engineConfig) {
+        const engine::ProviderContext context{engineConfig->models_dir().empty() ? modelsNear(arguments[0]) : engineConfig->models_dir(),
+                                              {}, 0, nullptr};
+        auto provided = [&](const char* what, const vasdk::engine::ProviderSpec& spec, auto made) {
+            if (!providers) {
+                std::fprintf(stderr, "%s %s: this tool has no providers (an app's own tool, such as garage_agentc, has them)\n", what,
+                             spec.id().c_str());
+                return decltype(made)(nullptr);
+            }
+            std::string reason;
+            using Interface = typename decltype(made)::element_type;
+            auto provider = providers->create<std::remove_const_t<Interface>>(spec, context, &reason);
+            if (!provider) std::fprintf(stderr, "%s %s: %s\n", what, spec.id().c_str(), reason.c_str());
+            return decltype(made)(provider);
+        };
+        if (const auto& spec = engineConfig->providers().sentence_encoder(); !spec.id().empty()) {
+            encoder = provided("sentence_encoder", spec, encoder);
+            if (!encoder) return 1;
+        }
+        entityModel = engineConfig->providers().entity_model().id();
+        if (entityModel == "llm" && !completion) {
+            std::fprintf(stderr, "entity_model llm needs --llm\n");
+            return 2;
+        }
+        if (entityModel == "tagger" && !encoder) {
+            std::fprintf(stderr, "entity_model tagger needs a sentence_encoder\n");
+            return 2;
+        }
+        if (!entityModel.empty() && entityModel != "llm" && entityModel != "tagger") {
+            providedExtractor = provided("entity_model", engineConfig->providers().entity_model(), providedExtractor);
+            if (!providedExtractor) return 1;
+        }
+        understanding = engineConfig->understanding();
+    }
+    const float minConfidence = understanding.has_min_confidence() ? understanding.min_confidence() : 0.55f;
+    const float keywordWords = understanding.has_keyword_words() ? understanding.keyword_words() : 6.0f;
+    const float chatMinShareSet = understanding.has_chat_min_share() ? understanding.chat_min_share() : 0.25f;
     std::vector<char*> remaining;
     for (auto& argument : arguments) remaining.push_back(argument.data());
     argc = static_cast<int>(remaining.size());
@@ -192,19 +272,54 @@ int runAgentTool(int argc, char** argv, std::shared_ptr<const FlowRegistry> regi
     if (argc < 3) return usage();
     const std::string command = argv[1];
     const std::string agentPath = argv[2];
-    // Understanding: the agent's rules, then the LLM when one is given. Tests and evals wait for
-    // its answer (no intent time limit), so results don't depend on how fast the network is.
-    auto understander = [&completion](const std::shared_ptr<const CompiledAgent>& agent) -> std::shared_ptr<const nlu::NluProvider> {
-        if (!completion) return agent->rules();
-        return std::make_shared<nlu::CascadeNluProvider>(std::vector<std::shared_ptr<const nlu::NluProvider>>{
-            agent->rules(), std::make_shared<nlu::LlmNluProvider>(completion, agent->definition().intents(), 0)});
+    // Understanding: the agent's rules (exact with a sentence encoder), the encoder, then the LLM
+    // when one is given. Tests and evals wait for its answer (no intent time limit), so results
+    // don't depend on how fast the network is.
+    auto rulesOf = [&encoder](const std::shared_ptr<const CompiledAgent>& agent) {
+        return encoder ? agent->exactRules() : agent->rules();
+    };
+    auto embeddingsOf = [&encoder](const std::shared_ptr<const CompiledAgent>& agent) -> std::shared_ptr<const nlu::EmbeddingNluProvider> {
+        return encoder ? std::make_shared<nlu::EmbeddingNluProvider>(encoder, agent->definition().intents()) : nullptr;
+    };
+    auto understander = [&](const std::shared_ptr<const CompiledAgent>& agent, std::shared_ptr<const nlu::EmbeddingNluProvider> embeddings,
+                            std::shared_ptr<const llm::Completion> asked, float confidence, float keywords) -> std::shared_ptr<const nlu::NluProvider> {
+        std::vector<std::shared_ptr<const nlu::NluProvider>> stages{rulesOf(agent)};
+        if (embeddings) stages.push_back(embeddings);
+        if (asked) stages.push_back(std::make_shared<nlu::LlmNluProvider>(asked, agent->definition().intents(), 0));
+        if (stages.size() == 1) return stages.front();
+        return std::make_shared<nlu::CascadeNluProvider>(std::move(stages), confidence, keywords);
+    };
+    auto extractorOf = [&](const std::shared_ptr<const CompiledAgent>& agent) -> std::shared_ptr<const nlu::EntityExtractor> {
+        if (entityModel == "llm") return std::make_shared<nlu::LlmEntityExtractor>(completion, 0);
+        if (entityModel == "tagger") {
+            std::vector<std::string> examples;
+            for (const auto& intent : agent->definition().intents())
+                examples.insert(examples.end(), intent.examples().begin(), intent.examples().end());
+            auto tagger = std::make_shared<nlu::TaggerEntityExtractor>(encoder, agent->entities().modelLabels(), examples);
+            return tagger->trained() ? tagger : nullptr;
+        }
+        return providedExtractor;
+    };
+    auto stagesText = [&] {
+        std::string text = encoder ? "exact rules, " + encoder->name() : "rules";
+        if (completion) text += ", llm";
+        if (!entityModel.empty()) text += "; entities by " + entityModel;
+        return text;
     };
     auto assist = [&](const std::shared_ptr<const CompiledAgent>& agent) -> FlowTestSetup {
-        if (!completion) return nullptr;
-        auto nlu = understander(agent);
-        return [nlu, completion](FlowRuntime& conversation) {
+        if (!completion && !encoder && entityModel.empty()) return nullptr;
+        auto embeddings = embeddingsOf(agent);
+        auto nlu = understander(agent, embeddings, completion, minConfidence, keywordWords);
+        auto extractor = extractorOf(agent);
+        const bool exact = encoder != nullptr;
+        const float chatMinShare = chatMinShareSet;
+        return [nlu, completion, embeddings, extractor, exact, chatMinShare](FlowRuntime& conversation) {
             conversation.setNlu(nlu);
-            conversation.setLlm(completion);
+            if (completion) conversation.setLlm(completion);
+            if (embeddings) conversation.setEmbeddings(embeddings);
+            if (extractor) conversation.setEntityExtractor(extractor);
+            conversation.setExactRules(exact);
+            conversation.setChatMinShare(chatMinShare);
         };
     };
 
@@ -246,7 +361,7 @@ int runAgentTool(int argc, char** argv, std::shared_ptr<const FlowRegistry> regi
         double minAccuracy = 0;
         // The understanding settings (engine config `understanding`), and the values each is tried at.
         std::vector<std::pair<std::string, std::vector<float>>> settings{
-            {"min_confidence", {0.55f}}, {"keyword_words", {6.0f}}, {"chat_min_share", {0.25f}}};
+            {"min_confidence", {minConfidence}}, {"keyword_words", {keywordWords}}, {"chat_min_share", {chatMinShareSet}}};
         bool swept = false;
         for (int i = 4; i + 1 < argc; i += 2) {
             const std::string flag = argv[i];
@@ -291,20 +406,28 @@ int runAgentTool(int argc, char** argv, std::shared_ptr<const FlowRegistry> regi
             int right = 0;
             std::vector<std::string> misses;
         };
+        // The entity model's spans of each sentence, found once.
+        const auto extractor = extractorOf(agent);
+        std::map<std::string, std::vector<nlu::EntitySpan>> spansOf;
+        if (extractor)
+            for (const auto& item : set.cases())
+                spansOf.emplace(item.text(), extractor->extract(entityWords(item.text()), agent->entities().modelLabels(), false));
+        auto spansFor = [&](const std::string& text) -> const std::vector<nlu::EntitySpan>* {
+            const auto found = spansOf.find(text);
+            return found == spansOf.end() ? nullptr : &found->second;
+        };
+        const auto embeddings = embeddingsOf(agent);   // its vectors are kept across the settings
         auto evaluate = [&](float minConfidence, float keywordWords, float chatMinShare) {
             Run run{minConfidence, keywordWords, chatMinShare};
-            std::shared_ptr<const nlu::NluProvider> nlu = agent->rules();
-            if (remembered)
-                nlu = std::make_shared<nlu::CascadeNluProvider>(
-                    std::vector<std::shared_ptr<const nlu::NluProvider>>{
-                        agent->rules(), std::make_shared<nlu::LlmNluProvider>(remembered, agent->definition().intents(), 0)},
-                    minConfidence, keywordWords);
+            const auto nlu = understander(agent, embeddings, remembered, minConfidence, keywordWords);
             for (const auto& item : set.cases()) {
                 va::nlu::NluRequest request;
                 request.text = item.text();
-                request.mentions = [&](const std::string& name) { return agent->entities().find(name, item.text()).has_value(); };
+                request.mentions = [&](const std::string& name) {
+                    return agent->entities().find(name, item.text(), {}, std::chrono::system_clock::now(), spansFor(item.text())).has_value();
+                };
                 // Mid-chat, as FlowRuntime has it: the rules only, and only intents that explain most of the words.
-                auto understood = item.mid_chat() ? agent->rules()->understand(request) : nlu->understand(request);
+                auto understood = item.mid_chat() ? rulesOf(agent)->understand(request) : nlu->understand(request);
                 if (item.mid_chat())
                     understood.intents.erase(std::remove_if(understood.intents.begin(), understood.intents.end(),
                                                             [&](const nlu::IntentMatch& match) { return match.explains < chatMinShare; }),
@@ -327,7 +450,8 @@ int runAgentTool(int argc, char** argv, std::shared_ptr<const FlowRegistry> regi
         std::map<std::string, std::array<int, 3>> counts;   // entity → right, found, expected
         for (const auto& item : set.cases()) {
             std::map<std::string, std::string> found;
-            for (const auto& match : agent->entities().findAll(item.text())) found.emplace(match.entity, toText(match.value));
+            for (const auto& match : agent->entities().findAll(item.text(), {}, std::chrono::system_clock::now(), spansFor(item.text())))
+                found.emplace(match.entity, toText(match.value));
             for (const auto& [name, value] : found) {
                 ++counts[name][1];
                 const auto expected = item.entities().find(name);
@@ -335,7 +459,7 @@ int runAgentTool(int argc, char** argv, std::shared_ptr<const FlowRegistry> regi
             }
             for (const auto& [name, value] : item.entities()) ++counts[name][2];
         }
-        std::printf("%s: %d utterances, stages %s\n", agentPath.c_str(), total, completion ? "rules, llm" : "rules");
+        std::printf("%s: %d utterances, stages %s\n", agentPath.c_str(), total, stagesText().c_str());
         if (swept) {
             if (!completion && (settings[0].second.size() > 1 || settings[1].second.size() > 1))
                 std::printf("(min_confidence and keyword_words only matter with a stage after the rules: --llm)\n");
@@ -368,15 +492,30 @@ int runAgentTool(int argc, char** argv, std::shared_ptr<const FlowRegistry> regi
                 std::fprintf(stderr, "unknown entity @%s\n", entity.c_str());
                 return 1;
             }
-            const auto match = agent->entities().find(entity, words);
+        }
+        // Where the entity model finds entities: only there do misspellings count.
+        std::optional<std::vector<nlu::EntitySpan>> spans;
+        if (const auto extractor = extractorOf(agent)) {
+            const auto heard = entityWords(words);
+            spans = extractor->extract(heard, agent->entities().modelLabels(), false);
+            for (const auto& span : *spans) {
+                std::string said;
+                for (size_t i = span.start; i < span.start + span.length && i < heard.size(); ++i) said += (said.empty() ? "" : " ") + heard[i];
+                std::printf("%s: @%s \"%s\" (%.2f)\n", extractor->name().c_str(), span.entity.c_str(), said.c_str(), span.score);
+            }
+        }
+        const auto* found = spans ? &*spans : nullptr;
+        const auto now = std::chrono::system_clock::now();
+        if (!entity.empty()) {
+            const auto match = agent->entities().find(entity, words, {}, now, found);
             std::printf("%s\n", match ? describe(*match).c_str() : ("@" + entity + ": not found").c_str());
             return match ? 0 : 1;
         }
         // What the rules make of the words, among every intent (pages narrow this down).
         va::nlu::NluRequest request;
         request.text = words;
-        request.mentions = [&](const std::string& name) { return agent->entities().find(name, words).has_value(); };
-        const auto understood = understander(agent)->understand(request);
+        request.mentions = [&](const std::string& name) { return agent->entities().find(name, words, {}, now, found).has_value(); };
+        const auto understood = understander(agent, embeddingsOf(agent), completion, minConfidence, keywordWords)->understand(request);
         if (understood.intents.empty()) std::printf("intent: (none)\n");
         else std::printf("stage: %s\n", understood.stage.c_str());
         for (size_t i = 0; i < understood.intents.size() && i < 3; ++i) {
@@ -384,7 +523,7 @@ int runAgentTool(int argc, char** argv, std::shared_ptr<const FlowRegistry> regi
             std::printf("%s %s (score %.2f, confidence %.2f)\n", i == 0 ? "intent:" : "   or:", match.intent.c_str(), match.score,
                         match.confidence);
         }
-        for (const auto& match : agent->entities().findAll(words)) std::printf("%s\n", describe(match).c_str());
+        for (const auto& match : agent->entities().findAll(words, {}, now, found)) std::printf("%s\n", describe(match).c_str());
         return 0;
     }
     if (command == "chat") {

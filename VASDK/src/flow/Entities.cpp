@@ -18,6 +18,9 @@ namespace {
 
 std::string inQuotes(const std::string& text) { return "\"" + text + "\""; }
 
+// How alike a word must be to a value's, inside a span an entity model marked as that entity.
+constexpr float kInSpanSimilarity = 0.6f;
+
 bool isDigits(const std::string& word, bool decimals) {
     bool digit = false, point = false;
     for (const char c : word) {
@@ -231,7 +234,8 @@ int EntityCatalog::kindRank(const std::string& name) const {
 }
 
 std::vector<EntityMatch> EntityCatalog::matches(const std::string& name, const std::vector<std::string>& words,
-                                                const DynamicEntityValues& dynamic, std::chrono::system_clock::time_point now) const {
+                                                const DynamicEntityValues& dynamic, std::chrono::system_clock::time_point now,
+                                                const std::vector<nlu::EntitySpan>* spans) const {
     // Values in any of the agent's languages, said either way: "next Tuesday", "half past three",
     // "john dot doe at gmail dot com", "demain".
     if (name.rfind("sys.", 0) == 0) {
@@ -259,8 +263,14 @@ std::vector<EntityMatch> EntityCatalog::matches(const std::string& name, const s
     if (!entity) return {};
     std::vector<EntityMatch> found;
     if (entity->has_list()) {
-        // Misspelled words match too ("tyres"), unless the entity says otherwise.
+        // Misspelled words match too ("tyres"), unless the entity says otherwise. With an entity
+        // model, only inside the words it marked as this entity: "times" isn't "tires" anywhere else.
         const auto& matching = entity->matching();
+        auto inSpan = [spans, &name](size_t start, size_t length) {
+            return spans == nullptr || std::any_of(spans->begin(), spans->end(), [&](const nlu::EntitySpan& span) {
+                return span.entity == name && start >= span.start && start + length <= span.start + span.length;
+            });
+        };
         const float minSimilarity = matching.has_fuzzy() && !matching.fuzzy() ? 1.0f
                                   : matching.has_min_similarity()           ? matching.min_similarity()
                                                                             : 0.8f;
@@ -286,12 +296,18 @@ std::vector<EntityMatch> EntityCatalog::matches(const std::string& name, const s
             for (const auto& phrase : said) {
                 const auto phraseWords = entityWords(phrase);
                 if (phraseWords.empty()) continue;
-                auto spots = nlu::findPhrase(words, phraseWords, minSimilarity);
-                if (matching.phonetic()) {   // "Catherine" for "Katherine", "Schmidt" for "Smith"
-                    for (const auto& spot : soundsAt(phraseWords))
-                        if (std::none_of(spots.begin(), spots.end(), [&](const auto& found) { return found.first == spot.first; }))
-                            spots.push_back(spot);
-                }
+                auto spots = nlu::findPhrase(words, phraseWords, spans ? 1.0f : minSimilarity);
+                auto add = [&](const std::pair<size_t, float>& spot) {
+                    if (inSpan(spot.first, phraseWords.size()) &&
+                        std::none_of(spots.begin(), spots.end(), [&](const auto& found) { return found.first == spot.first; }))
+                        spots.push_back(spot);
+                };
+                // Inside the model's span the words are this entity: only which value is left to
+                // decide, so a looser likeness does ("tyers" for "tyres"), fuzzy off excepted.
+                if (spans && minSimilarity < 1.0f)
+                    for (const auto& spot : nlu::findPhrase(words, phraseWords, std::min(minSimilarity, kInSpanSimilarity))) add(spot);
+                if (matching.phonetic())   // "Catherine" for "Katherine", "Schmidt" for "Smith"
+                    for (const auto& spot : soundsAt(phraseWords)) add(spot);
                 for (const auto& [start, similarity] : spots) {
                     auto match = matchOf(name, stringValue(value.value()), words, start, phraseWords.size());
                     match.spoken = value.spoken().empty() ? value.value() : value.spoken();
@@ -369,7 +385,7 @@ std::vector<EntityMatch> EntityCatalog::matches(const std::string& name, const s
                     const auto colon = token.find(':');
                     const std::string part = token.substr(1, colon - 1), field = token.substr(colon + 1);
                     std::optional<EntityMatch> best;
-                    for (auto& candidate : matches(part, words, dynamic, now))
+                    for (auto& candidate : matches(part, words, dynamic, now, spans))
                         if (candidate.start == cursor && (!best || candidate.length > best->length)) best = std::move(candidate);
                     if (!best) {
                         matched = false;
@@ -390,7 +406,7 @@ std::vector<EntityMatch> EntityCatalog::matches(const std::string& name, const s
     } else if (entity->has_derived()) {
         const auto& derived = entity->derived();
         const auto condition = _conditions.find(name);
-        for (auto match : matches(withoutAt(derived.base()), words, dynamic, now)) {
+        for (auto match : matches(withoutAt(derived.base()), words, dynamic, now, spans)) {
             if (match.value.kind_case() == Value::kNumberValue) {
                 if (derived.has_min() && match.value.number_value() < derived.min()) continue;
                 if (derived.has_max() && match.value.number_value() > derived.max()) continue;
@@ -406,20 +422,22 @@ std::vector<EntityMatch> EntityCatalog::matches(const std::string& name, const s
 }
 
 std::optional<EntityMatch> EntityCatalog::find(const std::string& name, const std::string& text,
-                                               const DynamicEntityValues& dynamic, std::chrono::system_clock::time_point now) const {
+                                               const DynamicEntityValues& dynamic, std::chrono::system_clock::time_point now,
+                                               const std::vector<nlu::EntitySpan>* spans) const {
     std::optional<EntityMatch> best;
-    for (auto& match : matches(name, entityWords(text), dynamic, now))
+    for (auto& match : matches(name, entityWords(text), dynamic, now, spans))
         if (!best || match.length > best->length || (match.length == best->length && match.start < best->start))
             best = std::move(match);
     return best;
 }
 
 std::vector<EntityMatch> EntityCatalog::findAll(const std::string& text, const DynamicEntityValues& dynamic,
-                                                std::chrono::system_clock::time_point now) const {
+                                                std::chrono::system_clock::time_point now,
+                                                const std::vector<nlu::EntitySpan>* spans) const {
     const auto words = entityWords(text);
     std::vector<std::pair<size_t, EntityMatch>> candidates;   // declaration index, match
     for (size_t i = 0; i < _order.size(); ++i)
-        for (auto& match : matches(_order[i], words, dynamic, now)) candidates.emplace_back(i, std::move(match));
+        for (auto& match : matches(_order[i], words, dynamic, now, spans)) candidates.emplace_back(i, std::move(match));
     std::stable_sort(candidates.begin(), candidates.end(), [this](const auto& left, const auto& right) {
         if (left.second.length != right.second.length) return left.second.length > right.second.length;
         const int leftRank = kindRank(left.second.entity), rightRank = kindRank(right.second.entity);
@@ -437,6 +455,27 @@ std::vector<EntityMatch> EntityCatalog::findAll(const std::string& text, const D
     }
     std::sort(accepted.begin(), accepted.end(), [](const auto& left, const auto& right) { return left.start < right.start; });
     return accepted;
+}
+
+std::vector<nlu::EntityLabel> EntityCatalog::modelLabels() const {
+    std::vector<nlu::EntityLabel> labels;
+    for (const auto& name : _order) {
+        const auto& type = _types.at(name);
+        if (!type.has_list()) continue;
+        nlu::EntityLabel label{name, type.matching().label(), type.description(), {}};
+        if (label.label.empty()) {
+            label.label = name;
+            std::replace(label.label.begin(), label.label.end(), '_', ' ');
+        }
+        for (const auto& value : type.list().values()) {   // a few, as they're said
+            if (label.examples.size() >= 12) break;
+            label.examples.push_back(value.spoken().empty() ? value.value() : value.spoken());
+            for (const auto& synonym : value.synonyms())
+                if (label.examples.size() < 12) label.examples.push_back(synonym);
+        }
+        labels.push_back(std::move(label));
+    }
+    return labels;
 }
 
 EntityMatch EntityCatalog::describe(const std::string& name, const Value& value, const DynamicEntityValues& dynamic) const {

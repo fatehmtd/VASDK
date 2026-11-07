@@ -34,6 +34,7 @@ With `--agent`, the agent's pages answer what they understand (booking, prices, 
 - **The app's state in the LLM's instructions.** `{context}` in the system prompt file is replaced, on each request, by what `Options::context` holds ([VAEngine](../reference/engine.md)).
 - **A model per task.** `llm_profiles` in the config names more LLMs: a small one for the agent's intent check (`understanding.llm_profile`), a capable one for the routes that name it (`llm_profile`). The commented lines in [`config/engine.txtpb`](../../VASDK_APP/config/engine.txtpb) show how ([Different LLMs for different tasks](../reference/engine-config.md#different-llms-for-different-tasks)).
 - **No silence on failure.** A request that fails or times out is answered with `llm.failure_replies`.
+- **Models for understanding.** `providers { sentence_encoder { id: "minilm" } }` finds intents by meaning, and `entity_model` (`gliner`, `tagger` or `llm`) finds where entities are said, so a misspelling counts only there. The garage agent labels its entity types for them (`matching { label: "car repair" }`), and the commented lines in [`config/engine.txtpb`](../../VASDK_APP/config/engine.txtpb) turn them on. Which to choose, and how each scores on the garage agent: [Entity models](../reference/flows.md#entity-models). `garage_agentc eval … --engine-config <file>` measures them before you run the app.
 
 [VASDK_Car](car.md) uses all of these at a larger scale.
 

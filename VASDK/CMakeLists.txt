@@ -210,6 +210,9 @@ if(VASDK_ENABLE_ENGINE_CONFIG)
         ${CMAKE_CURRENT_BINARY_DIR}/generated/BuiltInLanguage.cpp
         ./src/nlu/EmbeddingNluProvider.cpp
         ./src/nlu/LlmNluProvider.cpp
+        ./src/nlu/EntityExtractor.cpp
+        ./src/nlu/LlmEntityExtractor.cpp
+        ./src/nlu/TaggerEntityExtractor.cpp
         ./src/c/vasdk_c.cpp
         ./src/c/vasdk_c_session.cpp
         ./src/engine/RemoteControl.cpp
@@ -417,6 +420,10 @@ if(VASDK_BUILD_TESTS)
         add_executable(vasdk_expression_test tests/expression_test.cpp)
         target_link_libraries(vasdk_expression_test PRIVATE VASDK)
         add_test(NAME vasdk_expression COMMAND vasdk_expression_test)
+
+        add_executable(vasdk_entity_model_test tests/entity_model_test.cpp)
+        target_link_libraries(vasdk_entity_model_test PRIVATE VASDK)
+        add_test(NAME vasdk_entity_model COMMAND vasdk_entity_model_test)
 
         add_executable(vasdk_dialog_test tests/dialog_test.cpp)
         target_link_libraries(vasdk_dialog_test PRIVATE VASDK nlohmann_json::nlohmann_json)

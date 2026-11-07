@@ -24,12 +24,18 @@ public:
     bool initialize();
     std::string name() const override { return "minilm"; }
     std::vector<float> encode(const std::string& sentence) const override;
+    /** Each word's vector in the sentence: the mean of its pieces' (length 1). Empty past 126 pieces. */
+    std::vector<std::vector<float>> encodeWords(const std::vector<std::string>& words) const override;
 
     /** BERT's uncased WordPiece: [CLS] the pieces [SEP], as vocabulary ids (at most `maxTokens`). */
     std::vector<int64_t> tokenize(const std::string& sentence, size_t maxTokens = 128) const;
 
 private:
     struct Model;
+    // A word's WordPiece ids (lower case); [UNK] when it can't be split.
+    std::vector<int64_t> pieces(const std::string& word) const;
+    // The model's last hidden state for `ids`: tokens × size, row after row; empty on failure.
+    std::vector<float> hidden(const std::vector<int64_t>& ids, size_t& size) const;
     std::string _modelDir;
     std::map<std::string, int64_t> _vocabulary;
     std::unique_ptr<Model> _model;

@@ -38,6 +38,7 @@ set(_vasdk_catalog_providers
     vasdk_pocket_tts      POCKET_TTS
     vasdk_smartturn_v3    SMART_TURN_V3
     vasdk_minilm_nlu      MINILM_NLU
+    vasdk_gliner_ner      GLINER_NER
 )
 list(LENGTH _vasdk_catalog_providers _count)
 math(EXPR _last "${_count} - 1")

@@ -14,6 +14,6 @@ The general-purpose voice assistant: mic to speaker with barge-in, turn detectio
 | Path | |
 | --- | --- |
 | [`main_pipeline.cpp`](main_pipeline.cpp) | The app: audio I/O, demo tools, recording, visualisers, the terminal UI around `VAEngine` |
-| [`config/engine.txtpb`](config/engine.txtpb) | Providers, turn-taking, the LLM (and commented LLM profiles) |
+| [`config/engine.txtpb`](config/engine.txtpb) | Providers, turn-taking, the LLM (and commented LLM profiles, sentence encoder and entity model) |
 | [`agents/garage-menu/`](agents/garage-menu/) | The example agent, its C++ extensions and its tests |
 | [`prompts/`](prompts/) | The system prompt and response format |

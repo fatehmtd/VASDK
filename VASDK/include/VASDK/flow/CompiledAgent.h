@@ -64,6 +64,8 @@ public:
     std::optional<PageRef> resolve(const std::string& target, PageRef from) const;
     /** Understands the user's intents from the agent's examples (and the built-in sys.* ones). */
     std::shared_ptr<const nlu::RuleNluProvider> rules() const { return _rules; }
+    /** The same, without misspellings: for when an intent model (a sentence encoder) understands the rest. */
+    std::shared_ptr<const nlu::RuleNluProvider> exactRules() const { return _exactRules; }
     /** A declared or built-in (sys.*) intent. */
     bool knowsIntent(const std::string& name) const;
     /** A declared session param, or nullptr. */
@@ -118,6 +120,7 @@ private:
     std::map<std::string, int> _flows;
     std::vector<std::map<std::string, int>> _pages;   // per flow: page name → index
     std::shared_ptr<const nlu::RuleNluProvider> _rules;
+    std::shared_ptr<const nlu::RuleNluProvider> _exactRules;
     std::map<std::string, int> _sessionParams;                                       // name → index
     std::map<std::string, std::shared_ptr<const Expression>> _expressions;           // by source text
     std::map<std::string, int> _goals;                                               // name → index

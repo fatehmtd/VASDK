@@ -44,10 +44,13 @@ cmake -B build -S . -DVASDK_DOWNLOAD_PHONON_TTS_MODEL=OFF
 # Build llama.cpp and download its model (default: LFM2.5 1.2B Instruct Q4_K_M)
 cmake -B build -S . -DVASDK_BUILD_LLAMACPP=ON -DVASDK_DOWNLOAD_LLAMACPP_MODEL=ON
 
+# The GLiNER entity model (off by default; 183 MB, or 349 MB with -DVASDK_GLINER_MODEL=multi)
+cmake -B build -S . -DVASDK_BUILD_GLINER_NER=ON
+
 # Swap the default llama.cpp model
 cmake -B build -S . -DVASDK_LLAMACPP_MODEL_URL=https://huggingface.co/.../model.gguf
 ```
 
-Per-provider model options (Phonon's gated checkpoint, MOSS-TTS-Nano, Whistle, Moonshine, Voz) are in [Providers, per-provider notes](provider-catalog.md#per-provider-notes).
+Per-provider model options (Phonon's gated checkpoint, MOSS-TTS-Nano, Whistle, Moonshine, Voz, GLiNER) are in [Providers, per-provider notes](provider-catalog.md#per-provider-notes).
 
 For air-gapped builds, turn the downloads off and place the files in `build/VASDK_3P_IMPL/models/` yourself; each `VASDK_3P_IMPL/cmake/Download*.cmake` script documents the exact filenames its provider expects.

@@ -76,7 +76,7 @@ Intents are understood from their examples, with no model and no LLM. When sever
 
 | What | Example |
 |---|---|
-| Speech-recognition misspellings | "cancel my apointment" matches `cancel my appointment`. Words of 4 letters or more match when at least 80% alike (an edit, or two letters swapped, in a 5-letter word); shorter ones must be exact. List entity synonyms match the same way ("tyres" is `tires`). An entity can opt out with `matching { fuzzy: false }`, or ask for more or less with `min_similarity`. |
+| Speech-recognition misspellings | "cancel my apointment" matches `cancel my appointment`. Words of 4 letters or more match when at least 80% alike (an edit, or two letters swapped, in a 5-letter word); shorter ones must be exact. List entity synonyms match the same way ("tyres" is `tires`). An entity can opt out with `matching { fuzzy: false }`, or ask for more or less with `min_similarity`. With an [entity model](#entity-models) an entity's misspellings count only inside the words it marks as that entity, and with a sentence encoder the rules match intents exactly (the encoder understands the rest). |
 | Entities in examples | `examples: ["book @service"]` matches "book my tyres": the words around the entity in order, the entity anywhere in the words. Each entity counts as one word. |
 | Negation | "I don't want to cancel" doesn't match `cancel`: a negating word (not, no, never, don't, can't, ...) up to three words before the example. `negative_examples: ["don't cancel"]` rules an intent out whenever they're in the words. |
 | Built-in intents | `sys.yes`, `sys.no`, `sys.cancel`, `sys.repeat`, `sys.help` and `sys.skip` work in routes without declaring them, with the examples of each of the agent's languages. Declaring an intent of the same name replaces its examples. |
@@ -91,6 +91,52 @@ Intents are understood from their examples, with no model and no LLM. When sever
 - With one, the closest question by meaning matches. It also wins over an intent the model alone matched, when it's closer.
 
 **More stages.** `FlowRuntime::setNlu(std::make_shared<nlu::CascadeNluProvider>(stages, 0.55))` tries stages in order: the rules, then, for instance, an on-device model or an LLM. A later stage is asked only when the earlier ones aren't sure enough. `nlu::NluProvider` is the interface a stage implements.
+
+
+### Entity models
+
+Found by their words alone, a value one letter off counts anywhere: "say bananas three times" has a tire repair in it ("times", "tires"). With `providers { entity_model { id: "..." } }` in the engine config, a model finds where the agent's list entities are said, and only there do misspellings and sound-alikes count; inside its words a 60% likeness picks the value ("tyers" for `tyres`). Exact values and synonyms still count anywhere. `matching { label: "car repair" }` is what a model is told an entity is (default: its name, "available time" for `available_time`). Three to choose from:
+
+| `id` | What finds the entities | For | Against |
+|---|---|---|---|
+| `gliner` | [GLiNER](https://github.com/urchade/GLiNER), a zero-shot model on device, told each entity's `label`. Build with `-DVASDK_BUILD_GLINER_NER=ON` (183 MB, English; `-DVASDK_GLINER_MODEL=multi` for the multilingual one, 349 MB). `GlinerOptions { threshold }`, default 0.5. | Offline, no training, changing values (`setEntityValues`) need nothing, a multilingual model | Only as good as the labels, and short domain words are hard for it: on the garage agent it finds "tire repair" (0.66) but not "oil change" or "tyres". Loading takes about half a second |
+| `tagger` | A tagger trained when a session starts, from the agent's examples with placeholders (`"book @service"`, each filled with the entity's values), each value alone, and the examples without one as words that aren't. It reads MiniLM's word vectors, so it needs `sentence_encoder { id: "minilm" }`. | No new model; fits the agent; trains in under 0.1 s on the garage agent | English (MiniLM); only as good as the examples with placeholders; tags words around a value too ("my tyres are flat"), which is harmless as the value must still be in them |
+| `llm` | The LLM the agent's understanding asks (`llm`, or `understanding.llm_profile`): it copies out the words that say each entity. | Messy speech and misspellings ("tyers", "chaning"), any language | Network, and up to `llm.intent_timeout_ms` a turn; never sees a sensitive answer |
+
+In the engine config:
+
+```textproto
+providers {
+  sentence_encoder { id: "minilm" }   # needed by tagger; makes the rules match intents exactly
+  entity_model {
+    id: "gliner"                      # or "tagger", or "llm"
+    options { [type.googleapis.com/vasdk.providers.GlinerOptions] {
+      threshold: 0.4                  # a span's score must reach it, 0 to 1; default 0.5
+      model_dir: "models/gliner"      # default: <models_dir>/gliner
+    } }
+  }
+}
+```
+
+And in the agent, per entity type:
+
+```textproto
+entity_types {
+  name: "service"
+  list { ... }
+  matching { label: "car repair" min_similarity: 0.85 }   # also fuzzy: false, phonetic: true
+}
+```
+
+To tune, compare with `eval` (below), and look at one sentence with `try`, which prints each span the model found (`tagger: @service "my tyers are flat" (0.84)`):
+
+- `gliner` depends on the words of `label`: try a few ("car repair", "vehicle service"). On the garage agent a lower `threshold` (0.3, 0.2) found no more.
+- `tagger` learns only from the agent: more intent examples with placeholders (`"book @service for @sys.date"`), more values and synonyms.
+- `llm` is as good as the LLM it asks; a fast one through `understanding.llm_profile`.
+
+A model of your own is an `nlu::EntityExtractor` registered under an id ([Provider interfaces](providers.md#entityextractor)).
+
+On the garage agent's sets (`garage_agentc eval <agent> <set> --engine-config <file>`), the service F1 is 1.00 on the written set whatever the model, and on the recorded-speech set 0.94 without a model, with `gliner` or with `tagger`, and 1.00 with `llm`, the only one that reads "TIRPEC" as a tire repair. With the sentence encoder the rules are exact: the recorded set's intents go from 95.7% to 98.6%, and the written set loses "reprasentative" (95.7%).
 
 ## With an LLM
 
@@ -710,6 +756,7 @@ turns { user: "my windshield is cracked" expect { matched: false said_contains: 
 - **`chat`** talks to the agent by typing, showing the page (and any event) after each reply, the choices offered, and the parts that can't be interrupted. An empty line is silence (no-input). `--session tier=gold` sets a session param first.
 - **`eval`** measures understanding on a set of [`NluEvalSet`](../../VASDK/proto/vasdk/flow/test_case.proto) utterances: `cases { text: "how much is an oil change" intent: "price" entities { key: "service" value: "oil_change" } }`. It reports intent accuracy, precision, recall and F1 per entity, and each miss. `--min-accuracy 0.9` fails below it, for CI; the example's set runs in `ctest` (`vasdk_agent_garage_menu_nlu`). A case with `mid_chat: true` was said mid-chat with the LLM, and is judged as the agent judges it then. `--sweep chat_min_share=0.15,0.25,0.5` (also `keyword_words`, `min_confidence`; several flags make a grid) prints the accuracy at each value of the engine config's `understanding` settings, to choose them by measurement; with `--llm`, the LLM is asked once per sentence. To build a set from real speech, run `VASDK_Pipeline --record-turns turns.txtpb`: each user turn is appended as STT heard it, with the agent's intent and `mid_chat`, for you to correct. Without recordings, `vasdk_spoken_eval <models> nlu_eval.txtpb heard.txtpb [voices] [stt]` says each case in local voices (Phonon's) and writes the set again as a local recognizer (Whistle) heard it; synthetic voices are cleaner than callers, so it's a floor for what speech costs. The garage set's is [`nlu_eval.spoken.txtpb`](../../VASDK_APP/agents/garage-menu/nlu_eval.spoken.txtpb), in `ctest` too.
 - **With an LLM.** `--llm` adds one after the rules to `test`, `chat`, `try` and `eval`: its endpoint, model and key come from `LLM_ENDPOINT`, `LLM_MODEL` and `LLM_API_KEY` (or `OPENROUTER_API_KEY`, `OPENAI_API_KEY`). `--llm-endpoint <url>`, `--llm-model` and `--llm-api-key` give them instead. Any OpenAI-compatible chat completions URL works: OpenAI, OpenRouter, a local LM Studio, llama.cpp server or Ollama. In `chat`, a turn the LLM understood shows `understood by: llm (book)`. Without the flag the LLM isn't used, even when the variables are set, so `ctest` stays the same everywhere.
+- **With models.** `--engine-config <file>` takes an engine config's `sentence_encoder`, `entity_model` and `understanding` settings, as a session would, for `test`, `chat`, `try` and `eval`; `eval` names what it used (`stages exact rules, minilm; entities by gliner`). `minilm` and `gliner` need a tool built with the providers: `garage_agentc` passes them (`runAgentTool(argc, argv, registry, &providers)`), `vasdk_agentc` doesn't. `entity_model { id: "llm" }` needs `--llm` too.
 - **`try`** shows what a sentence matches, without running the conversation:
 
 ```
@@ -729,8 +776,8 @@ $ garage_agentc try agents/garage-menu/agent.txtpb --entity @sys.phone "five fiv
 | `flow::CompiledAgent` | `load(path, error, warnings, registry)` or `compile(proto, ...)`: checked once, immutable, shared by every session that runs it. |
 | `flow::FlowRegistry`, `TurnContext` | Steps, page types, envelopes and tools written in C++: see [Extensions](#extensions-page-types-and-c). `TurnContext::apply(StepOutcome)` for steps written in other languages. |
 | `flow::ToolRunner` | Runs an agent's tools within an engine config's `security`; `Session` makes one. `maskValue`, `redact` mask sensitive values. |
-| `flow::runAgentTool` | `vasdk_agentc`'s commands, for an app's own copy with its registry. |
-| `flow::FlowRuntime` | One conversation's place in an agent: `start()`, `handleText(text)` and `handleNoInput()` → `Reply` (text, its segments, choices, ui, matched, intent, event, expects reply, ends session, page changes, tool calls, triggers), `fireTrigger(name, payload)`, `deliverQueued()`, `setClock`, `replyInterrupted()`, `noInputMs()`, `setSessionParam`, `setEntityValues`, `setContextSource`. Copyable, way back included. |
+| `flow::runAgentTool` | `vasdk_agentc`'s commands, for an app's own copy with its registry, and the providers `--engine-config` may name (`runAgentTool(argc, argv, registry, &providers)`). |
+| `flow::FlowRuntime` | One conversation's place in an agent: `start()`, `handleText(text)` and `handleNoInput()` → `Reply` (text, its segments, choices, ui, matched, intent, event, expects reply, ends session, page changes, tool calls, triggers), `fireTrigger(name, payload)`, `deliverQueued()`, `setClock`, `replyInterrupted()`, `noInputMs()`, `setSessionParam`, `setEntityValues`, `setContextSource`, `setEntityExtractor` (an [entity model](#entity-models)), `setExactRules`. Copyable, way back included. |
 | `flow::Expression` | `parse(text)` once, then `evaluate(lookup)` or `test(lookup)`; `renderTemplate` for replies. |
 | `flow::DialogProcessor` | The pipeline stage `Session` adds for `Options::agent`, after the turn assembler. |
 | `flow::runFlowTest` | Plays a `FlowTestCase` and returns what differed. |

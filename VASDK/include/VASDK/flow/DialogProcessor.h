@@ -97,6 +97,9 @@ public:
     void setContextSource(FlowRuntime::ContextSource source);
     /** What understands intents, and what answers knowledge questions by meaning (FlowRuntime::setNlu, setEmbeddings). Before start(). */
     void setNlu(std::shared_ptr<const nlu::NluProvider> provider, std::shared_ptr<const nlu::EmbeddingNluProvider> embeddings = nullptr);
+    /** What finds entities, and whether the rules match intents exactly (FlowRuntime::setEntityExtractor, setExactRules). Before start(). */
+    void setEntityExtractor(std::shared_ptr<const nlu::EntityExtractor> extractor) { _entityExtractor = std::move(extractor); }
+    void setExactRules(bool exact) { _exactRules = exact; }
     /** What `llm` steps, generative pages and unread form answers ask (FlowRuntime::setLlm). Before start(). */
     void setLlm(std::shared_ptr<const llm::Completion> completion);
     /** The engine config's llm_profiles, for `llm` steps and generative pages that name one (FlowRuntime::setLlmProfiles). Before start(). */
@@ -137,6 +140,8 @@ private:
     ToolCaller _toolCaller;
     std::shared_ptr<const nlu::NluProvider> _nlu;
     std::shared_ptr<const nlu::EmbeddingNluProvider> _embeddings;
+    std::shared_ptr<const nlu::EntityExtractor> _entityExtractor;
+    bool _exactRules = false;
     std::shared_ptr<const llm::Completion> _llm;
     std::map<std::string, std::shared_ptr<const llm::Completion>> _llmProfiles;
     std::thread _conversationThread;
