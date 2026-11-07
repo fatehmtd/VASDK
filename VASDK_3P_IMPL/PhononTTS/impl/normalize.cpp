@@ -19,7 +19,7 @@
 #include <iterator>
 #include <cstring>
 
-namespace va::thirdparty::phonon::text {
+namespace va::thirdparty::tts::phonon::text {
 
 namespace {
 
@@ -2058,4 +2058,4 @@ std::vector<std::string_view> splitWhitespace(std::string_view s) {
 
 } // namespace detail
 
-} // namespace va::thirdparty::phonon::text
+} // namespace va::thirdparty::tts::phonon::text

@@ -37,7 +37,7 @@ These are not in the provider catalog: an app constructs them and hands them to 
 
 ## Adding one
 
-1. Code rules from [vasdk-provider](../vasdk-provider/SKILL.md#code-rules): `va::thirdparty`, `<Name>Options` with defaults (device name, buffer size, latency), no statics, every platform or warn and document. Files: rows 1, 2, 9, 11-16 of its list; there is no catalog row until audio backends become selectable in the engine config.
+1. Code rules from [vasdk-provider](../vasdk-provider/SKILL.md#code-rules): `va::thirdparty::audio`, `<Name>Options` with defaults (device name, buffer size, latency), no statics, every platform or warn and document. Files: rows 1, 2, 9, 11-16 of its list; there is no catalog row until audio backends become selectable in the engine config.
 2. Templates: `VASDK_3P_IMPL/MiniAudio/` (source and sink; `MiniAudioSourceOptions`) and `VASDK_3P_IMPL/RNNoise/` (DSP; `RNNoiseDSPOptions`).
 3. A backend for one platform only (as AAudio is for Android) states so on its page and in the README, with the CMake warning elsewhere.
 

@@ -6,7 +6,7 @@ using namespace gladiapp::v2::ws;
 using namespace gladiapp::v2::response;
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::stt {
 
 GladiaPPTranscriptionProvider::GladiaPPTranscriptionProvider(GladiaPPTranscriptionOptions options)
     : _apiKey(std::move(options.apiKey)),
@@ -279,5 +279,5 @@ void GladiaPPTranscriptionProvider::connectSignals()
     });
 }
 
-} // namespace thirdparty
+} // namespace thirdparty::stt
 } // namespace va

@@ -43,13 +43,13 @@ int main(int argc, char** argv) {
         std::printf("minilm_nlu_test: skipped, no model in %s\n", modelDir.c_str());
         return 77;
     }
-    auto encoder = std::make_shared<thirdparty::MiniLmSentenceEncoder>(thirdparty::MiniLmSentenceEncoderOptions{modelDir});
+    auto encoder = std::make_shared<thirdparty::nlu::MiniLmSentenceEncoder>(thirdparty::nlu::MiniLmSentenceEncoderOptions{modelDir});
     check(encoder->initialize(), "the model loads");
     check(encoder->tokenize("Hello, world!").size() == 6, "WordPiece: [CLS] hello , world ! [SEP]");
     const auto vector = encoder->encode("is the shop open on saturday");
     check(vector.size() == 384, "a 384-number vector");
-    check(nlu::cosine(encoder->encode("when are you open"), encoder->encode("what time do you close")) >
-              nlu::cosine(encoder->encode("when are you open"), encoder->encode("I want to book a service")),
+    check(va::nlu::cosine(encoder->encode("when are you open"), encoder->encode("what time do you close")) >
+              va::nlu::cosine(encoder->encode("when are you open"), encoder->encode("I want to book a service")),
           "similar sentences are closer");
 
     vasdk::flow::Agent definition;
@@ -58,9 +58,9 @@ int main(int argc, char** argv) {
     auto agent = flow::CompiledAgent::compile(definition, &error);
     check(agent != nullptr, "the agent compiles: " + error);
     if (!agent) return 1;
-    auto embeddings = std::make_shared<nlu::EmbeddingNluProvider>(encoder, definition.intents());
-    auto cascade = std::make_shared<nlu::CascadeNluProvider>(
-        std::vector<std::shared_ptr<const nlu::NluProvider>>{agent->rules(), embeddings});
+    auto embeddings = std::make_shared<va::nlu::EmbeddingNluProvider>(encoder, definition.intents());
+    auto cascade = std::make_shared<va::nlu::CascadeNluProvider>(
+        std::vector<std::shared_ptr<const va::nlu::NluProvider>>{agent->rules(), embeddings});
 
     // Paraphrases: the rules alone against the cascade.
     const std::vector<std::pair<std::string, std::string>> said{
@@ -70,10 +70,10 @@ int main(int argc, char** argv) {
         {"I need a human", "person"},                {"can I get a real person on the line", "person"},
         {"book an appointment", "book"},             {"opening hours please", "hours"},
     };
-    auto accuracy = [&](const std::shared_ptr<const nlu::NluProvider>& provider) {
+    auto accuracy = [&](const std::shared_ptr<const va::nlu::NluProvider>& provider) {
         int right = 0;
         for (const auto& [text, intent] : said) {
-            nlu::NluRequest request;
+            va::nlu::NluRequest request;
             request.text = text;
             const auto understood = provider->understand(request);
             if (!understood.intents.empty() && understood.intents.front().intent == intent) ++right;

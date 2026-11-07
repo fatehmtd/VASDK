@@ -31,7 +31,7 @@ All of them are listed in [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md)
 
 va::llm::LLMConfig config;
 config.model = "/models/qwen2.5-1.5b-instruct-q4_k_m.gguf";
-auto transport = std::make_shared<va::thirdparty::LlamaCppTransport>(config);
+auto transport = std::make_shared<va::thirdparty::llm::LlamaCppTransport>(config);
 // LLMProcessor(transport); LlamaCppCompletion(config) for an agent's one-shot asks
 ```
 

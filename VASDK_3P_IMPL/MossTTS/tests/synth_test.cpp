@@ -83,10 +83,10 @@ int main(int argc, char** argv) {
     cfg.format     = va::audio::AudioFormat::SHORT;
 
     Collector collector;
-    va::thirdparty::MossVoiceSynthesisOptions options;
+    va::thirdparty::tts::MossVoiceSynthesisOptions options;
     options.modelDir = modelDir;
     options.voice    = voice;
-    va::thirdparty::MossVoiceSynthesisProvider tts(options);
+    va::thirdparty::tts::MossVoiceSynthesisProvider tts(options);
     tts.setAudioConfiguration(cfg);
     tts.setVoiceSynthesisResultListener(&collector);
     if (!tts.startVoiceSynthesisProvider()) {

@@ -513,7 +513,7 @@ std::shared_ptr<va::llm::LLMTransport> createLocalLlm(const std::string& modelPa
     tools.registerTool(WeatherTool{});
     tools.registerTool(TimeTool{});
     config.systemPrompt = systemPrompt + "\n\n" + tools.renderToolDescriptions(va::llm::ChatFormat::LFM2);
-    auto transport = std::make_shared<va::thirdparty::LlamaCppTransport>(config);
+    auto transport = std::make_shared<va::thirdparty::llm::LlamaCppTransport>(config);
     transport->setChunker(std::make_shared<va::transport::NoChunkingChunker>());
     spdlog::info("LLM: llama.cpp local model {}", modelPath);
     return transport;
@@ -526,7 +526,7 @@ struct AudioIO {
     // Local speaker only: called with each block of audio as it is played.
     std::function<void(std::function<void(const char*, size_t)>)> setPlaybackCallback;
 #ifdef VASDK_HAS_LIBDATACHANNEL_WEBRTC
-    std::shared_ptr<va::thirdparty::LibDataChannelWebRtcProvider> webrtcPeer;
+    std::shared_ptr<va::thirdparty::transport::LibDataChannelWebRtcProvider> webrtcPeer;
 #endif
 };
 
@@ -534,23 +534,23 @@ AudioIO createAudioIO([[maybe_unused]] const CliArgs& args, const va::audio::Aud
     AudioIO io;
 #ifdef VASDK_HAS_LIBDATACHANNEL_WEBRTC
     if (args.webrtcPort != 0) {
-        io.webrtcPeer = std::make_shared<va::thirdparty::LibDataChannelWebRtcProvider>();
+        io.webrtcPeer = std::make_shared<va::thirdparty::transport::LibDataChannelWebRtcProvider>();
         auto webrtc = std::make_shared<va::transport::WebRtcTransport>(io.webrtcPeer);
 #ifdef VASDK_HAS_VIZANIM
         // The VizAnim processors analyse mic and TTS audio at the input rate.
         webrtc->setEventEncoder(va::transport::FrameType::AUDIO_FEATURES,
-                                va::thirdparty::audioFeaturesEventEncoder(inputConfig.sampleRate));
+                                va::thirdparty::audio::audioFeaturesEventEncoder(inputConfig.sampleRate));
 #endif
         io.transport = webrtc;
         return io;
     }
 #endif
 #ifdef VASDK_HAS_MINIAUDIO
-    auto sink   = std::make_shared<va::thirdparty::MiniAudioSink>();
-    auto source = std::make_shared<va::thirdparty::MiniAudioSource>();
+    auto sink   = std::make_shared<va::thirdparty::audio::MiniAudioSink>();
+    auto source = std::make_shared<va::thirdparty::audio::MiniAudioSource>();
 #elif defined(VASDK_HAS_SDL)
-    auto sink   = std::make_shared<va::thirdparty::SDLAudioSink>();
-    auto source = std::make_shared<va::thirdparty::SDLAudioSource>();
+    auto sink   = std::make_shared<va::thirdparty::audio::SDLAudioSink>();
+    auto source = std::make_shared<va::thirdparty::audio::SDLAudioSource>();
 #else
 #error "No audio I/O backend available. Enable VASDK_BUILD_MINIAUDIO or VASDK_BUILD_SDL."
 #endif
@@ -588,13 +588,13 @@ AppProcessors addAppProcessors(va::VAEngine& engine, const CliArgs& args, const 
         spdlog::info("Session recording enabled → {}", app.sessionWriter->getSessionDir());
     }
 #endif
-    engine.addProcessor(Slot::AfterInput, std::make_shared<va::thirdparty::AudioInputVizAnimFrameProcessor>(
+    engine.addProcessor(Slot::AfterInput, std::make_shared<va::thirdparty::audio::AudioInputVizAnimFrameProcessor>(
         micAudio, inputConfig, inputConfig.sampleRate * 10));
 
 #ifdef VASDK_HAS_PYANNOTE_SPEAKER
     // After STT: embedding the whole utterance takes ~70 ms per second of speech.
-    auto speakerProvider = std::make_shared<va::thirdparty::PyannoteEmbeddingProvider>(
-        va::thirdparty::PyannoteEmbeddingOptions{modelsPath + "/pyannote_embedding.onnx"});
+    auto speakerProvider = std::make_shared<va::thirdparty::speaker::PyannoteEmbeddingProvider>(
+        va::thirdparty::speaker::PyannoteEmbeddingOptions{modelsPath + "/pyannote_embedding.onnx"});
     if (speakerProvider->initialize(inputConfig)) {
         auto speakerId = std::make_shared<va::pipeline::SpeakerIdentificationProcessor>(speakerProvider);
         speakerId->setRingBuffer(micAudio);
@@ -604,7 +604,7 @@ AppProcessors addAppProcessors(va::VAEngine& engine, const CliArgs& args, const 
     }
 #endif
 
-    engine.addProcessor(Slot::BeforeOutput, std::make_shared<va::thirdparty::OutputAudioVizAnimFrameProcessor>(
+    engine.addProcessor(Slot::BeforeOutput, std::make_shared<va::thirdparty::audio::OutputAudioVizAnimFrameProcessor>(
         inputConfig, inputConfig.sampleRate * 10));
 #ifdef VASDK_HAS_FTXUI
     app.tuiObserver = std::make_shared<vasdk_app::AudioFeaturesObserver>();
@@ -796,7 +796,7 @@ int main(int argc, char* argv[]) {
         agentLlm.model = args.agentLlmModelPath;
         agentLlm.maxTokens = 400;
         agentLlm.nCtx = 4096;
-        auto completion = std::make_shared<va::thirdparty::LlamaCppCompletion>(agentLlm);
+        auto completion = std::make_shared<va::thirdparty::llm::LlamaCppCompletion>(agentLlm);
         if (!completion->loaded()) return -1;
         options.llmCompletion = completion;
         spdlog::info("  Agent LLM:   llama.cpp local model {}", args.agentLlmModelPath);

@@ -13,7 +13,7 @@
 #include <string>
 #include <thread>
 
-namespace va::thirdparty {
+namespace va::thirdparty::transport {
 
 /** Settings of FileTransport. */
 struct FileTransportOptions {
@@ -145,7 +145,7 @@ private:
     bufferToFrame(const char* buffer, uint32_t numSamples);
 
     std::string                       filePath_;
-    std::shared_ptr<FFmpegAudioSource> _audioSource;
+    std::shared_ptr<va::thirdparty::audio::FFmpegAudioSource> _audioSource;
 
     va::audio::AudioConfig            audioConfig_;
     size_t                            _frameSizeInSamples{2000};
@@ -158,4 +158,4 @@ private:
     std::shared_ptr<va::AudioRingBuffer> _ringBuffer;
 };
 
-} // namespace va::thirdparty
+} // namespace va::thirdparty::transport

@@ -23,7 +23,7 @@
 #include <iostream>
 #include <string>
 
-using namespace va::thirdparty::phonon::text;
+using namespace va::thirdparty::tts::phonon::text;
 
 namespace {
 

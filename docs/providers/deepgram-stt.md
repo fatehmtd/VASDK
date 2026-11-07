@@ -12,7 +12,7 @@ Deepgram's streaming speech recognition (Nova-3, multilingual by default), throu
 
 ## Options
 
-In C++, `va::thirdparty::DeepgramppTranscriptionOptions` (in [`DeepgramppTranscriptionProvider.h`](../../VASDK_3P_IMPL/DeepgramppTranscription/DeepgramppTranscriptionProvider.h)). Every field has a default except the ones marked "required" in its comment.
+In C++, `va::thirdparty::stt::DeepgramppTranscriptionOptions` (in [`DeepgramppTranscriptionProvider.h`](../../VASDK_3P_IMPL/DeepgramppTranscription/DeepgramppTranscriptionProvider.h)). Every field has a default except the ones marked "required" in its comment.
 
 | Field | Default | Meaning |
 | --- | --- | --- |
@@ -55,9 +55,9 @@ From C++:
 ```cpp
 #include "DeepgramppTranscription/DeepgramppTranscriptionProvider.h"
 
-va::thirdparty::DeepgramppTranscriptionOptions options;
+va::thirdparty::stt::DeepgramppTranscriptionOptions options;
 options.apiKey = "...";
-auto provider = std::make_shared<va::thirdparty::DeepgramppTranscriptionProvider>(options);
+auto provider = std::make_shared<va::thirdparty::stt::DeepgramppTranscriptionProvider>(options);
 // TranscriptionFrameProcessor(provider); setAudioConfiguration() before the pipeline starts
 ```
 

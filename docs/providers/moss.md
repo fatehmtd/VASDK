@@ -12,7 +12,7 @@ OpenMOSS's MOSS-TTS-Nano (about 100M parameters): multilingual (Chinese, English
 
 ## Options
 
-In C++, `va::thirdparty::MossVoiceSynthesisOptions` (in [`MossVoiceSynthesisProvider.hpp`](../../VASDK_3P_IMPL/MossTTS/MossVoiceSynthesisProvider.hpp)). Every field has a default except the ones marked "required" in its comment.
+In C++, `va::thirdparty::tts::MossVoiceSynthesisOptions` (in [`MossVoiceSynthesisProvider.hpp`](../../VASDK_3P_IMPL/MossTTS/MossVoiceSynthesisProvider.hpp)). Every field has a default except the ones marked "required" in its comment.
 
 | Field | Default | Meaning |
 | --- | --- | --- |
@@ -65,9 +65,9 @@ From C++:
 ```cpp
 #include "MossTTS/MossVoiceSynthesisProvider.hpp"
 
-va::thirdparty::MossVoiceSynthesisOptions options;
+va::thirdparty::tts::MossVoiceSynthesisOptions options;
 options.modelDir = "...";
-auto provider = std::make_shared<va::thirdparty::MossVoiceSynthesisProvider>(options);
+auto provider = std::make_shared<va::thirdparty::tts::MossVoiceSynthesisProvider>(options);
 // TTSFrameProcessor(provider); setAudioConfiguration() before the pipeline starts
 ```
 

@@ -10,7 +10,7 @@
 #include <vector>
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::llm {
 
 struct LlamaCppCompletion::Impl {
     llama_model* model = nullptr;
@@ -25,7 +25,7 @@ struct LlamaCppCompletion::Impl {
     }
 };
 
-LlamaCppCompletion::LlamaCppCompletion(llm::LLMConfig config) : _config(std::move(config)), _impl(std::make_unique<Impl>()) {
+LlamaCppCompletion::LlamaCppCompletion(va::llm::LLMConfig config) : _config(std::move(config)), _impl(std::make_unique<Impl>()) {
     if (_config.model.empty()) {
         spdlog::error("[LlamaCppCompletion] no model: set LLMConfig::model to the GGUF file's path");
         return;
@@ -69,11 +69,11 @@ LlamaCppCompletion::~LlamaCppCompletion() = default;
 
 bool LlamaCppCompletion::loaded() const { return _impl->ctx != nullptr; }
 
-std::optional<std::string> LlamaCppCompletion::complete(const std::vector<llm::ConversationMessage>& messages) const {
+std::optional<std::string> LlamaCppCompletion::complete(const std::vector<va::llm::ConversationMessage>& messages) const {
     return completeWithin(messages, 0);
 }
 
-std::optional<std::string> LlamaCppCompletion::completeWithin(const std::vector<llm::ConversationMessage>& messages,
+std::optional<std::string> LlamaCppCompletion::completeWithin(const std::vector<va::llm::ConversationMessage>& messages,
                                                               int timeLimitMs) const {
     if (!loaded() || messages.empty()) return std::nullopt;
     const auto started = std::chrono::steady_clock::now();
@@ -89,9 +89,9 @@ std::optional<std::string> LlamaCppCompletion::completeWithin(const std::vector<
     std::vector<llama_chat_message> chat;
     chat.reserve(messages.size());
     for (const auto& message : messages) {
-        roles.push_back(message.role == llm::MessageRole::SYSTEM      ? "system"
-                        : message.role == llm::MessageRole::ASSISTANT ? "assistant"
-                        : message.role == llm::MessageRole::TOOL      ? "tool"
+        roles.push_back(message.role == va::llm::MessageRole::SYSTEM      ? "system"
+                        : message.role == va::llm::MessageRole::ASSISTANT ? "assistant"
+                        : message.role == va::llm::MessageRole::TOOL      ? "tool"
                                                                       : "user");
         chat.push_back({roles.back().c_str(), message.content.c_str()});
     }
@@ -153,5 +153,5 @@ std::optional<std::string> LlamaCppCompletion::completeWithin(const std::vector<
     return answer;
 }
 
-} // namespace thirdparty
+} // namespace thirdparty::llm
 } // namespace va

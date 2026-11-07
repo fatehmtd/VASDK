@@ -12,7 +12,7 @@ A zero-shot entity model: told the agent's entity labels ("car repair", "availab
 
 ## Options
 
-In C++, `va::thirdparty::GlinerEntityExtractorOptions` (in [`GlinerEntityExtractor.h`](../../VASDK_3P_IMPL/GlinerNer/GlinerEntityExtractor.h)). Every field has a default except the ones marked "required" in its comment.
+In C++, `va::thirdparty::nlu::GlinerEntityExtractorOptions` (in [`GlinerEntityExtractor.h`](../../VASDK_3P_IMPL/GlinerNer/GlinerEntityExtractor.h)). Every field has a default except the ones marked "required" in its comment.
 
 | Field | Default | Meaning |
 | --- | --- | --- |
@@ -54,9 +54,9 @@ From C++:
 ```cpp
 #include "GlinerNer/GlinerEntityExtractor.h"
 
-va::thirdparty::GlinerEntityExtractorOptions options;
+va::thirdparty::nlu::GlinerEntityExtractorOptions options;
 options.modelDir = "...";
-auto provider = std::make_shared<va::thirdparty::GlinerEntityExtractor>(options);
+auto provider = std::make_shared<va::thirdparty::nlu::GlinerEntityExtractor>(options);
 // provider->initialize(), then give it to the agent as its entity model
 ```
 

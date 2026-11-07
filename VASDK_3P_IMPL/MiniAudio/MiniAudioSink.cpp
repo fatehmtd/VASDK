@@ -10,7 +10,7 @@
 #include <thread>
 #include <vector>
 
-namespace va::thirdparty {
+namespace va::thirdparty::audio {
 
 //  helpers (translation-unit local) 
 
@@ -340,4 +340,4 @@ void MiniAudioSink::setPlaybackCallback(va::audio::GenericAudioSink::PlaybackCal
     _impl->playbackCallback = std::move(cb);
 }
 
-} // namespace va::thirdparty
+} // namespace va::thirdparty::audio

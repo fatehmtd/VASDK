@@ -10,7 +10,7 @@
 #include "vasdk_smartturn_v3_export.h"
 
 namespace va {
-    namespace thirdparty {
+    namespace thirdparty::turn {
         class SmartTurnV3Impl;
 
         namespace whisper {
@@ -69,13 +69,13 @@ namespace va {
 
             //  TurnDetectionProvider interface 
 
-            TurnEvaluation evaluate(const std::shared_ptr<transport::Frame> frame,
+            TurnEvaluation evaluate(const std::shared_ptr<va::transport::Frame> frame,
                 bool agentIsSpeaking) override;
 
         private:
-            TurnEvaluation handleVADStateFrame(const std::shared_ptr<transport::VADStateFrame>& frame,
+            TurnEvaluation handleVADStateFrame(const std::shared_ptr<va::transport::VADStateFrame>& frame,
                 bool agentIsSpeaking);
-            TurnEvaluation handleAudioFrame(const std::shared_ptr<transport::AudioFrame>& frame);
+            TurnEvaluation handleAudioFrame(const std::shared_ptr<va::transport::AudioFrame>& frame);
 
             void convertAudioToFloat(const char* audioData,
                 size_t srcOffset,
@@ -104,7 +104,7 @@ namespace va {
             va::audio::AudioConfig _audioConfig;
         };
 
-    } // namespace thirdparty
+    } // namespace thirdparty::turn
 } // namespace va
 
 #endif

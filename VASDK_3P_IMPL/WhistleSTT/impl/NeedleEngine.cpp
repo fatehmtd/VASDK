@@ -25,7 +25,7 @@
 #endif
 #endif
 
-namespace va::thirdparty {
+namespace va::thirdparty::stt {
 
 namespace {
 
@@ -220,4 +220,4 @@ bool NeedleEngine::transcribe(const std::vector<float>& pcm, const std::string& 
     }
 }
 
-} // namespace va::thirdparty
+} // namespace va::thirdparty::stt

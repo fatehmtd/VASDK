@@ -147,7 +147,7 @@ std::vector<soniox::Token> parseTokensFromMessage(
 } // namespace
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::stt {
 
 SonioxppTranscriptionProvider::SonioxppTranscriptionProvider(SonioxppTranscriptionOptions options)
     : _apiKey(std::move(options.apiKey)),
@@ -597,5 +597,5 @@ va::audio::TranscriptionResult SonioxppTranscriptionProvider::buildResultFromTok
     return result;
 }
 
-} // namespace thirdparty
+} // namespace thirdparty::stt
 } // namespace va

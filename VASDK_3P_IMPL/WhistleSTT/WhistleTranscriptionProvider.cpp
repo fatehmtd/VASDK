@@ -8,7 +8,7 @@
 #include <filesystem>
 #include <utility>
 
-namespace va::thirdparty {
+namespace va::thirdparty::stt {
 
 namespace {
 
@@ -402,4 +402,4 @@ void WhistleTranscriptionProvider::inferenceLoop()
     }
 }
 
-} // namespace va::thirdparty
+} // namespace va::thirdparty::stt

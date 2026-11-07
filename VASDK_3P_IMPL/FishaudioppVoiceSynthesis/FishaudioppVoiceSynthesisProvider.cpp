@@ -3,7 +3,7 @@
 #include <spdlog/spdlog.h>
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::tts {
 
 FishaudioppVoiceSynthesisProvider::FishaudioppVoiceSynthesisProvider(FishaudioppVoiceSynthesisOptions options)
     : _apiKey(std::move(options.apiKey)),
@@ -221,5 +221,5 @@ void FishaudioppVoiceSynthesisProvider::connectCallbacks()
     });
 }
 
-} // namespace thirdparty
+} // namespace thirdparty::tts
 } // namespace va

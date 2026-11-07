@@ -11,7 +11,7 @@
 #include <vector>
 
 namespace va {
-    namespace thirdparty {
+    namespace thirdparty::audio {
 
         /**
          * @brief Pipeline stage that extracts audio features for live animation.
@@ -30,7 +30,7 @@ namespace va {
             /**
              * @param audioConfig  Audio configuration for both microphone input (AudioFrames) and TTS synthesis output (SynthesisFrames).
              */
-            explicit VizAnimFrameProcessor(const audio::AudioConfig& audioConfig, int numWorkingSamples);
+            explicit VizAnimFrameProcessor(const va::audio::AudioConfig& audioConfig, int numWorkingSamples);
             
             VizAnimFrameProcessor(const VizAnimFrameProcessor&) = delete;
             VizAnimFrameProcessor& operator=(const VizAnimFrameProcessor&) = delete;
@@ -43,7 +43,7 @@ namespace va {
             bool initialize() override;
             void release() override;
 
-            virtual void processFrame(std::shared_ptr<transport::Frame> frame,
+            virtual void processFrame(std::shared_ptr<va::transport::Frame> frame,
                 pipeline::FlowDirection direction) override = 0;
 
             protected:
@@ -56,7 +56,7 @@ namespace va {
             std::vector<VizAnimProvider::Features> processAudioSamples(const char* input, size_t numSamples) const;
 
             protected:
-            audio::AudioConfig  _audioConfig;
+            va::audio::AudioConfig  _audioConfig;
             std::unique_ptr<VizAnimProvider> _vizAnimProvider;
             std::vector<char>   _workingBuffer;
             int _numWorkingSamples;
@@ -69,7 +69,7 @@ namespace va {
         class VASDK_VIZANIM_EXPORT AudioInputVizAnimFrameProcessor : public VizAnimFrameProcessor {
         public:
             explicit AudioInputVizAnimFrameProcessor(std::shared_ptr<va::AudioRingBuffer> ringBuffer, 
-                const audio::AudioConfig& audioConfig,
+                const va::audio::AudioConfig& audioConfig,
                  int numWorkingSamples);
 
             AudioInputVizAnimFrameProcessor(const AudioInputVizAnimFrameProcessor&) = delete;
@@ -77,12 +77,12 @@ namespace va {
 
             ~AudioInputVizAnimFrameProcessor() override = default;
 
-            virtual void processFrame(std::shared_ptr<transport::Frame> frame,
+            virtual void processFrame(std::shared_ptr<va::transport::Frame> frame,
                 pipeline::FlowDirection direction) override;
 
-            virtual bool shouldProcess(std::shared_ptr<transport::Frame> frame) const override;
+            virtual bool shouldProcess(std::shared_ptr<va::transport::Frame> frame) const override;
         private:
-            void processAudioFrame(std::shared_ptr<transport::AudioFrame> frame);
+            void processAudioFrame(std::shared_ptr<va::transport::AudioFrame> frame);
         private:
             std::shared_ptr<va::AudioRingBuffer> _ringBuffer;
         };
@@ -92,21 +92,21 @@ namespace va {
          */
         class VASDK_VIZANIM_EXPORT OutputAudioVizAnimFrameProcessor : public VizAnimFrameProcessor {
         public:
-            explicit OutputAudioVizAnimFrameProcessor(const audio::AudioConfig& audioConfig, int numWorkingSamples);
+            explicit OutputAudioVizAnimFrameProcessor(const va::audio::AudioConfig& audioConfig, int numWorkingSamples);
 
             OutputAudioVizAnimFrameProcessor(const OutputAudioVizAnimFrameProcessor&) = delete;
             OutputAudioVizAnimFrameProcessor& operator=(const OutputAudioVizAnimFrameProcessor&) = delete;
 
             ~OutputAudioVizAnimFrameProcessor() override = default;
 
-            virtual void processFrame(std::shared_ptr<transport::Frame> frame,
+            virtual void processFrame(std::shared_ptr<va::transport::Frame> frame,
                 pipeline::FlowDirection direction) override;
 
-            virtual bool shouldProcess(std::shared_ptr<transport::Frame> frame) const override;
+            virtual bool shouldProcess(std::shared_ptr<va::transport::Frame> frame) const override;
 
         private:
-            void processSynthesisFrame(std::shared_ptr<transport::SynthesisFrame> frame);
+            void processSynthesisFrame(std::shared_ptr<va::transport::SynthesisFrame> frame);
         };
 
-    } // namespace thirdparty
+    } // namespace thirdparty::audio
 } // namespace va

@@ -86,9 +86,9 @@ namespace {
 
 namespace providers = ::vasdk::providers;
 using engine::ProviderContext;
-using Stt = audio::GenericTranscriptionProvider;
-using Tts = audio::GenericVoiceSynthesisProvider;
-using Vad = audio::VADProvider;
+using Stt = va::audio::GenericTranscriptionProvider;
+using Tts = va::audio::GenericVoiceSynthesisProvider;
+using Vad = va::audio::VADProvider;
 using providers::CloudOptions;
 using providers::LocalSttOptions;
 using providers::LocalTtsOptions;
@@ -122,12 +122,12 @@ void registerVad([[maybe_unused]] engine::ProviderRegistry& registry) {
 #ifdef VASDK_HAS_SILERO_VAD
     registry.add<Vad, providers::SileroOptions>("silero",
         [](const providers::SileroOptions& options, const ProviderContext& context) -> std::shared_ptr<Vad> {
-            SileroVADOptions silero;
+            vad::SileroVADOptions silero;
             silero.modelPath = options.model_path().empty() ? context.modelsDir + "/silero_vad.onnx" : options.model_path();
             if (options.has_threshold()) silero.threshold = std::clamp(options.threshold(), 0.0f, 1.0f);
-            auto vad = std::make_shared<SileroVAD>(silero);
-            if (!vad->initialize(context.audio, context.audio.sampleRate * 4)) return nullptr;
-            return vad;
+            auto detector = std::make_shared<vad::SileroVAD>(silero);
+            if (!detector->initialize(context.audio, context.audio.sampleRate * 4)) return nullptr;
+            return detector;
         });
 #endif
 }
@@ -136,82 +136,82 @@ void registerVad([[maybe_unused]] engine::ProviderRegistry& registry) {
 void registerStt([[maybe_unused]] engine::ProviderRegistry& registry) {
 #ifdef VASDK_HAS_GRADIUMPP_STT
     registry.add<Stt, CloudOptions>("gradium", [](const CloudOptions& options, const ProviderContext& context) {
-        GradiumppTranscriptionOptions gradium;
+        stt::GradiumppTranscriptionOptions gradium;
         gradium.apiKey = orEnvironment(options.api_key(), "GRADIUM_API_KEY");
-        return configured(std::make_shared<GradiumppTranscriptionProvider>(gradium), context);
+        return configured(std::make_shared<stt::GradiumppTranscriptionProvider>(gradium), context);
     });
 #endif
 #ifdef VASDK_HAS_SONIOXPP_STT
     registry.add<Stt, CloudOptions>("soniox", [](const CloudOptions& options, const ProviderContext& context) {
-        SonioxppTranscriptionOptions soniox;
+        stt::SonioxppTranscriptionOptions soniox;
         soniox.apiKey       = orEnvironment(options.api_key(), "SONIOX_API_KEY");
         soniox.caBundlePath = caBundle(options);
-        return configured(std::make_shared<SonioxppTranscriptionProvider>(soniox), context);
+        return configured(std::make_shared<stt::SonioxppTranscriptionProvider>(soniox), context);
     });
 #endif
 #ifdef VASDK_HAS_DEEPGRAMPP_STT
     registry.add<Stt, CloudOptions>("deepgram", [](const CloudOptions& options, const ProviderContext& context) {
-        DeepgramppTranscriptionOptions deepgram;
+        stt::DeepgramppTranscriptionOptions deepgram;
         deepgram.apiKey       = orEnvironment(options.api_key(), "DEEPGRAM_API_KEY");
         deepgram.caBundlePath = caBundle(options);
-        return configured(std::make_shared<DeepgramppTranscriptionProvider>(deepgram), context);
+        return configured(std::make_shared<stt::DeepgramppTranscriptionProvider>(deepgram), context);
     });
 #endif
 #ifdef VASDK_HAS_CARTESIAPP_STT
     registry.add<Stt, CloudOptions>("cartesia", [](const CloudOptions& options, const ProviderContext& context) {
-        CartesiappTranscriptionOptions cartesia;
+        stt::CartesiappTranscriptionOptions cartesia;
         cartesia.apiKey       = orEnvironment(options.api_key(), "CARTESIA_API_KEY");
         cartesia.caBundlePath = caBundle(options);
-        return configured(std::make_shared<CartesiappTranscriptionProvider>(cartesia), context);
+        return configured(std::make_shared<stt::CartesiappTranscriptionProvider>(cartesia), context);
     });
 #endif
 #ifdef VASDK_HAS_FISHAUDIOPP_STT
     registry.add<Stt, CloudOptions>("fishaudio", [](const CloudOptions& options, const ProviderContext& context) {
-        FishaudioppTranscriptionOptions fishaudio;
+        stt::FishaudioppTranscriptionOptions fishaudio;
         fishaudio.apiKey       = orEnvironment(options.api_key(), "FISHAUDIO_API_KEY");
         fishaudio.caBundlePath = caBundle(options);
-        return configured(std::make_shared<FishaudioppTranscriptionProvider>(fishaudio), context);
+        return configured(std::make_shared<stt::FishaudioppTranscriptionProvider>(fishaudio), context);
     });
 #endif
 #ifdef VASDK_HAS_GLADIAPP
     registry.add<Stt, CloudOptions>("gladia", [](const CloudOptions& options, const ProviderContext& context) {
-        GladiaPPTranscriptionOptions gladia;
+        stt::GladiaPPTranscriptionOptions gladia;
         gladia.apiKey       = orEnvironment(options.api_key(), "GLADIA_API_KEY");
         gladia.caBundlePath = caBundle(options);
-        return configured(std::make_shared<GladiaPPTranscriptionProvider>(gladia), context);
+        return configured(std::make_shared<stt::GladiaPPTranscriptionProvider>(gladia), context);
     });
 #endif
 #ifdef VASDK_HAS_WHISTLE_STT
     registry.add<Stt, LocalSttOptions>("whistle", [](const LocalSttOptions& options, const ProviderContext& context) {
-        WhistleTranscriptionOptions whistle;
+        stt::WhistleTranscriptionOptions whistle;
         whistle.modelPath = modelDir(options.model_dir(), context, "whistle");
         if (options.idle_timeout_ms()) whistle.idleTimeoutMs = options.idle_timeout_ms();
         if (options.partial_interval_ms()) whistle.partialIntervalMs = options.partial_interval_ms();
         whistle.minNewSamplesForPartial = context.audio.sampleRate / 4;
         whistle.minNewSamplesForFinal   = context.frameSize;
         whistle.language = orEnvironment(options.language(), "WHISTLE_LANGUAGE", whistle.language.c_str());
-        return configured(std::make_shared<WhistleTranscriptionProvider>(whistle), context);
+        return configured(std::make_shared<stt::WhistleTranscriptionProvider>(whistle), context);
     });
 #endif
 #ifdef VASDK_HAS_MOONSHINE_STT
     registry.add<Stt, LocalSttOptions>("moonshine", [](const LocalSttOptions& options, const ProviderContext& context) {
-        MoonshineSttOptions moonshine;
+        stt::MoonshineSttOptions moonshine;
         moonshine.modelDir = modelDir(options.model_dir(), context, "moonshine");
         if (options.idle_timeout_ms()) moonshine.idleTimeoutMs = options.idle_timeout_ms();
         if (options.partial_interval_ms()) moonshine.partialIntervalMs = options.partial_interval_ms();
-        return configured(std::make_shared<MoonshineSttProvider>(moonshine), context);
+        return configured(std::make_shared<stt::MoonshineSttProvider>(moonshine), context);
     });
 #endif
 #ifdef VASDK_HAS_PARAKEET
     registry.add<Stt, LocalSttOptions>("parakeet", [](const LocalSttOptions& options, const ProviderContext& context) {
-        ParakeetTranscriptionOptions parakeet;
+        stt::ParakeetTranscriptionOptions parakeet;
         parakeet.modelDir = modelDir(options.model_dir(), context, "parakeet");
         if (options.idle_timeout_ms()) parakeet.idleTimeoutMs = options.idle_timeout_ms();
         if (options.partial_interval_ms()) parakeet.partialIntervalMs = options.partial_interval_ms();
         parakeet.minNewSamplesForPartial = context.audio.sampleRate / 2;
         parakeet.minNewSamplesForFinal   = parakeet.minNewSamplesForPartial * 2;
         parakeet.contextSamples          = context.audio.sampleRate / 2;
-        return configured(std::make_shared<ParakeetTranscriptionProvider>(parakeet), context);
+        return configured(std::make_shared<stt::ParakeetTranscriptionProvider>(parakeet), context);
     });
 #endif
 }
@@ -219,99 +219,99 @@ void registerStt([[maybe_unused]] engine::ProviderRegistry& registry) {
 void registerTts([[maybe_unused]] engine::ProviderRegistry& registry) {
 #ifdef VASDK_HAS_GRADIUMPP_TTS
     registry.add<Tts, CloudOptions>("gradium", [](const CloudOptions& options, const ProviderContext& context) {
-        GradiumppVoiceSynthesisOptions gradium;
+        tts::GradiumppVoiceSynthesisOptions gradium;
         gradium.apiKey  = orEnvironment(options.api_key(), "GRADIUM_API_KEY");
         gradium.voiceId = orEnvironment(options.voice_id(), "GRADIUM_VOICE_ID");
-        return configured(std::make_shared<GradiumppVoiceSynthesisProvider>(gradium), context);
+        return configured(std::make_shared<tts::GradiumppVoiceSynthesisProvider>(gradium), context);
     });
 #endif
 #ifdef VASDK_HAS_SONIOXPP_TTS
     registry.add<Tts, CloudOptions>("soniox", [](const CloudOptions& options, const ProviderContext& context) {
-        SonioxppVoiceSynthesisOptions soniox;
+        tts::SonioxppVoiceSynthesisOptions soniox;
         soniox.apiKey       = orEnvironment(options.api_key(), "SONIOX_API_KEY");
         soniox.caBundlePath = caBundle(options);
-        return configured(std::make_shared<SonioxppVoiceSynthesisProvider>(soniox), context);
+        return configured(std::make_shared<tts::SonioxppVoiceSynthesisProvider>(soniox), context);
     });
 #endif
 #ifdef VASDK_HAS_SUPERTONIC_TTS
     registry.add<Tts, LocalTtsOptions>("supertonic", [](const LocalTtsOptions& options, const ProviderContext& context) {
         const std::string dir = modelDir(options.model_dir(), context, "supertonic3");
-        SupertonicVoiceSynthesisOptions supertonic;
+        tts::SupertonicVoiceSynthesisOptions supertonic;
         supertonic.onnxDir        = dir + "/onnx";
         supertonic.voiceStylePath = dir + "/voice_styles/" + orEnvironment(options.voice(), "SUPERTONIC_TTS_VOICE", "M1") + ".json";
         supertonic.language       = orEnvironment(options.language(), "SUPERTONIC_TTS_LANG", supertonic.language.c_str());
         // Diffusion steps trade quality for latency; synthesis time scales roughly linearly with them.
         if (options.steps()) supertonic.totalSteps = options.steps();
         else if (const char* steps = std::getenv("SUPERTONIC_TTS_STEPS")) supertonic.totalSteps = std::atoi(steps);
-        return configured(std::make_shared<SupertonicVoiceSynthesisProvider>(supertonic), context);
+        return configured(std::make_shared<tts::SupertonicVoiceSynthesisProvider>(supertonic), context);
     });
 #endif
 #ifdef VASDK_HAS_DEEPGRAMPP_TTS
     registry.add<Tts, CloudOptions>("deepgram", [](const CloudOptions& options, const ProviderContext& context) {
-        DeepgramppVoiceSynthesisOptions deepgram;
+        tts::DeepgramppVoiceSynthesisOptions deepgram;
         deepgram.apiKey       = orEnvironment(options.api_key(), "DEEPGRAM_API_KEY");
         deepgram.caBundlePath = caBundle(options);
-        return configured(std::make_shared<DeepgramppVoiceSynthesisProvider>(deepgram), context);
+        return configured(std::make_shared<tts::DeepgramppVoiceSynthesisProvider>(deepgram), context);
     });
 #endif
 #ifdef VASDK_HAS_CARTESIAPP_TTS
     registry.add<Tts, CloudOptions>("cartesia", [](const CloudOptions& options, const ProviderContext& context) {
-        CartesiappVoiceSynthesisOptions cartesia;
+        tts::CartesiappVoiceSynthesisOptions cartesia;
         cartesia.apiKey       = orEnvironment(options.api_key(), "CARTESIA_API_KEY");
         cartesia.voiceId      = orEnvironment(options.voice_id(), "CARTESIA_VOICE_ID");
         cartesia.caBundlePath = caBundle(options);
-        return configured(std::make_shared<CartesiappVoiceSynthesisProvider>(cartesia), context);
+        return configured(std::make_shared<tts::CartesiappVoiceSynthesisProvider>(cartesia), context);
     });
 #endif
 #ifdef VASDK_HAS_FISHAUDIOPP_TTS
     registry.add<Tts, CloudOptions>("fishaudio", [](const CloudOptions& options, const ProviderContext& context) {
-        FishaudioppVoiceSynthesisOptions fishaudio;
+        tts::FishaudioppVoiceSynthesisOptions fishaudio;
         fishaudio.apiKey       = orEnvironment(options.api_key(), "FISHAUDIO_API_KEY");
         fishaudio.referenceId  = orEnvironment(options.voice_id(), "FISHAUDIO_VOICE_ID", fishaudio.referenceId.c_str());
         fishaudio.caBundlePath = caBundle(options);
-        return configured(std::make_shared<FishaudioppVoiceSynthesisProvider>(fishaudio), context);
+        return configured(std::make_shared<tts::FishaudioppVoiceSynthesisProvider>(fishaudio), context);
     });
 #endif
 #ifdef VASDK_HAS_MOSS_TTS
     registry.add<Tts, LocalTtsOptions>("moss", [](const LocalTtsOptions& options, const ProviderContext& context) {
-        MossVoiceSynthesisOptions moss;
+        tts::MossVoiceSynthesisOptions moss;
         moss.modelDir = modelDir(options.model_dir(), context, "moss_tts");
         moss.voice    = orEnvironment(options.voice(), "MOSS_TTS_VOICE", moss.voice.c_str());
         if (options.prebuffer_ms() > 0) moss.prebufferMs = options.prebuffer_ms();
-        return configured(std::make_shared<MossVoiceSynthesisProvider>(moss), context);
+        return configured(std::make_shared<tts::MossVoiceSynthesisProvider>(moss), context);
     });
 #endif
 #ifdef VASDK_HAS_PHONON_TTS
     registry.add<Tts, LocalTtsOptions>("phonon", [](const LocalTtsOptions& options, const ProviderContext& context) {
-        PhononVoiceSynthesisOptions phonon;
+        tts::PhononVoiceSynthesisOptions phonon;
         phonon.modelDir = modelDir(options.model_dir(), context, "phonon_tts");
         phonon.voice    = orEnvironment(options.voice(), "PHONON_TTS_VOICE", phonon.voice.c_str());
         phonon.language = orEnvironment(options.language(), "PHONON_TTS_LANG", phonon.language.c_str());
         phonon.normalizationRules = orEnvironment("", "PHONON_TTS_RULES", phonon.normalizationRules.c_str());
-        return configured(std::make_shared<PhononVoiceSynthesisProvider>(phonon), context);
+        return configured(std::make_shared<tts::PhononVoiceSynthesisProvider>(phonon), context);
     });
 #endif
 #ifdef VASDK_HAS_POCKET_TTS
     registry.add<Tts, LocalTtsOptions>("pocket", [](const LocalTtsOptions& options, const ProviderContext& context) {
-        PocketVoiceSynthesisOptions pocket;
+        tts::PocketVoiceSynthesisOptions pocket;
         pocket.modelDir = modelDir(options.model_dir(), context, "pocket_tts");
         pocket.voice    = orEnvironment(options.voice(), "POCKET_TTS_VOICE", pocket.voice.c_str());
         if (options.steps()) pocket.lsdSteps = options.steps();
         if (options.prebuffer_ms() > 0) pocket.prebufferMs = options.prebuffer_ms();
-        return configured(std::make_shared<PocketVoiceSynthesisProvider>(pocket), context);
+        return configured(std::make_shared<tts::PocketVoiceSynthesisProvider>(pocket), context);
     });
 #endif
 }
 
 void registerTurn([[maybe_unused]] engine::ProviderRegistry& registry) {
 #ifdef VASDK_HAS_SMART_TURN_V3
-    registry.add<audio::TurnDetectionProvider, providers::SmartTurnOptions>("smartturn-v3",
+    registry.add<va::audio::TurnDetectionProvider, providers::SmartTurnOptions>("smartturn-v3",
         [](const providers::SmartTurnOptions& options, const ProviderContext& context)
-            -> std::shared_ptr<audio::TurnDetectionProvider> {
-            SmartTurnV3Options smartTurnOptions;
+            -> std::shared_ptr<va::audio::TurnDetectionProvider> {
+            turn::SmartTurnV3Options smartTurnOptions;
             smartTurnOptions.modelPath =
                 options.model_path().empty() ? context.modelsDir + "/smart_turn_v3.onnx" : options.model_path();
-            auto smartTurn = std::make_shared<SmartTurnV3Provider>(smartTurnOptions);
+            auto smartTurn = std::make_shared<turn::SmartTurnV3Provider>(smartTurnOptions);
             if (!smartTurn->initialize(context.audio, context.ringBuffer)) return nullptr;
             return smartTurn;
         });
@@ -320,22 +320,22 @@ void registerTurn([[maybe_unused]] engine::ProviderRegistry& registry) {
 
 void registerEncoders([[maybe_unused]] engine::ProviderRegistry& registry) {
 #ifdef VASDK_HAS_MINILM_NLU
-    registry.add<nlu::SentenceEncoder, providers::MiniLmOptions>("minilm",
-        [](const providers::MiniLmOptions& options, const ProviderContext& context) -> std::shared_ptr<nlu::SentenceEncoder> {
-            MiniLmSentenceEncoderOptions minilm;
+    registry.add<va::nlu::SentenceEncoder, providers::MiniLmOptions>("minilm",
+        [](const providers::MiniLmOptions& options, const ProviderContext& context) -> std::shared_ptr<va::nlu::SentenceEncoder> {
+            nlu::MiniLmSentenceEncoderOptions minilm;
             minilm.modelDir = modelDir(options.model_dir(), context, "minilm");
-            auto encoder = std::make_shared<MiniLmSentenceEncoder>(minilm);
+            auto encoder = std::make_shared<nlu::MiniLmSentenceEncoder>(minilm);
             if (!encoder->initialize()) return nullptr;
             return encoder;
         });
 #endif
 #ifdef VASDK_HAS_GLINER_NER
-    registry.add<nlu::EntityExtractor, providers::GlinerOptions>("gliner",
-        [](const providers::GlinerOptions& options, const ProviderContext& context) -> std::shared_ptr<nlu::EntityExtractor> {
-            GlinerEntityExtractorOptions gliner;
+    registry.add<va::nlu::EntityExtractor, providers::GlinerOptions>("gliner",
+        [](const providers::GlinerOptions& options, const ProviderContext& context) -> std::shared_ptr<va::nlu::EntityExtractor> {
+            nlu::GlinerEntityExtractorOptions gliner;
             gliner.modelDir = modelDir(options.model_dir(), context, "gliner");
             if (options.has_threshold()) gliner.threshold = options.threshold();
-            auto extractor = std::make_shared<GlinerEntityExtractor>(gliner);
+            auto extractor = std::make_shared<nlu::GlinerEntityExtractor>(gliner);
             if (!extractor->initialize()) return nullptr;
             return extractor;
         });

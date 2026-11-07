@@ -12,7 +12,7 @@ The default voice activity detector: the Silero VAD ONNX model scores 32 ms wind
 
 ## Options
 
-In C++, `va::thirdparty::SileroVADOptions` (in [`SileroVAD.h`](../../VASDK_3P_IMPL/SileroVAD/SileroVAD.h)). Every field has a default except the ones marked "required" in its comment.
+In C++, `va::thirdparty::vad::SileroVADOptions` (in [`SileroVAD.h`](../../VASDK_3P_IMPL/SileroVAD/SileroVAD.h)). Every field has a default except the ones marked "required" in its comment.
 
 | Field | Default | Meaning |
 | --- | --- | --- |
@@ -58,9 +58,9 @@ From C++:
 ```cpp
 #include "SileroVAD/SileroVAD.h"
 
-va::thirdparty::SileroVADOptions options;
+va::thirdparty::vad::SileroVADOptions options;
 options.modelPath = "...";
-auto provider = std::make_shared<va::thirdparty::SileroVAD>(options);
+auto provider = std::make_shared<va::thirdparty::vad::SileroVAD>(options);
 // VADFrameProcessor(provider), after provider->initialize(audioConfig, bufferSize)
 ```
 

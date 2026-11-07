@@ -310,15 +310,15 @@ std::string agentFor(const CliArgs& args) {
 
 struct AudioIO {
 #ifdef VASDK_HAS_MINIAUDIO
-    std::shared_ptr<va::thirdparty::MiniAudioSource> audioSource;
-    std::shared_ptr<va::thirdparty::MiniAudioSink>   audioSink;
+    std::shared_ptr<va::thirdparty::audio::MiniAudioSource> audioSource;
+    std::shared_ptr<va::thirdparty::audio::MiniAudioSink>   audioSink;
 #elif defined(VASDK_HAS_SDL)
-    std::shared_ptr<va::thirdparty::SDLAudioSource> audioSource;
-    std::shared_ptr<va::thirdparty::SDLAudioSink>   audioSink;
+    std::shared_ptr<va::thirdparty::audio::SDLAudioSource> audioSource;
+    std::shared_ptr<va::thirdparty::audio::SDLAudioSink>   audioSink;
 #endif
     std::shared_ptr<va::transport::AudioTransport> transport;    // LocalTransport or WebRtcTransport
 #ifdef VASDK_HAS_LIBDATACHANNEL_WEBRTC
-    std::shared_ptr<va::thirdparty::LibDataChannelWebRtcProvider> webrtcPeer;
+    std::shared_ptr<va::thirdparty::transport::LibDataChannelWebRtcProvider> webrtcPeer;
 #endif
 };
 
@@ -350,18 +350,18 @@ AudioIO createAudioIO(const va::audio::AudioConfig& input, [[maybe_unused]] cons
     AudioIO io;
 #ifdef VASDK_HAS_LIBDATACHANNEL_WEBRTC
     if (args.webrtcPort != 0) {
-        io.webrtcPeer = std::make_shared<va::thirdparty::LibDataChannelWebRtcProvider>();
+        io.webrtcPeer = std::make_shared<va::thirdparty::transport::LibDataChannelWebRtcProvider>();
         io.transport = std::make_shared<va::transport::WebRtcTransport>(io.webrtcPeer);
         return io;
     }
 #endif
 #ifdef VASDK_HAS_MINIAUDIO
-    io.audioSink = std::make_shared<va::thirdparty::MiniAudioSink>();
-    io.audioSource = std::make_shared<va::thirdparty::MiniAudioSource>();
+    io.audioSink = std::make_shared<va::thirdparty::audio::MiniAudioSink>();
+    io.audioSource = std::make_shared<va::thirdparty::audio::MiniAudioSource>();
 #elif defined(VASDK_HAS_SDL)
     (void)input;
-    io.audioSink = std::make_shared<va::thirdparty::SDLAudioSink>();
-    io.audioSource = std::make_shared<va::thirdparty::SDLAudioSource>();
+    io.audioSink = std::make_shared<va::thirdparty::audio::SDLAudioSink>();
+    io.audioSource = std::make_shared<va::thirdparty::audio::SDLAudioSource>();
 #else
 #error "No audio I/O backend - enable VASDK_BUILD_MINIAUDIO or VASDK_BUILD_SDL"
 #endif
@@ -541,8 +541,8 @@ int main(int argc, char* argv[]) {
     using Slot = va::engine::Session::Slot;
 #ifdef VASDK_HAS_PYANNOTE_SPEAKER
     // After STT: embedding the whole utterance takes ~70 ms per second of speech.
-    auto speakerProvider = std::make_shared<va::thirdparty::PyannoteEmbeddingProvider>(
-        va::thirdparty::PyannoteEmbeddingOptions{modelsPath + "/pyannote_embedding.onnx"});
+    auto speakerProvider = std::make_shared<va::thirdparty::speaker::PyannoteEmbeddingProvider>(
+        va::thirdparty::speaker::PyannoteEmbeddingOptions{modelsPath + "/pyannote_embedding.onnx"});
     if (speakerProvider->initialize(runtimeOptions.inputAudio)) {
         auto speakerId = std::make_shared<va::pipeline::SpeakerIdentificationProcessor>(speakerProvider);
         speakerId->setRingBuffer(call->inputRingBuffer());

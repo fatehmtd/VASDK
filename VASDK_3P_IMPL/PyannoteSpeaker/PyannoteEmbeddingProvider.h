@@ -8,7 +8,7 @@
 #include "vasdk_pyannote_speaker_export.h"
 
 namespace va {
-    namespace thirdparty {
+    namespace thirdparty::speaker {
 
         /** Settings of PyannoteEmbeddingProvider. */
         struct PyannoteEmbeddingOptions {
@@ -45,7 +45,7 @@ namespace va {
             std::string _modelPath;
         };
 
-    } // namespace thirdparty
+    } // namespace thirdparty::speaker
 } // namespace va
 
 #endif

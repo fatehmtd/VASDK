@@ -5,7 +5,7 @@
 #include <memory>
 #include <string>
 
-namespace va::thirdparty {
+namespace va::thirdparty::tts {
 
 class SupertonicInferenceImpl;
 
@@ -57,6 +57,6 @@ private:
 
 };
 
-} // namespace va::thirdparty
+} // namespace va::thirdparty::tts
 
 #endif // SUPERTONIC_VOICE_SYNTHESIS_PROVIDER_HPP

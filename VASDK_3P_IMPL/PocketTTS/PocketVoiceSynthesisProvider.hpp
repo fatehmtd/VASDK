@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-namespace va::thirdparty {
+namespace va::thirdparty::tts {
 
 class PocketTTSImpl;
 
@@ -81,6 +81,6 @@ private:
     static std::string normalizeText(const std::string& text);
 };
 
-} // namespace va::thirdparty
+} // namespace va::thirdparty::tts
 
 #endif // POCKET_VOICE_SYNTHESIS_PROVIDER_HPP

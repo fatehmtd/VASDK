@@ -12,7 +12,7 @@ Audio files as input: `FFmpegAudioSource` decodes any container and codec FFmpeg
 
 ## Options
 
-In C++, `va::thirdparty::FileTransportOptions` (in [`FileTransport.h`](../../VASDK_3P_IMPL/FFmpegAudio/FileTransport.h)). Every field has a default except the ones marked "required" in its comment.
+In C++, `va::thirdparty::transport::FileTransportOptions` (in [`FileTransport.h`](../../VASDK_3P_IMPL/FFmpegAudio/FileTransport.h)). Every field has a default except the ones marked "required" in its comment.
 
 | Field | Default | Meaning |
 | --- | --- | --- |
@@ -33,9 +33,9 @@ All of them are listed in [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md)
 ```cpp
 #include "FFmpegAudio/FileTransport.h"
 
-va::thirdparty::FileTransportOptions options;
+va::thirdparty::transport::FileTransportOptions options;
 options.filePath = "...";
-auto provider = std::make_shared<va::thirdparty::FileTransport>(options);
+auto provider = std::make_shared<va::thirdparty::transport::FileTransport>(options);
 // transport->setAudioConfig(cfg); transport->onEndOfFile = ...; initialize(); start()
 ```
 

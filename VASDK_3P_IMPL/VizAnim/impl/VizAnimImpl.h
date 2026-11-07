@@ -247,11 +247,11 @@ static float zero_crossing_rate(const float* samples, int n)
 // Chroma - scatter magnitude by pitch class, normalise
 // 
 
-static std::array<float, va::thirdparty::VizAnimProvider::NUM_CHROMA>
+static std::array<float, va::thirdparty::audio::VizAnimProvider::NUM_CHROMA>
 compute_chroma(const std::vector<float>& magSmoothed,
                const FFTContext& ctx)
 {
-    std::array<float, va::thirdparty::VizAnimProvider::NUM_CHROMA> chroma{};
+    std::array<float, va::thirdparty::audio::VizAnimProvider::NUM_CHROMA> chroma{};
     float total = 0.0f;
     for (int i = 0; i < static_cast<int>(magSmoothed.size()); ++i) {
         const int pc = ctx.chromaMap[i];
@@ -314,7 +314,7 @@ static std::pair<float, float> yin_pitch(const float* samples, int n,
 // Main extraction - returns a fully populated Features struct
 // 
 
-static va::thirdparty::VizAnimProvider::Features
+static va::thirdparty::audio::VizAnimProvider::Features
 extract_features(FFTContext& ctx, const float* samples,
                  std::vector<float>& prevMag, float& fluxAvg)
 {
@@ -393,7 +393,7 @@ extract_features(FFTContext& ctx, const float* samples,
 // 
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::audio {
 
 class VizAnimProvider::VizAnimImpl {
 public:
@@ -427,5 +427,5 @@ private:
     float              _fluxAvg;
 };
 
-} // namespace thirdparty
+} // namespace thirdparty::audio
 } // namespace va

@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-namespace va::thirdparty {
+namespace va::thirdparty::tts {
 
 namespace phonon { class PhononTTS; }
 
@@ -139,6 +139,6 @@ private:
     void flushResampler();
 };
 
-} // namespace va::thirdparty
+} // namespace va::thirdparty::tts
 
 #endif // PHONON_VOICE_SYNTHESIS_PROVIDER_HPP

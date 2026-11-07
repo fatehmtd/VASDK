@@ -9,7 +9,7 @@
 #include <thread>
 #include <vector>
 
-namespace va::thirdparty {
+namespace va::thirdparty::stt {
 
 /**
  * Transcribes mono float samples in [-1, 1] at sampleRate (any rate; the SDK resamples).
@@ -100,4 +100,4 @@ private:
 
 };
 
-} // namespace va::thirdparty
+} // namespace va::thirdparty::stt

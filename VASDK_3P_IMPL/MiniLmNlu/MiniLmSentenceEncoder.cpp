@@ -10,7 +10,7 @@
 #include <fstream>
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::nlu {
 
 struct MiniLmSentenceEncoder::Model {
     Ort::Env env{ORT_LOGGING_LEVEL_WARNING, "MiniLM"};
@@ -189,5 +189,5 @@ std::vector<std::vector<float>> MiniLmSentenceEncoder::encodeWords(const std::ve
     return vectors;
 }
 
-} // namespace thirdparty
+} // namespace thirdparty::nlu
 } // namespace va

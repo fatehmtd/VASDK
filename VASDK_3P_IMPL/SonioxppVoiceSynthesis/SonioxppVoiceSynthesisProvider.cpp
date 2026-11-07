@@ -18,7 +18,7 @@ std::vector<uint8_t> decodeBase64(const std::string& input)
 } // namespace
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::tts {
 
 SonioxppVoiceSynthesisProvider::SonioxppVoiceSynthesisProvider(SonioxppVoiceSynthesisOptions options)
     : _apiKey(std::move(options.apiKey)),
@@ -254,5 +254,5 @@ std::string SonioxppVoiceSynthesisProvider::resolveAudioFormat() const
     }
 }
 
-} // namespace thirdparty
+} // namespace thirdparty::tts
 } // namespace va

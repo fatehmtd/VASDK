@@ -8,7 +8,7 @@
 #include <cstring>
 #include <mutex>
 
-namespace va::thirdparty {
+namespace va::thirdparty::audio {
 
 //  helpers (translation-unit local) 
 
@@ -237,4 +237,4 @@ bool MiniAudioSource::waitForData(int timeoutMs)
     return signalled;
 }
 
-} // namespace va::thirdparty
+} // namespace va::thirdparty::audio

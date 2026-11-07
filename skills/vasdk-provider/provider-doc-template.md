@@ -47,9 +47,9 @@ From C++:
 ```cpp
 #include "<Name>/<Name>Provider.h"
 
-va::thirdparty::<Name>Options options;
+va::thirdparty::<category>::<Name>Options options;
 options.<field> = <value>;
-auto provider = std::make_shared<va::thirdparty::<Name>Provider>(options);
+auto provider = std::make_shared<va::thirdparty::<category>::<Name>Provider>(options);
 // hand it to the stage's processor, or register it: registry.add<...>("<id>", ...)
 ```
 

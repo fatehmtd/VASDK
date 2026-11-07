@@ -10,7 +10,7 @@
 #include <string>
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::stt {
 
 /** Settings of DeepgramppTranscriptionProvider; every field but the API key has a default. */
 struct DeepgramppTranscriptionOptions {
@@ -74,5 +74,5 @@ private:
     mutable std::mutex _clientMutex;
 };
 
-} // namespace thirdparty
+} // namespace thirdparty::stt
 } // namespace va

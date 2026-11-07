@@ -14,7 +14,7 @@ struct AVPacket;
 struct AVFrame;
 struct SwrContext;
 
-namespace va::thirdparty {
+namespace va::thirdparty::audio {
 
 /** Settings of FFmpegAudioSource. */
 struct FFmpegAudioSourceOptions {
@@ -144,4 +144,4 @@ private:
     va::audio::AudioConfig requestedConfig_;
 };
 
-} // namespace va::thirdparty
+} // namespace va::thirdparty::audio

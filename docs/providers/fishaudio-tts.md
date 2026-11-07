@@ -12,7 +12,7 @@ Fish Audio's speech synthesis (S1), through [fishaudiopp](https://github.com/fat
 
 ## Options
 
-In C++, `va::thirdparty::FishaudioppVoiceSynthesisOptions` (in [`FishaudioppVoiceSynthesisProvider.h`](../../VASDK_3P_IMPL/FishaudioppVoiceSynthesis/FishaudioppVoiceSynthesisProvider.h)). Every field has a default except the ones marked "required" in its comment.
+In C++, `va::thirdparty::tts::FishaudioppVoiceSynthesisOptions` (in [`FishaudioppVoiceSynthesisProvider.h`](../../VASDK_3P_IMPL/FishaudioppVoiceSynthesis/FishaudioppVoiceSynthesisProvider.h)). Every field has a default except the ones marked "required" in its comment.
 
 | Field | Default | Meaning |
 | --- | --- | --- |
@@ -56,9 +56,9 @@ From C++:
 ```cpp
 #include "FishaudioppVoiceSynthesis/FishaudioppVoiceSynthesisProvider.h"
 
-va::thirdparty::FishaudioppVoiceSynthesisOptions options;
+va::thirdparty::tts::FishaudioppVoiceSynthesisOptions options;
 options.apiKey = "...";
-auto provider = std::make_shared<va::thirdparty::FishaudioppVoiceSynthesisProvider>(options);
+auto provider = std::make_shared<va::thirdparty::tts::FishaudioppVoiceSynthesisProvider>(options);
 // TTSFrameProcessor(provider); setAudioConfiguration() before the pipeline starts
 ```
 

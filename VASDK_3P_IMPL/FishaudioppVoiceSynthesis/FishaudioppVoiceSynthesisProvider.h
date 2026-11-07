@@ -9,7 +9,7 @@
 #include <string>
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::tts {
 
     // Fish Audio voice ids for reference.
     namespace fishaudio::voices {
@@ -69,5 +69,5 @@ private:
     mutable std::mutex _clientMutex;
 };
 
-} // namespace thirdparty
+} // namespace thirdparty::tts
 } // namespace va

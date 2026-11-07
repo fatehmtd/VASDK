@@ -1,6 +1,6 @@
 #pragma once
 // ops.h — Header-only convolution and neural-network math helpers.
-// Split into two namespaces (in va::thirdparty::phonon):
+// Split into two namespaces (in va::thirdparty::tts::phonon):
 //   conv:: — im2col+ggml_mul_mat conv1d, batched-matmul conv_transpose1d,
 //            residual block, weight layout rearrangement utilities.
 //   math:: — Layer/RMS normalisation, rotary embeddings, softmax, sinusoidal
@@ -30,7 +30,7 @@
 //
 // im2col layout: col[t, k*in_ch + ic]  (k outer, ic inner — memcpy-friendly)
 // ---------------------------------------------------------------------------
-namespace va::thirdparty::phonon {
+namespace va::thirdparty::tts::phonon {
 
 namespace conv {
 
@@ -108,7 +108,7 @@ namespace conv {
         }
 
         // Wrap W and col as no-alloc tensor views (no data copy for weights).
-        auto& tc = va::thirdparty::phonon::ThreadContext::current();
+        auto& tc = va::thirdparty::tts::phonon::ThreadContext::current();
         alignas(GGML_MEM_ALIGN) uint8_t hdr_buf[4096];
         ggml_context* hctx = ggml_init({ sizeof(hdr_buf), hdr_buf, /*no_alloc=*/true });
         ggml_tensor* W_t = ggml_new_tensor_2d(hctx, GGML_TYPE_F32, col_w, out_ch);
@@ -158,7 +158,7 @@ namespace conv {
         int T_out = T * stride;
         std::vector<float> raw((size_t)T_raw * out_ch, 0.f);
 
-        auto& tc = va::thirdparty::phonon::ThreadContext::current();
+        auto& tc = va::thirdparty::tts::phonon::ThreadContext::current();
 
         // Header context: 1 shared x_t + K W_k tensors (no data allocation).
         size_t hdr_sz = (size_t)(kernel + 2) * ggml_tensor_overhead() + 1024;
@@ -364,4 +364,4 @@ namespace math {
 
 } // namespace math
 
-} // namespace va::thirdparty::phonon
+} // namespace va::thirdparty::tts::phonon

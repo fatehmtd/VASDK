@@ -12,7 +12,7 @@ OpenAI's Whisper on [whisper.cpp](https://github.com/ggml-org/whisper.cpp) (GGML
 
 ## Options
 
-In C++, `va::thirdparty::WhisperCppTranscriptionOptions` (in [`WhisperCppTranscriptionProvider.hpp`](../../VASDK_3P_IMPL/WhisperCpp/WhisperCppTranscriptionProvider.hpp)). Every field has a default except the ones marked "required" in its comment.
+In C++, `va::thirdparty::stt::WhisperCppTranscriptionOptions` (in [`WhisperCppTranscriptionProvider.hpp`](../../VASDK_3P_IMPL/WhisperCpp/WhisperCppTranscriptionProvider.hpp)). Every field has a default except the ones marked "required" in its comment.
 
 | Field | Default | Meaning |
 | --- | --- | --- |
@@ -44,9 +44,9 @@ All of them are listed in [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md)
 ```cpp
 #include "WhisperCpp/WhisperCppTranscriptionProvider.hpp"
 
-va::thirdparty::WhisperCppTranscriptionOptions options;
+va::thirdparty::stt::WhisperCppTranscriptionOptions options;
 options.modelPath = "...";
-auto provider = std::make_shared<va::thirdparty::WhisperCppTranscriptionProvider>(options);
+auto provider = std::make_shared<va::thirdparty::stt::WhisperCppTranscriptionProvider>(options);
 // TranscriptionFrameProcessor(provider); setAudioConfiguration() before the pipeline starts
 ```
 

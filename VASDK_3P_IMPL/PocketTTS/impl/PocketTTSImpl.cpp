@@ -12,7 +12,7 @@
 #include <sstream>
 #include <stdexcept>
 
-namespace va::thirdparty {
+namespace va::thirdparty::tts {
 
 // NNAPI is intentionally not used for PocketTTS: the stateful KV-cache ops in
 // flow_lm_main_int8.onnx are not supported by NNAPI's model builder, causing
@@ -1238,4 +1238,4 @@ std::string digitByDigit(const std::string& digits) {
     return result;
 }
 
-} // namespace va::thirdparty
+} // namespace va::thirdparty::tts

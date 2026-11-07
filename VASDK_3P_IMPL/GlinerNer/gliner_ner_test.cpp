@@ -17,7 +17,7 @@ int failures = 0;
 void check(bool ok, const char* what) {
     if (!ok) { ++failures; std::fprintf(stderr, "FAIL %s\n", what); }
 }
-bool has(const std::vector<nlu::EntitySpan>& spans, const char* entity, size_t start, size_t length, float score) {
+bool has(const std::vector<va::nlu::EntitySpan>& spans, const char* entity, size_t start, size_t length, float score) {
     for (const auto& span : spans)
         if (span.entity == entity && span.start == start && span.length == length && std::fabs(span.score - score) < 0.03f) return true;
     return false;
@@ -29,9 +29,9 @@ int main(int argc, char** argv) {
         std::printf("no GLiNER model: skipped\n");
         return 77;
     }
-    thirdparty::GlinerEntityExtractor gliner(thirdparty::GlinerEntityExtractorOptions{argv[1]});
+    thirdparty::nlu::GlinerEntityExtractor gliner(thirdparty::nlu::GlinerEntityExtractorOptions{argv[1]});
     if (!gliner.initialize()) return 1;
-    const std::vector<nlu::EntityLabel> labels{{"service", "car repair", "", {}}, {"time", "appointment time", "", {}},
+    const std::vector<va::nlu::EntityLabel> labels{{"service", "car repair", "", {}}, {"time", "appointment time", "", {}},
                                                {"person", "person", "", {}}, {"place", "location", "", {}}};
     auto spans = [&](const char* text) {
         auto found = gliner.extract(flow::entityWords(text), labels, false);

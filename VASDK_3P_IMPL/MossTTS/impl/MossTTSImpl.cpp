@@ -12,7 +12,7 @@
 #include <stdexcept>
 #include <string_view>
 
-namespace va::thirdparty {
+namespace va::thirdparty::tts {
 
 namespace fs = std::filesystem;
 
@@ -856,4 +856,4 @@ std::vector<float> MossTTSImpl::runCodecFrames(const std::vector<int32_t>& frame
     return mono;
 }
 
-} // namespace va::thirdparty
+} // namespace va::thirdparty::tts

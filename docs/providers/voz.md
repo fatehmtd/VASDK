@@ -12,7 +12,7 @@ Desert Ant Labs' Voz (Parakeet TDT 0.6B v3 for on-device runtimes). Its license 
 
 ## Options
 
-In C++, `va::thirdparty::VozTranscriptionOptions` (in [`VozTranscriptionProvider.hpp`](../../VASDK_3P_IMPL/VozSTT/VozTranscriptionProvider.hpp)). Every field has a default except the ones marked "required" in its comment.
+In C++, `va::thirdparty::stt::VozTranscriptionOptions` (in [`VozTranscriptionProvider.hpp`](../../VASDK_3P_IMPL/VozSTT/VozTranscriptionProvider.hpp)). Every field has a default except the ones marked "required" in its comment.
 
 | Field | Default | Meaning |
 | --- | --- | --- |
@@ -37,9 +37,9 @@ All of them are listed in [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md)
 ```cpp
 #include "VozSTT/VozTranscriptionProvider.hpp"
 
-va::thirdparty::VozTranscriptionOptions options;
+va::thirdparty::stt::VozTranscriptionOptions options;
 options.recognizer = myPlatformRecognizer;  // calls the Voz SDK
-auto provider = std::make_shared<va::thirdparty::VozTranscriptionProvider>(options);
+auto provider = std::make_shared<va::thirdparty::stt::VozTranscriptionProvider>(options);
 // TranscriptionFrameProcessor(provider); setAudioConfiguration() before the pipeline starts
 ```
 

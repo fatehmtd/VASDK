@@ -12,7 +12,7 @@ Deepgram's Aura-2 speech synthesis, through [deepgrampp](https://github.com/fate
 
 ## Options
 
-In C++, `va::thirdparty::DeepgramppVoiceSynthesisOptions` (in [`DeepgramppVoiceSynthesisProvider.h`](../../VASDK_3P_IMPL/DeepgramppVoiceSynthesis/DeepgramppVoiceSynthesisProvider.h)). Every field has a default except the ones marked "required" in its comment.
+In C++, `va::thirdparty::tts::DeepgramppVoiceSynthesisOptions` (in [`DeepgramppVoiceSynthesisProvider.h`](../../VASDK_3P_IMPL/DeepgramppVoiceSynthesis/DeepgramppVoiceSynthesisProvider.h)). Every field has a default except the ones marked "required" in its comment.
 
 | Field | Default | Meaning |
 | --- | --- | --- |
@@ -54,9 +54,9 @@ From C++:
 ```cpp
 #include "DeepgramppVoiceSynthesis/DeepgramppVoiceSynthesisProvider.h"
 
-va::thirdparty::DeepgramppVoiceSynthesisOptions options;
+va::thirdparty::tts::DeepgramppVoiceSynthesisOptions options;
 options.apiKey = "...";
-auto provider = std::make_shared<va::thirdparty::DeepgramppVoiceSynthesisProvider>(options);
+auto provider = std::make_shared<va::thirdparty::tts::DeepgramppVoiceSynthesisProvider>(options);
 // TTSFrameProcessor(provider); setAudioConfiguration() before the pipeline starts
 ```
 

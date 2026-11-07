@@ -3,7 +3,7 @@
 #include <spdlog/spdlog.h>
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::tts {
 
 DeepgramppVoiceSynthesisProvider::DeepgramppVoiceSynthesisProvider(DeepgramppVoiceSynthesisOptions options)
     : _apiKey(std::move(options.apiKey)),
@@ -212,5 +212,5 @@ std::string DeepgramppVoiceSynthesisProvider::resolveAudioFormat() const
     }
 }
 
-} // namespace thirdparty
+} // namespace thirdparty::tts
 } // namespace va

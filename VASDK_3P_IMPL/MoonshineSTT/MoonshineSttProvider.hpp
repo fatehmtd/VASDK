@@ -10,7 +10,7 @@
 #include <condition_variable>
 #include <chrono>
 
-namespace va::thirdparty {
+namespace va::thirdparty::stt {
 
 // Forward declaration - ORT and tokenizer headers are hidden from consumers.
 class MoonshineSttProviderImpl;
@@ -101,4 +101,4 @@ private:
     va::metrics::TimingObserverInterface* _timingObserver = nullptr;
 };
 
-} // namespace va::thirdparty
+} // namespace va::thirdparty::stt

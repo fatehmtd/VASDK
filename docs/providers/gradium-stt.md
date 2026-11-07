@@ -12,7 +12,7 @@ Gradium's streaming speech recognition, through [GradiumPP](https://github.com/f
 
 ## Options
 
-In C++, `va::thirdparty::GradiumppTranscriptionOptions` (in [`GradiumppTranscriptionProvider.h`](../../VASDK_3P_IMPL/GradiumppTranscription/GradiumppTranscriptionProvider.h)). Every field has a default except the ones marked "required" in its comment.
+In C++, `va::thirdparty::stt::GradiumppTranscriptionOptions` (in [`GradiumppTranscriptionProvider.h`](../../VASDK_3P_IMPL/GradiumppTranscription/GradiumppTranscriptionProvider.h)). Every field has a default except the ones marked "required" in its comment.
 
 | Field | Default | Meaning |
 | --- | --- | --- |
@@ -53,9 +53,9 @@ From C++:
 ```cpp
 #include "GradiumppTranscription/GradiumppTranscriptionProvider.h"
 
-va::thirdparty::GradiumppTranscriptionOptions options;
+va::thirdparty::stt::GradiumppTranscriptionOptions options;
 options.apiKey = "...";
-auto provider = std::make_shared<va::thirdparty::GradiumppTranscriptionProvider>(options);
+auto provider = std::make_shared<va::thirdparty::stt::GradiumppTranscriptionProvider>(options);
 // TranscriptionFrameProcessor(provider); setAudioConfiguration() before the pipeline starts
 ```
 

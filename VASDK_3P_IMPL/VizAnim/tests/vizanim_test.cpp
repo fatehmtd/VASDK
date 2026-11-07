@@ -23,10 +23,10 @@ int main() {
     config.channels = 1;
     config.format = va::audio::AudioFormat::FLOAT;
 
-    va::thirdparty::VizAnimProvider provider;
+    va::thirdparty::audio::VizAnimProvider provider;
     expect(provider.initialize(config), "initializes at 16 kHz float");
 
-    const int length = 2 * va::thirdparty::VizAnimProvider::FFT_SIZE;
+    const int length = 2 * va::thirdparty::audio::VizAnimProvider::FFT_SIZE;
     std::vector<float> tone(length), silence(length, 0.0f);
     for (int i = 0; i < length; ++i) tone[i] = 0.5f * std::sin(2.0f * 3.14159265f * 440.0f * i / 16000.0f);
 
@@ -47,9 +47,9 @@ int main() {
                                                  reinterpret_cast<char*>(passed.data()), length);
     expect(written == static_cast<size_t>(length) && passed == tone, "passes the audio through unchanged");
 
-    va::thirdparty::VizAnimOptions small;
+    va::thirdparty::audio::VizAnimOptions small;
     small.fftSize = 1024;
-    va::thirdparty::VizAnimProvider smallWindow(small);
+    va::thirdparty::audio::VizAnimProvider smallWindow(small);
     expect(smallWindow.initialize(config), "initializes with a 1024-point FFT");
     return failures == 0 ? 0 : 1;
 }

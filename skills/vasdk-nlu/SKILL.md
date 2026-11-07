@@ -19,8 +19,8 @@ description: Understanding in VASDK - how an agent finds intents (rules, a sente
 
 | Id | Where | Kind | Options |
 | --- | --- | --- | --- |
-| `minilm` | `VASDK_3P_IMPL/MiniLmNlu/` | sentence encoder, all-MiniLM-L6-v2 ONNX, on by default, `va::thirdparty` | `MiniLmOptions`: `model_dir` |
-| `gliner` | `VASDK_3P_IMPL/GlinerNer/` | entity model, ONNX, opt-in, `va::thirdparty` | `GlinerOptions`: `model_dir`, `threshold` (0.5) |
+| `minilm` | `VASDK_3P_IMPL/MiniLmNlu/` | sentence encoder, all-MiniLM-L6-v2 ONNX, on by default, `va::thirdparty::nlu` | `MiniLmOptions`: `model_dir` |
+| `gliner` | `VASDK_3P_IMPL/GlinerNer/` | entity model, ONNX, opt-in, `va::thirdparty::nlu` | `GlinerOptions`: `model_dir`, `threshold` (0.5) |
 | `tagger` | core (`TaggerEntityExtractor`) | entity model trained on the encoder's word vectors | built by `Session` |
 | `llm` | core (`LlmEntityExtractor`) | entity model asked of the agent's LLM | built by `Session` |
 
@@ -43,7 +43,7 @@ Measure before you tune: `garage_agentc eval agent.txtpb nlu_eval.txtpb --sweep`
 ## Adding one
 
 1. The steps, files and code rules in [vasdk-provider](../vasdk-provider/SKILL.md). Interfaces: `va::nlu::SentenceEncoder` or `va::nlu::EntityExtractor`. Options: a new `<Name>Options` message.
-2. Templates: `VASDK_3P_IMPL/MiniLmNlu/` (encoder) and `VASDK_3P_IMPL/GlinerNer/` (entity model); both are `va::thirdparty` ONNX models with download scripts.
+2. Templates: `VASDK_3P_IMPL/MiniLmNlu/` (encoder) and `VASDK_3P_IMPL/GlinerNer/` (entity model); both are `va::thirdparty::nlu` ONNX models with download scripts.
 3. Register it with `registry.add<va::nlu::EntityExtractor, providers::<Name>Options>("<id>", ...)` (or `SentenceEncoder`); `nullptr` from the factory fails the runtime with a clear message.
 
 ## Tests

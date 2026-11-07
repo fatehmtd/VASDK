@@ -9,14 +9,29 @@ A provider is the swappable engine behind one pipeline stage. It implements one 
 
 ## Code rules
 
-1. Everything in **`namespace va::thirdparty`**.
+1. Everything in **`namespace va::thirdparty::<category>`**, the category of its stage (table below); an in-tree port's internals go one level further down (`va::thirdparty::tts::phonon`). Inside it, write the core's names in full (`va::audio::AudioConfig`, `va::llm::LLMConfig`): `audio`, `transport`, `llm` and `nlu` are categories too, so a bare `audio::` would find `va::thirdparty::audio`.
 2. **No `static` variables in `.cpp` files**, at file scope or in functions. State is a member; fixed tables are `constexpr`.
 3. **One `<Name>Options` struct, a default for every field**, passed to the constructor. No long parameter lists, no setters for configuration.
 4. **macOS, Linux, Windows, Android.** If one can't work, see "When a platform can't" below.
 5. Full names, no abbreviations. Logs through `spdlog` with a `[<Name>]` prefix; never log what the user said at `info` (see `VASDK/include/VASDK/Masking.h`).
 6. Async results go out through the stage's listener from your own thread; `stop*()` joins cleanly; no blocking inside callbacks.
 
-Every integration in `VASDK_3P_IMPL/` follows rules 1 to 3, so any of them is a template; the stage skill names the closest one. `VASDK_3P_IMPL/check_rules.py` checks rules 1 and 2 in `ctest` (`vasdk_thirdparty_rules`). Its one exemption is `VASDK_3P_IMPL/WhistleSTT/impl/NeedleEngine.cpp`: the needle engine it wraps is itself process-global, so the wrapper is too. Rule 3 in practice: the struct sits next to the class in its header; the catalog fills only the fields the config or the environment sets (`VASDK_3P_IMPL/ProviderCatalog/ProviderCatalog.cpp`), so every default lives in the struct. Settings that change while running (a TTS voice) stay methods; the rest leave no setter.
+| Category | Stage skill | Integrations in it |
+| --- | --- | --- |
+| `vad` | [vasdk-vad](../vasdk-vad/SKILL.md) | SileroVAD, EnergyZCRVAD |
+| `stt` | [vasdk-stt](../vasdk-stt/SKILL.md) | Cartesia, Deepgram, Fish Audio, Gladia, Gradium, Soniox, Whistle, Moonshine, Parakeet, whisper.cpp, Voz |
+| `tts` | [vasdk-tts](../vasdk-tts/SKILL.md) | Cartesia, Deepgram, Fish Audio, Gradium, Soniox, Supertonic, Pocket, Phonon, MOSS |
+| `turn` | [vasdk-turn-detection](../vasdk-turn-detection/SKILL.md) | SmartTurnV3 |
+| `wakeword` | [vasdk-wake-word](../vasdk-wake-word/SKILL.md) | none yet |
+| `llm` | [vasdk-llm](../vasdk-llm/SKILL.md) | LlamaCpp |
+| `nlu` | [vasdk-nlu](../vasdk-nlu/SKILL.md) | MiniLmNlu, GlinerNer |
+| `speaker` | [vasdk-speaker-id](../vasdk-speaker-id/SKILL.md) | PyannoteSpeaker |
+| `audio` | [vasdk-audio-io](../vasdk-audio-io/SKILL.md) | MiniAudio, SDL, FFmpegAudioSource, RNNoise, VizAnim |
+| `transport` | [vasdk-transport](../vasdk-transport/SKILL.md) | LibDataChannelWebRtc, FileTransport (in FFmpegAudio) |
+
+The catalog (`VASDK_3P_IMPL/ProviderCatalog/`) registers every category, so it sits in `va::thirdparty` itself and names integrations by category (`stt::WhistleTranscriptionProvider`). Apps do the same: `std::make_shared<va::thirdparty::audio::MiniAudioSource>()`. A folder whose files serve two stages puts each file in its own category (FFmpegAudio). A new kind of integration adds its category to `CATEGORIES` in `VASDK_3P_IMPL/check_rules.py`, to this table and to `AGENTS.md`.
+
+Every integration in `VASDK_3P_IMPL/` follows rules 1 to 3, so any of them is a template; the stage skill names the closest one. `VASDK_3P_IMPL/check_rules.py` checks rules 1 and 2 in `ctest` (`vasdk_thirdparty_rules`): the category namespace, the core's names written in full, no statics. Its one exemption is `VASDK_3P_IMPL/WhistleSTT/impl/NeedleEngine.cpp`: the needle engine it wraps is itself process-global, so the wrapper is too. Rule 3 in practice: the struct sits next to the class in its header; the catalog fills only the fields the config or the environment sets (`VASDK_3P_IMPL/ProviderCatalog/ProviderCatalog.cpp`), so every default lives in the struct. Settings that change while running (a TTS voice) stay methods; the rest leave no setter.
 
 ## Files to touch
 
@@ -64,5 +79,5 @@ ctest --test-dir build --output-on-failure -R "<name>|offline_conversation|provi
 
 The [definition of done](../../AGENTS.md#definition-of-done) holds, and also:
 - all 16 rows above are handled or marked not applicable
-- the code rules hold: `va::thirdparty`, no statics in source files, options struct with defaults
+- the code rules hold: `va::thirdparty::<category>`, no statics in source files, options struct with defaults
 - every platform builds, or its gap carries the CMake warning, the runtime warning and the doc notes

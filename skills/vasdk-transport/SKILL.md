@@ -39,7 +39,7 @@ The core transport holds the protocol-independent logic: frames, state, threadin
 ## Adding one
 
 - **A new protocol:** a core transport in `VASDK/include/VASDK/` + `VASDK/src/`, following [vasdk-core-component](../vasdk-core-component/SKILL.md) (generic, a doc section in `docs/reference/transports.md` with an example and a mermaid flow, bindings). Its library, if any, behind a new interface in `VASDK/include/VASDK/network/`.
-- **A new library for an existing seam:** a 3P integration following [vasdk-provider](../vasdk-provider/SKILL.md) (`va::thirdparty`, options with defaults, every platform or warn, its own page, licenses). Template: `VASDK_3P_IMPL/LibDataChannelWebRtc/` (`LibDataChannelWebRtcOptions`).
+- **A new library for an existing seam:** a 3P integration following [vasdk-provider](../vasdk-provider/SKILL.md) (`va::thirdparty::transport`, options with defaults, every platform or warn, its own page, licenses). Template: `VASDK_3P_IMPL/LibDataChannelWebRtc/` (`LibDataChannelWebRtcOptions`).
 
 ## Tests
 

@@ -19,7 +19,7 @@
 
 #include <string>
 
-namespace va::thirdparty {
+namespace va::thirdparty::tts {
 
 namespace moss::text {
 
@@ -52,4 +52,4 @@ std::string    toUtf8(const std::u32string& s);
 
 #endif // MOSS_TEXT_NORMALIZER_HPP
 
-} // namespace va::thirdparty
+} // namespace va::thirdparty::tts

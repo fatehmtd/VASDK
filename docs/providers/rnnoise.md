@@ -12,7 +12,7 @@ Xiph's RNNoise noise suppression: a small recurrent network at 48 kHz, with the 
 
 ## Options
 
-In C++, `va::thirdparty::RNNoiseDSPOptions` (in [`RNNoiseDSPProvider.h`](../../VASDK_3P_IMPL/RNNoise/RNNoiseDSPProvider.h)). Every field has a default except the ones marked "required" in its comment.
+In C++, `va::thirdparty::audio::RNNoiseDSPOptions` (in [`RNNoiseDSPProvider.h`](../../VASDK_3P_IMPL/RNNoise/RNNoiseDSPProvider.h)). Every field has a default except the ones marked "required" in its comment.
 
 | Field | Default | Meaning |
 | --- | --- | --- |
@@ -36,9 +36,9 @@ All of them are listed in [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md)
 ```cpp
 #include "RNNoise/RNNoiseDSPProvider.h"
 
-va::thirdparty::RNNoiseDSPOptions options;
+va::thirdparty::audio::RNNoiseDSPOptions options;
 options.modelPath = "...";
-auto provider = std::make_shared<va::thirdparty::RNNoiseDSPProvider>(options);
+auto provider = std::make_shared<va::thirdparty::audio::RNNoiseDSPProvider>(options);
 // provider->initialize(audioConfig); AudioDSPProcessor(provider)
 ```
 

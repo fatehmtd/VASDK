@@ -9,7 +9,7 @@
 #include "vasdk_vizanim_export.h"
 
 namespace va {
-    namespace thirdparty {
+    namespace thirdparty::audio {
 
         /** Settings of VizAnimProvider; every field has a default. */
         struct VizAnimOptions {
@@ -95,7 +95,7 @@ namespace va {
             mutable std::vector<float>  _convertBuf;  ///< scratch for int16→float conversion
         };
 
-    } // namespace thirdparty
+    } // namespace thirdparty::audio
 } // namespace va
 
 #endif // VIZANIM_PROVIDER_H

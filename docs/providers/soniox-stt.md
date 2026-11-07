@@ -12,7 +12,7 @@ Soniox's real-time speech recognition over WebSocket, through [SonioxPP](https:/
 
 ## Options
 
-In C++, `va::thirdparty::SonioxppTranscriptionOptions` (in [`SonioxppTranscriptionProvider.h`](../../VASDK_3P_IMPL/SonioxppTranscription/SonioxppTranscriptionProvider.h)). Every field has a default except the ones marked "required" in its comment.
+In C++, `va::thirdparty::stt::SonioxppTranscriptionOptions` (in [`SonioxppTranscriptionProvider.h`](../../VASDK_3P_IMPL/SonioxppTranscription/SonioxppTranscriptionProvider.h)). Every field has a default except the ones marked "required" in its comment.
 
 | Field | Default | Meaning |
 | --- | --- | --- |
@@ -51,9 +51,9 @@ From C++:
 ```cpp
 #include "SonioxppTranscription/SonioxppTranscriptionProvider.h"
 
-va::thirdparty::SonioxppTranscriptionOptions options;
+va::thirdparty::stt::SonioxppTranscriptionOptions options;
 options.apiKey = "...";
-auto provider = std::make_shared<va::thirdparty::SonioxppTranscriptionProvider>(options);
+auto provider = std::make_shared<va::thirdparty::stt::SonioxppTranscriptionProvider>(options);
 // TranscriptionFrameProcessor(provider); setAudioConfiguration() before the pipeline starts
 ```
 

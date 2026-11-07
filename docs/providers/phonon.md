@@ -12,7 +12,7 @@ Gradium's Phonon (flow-matching transformer and Mimi decoder, 24 kHz), run by an
 
 ## Options
 
-In C++, `va::thirdparty::PhononVoiceSynthesisOptions` (in [`PhononVoiceSynthesisProvider.hpp`](../../VASDK_3P_IMPL/PhononTTS/PhononVoiceSynthesisProvider.hpp)). Every field has a default except the ones marked "required" in its comment.
+In C++, `va::thirdparty::tts::PhononVoiceSynthesisOptions` (in [`PhononVoiceSynthesisProvider.hpp`](../../VASDK_3P_IMPL/PhononTTS/PhononVoiceSynthesisProvider.hpp)). Every field has a default except the ones marked "required" in its comment.
 
 | Field | Default | Meaning |
 | --- | --- | --- |
@@ -66,9 +66,9 @@ From C++:
 ```cpp
 #include "PhononTTS/PhononVoiceSynthesisProvider.hpp"
 
-va::thirdparty::PhononVoiceSynthesisOptions options;
+va::thirdparty::tts::PhononVoiceSynthesisOptions options;
 options.modelDir = "...";
-auto provider = std::make_shared<va::thirdparty::PhononVoiceSynthesisProvider>(options);
+auto provider = std::make_shared<va::thirdparty::tts::PhononVoiceSynthesisProvider>(options);
 // TTSFrameProcessor(provider); setAudioConfiguration() before the pipeline starts
 ```
 
@@ -78,7 +78,7 @@ auto provider = std::make_shared<va::thirdparty::PhononVoiceSynthesisProvider>(o
 flowchart LR
     In["TextFrame (a sentence of the reply)"] --> Processor["TTSFrameProcessor"]
     Processor -->|"synthesizeSpeech(text) / cancelSynthesis()"| Provider["PhononVoiceSynthesisProvider"]
-    Provider -->|"ggml (in-repo port, va::thirdparty::phonon)"| Engine["model.q8.gguf, voices/*.safetensors"]
+    Provider -->|"ggml (in-repo port, va::thirdparty::tts::phonon)"| Engine["model.q8.gguf, voices/*.safetensors"]
     Engine --> Provider
     Provider -->|"onAudioDataReceived, onSynthesisCompleted"| Processor
     Processor --> Out["SynthesisFrame (audio to play)"]

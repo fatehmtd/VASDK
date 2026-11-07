@@ -6,7 +6,7 @@
 #include <vector>
 #include "vasdk_silero_vad_export.h"
 
-namespace va::thirdparty {
+namespace va::thirdparty::vad {
 
 class VadIterator;
 
@@ -29,9 +29,9 @@ struct SileroVADOptions {
 /**
  * @brief Voice activity detection with the Silero VAD ONNX model.
  *
- *   va::thirdparty::SileroVADOptions options;
+ *   va::thirdparty::vad::SileroVADOptions options;
  *   options.modelPath = modelsDir + "/silero_vad.onnx";
- *   auto vad = std::make_shared<va::thirdparty::SileroVAD>(options);
+ *   auto vad = std::make_shared<va::thirdparty::vad::SileroVAD>(options);
  *   vad->initialize(audioConfig, bufferSize);
  */
 class VASDK_SILERO_VAD_EXPORT SileroVAD : public va::audio::VADProvider {
@@ -50,4 +50,4 @@ private:
     int _bufferSize = 0;  // retained to allocate local buffer in detectVoiceActivity
 };
 
-} // namespace va::thirdparty
+} // namespace va::thirdparty::vad

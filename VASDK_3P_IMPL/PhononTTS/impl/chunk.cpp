@@ -7,7 +7,7 @@
 #include <cmath>
 #include <stdexcept>
 
-namespace va::thirdparty::phonon::text {
+namespace va::thirdparty::tts::phonon::text {
 
 namespace {
 
@@ -231,4 +231,4 @@ std::vector<Chunk> planChunks(const Tokenizer& tok, std::string_view text, std::
     return fitTo ? fitOrError(std::move(planned), *fitTo, tok, frameRate) : planned;
 }
 
-} // namespace va::thirdparty::phonon::text
+} // namespace va::thirdparty::tts::phonon::text

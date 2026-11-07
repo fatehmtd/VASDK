@@ -12,7 +12,7 @@ The sentence encoder agents use to understand paraphrases: all-MiniLM-L6-v2 (int
 
 ## Options
 
-In C++, `va::thirdparty::MiniLmSentenceEncoderOptions` (in [`MiniLmSentenceEncoder.h`](../../VASDK_3P_IMPL/MiniLmNlu/MiniLmSentenceEncoder.h)). Every field has a default except the ones marked "required" in its comment.
+In C++, `va::thirdparty::nlu::MiniLmSentenceEncoderOptions` (in [`MiniLmSentenceEncoder.h`](../../VASDK_3P_IMPL/MiniLmNlu/MiniLmSentenceEncoder.h)). Every field has a default except the ones marked "required" in its comment.
 
 | Field | Default | Meaning |
 | --- | --- | --- |
@@ -52,9 +52,9 @@ From C++:
 ```cpp
 #include "MiniLmNlu/MiniLmSentenceEncoder.h"
 
-va::thirdparty::MiniLmSentenceEncoderOptions options;
+va::thirdparty::nlu::MiniLmSentenceEncoderOptions options;
 options.modelDir = "...";
-auto provider = std::make_shared<va::thirdparty::MiniLmSentenceEncoder>(options);
+auto provider = std::make_shared<va::thirdparty::nlu::MiniLmSentenceEncoder>(options);
 // provider->initialize(), then give it to the agent's understanding
 ```
 

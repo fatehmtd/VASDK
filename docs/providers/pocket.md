@@ -12,7 +12,7 @@ Kyutai's Pocket TTS: autoregressive flow-matching speech at 24 kHz on five ONNX 
 
 ## Options
 
-In C++, `va::thirdparty::PocketVoiceSynthesisOptions` (in [`PocketVoiceSynthesisProvider.hpp`](../../VASDK_3P_IMPL/PocketTTS/PocketVoiceSynthesisProvider.hpp)). Every field has a default except the ones marked "required" in its comment.
+In C++, `va::thirdparty::tts::PocketVoiceSynthesisOptions` (in [`PocketVoiceSynthesisProvider.hpp`](../../VASDK_3P_IMPL/PocketTTS/PocketVoiceSynthesisProvider.hpp)). Every field has a default except the ones marked "required" in its comment.
 
 | Field | Default | Meaning |
 | --- | --- | --- |
@@ -63,9 +63,9 @@ From C++:
 ```cpp
 #include "PocketTTS/PocketVoiceSynthesisProvider.hpp"
 
-va::thirdparty::PocketVoiceSynthesisOptions options;
+va::thirdparty::tts::PocketVoiceSynthesisOptions options;
 options.modelDir = "...";
-auto provider = std::make_shared<va::thirdparty::PocketVoiceSynthesisProvider>(options);
+auto provider = std::make_shared<va::thirdparty::tts::PocketVoiceSynthesisProvider>(options);
 // TTSFrameProcessor(provider); setAudioConfiguration() before the pipeline starts
 ```
 

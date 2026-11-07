@@ -9,7 +9,7 @@
 #include <cstring>
 #include <utility>
 
-namespace va::thirdparty {
+namespace va::thirdparty::audio {
 
 // 
 // RNNoise constants
@@ -289,4 +289,4 @@ size_t RNNoiseDSPProvider::processAudio(const char* input, char* output,
     return numSamples;
 }
 
-} // namespace va::thirdparty
+} // namespace va::thirdparty::audio

@@ -12,7 +12,7 @@ Cactus Compute's Whistle, a small CPU model (about 17 MB) for English, German, F
 
 ## Options
 
-In C++, `va::thirdparty::WhistleTranscriptionOptions` (in [`WhistleTranscriptionProvider.hpp`](../../VASDK_3P_IMPL/WhistleSTT/WhistleTranscriptionProvider.hpp)). Every field has a default except the ones marked "required" in its comment.
+In C++, `va::thirdparty::stt::WhistleTranscriptionOptions` (in [`WhistleTranscriptionProvider.hpp`](../../VASDK_3P_IMPL/WhistleSTT/WhistleTranscriptionProvider.hpp)). Every field has a default except the ones marked "required" in its comment.
 
 | Field | Default | Meaning |
 | --- | --- | --- |
@@ -65,9 +65,9 @@ From C++:
 ```cpp
 #include "WhistleSTT/WhistleTranscriptionProvider.hpp"
 
-va::thirdparty::WhistleTranscriptionOptions options;
+va::thirdparty::stt::WhistleTranscriptionOptions options;
 options.modelPath = "...";
-auto provider = std::make_shared<va::thirdparty::WhistleTranscriptionProvider>(options);
+auto provider = std::make_shared<va::thirdparty::stt::WhistleTranscriptionProvider>(options);
 // TranscriptionFrameProcessor(provider); setAudioConfiguration() before the pipeline starts
 ```
 

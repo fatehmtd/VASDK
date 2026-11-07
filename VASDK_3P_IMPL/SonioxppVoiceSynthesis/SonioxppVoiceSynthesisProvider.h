@@ -9,7 +9,7 @@
 #include <string>
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::tts {
 
 /** Settings of SonioxppVoiceSynthesisProvider; every field but the API key has a default. */
 struct SonioxppVoiceSynthesisOptions {
@@ -65,5 +65,5 @@ private:
     std::atomic<uint64_t> _streamCounter{ 1 };
 };
 
-} // namespace thirdparty
+} // namespace thirdparty::tts
 } // namespace va

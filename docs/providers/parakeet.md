@@ -12,7 +12,7 @@ NVIDIA's Parakeet TDT 0.6B v3 on ONNX Runtime: accurate, 25 European languages, 
 
 ## Options
 
-In C++, `va::thirdparty::ParakeetTranscriptionOptions` (in [`ParakeetTranscriptionProvider.hpp`](../../VASDK_3P_IMPL/Parakeet/ParakeetTranscriptionProvider.hpp)). Every field has a default except the ones marked "required" in its comment.
+In C++, `va::thirdparty::stt::ParakeetTranscriptionOptions` (in [`ParakeetTranscriptionProvider.hpp`](../../VASDK_3P_IMPL/Parakeet/ParakeetTranscriptionProvider.hpp)). Every field has a default except the ones marked "required" in its comment.
 
 | Field | Default | Meaning |
 | --- | --- | --- |
@@ -70,9 +70,9 @@ From C++:
 ```cpp
 #include "Parakeet/ParakeetTranscriptionProvider.hpp"
 
-va::thirdparty::ParakeetTranscriptionOptions options;
+va::thirdparty::stt::ParakeetTranscriptionOptions options;
 options.modelDir = "...";
-auto provider = std::make_shared<va::thirdparty::ParakeetTranscriptionProvider>(options);
+auto provider = std::make_shared<va::thirdparty::stt::ParakeetTranscriptionProvider>(options);
 // TranscriptionFrameProcessor(provider); setAudioConfiguration() before the pipeline starts
 ```
 

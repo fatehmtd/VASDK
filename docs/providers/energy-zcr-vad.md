@@ -12,7 +12,7 @@ Voice activity from each frame's energy and zero-crossing rate: no model and no 
 
 ## Options
 
-In C++, `va::thirdparty::EnergyZCRVADOptions` (in [`EnergyZCRVAD.h`](../../VASDK_3P_IMPL/EnergyZCRVAD/EnergyZCRVAD.h)). Every field has a default except the ones marked "required" in its comment.
+In C++, `va::thirdparty::vad::EnergyZCRVADOptions` (in [`EnergyZCRVAD.h`](../../VASDK_3P_IMPL/EnergyZCRVAD/EnergyZCRVAD.h)). Every field has a default except the ones marked "required" in its comment.
 
 | Field | Default | Meaning |
 | --- | --- | --- |
@@ -33,8 +33,8 @@ All of them are listed in [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md)
 ```cpp
 #include "EnergyZCRVAD/EnergyZCRVAD.h"
 
-va::thirdparty::EnergyZCRVADOptions options;
-auto provider = std::make_shared<va::thirdparty::EnergyZCRVAD>(options);
+va::thirdparty::vad::EnergyZCRVADOptions options;
+auto provider = std::make_shared<va::thirdparty::vad::EnergyZCRVAD>(options);
 // VADFrameProcessor(provider), after provider->initialize(audioConfig, bufferSize)
 ```
 

@@ -10,7 +10,7 @@
 struct DenoiseState;
 struct RNNModel;
 
-namespace va::thirdparty {
+namespace va::thirdparty::audio {
 
 /** Settings of RNNoiseDSPProvider; every field has a default. */
 struct RNNoiseDSPOptions {
@@ -94,4 +94,4 @@ private:
     std::vector<float> floatOut_;        // float → raw scratch
 };
 
-} // namespace va::thirdparty
+} // namespace va::thirdparty::audio

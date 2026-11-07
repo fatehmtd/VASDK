@@ -17,7 +17,7 @@ void AudioFeatureSinkProcessor::processFrame(std::shared_ptr<va::transport::Fram
                                              va::pipeline::FlowDirection direction) {
     if (direction == va::pipeline::FlowDirection::DOWNSTREAM &&
         frame->getType() == va::transport::FrameType::AUDIO_FEATURES) {
-        auto af = std::dynamic_pointer_cast<va::thirdparty::AudioFeaturesFrame>(frame);
+        auto af = std::dynamic_pointer_cast<va::thirdparty::audio::AudioFeaturesFrame>(frame);
         if (af) fireAudioFeatures(af);
     }
     if (direction == va::pipeline::FlowDirection::UPSTREAM)
@@ -27,7 +27,7 @@ void AudioFeatureSinkProcessor::processFrame(std::shared_ptr<va::transport::Fram
 }
 
 void AudioFeatureSinkProcessor::fireAudioFeatures(
-        const std::shared_ptr<va::thirdparty::AudioFeaturesFrame> &af) {
+        const std::shared_ptr<va::thirdparty::audio::AudioFeaturesFrame> &af) {
     if (!_jvm || !_callbackRef || !_onAudioFeatures) return;
     if (af->featuresArray.empty()) return;
     JNIEnv *env = nullptr;
@@ -40,7 +40,7 @@ void AudioFeatureSinkProcessor::fireAudioFeatures(
     } else if (rc != JNI_OK || !env) {
         return;
     }
-    const char *src = (af->source == va::thirdparty::AudioFeaturesSource::SYNTH) ? "SYNTH"
+    const char *src = (af->source == va::thirdparty::audio::AudioFeaturesSource::SYNTH) ? "SYNTH"
                                                                                  : "MIC";
     // Pack all features into a flat float array: [rms, bass, lowMid, mid, hiMid, treble, ...]
     static constexpr int kStride = 6;
@@ -74,13 +74,13 @@ void AudioFeatureSinkProcessor::fireAudioFeatures(
 
 bool SynthAudioObserver::initialize(const va::audio::AudioConfig &config, JavaVM *jvm, jweak ref,
                                     jmethodID onAudioFeatures) {
-    _provider = std::make_unique<va::thirdparty::VizAnimProvider>();
+    _provider = std::make_unique<va::thirdparty::audio::VizAnimProvider>();
     if (!_provider->initialize(config)) {
         spdlog::warn("[SynthAudioObserver] VizAnimProvider failed to initialize");
         _provider.reset();
         return false;
     }
-    _windowBytes = static_cast<size_t>(va::thirdparty::VizAnimProvider::FFT_SIZE) *
+    _windowBytes = static_cast<size_t>(va::thirdparty::audio::VizAnimProvider::FFT_SIZE) *
                    config.getSampleSizeInBytes();
     _accum.clear();
     _accum.reserve(_windowBytes * 2);
@@ -94,10 +94,10 @@ void SynthAudioObserver::onPlayback(const char *data, size_t bytes) {
     if (!_provider || _windowBytes == 0) return;
     _accum.insert(_accum.end(), data, data + bytes);
     // Drain all complete windows, accumulate features, then fire a single JNI call.
-    std::vector<va::thirdparty::VizAnimProvider::Features> batch;
+    std::vector<va::thirdparty::audio::VizAnimProvider::Features> batch;
     while (_accum.size() >= _windowBytes) {
         auto features = _provider->computeFeatures(_accum.data(),
-                                                   static_cast<int>(va::thirdparty::VizAnimProvider::FFT_SIZE));
+                                                   static_cast<int>(va::thirdparty::audio::VizAnimProvider::FFT_SIZE));
         for (auto &f: features) batch.push_back(std::move(f));
         _accum.erase(_accum.begin(),
                      _accum.begin() + static_cast<std::ptrdiff_t>(_windowBytes));

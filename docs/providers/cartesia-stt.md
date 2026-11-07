@@ -12,7 +12,7 @@ Cartesia's streaming speech recognition (ink-whisper) over WebSocket, through [C
 
 ## Options
 
-In C++, `va::thirdparty::CartesiappTranscriptionOptions` (in [`CartesiappTranscriptionProvider.h`](../../VASDK_3P_IMPL/CartesiappTranscription/CartesiappTranscriptionProvider.h)). Every field has a default except the ones marked "required" in its comment.
+In C++, `va::thirdparty::stt::CartesiappTranscriptionOptions` (in [`CartesiappTranscriptionProvider.h`](../../VASDK_3P_IMPL/CartesiappTranscription/CartesiappTranscriptionProvider.h)). Every field has a default except the ones marked "required" in its comment.
 
 | Field | Default | Meaning |
 | --- | --- | --- |
@@ -55,9 +55,9 @@ From C++:
 ```cpp
 #include "CartesiappTranscription/CartesiappTranscriptionProvider.h"
 
-va::thirdparty::CartesiappTranscriptionOptions options;
+va::thirdparty::stt::CartesiappTranscriptionOptions options;
 options.apiKey = "...";
-auto provider = std::make_shared<va::thirdparty::CartesiappTranscriptionProvider>(options);
+auto provider = std::make_shared<va::thirdparty::stt::CartesiappTranscriptionProvider>(options);
 // TranscriptionFrameProcessor(provider); setAudioConfiguration() before the pipeline starts
 ```
 

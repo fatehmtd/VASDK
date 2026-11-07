@@ -3,7 +3,7 @@
 #include <exception>
 #include <utility>
 
-namespace va::thirdparty {
+namespace va::thirdparty::stt {
 
 // ---------------------------------------------------------------------------
 // Construction / destruction
@@ -305,4 +305,4 @@ void VozTranscriptionProvider::inferenceLoop()
     }
 }
 
-} // namespace va::thirdparty
+} // namespace va::thirdparty::stt

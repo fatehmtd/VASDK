@@ -2,7 +2,7 @@
 #include <cmath>
 #include <spdlog/spdlog.h>
 
-namespace va::thirdparty {
+namespace va::thirdparty::audio {
 
 SDLAudioSink::SDLAudioSink() {}
 
@@ -212,4 +212,4 @@ void SDLAudioSink::holdPlayback(va::transport::PendingPlaybackMode pendingPlayba
     }
 }
 
-} // namespace va::thirdparty
+} // namespace va::thirdparty::audio

@@ -15,7 +15,7 @@ flowchart LR
     Catalog["ProviderCatalog (3P)<br/>registry.add&lt;MyStageProvider, Options&gt;(id)"] --> Runtime
     Runtime --> Processor["MyStageProcessor (core)<br/>frames in/out, threads, interrupts, metrics"]
     Processor -->|"interface calls"| Interface["MyStageProvider (core interface)"]
-    Impl["va::thirdparty::MyProvider<br/>(VASDK_3P_IMPL)"] -. implements .-> Interface
+    Impl["va::thirdparty::&lt;category&gt;::MyProvider<br/>(VASDK_3P_IMPL)"] -. implements .-> Interface
 ```
 
 - **The provider interface** (`VASDK/include/VASDK/<Stage>Provider.h`): a pure-virtual core plus optional virtuals with safe defaults; `getName()` defaulting to `shortTypeName`; `AudioConfig` given at `initialize()` and validated there; a listener for asynchronous results. It knows nothing about frames or pipelines.

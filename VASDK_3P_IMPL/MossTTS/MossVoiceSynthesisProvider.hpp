@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-namespace va::thirdparty {
+namespace va::thirdparty::tts {
 
 class MossTTSImpl;
 
@@ -84,6 +84,6 @@ private:
     bool synthesizeOne(const std::string& text) override;
 };
 
-} // namespace va::thirdparty
+} // namespace va::thirdparty::tts
 
 #endif // MOSS_VOICE_SYNTHESIS_PROVIDER_HPP

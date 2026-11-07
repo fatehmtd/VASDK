@@ -3,13 +3,13 @@
 #include <spdlog/spdlog.h>
 
 namespace va {
-    namespace thirdparty {
+    namespace thirdparty::audio {
 
         // 
         // Construction / lifecycle
         // 
 
-        VizAnimFrameProcessor::VizAnimFrameProcessor(const audio::AudioConfig& audioConfig, int numWorkingSamples)
+        VizAnimFrameProcessor::VizAnimFrameProcessor(const va::audio::AudioConfig& audioConfig, int numWorkingSamples)
             : _audioConfig(audioConfig),
             _vizAnimProvider(std::make_unique<VizAnimProvider>()),
             _numWorkingSamples(numWorkingSamples)
@@ -42,21 +42,21 @@ namespace va {
         /*************************************************************************************************************************/
 
         AudioInputVizAnimFrameProcessor::AudioInputVizAnimFrameProcessor(std::shared_ptr<va::AudioRingBuffer> ringBuffer,
-            const audio::AudioConfig& audioConfig, int numWorkingSamples)
+            const va::audio::AudioConfig& audioConfig, int numWorkingSamples)
             : VizAnimFrameProcessor(audioConfig, numWorkingSamples),
             _ringBuffer(ringBuffer)
         {
         }
 
-        void AudioInputVizAnimFrameProcessor::processFrame(std::shared_ptr<transport::Frame> frame, pipeline::FlowDirection direction)
+        void AudioInputVizAnimFrameProcessor::processFrame(std::shared_ptr<va::transport::Frame> frame, pipeline::FlowDirection direction)
         {
             VASDK_CTRACK_NAME("VizAnim::processAudioFrame");
             if (direction == va::pipeline::FlowDirection::DOWNSTREAM) {
                 // push frame downstream first to minimize latency, then update the ring buffer with the new audio data
                 pushDownstream(frame);
 
-                if (frame->getType() == transport::FrameType::AUDIO) {
-                    auto audioFrame = std::dynamic_pointer_cast<transport::AudioFrame>(frame);
+                if (frame->getType() == va::transport::FrameType::AUDIO) {
+                    auto audioFrame = std::dynamic_pointer_cast<va::transport::AudioFrame>(frame);
                     if (audioFrame) {
                         processAudioFrame(audioFrame);
                     }
@@ -66,12 +66,12 @@ namespace va {
             }
         }
 
-        bool AudioInputVizAnimFrameProcessor::shouldProcess(std::shared_ptr<transport::Frame> frame) const
+        bool AudioInputVizAnimFrameProcessor::shouldProcess(std::shared_ptr<va::transport::Frame> frame) const
         {
-            return frame->getType() == transport::FrameType::AUDIO;
+            return frame->getType() == va::transport::FrameType::AUDIO;
         }
 
-        void AudioInputVizAnimFrameProcessor::processAudioFrame(std::shared_ptr<transport::AudioFrame> frame)
+        void AudioInputVizAnimFrameProcessor::processAudioFrame(std::shared_ptr<va::transport::AudioFrame> frame)
         {
             // Each audio frame has ~2000 samples (125 ms at 16 kHz) but the FFT window
             // is 2048 samples, so reading only frame->numSamples would always yield 0
@@ -91,9 +91,9 @@ namespace va {
                 auto featuresVec = processAudioSamples(_workingBuffer.data(), static_cast<size_t>(numSamplesRead));
 
                 if (!featuresVec.empty()) {
-                    auto featuresFrame = std::make_shared<va::thirdparty::AudioFeaturesFrame>();
+                    auto featuresFrame = std::make_shared<va::thirdparty::audio::AudioFeaturesFrame>();
                     featuresFrame->featuresArray = std::move(featuresVec);
-                    featuresFrame->source = va::thirdparty::AudioFeaturesSource::MIC;
+                    featuresFrame->source = va::thirdparty::audio::AudioFeaturesSource::MIC;
                     featuresFrame->sequenceId = frame->sequenceId;
                     featuresFrame->frameId = frame->frameId + "_features";
                     featuresFrame->timestamp = frame->timestamp;
@@ -108,19 +108,19 @@ namespace va {
 
         /*************************************************************************************************************************/
         
-        OutputAudioVizAnimFrameProcessor::OutputAudioVizAnimFrameProcessor(const audio::AudioConfig& audioConfig, int numWorkingSamples)
+        OutputAudioVizAnimFrameProcessor::OutputAudioVizAnimFrameProcessor(const va::audio::AudioConfig& audioConfig, int numWorkingSamples)
             : VizAnimFrameProcessor(audioConfig, numWorkingSamples)
         {
         }
 
-        void OutputAudioVizAnimFrameProcessor::processFrame(std::shared_ptr<transport::Frame> frame, pipeline::FlowDirection direction)
+        void OutputAudioVizAnimFrameProcessor::processFrame(std::shared_ptr<va::transport::Frame> frame, pipeline::FlowDirection direction)
         {
             VASDK_CTRACK_NAME("VizAnim::processSynthFrame");
             if(direction == va::pipeline::FlowDirection::DOWNSTREAM) {
                 pushDownstream(frame);
 
-                if(frame->getType() == transport::FrameType::SYNTHESIS) {
-                    auto synthesisFrame = std::dynamic_pointer_cast<transport::SynthesisFrame>(frame);
+                if(frame->getType() == va::transport::FrameType::SYNTHESIS) {
+                    auto synthesisFrame = std::dynamic_pointer_cast<va::transport::SynthesisFrame>(frame);
                     if(synthesisFrame) {
                         processSynthesisFrame(synthesisFrame);
                     }
@@ -130,21 +130,21 @@ namespace va {
             }
         }
 
-        bool OutputAudioVizAnimFrameProcessor::shouldProcess(std::shared_ptr<transport::Frame> frame) const
+        bool OutputAudioVizAnimFrameProcessor::shouldProcess(std::shared_ptr<va::transport::Frame> frame) const
         {
-            return frame->getType() == transport::FrameType::SYNTHESIS;
+            return frame->getType() == va::transport::FrameType::SYNTHESIS;
         }
 
-        void OutputAudioVizAnimFrameProcessor::processSynthesisFrame(std::shared_ptr<transport::SynthesisFrame> frame)
+        void OutputAudioVizAnimFrameProcessor::processSynthesisFrame(std::shared_ptr<va::transport::SynthesisFrame> frame)
         {
             const char* audioDataPtr = frame->audioData.data();
             size_t numSamples = frame->audioData.size() / _audioConfig.getSampleSizeInBytes();
 
             auto featuresVec = processAudioSamples(audioDataPtr, numSamples);
 
-            auto featuresFrame = std::make_shared<va::thirdparty::AudioFeaturesFrame>();
+            auto featuresFrame = std::make_shared<va::thirdparty::audio::AudioFeaturesFrame>();
             featuresFrame->featuresArray = std::move(featuresVec);
-            featuresFrame->source = va::thirdparty::AudioFeaturesSource::SYNTH;
+            featuresFrame->source = va::thirdparty::audio::AudioFeaturesSource::SYNTH;
             featuresFrame->sequenceId = frame->sequenceId;
             featuresFrame->frameId = frame->frameId + "_features";
             featuresFrame->timestamp = frame->timestamp;
@@ -153,5 +153,5 @@ namespace va {
             pushDownstream(featuresFrame);
         }
 
-} // namespace thirdparty
+} // namespace thirdparty::audio
 } // namespace va

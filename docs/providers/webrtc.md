@@ -12,7 +12,7 @@ Browser calls: a direct WebRTC peer connection over [libdatachannel](https://git
 
 ## Options
 
-In C++, `va::thirdparty::LibDataChannelWebRtcOptions` (in [`LibDataChannelWebRtcProvider.h`](../../VASDK_3P_IMPL/LibDataChannelWebRtc/LibDataChannelWebRtcProvider.h)). Every field has a default except the ones marked "required" in its comment.
+In C++, `va::thirdparty::transport::LibDataChannelWebRtcOptions` (in [`LibDataChannelWebRtcProvider.h`](../../VASDK_3P_IMPL/LibDataChannelWebRtc/LibDataChannelWebRtcProvider.h)). Every field has a default except the ones marked "required" in its comment.
 
 | Field | Default | Meaning |
 | --- | --- | --- |
@@ -31,8 +31,8 @@ All of them are listed in [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md)
 ```cpp
 #include "LibDataChannelWebRtc/LibDataChannelWebRtcProvider.h"
 
-va::thirdparty::LibDataChannelWebRtcOptions options;
-auto provider = std::make_shared<va::thirdparty::LibDataChannelWebRtcProvider>(options);
+va::thirdparty::transport::LibDataChannelWebRtcOptions options;
+auto provider = std::make_shared<va::thirdparty::transport::LibDataChannelWebRtcProvider>(options);
 // WebRtcTransport(provider): see docs/reference/transports.md#webrtctransport
 ```
 

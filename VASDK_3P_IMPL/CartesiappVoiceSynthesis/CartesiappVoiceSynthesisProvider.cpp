@@ -6,7 +6,7 @@
 #include <spdlog/spdlog.h>
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::tts {
 
 CartesiappVoiceSynthesisProvider::CartesiappVoiceSynthesisProvider(CartesiappVoiceSynthesisOptions options)
     : _apiKey(std::move(options.apiKey)),
@@ -263,5 +263,5 @@ cartesiapp::OutputFormat CartesiappVoiceSynthesisProvider::resolveOutputFormat()
     return format;
 }
 
-} // namespace thirdparty
+} // namespace thirdparty::tts
 } // namespace va

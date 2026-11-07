@@ -19,7 +19,7 @@
 #include <sstream>
 #include <thread>
 
-namespace va::thirdparty {
+namespace va::thirdparty::transport {
 
 namespace {
 constexpr int kMaxPlcPackets = 5;        // conceal at most 100 ms per gap; longer gaps stay silent
@@ -440,4 +440,4 @@ void LibDataChannelWebRtcProvider::stopSignalingServer() {
     _impl->http.reset();
 }
 
-} // namespace va::thirdparty
+} // namespace va::thirdparty::transport

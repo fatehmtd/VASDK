@@ -10,7 +10,7 @@
 #include <chrono>
 #include <string>
 
-namespace va::thirdparty {
+namespace va::thirdparty::stt {
 
 // Forward declaration; handles the actual Parakeet model inference.
 class ParakeetInferenceProviderImpl;
@@ -147,4 +147,4 @@ class ParakeetTranscriptionProvider : public va::audio::GenericTranscriptionProv
 
 };
 
-} // namespace va::thirdparty
+} // namespace va::thirdparty::stt

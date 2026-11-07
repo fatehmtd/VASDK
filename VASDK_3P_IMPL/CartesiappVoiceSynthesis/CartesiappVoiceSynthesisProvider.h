@@ -9,7 +9,7 @@
 #include <string>
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::tts {
 
 /** Settings of CartesiappVoiceSynthesisProvider; every field but the API key has a default. */
 struct CartesiappVoiceSynthesisOptions {
@@ -71,5 +71,5 @@ private:
     std::atomic<uint64_t> _contextCounter{ 1 };
 };
 
-} // namespace thirdparty
+} // namespace thirdparty::tts
 } // namespace va

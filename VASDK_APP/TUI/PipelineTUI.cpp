@@ -45,9 +45,9 @@ namespace vasdk_app {
         switch (frame->getType()) {
         case va::transport::FrameType::AUDIO_FEATURES: {
             // Only consume MIC features here; synth is driven by onSynthPlayback().
-            auto af = std::dynamic_pointer_cast<va::thirdparty::AudioFeaturesFrame>(frame);
+            auto af = std::dynamic_pointer_cast<va::thirdparty::audio::AudioFeaturesFrame>(frame);
             if (af && !af->featuresArray.empty()
-                && af->source == va::thirdparty::AudioFeaturesSource::MIC) {
+                && af->source == va::thirdparty::audio::AudioFeaturesSource::MIC) {
                 std::lock_guard<std::mutex> lk(_mutex);
                 _micState = toDisplayState(af->featuresArray.back());
             }
@@ -91,7 +91,7 @@ namespace vasdk_app {
         pushDownstream(frame);
     }
 
-    AudioDisplayState AudioFeaturesObserver::toDisplayState(const va::thirdparty::VizAnimProvider::Features& f) {
+    AudioDisplayState AudioFeaturesObserver::toDisplayState(const va::thirdparty::audio::VizAnimProvider::Features& f) {
         AudioDisplayState s;
         s.rms = f.rms;
         s.bass = f.bass;
@@ -119,9 +119,9 @@ namespace vasdk_app {
     }
 
     void AudioFeaturesObserver::setSynthAudioConfig(const va::audio::AudioConfig& config) {
-        _synthProvider = std::make_unique<va::thirdparty::VizAnimProvider>();
+        _synthProvider = std::make_unique<va::thirdparty::audio::VizAnimProvider>();
         _synthProvider->initialize(config);
-        _synthWindowBytes = static_cast<size_t>(va::thirdparty::VizAnimProvider::FFT_SIZE)
+        _synthWindowBytes = static_cast<size_t>(va::thirdparty::audio::VizAnimProvider::FFT_SIZE)
             * config.getSampleSizeInBytes();
         _synthAccum.clear();
         _synthAccum.reserve(_synthWindowBytes * 2);
@@ -135,7 +135,7 @@ namespace vasdk_app {
         // Extract one feature per full FFT window; leave remainder in the accumulator
         while (_synthAccum.size() >= _synthWindowBytes) {
             auto features = _synthProvider->computeFeatures(
-                _synthAccum.data(), static_cast<int>(va::thirdparty::VizAnimProvider::FFT_SIZE));
+                _synthAccum.data(), static_cast<int>(va::thirdparty::audio::VizAnimProvider::FFT_SIZE));
 
             if (!features.empty()) {
                 std::lock_guard<std::mutex> lk(_mutex);

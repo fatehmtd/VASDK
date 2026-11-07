@@ -12,7 +12,7 @@ The embedding model of pyannote/speaker-diarization-3.1 (WeSpeaker ResNet34-LM, 
 
 ## Options
 
-In C++, `va::thirdparty::PyannoteEmbeddingOptions` (in [`PyannoteEmbeddingProvider.h`](../../VASDK_3P_IMPL/PyannoteSpeaker/PyannoteEmbeddingProvider.h)). Every field has a default except the ones marked "required" in its comment.
+In C++, `va::thirdparty::speaker::PyannoteEmbeddingOptions` (in [`PyannoteEmbeddingProvider.h`](../../VASDK_3P_IMPL/PyannoteSpeaker/PyannoteEmbeddingProvider.h)). Every field has a default except the ones marked "required" in its comment.
 
 | Field | Default | Meaning |
 | --- | --- | --- |
@@ -33,9 +33,9 @@ All of them are listed in [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md)
 ```cpp
 #include "PyannoteSpeaker/PyannoteEmbeddingProvider.h"
 
-va::thirdparty::PyannoteEmbeddingOptions options;
+va::thirdparty::speaker::PyannoteEmbeddingOptions options;
 options.modelPath = "...";
-auto provider = std::make_shared<va::thirdparty::PyannoteEmbeddingProvider>(options);
+auto provider = std::make_shared<va::thirdparty::speaker::PyannoteEmbeddingProvider>(options);
 // provider->initialize(audioConfig); SpeakerIdentificationProcessor(provider)
 ```
 

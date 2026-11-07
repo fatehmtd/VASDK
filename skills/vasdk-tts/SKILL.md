@@ -51,8 +51,8 @@ An agent can say part of a reply in another voice or at another pace (`say { voi
 ## Adding one
 
 1. The steps, files and code rules in [vasdk-provider](../vasdk-provider/SKILL.md). Options: `CloudOptions` for a cloud voice, `LocalTtsOptions` for a local one, or a new message if neither fits exactly.
-2. **A cloud voice:** copy `VASDK_3P_IMPL/CartesiappVoiceSynthesis/` (already `va::thirdparty`) and implement `GenericVoiceSynthesisProvider`.
-3. **A local voice:** derive from `QueuedVoiceSynthesisProvider` and implement only `loadEngine()` and `synthesizeOne(text)`: pass audio to `handoffAudio(pcm, sampleRate)` and `return finishHandoff();`. Use `style()` for the voice and pace, and `onCancel()` / `cancelFlag()` to stop early. An engine that streams on its own thread uses `Delivery::Direct` and `deliverAudio()`, as Phonon does. Copy the structure of `VASDK_3P_IMPL/SupertonicTTS/` (model download, test), but write it in `va::thirdparty`, with an options struct and no file-scope `static` tables: Supertonic predates those rules.
+2. **A cloud voice:** copy `VASDK_3P_IMPL/CartesiappVoiceSynthesis/` (already `va::thirdparty::tts`) and implement `GenericVoiceSynthesisProvider`.
+3. **A local voice:** derive from `QueuedVoiceSynthesisProvider` and implement only `loadEngine()` and `synthesizeOne(text)`: pass audio to `handoffAudio(pcm, sampleRate)` and `return finishHandoff();`. Use `style()` for the voice and pace, and `onCancel()` / `cancelFlag()` to stop early. An engine that streams on its own thread uses `Delivery::Direct` and `deliverAudio()`, as Phonon does. Copy the structure of `VASDK_3P_IMPL/SupertonicTTS/` (model download, test), but write it in `va::thirdparty::tts`, with an options struct and no file-scope `static` tables: Supertonic predates those rules.
 4. Register it with `registry.add<va::audio::GenericVoiceSynthesisProvider, ...>("<id>", ...)`.
 
 ## Tests

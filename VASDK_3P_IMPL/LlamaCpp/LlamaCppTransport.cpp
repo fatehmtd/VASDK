@@ -20,11 +20,11 @@
 #endif
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::llm {
 
-using transport::Frame;
-using transport::TextFrame;
-using transport::TransportState;
+using va::transport::Frame;
+using va::transport::TextFrame;
+using va::transport::TransportState;
 
 // ---------------------------------------------------------------------------
 // Impl - holds all llama.cpp state; defined here to keep llama.h off the
@@ -141,8 +141,8 @@ struct LlamaCppTransport::Impl {
 // ---------------------------------------------------------------------------
 // Constructor / Destructor
 // ---------------------------------------------------------------------------
-LlamaCppTransport::LlamaCppTransport(const llm::LLMConfig& config)
-    : LLMTransport(llm::LLMProvider::LLAMA_CPP, config)
+LlamaCppTransport::LlamaCppTransport(const va::llm::LLMConfig& config)
+    : LLMTransport(va::llm::LLMProvider::LLAMA_CPP, config)
     , impl_(std::make_unique<Impl>()) {
 }
 
@@ -292,7 +292,7 @@ void LlamaCppTransport::clearHistory() {
 // ---------------------------------------------------------------------------
 // addMessageToHistory - delegate to base, then reset KV if trimming occurred
 // ---------------------------------------------------------------------------
-void LlamaCppTransport::addMessageToHistory(llm::MessageRole role, const std::string& content) {
+void LlamaCppTransport::addMessageToHistory(va::llm::MessageRole role, const std::string& content) {
     // Snapshot history size before the base-class add+trim logic runs.
     const size_t sizeBefore = getHistory().size();
     LLMTransport::addMessageToHistory(role, content);
@@ -415,7 +415,7 @@ std::string LlamaCppTransport::sendLLMRequest(const std::string& userMessage) {
     auto rollbackUserMessage = [&]() {
         std::lock_guard<std::mutex> lock(_historyMutex);
         if (!_conversationHistory.empty() &&
-            _conversationHistory.back().role == llm::MessageRole::USER) {
+            _conversationHistory.back().role == va::llm::MessageRole::USER) {
             _conversationHistory.pop_back();
         }
     };
@@ -447,10 +447,10 @@ std::string LlamaCppTransport::sendLLMRequest(const std::string& userMessage) {
             msgs.reserve(_conversationHistory.size());
             for (const auto& msg : _conversationHistory) {
                 switch (msg.role) {
-                    case llm::MessageRole::SYSTEM:    roleStore.push_back("system");    break;
-                    case llm::MessageRole::USER:      roleStore.push_back("user");      break;
-                    case llm::MessageRole::ASSISTANT: roleStore.push_back("assistant"); break;
-                    case llm::MessageRole::TOOL:      roleStore.push_back("tool");      break;
+                    case va::llm::MessageRole::SYSTEM:    roleStore.push_back("system");    break;
+                    case va::llm::MessageRole::USER:      roleStore.push_back("user");      break;
+                    case va::llm::MessageRole::ASSISTANT: roleStore.push_back("assistant"); break;
+                    case va::llm::MessageRole::TOOL:      roleStore.push_back("tool");      break;
                 }
                 contentStore.push_back(msg.content);
                 msgs.push_back({ roleStore.back().c_str(), contentStore.back().c_str() });
@@ -530,7 +530,7 @@ std::string LlamaCppTransport::sendLLMRequest(const std::string& userMessage) {
                 std::lock_guard<std::mutex> lock(_historyMutex);
                 for (auto it = _conversationHistory.begin(); it != _conversationHistory.end(); ++it) {
                     const bool isLast = (&*it == &_conversationHistory.back());
-                    if (it->role != llm::MessageRole::SYSTEM && !isLast) {
+                    if (it->role != va::llm::MessageRole::SYSTEM && !isLast) {
                         _conversationHistory.erase(it);
                         trimmed = true;
                         break;
@@ -564,7 +564,7 @@ std::string LlamaCppTransport::sendLLMRequest(const std::string& userMessage) {
     // a new format adopts the same convention. Empty for formats with no such
     // wrapper (JSON tool calls have no markers to watch for).
     const auto [kToolCallStart, kToolCallEnd] =
-        llm::PromptTemplate::create(getPromptChatFormat())->toolCallTags();
+        va::llm::PromptTemplate::create(getPromptChatFormat())->toolCallTags();
     const bool hasToolCallTags = !kToolCallStart.empty();
 
     // The mid-gen chunker below has no idea what a tool call looks like - it
@@ -617,7 +617,7 @@ std::string LlamaCppTransport::sendLLMRequest(const std::string& userMessage) {
             {
                 std::lock_guard<std::mutex> lock(_historyMutex);
                 if (!_conversationHistory.empty() &&
-                    _conversationHistory.back().role == llm::MessageRole::USER) {
+                    _conversationHistory.back().role == va::llm::MessageRole::USER) {
                     _conversationHistory.pop_back();
                 }
             }
@@ -741,9 +741,9 @@ std::string LlamaCppTransport::sendLLMRequest(const std::string& userMessage) {
             }
             // Partial chunks must still be closed by a final frame when nothing is left.
             if (!speechPart.empty() || lastPartialEnd > 0) {
-                auto speechFrame = std::make_shared<transport::TextFrame>();
+                auto speechFrame = std::make_shared<va::transport::TextFrame>();
                 speechFrame->text       = speechPart;
-                speechFrame->timestamp  = transport::Frame::getCurrentTimestamp();
+                speechFrame->timestamp  = va::transport::Frame::getCurrentTimestamp();
                 speechFrame->sequenceId = _nextSequenceId++;
                 speechFrame->sourceId   = getName();
                 speechFrame->isFinal    = true;
@@ -758,7 +758,7 @@ std::string LlamaCppTransport::sendLLMRequest(const std::string& userMessage) {
             if (forcingFinalAnswer) {
                 spdlog::warn("[LlamaCppTransport] Model re-emitted a tool call on the "
                              "post-tool-result turn - dropping it: \"{}\"", response);
-                addMessageToHistory(llm::MessageRole::ASSISTANT, "");
+                addMessageToHistory(va::llm::MessageRole::ASSISTANT, "");
                 impl_->resetKV();
                 return "";
             }
@@ -775,12 +775,12 @@ std::string LlamaCppTransport::sendLLMRequest(const std::string& userMessage) {
                         const nlohmann::json& argsNode = call.contains("arguments")
                                                              ? call["arguments"]
                                                              : nlohmann::json::object();
-                        auto toolFrame        = std::make_shared<transport::ToolCallFrame>();
+                        auto toolFrame        = std::make_shared<va::transport::ToolCallFrame>();
                         toolFrame->toolName   = name;
                         toolFrame->argsJson   = argsNode.is_string()
                                                     ? argsNode.get<std::string>()
                                                     : argsNode.dump();
-                        toolFrame->timestamp  = transport::Frame::getCurrentTimestamp();
+                        toolFrame->timestamp  = va::transport::Frame::getCurrentTimestamp();
                         toolFrame->sequenceId = _nextSequenceId++;
                         toolFrame->sourceId   = getName();
                         spdlog::info("[LlamaCppTransport] Tool call: {} args={}", name, toolFrame->argsJson);
@@ -800,7 +800,7 @@ std::string LlamaCppTransport::sendLLMRequest(const std::string& userMessage) {
             // (_forcingFinalAnswer bans the start marker, with the drop
             // backstop above), so keeping the call visible is safe.
             // The speech text is sent to TTS but excluded from history.
-            addMessageToHistory(llm::MessageRole::ASSISTANT,
+            addMessageToHistory(va::llm::MessageRole::ASSISTANT,
                                 kToolCallStart + toolJson + kToolCallEnd);
             // The KV cache contains the raw generated tokens (speech + tool-call markers),
             // but cachedFormattedLen would only cover the speech part via the chat template.
@@ -848,7 +848,7 @@ std::string LlamaCppTransport::sendLLMRequest(const std::string& userMessage) {
     //    follow-up request.
     // -------------------------------------------------------------------------
     bool strippedToolCalls = false;
-    addMessageToHistory(llm::MessageRole::ASSISTANT,
+    addMessageToHistory(va::llm::MessageRole::ASSISTANT,
                         stripToolCallsForHistory(response, strippedToolCalls));
 
     if (strippedToolCalls) {
@@ -871,10 +871,10 @@ std::string LlamaCppTransport::sendLLMRequest(const std::string& userMessage) {
             m2.reserve(_conversationHistory.size());
             for (const auto& msg : _conversationHistory) {
                 switch (msg.role) {
-                    case llm::MessageRole::SYSTEM:    rs2.push_back("system");    break;
-                    case llm::MessageRole::USER:      rs2.push_back("user");      break;
-                    case llm::MessageRole::ASSISTANT: rs2.push_back("assistant"); break;
-                    case llm::MessageRole::TOOL:      rs2.push_back("tool");      break;
+                    case va::llm::MessageRole::SYSTEM:    rs2.push_back("system");    break;
+                    case va::llm::MessageRole::USER:      rs2.push_back("user");      break;
+                    case va::llm::MessageRole::ASSISTANT: rs2.push_back("assistant"); break;
+                    case va::llm::MessageRole::TOOL:      rs2.push_back("tool");      break;
                 }
                 cs2.push_back(msg.content);
                 m2.push_back({ rs2.back().c_str(), cs2.back().c_str() });
@@ -888,5 +888,5 @@ std::string LlamaCppTransport::sendLLMRequest(const std::string& userMessage) {
     return "";
 }
 
-} // namespace thirdparty
+} // namespace thirdparty::llm
 } // namespace va

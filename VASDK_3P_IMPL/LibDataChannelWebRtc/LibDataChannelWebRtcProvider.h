@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-namespace va::thirdparty {
+namespace va::thirdparty::transport {
 
 /** Settings of LibDataChannelWebRtcProvider; every field has a default. */
 struct LibDataChannelWebRtcOptions {
@@ -69,4 +69,4 @@ private:
     std::shared_ptr<Impl> _impl;
 };
 
-} // namespace va::thirdparty
+} // namespace va::thirdparty::transport

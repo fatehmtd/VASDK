@@ -14,7 +14,7 @@
 #include <string>
 #include <vector>
 
-namespace va::thirdparty {
+namespace va::thirdparty::stt {
 
 // ---------------------------------------------------------------------------
 // Helpers (file-local, defined inline so multiple TUs can include this header)
@@ -214,4 +214,4 @@ private:
     va::metrics::TimingObserverInterface*    _timingObserver = nullptr;
 };
 
-} // namespace va::thirdparty
+} // namespace va::thirdparty::stt

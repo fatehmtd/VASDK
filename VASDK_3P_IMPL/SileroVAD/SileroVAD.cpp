@@ -6,7 +6,7 @@
 #include <fstream>
 #include <utility>
 
-namespace va::thirdparty {
+namespace va::thirdparty::vad {
 
 SileroVAD::SileroVAD(SileroVADOptions options) : _options(std::move(options)) {}
 
@@ -134,4 +134,4 @@ SileroVAD::~SileroVAD()
     release();
 }
 
-} // namespace va::thirdparty
+} // namespace va::thirdparty::vad

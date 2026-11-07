@@ -18,7 +18,7 @@
 #include <string_view>
 #include <vector>
 
-namespace va::thirdparty::phonon::text {
+namespace va::thirdparty::tts::phonon::text {
 
     // The tokenizer the chunker measures text with: the checkpoint's SentencePiece model in
     // the engine, a mock one in the tests.
@@ -80,4 +80,4 @@ namespace va::thirdparty::phonon::text {
                                   Rules rules, double frameRate, size_t maxTokens = kMaxTokensPerChunk,
                                   std::optional<size_t> fitTo = kMaxFitTokens);
 
-} // namespace va::thirdparty::phonon::text
+} // namespace va::thirdparty::tts::phonon::text

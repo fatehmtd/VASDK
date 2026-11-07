@@ -11,7 +11,7 @@
 #include <vector>
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::stt {
 
 /** Settings of FishaudioppTranscriptionProvider; every field but the API key has a default. */
 struct FishaudioppTranscriptionOptions {
@@ -85,5 +85,5 @@ private:
     std::vector<int16_t> _pendingSegment;
 };
 
-} // namespace thirdparty
+} // namespace thirdparty::stt
 } // namespace va

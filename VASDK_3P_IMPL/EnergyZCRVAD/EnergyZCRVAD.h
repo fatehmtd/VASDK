@@ -4,7 +4,7 @@
 #include <VASDK/VADProvider.h>
 #include "vasdk_energy_zcr_vad_export.h"
 
-namespace va::thirdparty {
+namespace va::thirdparty::vad {
 
 /** Settings of EnergyZCRVAD; every field has a default. */
 struct EnergyZCRVADOptions {
@@ -21,7 +21,7 @@ struct EnergyZCRVADOptions {
 /**
  * @brief Voice activity from frame energy and zero-crossing rate: no model, for embedded targets.
  *
- *   auto vad = std::make_shared<va::thirdparty::EnergyZCRVAD>();
+ *   auto vad = std::make_shared<va::thirdparty::vad::EnergyZCRVAD>();
  *   vad->initialize(audioConfig, bufferSize);
  */
 class VASDK_ENERGY_ZCR_VAD_EXPORT EnergyZCRVAD : public va::audio::VADProvider {
@@ -45,4 +45,4 @@ private:
     double calculateZeroCrossingRate(const std::vector<float>& frame) const;
 };
 
-} // namespace va::thirdparty
+} // namespace va::thirdparty::vad

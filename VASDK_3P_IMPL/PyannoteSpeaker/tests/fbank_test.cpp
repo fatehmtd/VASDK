@@ -33,9 +33,9 @@ int main(int argc, char** argv)
             + 200.0 * (static_cast<long>((i * 7919) % 101) - 50));
     }
 
-    va::thirdparty::KaldiFbank fbank;
+    va::thirdparty::speaker::KaldiFbank fbank;
     auto features = fbank.compute(signal.data(), n);
-    if (bins != va::thirdparty::KaldiFbank::kNumBins || features.size() != frames * bins) {
+    if (bins != va::thirdparty::speaker::KaldiFbank::kNumBins || features.size() != frames * bins) {
         std::fprintf(stderr, "shape mismatch: got %zu values, expected %zu x %zu\n", features.size(), frames, bins);
         return 1;
     }

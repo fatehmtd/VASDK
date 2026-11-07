@@ -12,7 +12,7 @@
 
 struct whisper_context;
 
-namespace va::thirdparty {
+namespace va::thirdparty::stt {
 
 /** Settings of WhisperCppTranscriptionProvider; every field but the model path has a default.
  *  Whisper runs a whole batch per pass, so partials are infrequent by default. */
@@ -108,4 +108,4 @@ private:
     size_t _bufferSizeAtEndOfSpeech = 0;
 };
 
-} // namespace va::thirdparty
+} // namespace va::thirdparty::stt

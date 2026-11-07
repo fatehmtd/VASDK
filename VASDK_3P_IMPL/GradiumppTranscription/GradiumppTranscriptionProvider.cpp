@@ -104,7 +104,7 @@ std::vector<uint8_t> wrapPcm16AsWav(const int16_t* samples, size_t sampleCount, 
 } // namespace
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::stt {
 
 GradiumppTranscriptionProvider::GradiumppTranscriptionProvider(GradiumppTranscriptionOptions options)
     : _apiKey(std::move(options.apiKey)),
@@ -585,5 +585,5 @@ va::audio::TranscriptionResult GradiumppTranscriptionProvider::parseNdjsonResult
     return result;
 }
 
-} // namespace thirdparty
+} // namespace thirdparty::stt
 } // namespace va

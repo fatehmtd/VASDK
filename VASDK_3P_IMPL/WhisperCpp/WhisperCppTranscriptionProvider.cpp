@@ -4,7 +4,7 @@
 #include <cstring>
 #include <utility>
 
-namespace va::thirdparty {
+namespace va::thirdparty::stt {
 
 // ---------------------------------------------------------------------------
 // Construction / destruction
@@ -496,4 +496,4 @@ void WhisperCppTranscriptionProvider::inferenceLoop()
     }
 }
 
-} // namespace va::thirdparty
+} // namespace va::thirdparty::stt

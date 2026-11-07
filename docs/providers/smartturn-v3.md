@@ -12,7 +12,7 @@ Pipecat's SmartTurn v3: a Whisper-feature ONNX model that scores whether the use
 
 ## Options
 
-In C++, `va::thirdparty::SmartTurnV3Options` (in [`SmartTurnV3Provider.h`](../../VASDK_3P_IMPL/SmartTurnV3/SmartTurnV3Provider.h)). Every field has a default except the ones marked "required" in its comment.
+In C++, `va::thirdparty::turn::SmartTurnV3Options` (in [`SmartTurnV3Provider.h`](../../VASDK_3P_IMPL/SmartTurnV3/SmartTurnV3Provider.h)). Every field has a default except the ones marked "required" in its comment.
 
 | Field | Default | Meaning |
 | --- | --- | --- |
@@ -56,9 +56,9 @@ From C++:
 ```cpp
 #include "SmartTurnV3/SmartTurnV3Provider.h"
 
-va::thirdparty::SmartTurnV3Options options;
+va::thirdparty::turn::SmartTurnV3Options options;
 options.modelPath = "...";
-auto provider = std::make_shared<va::thirdparty::SmartTurnV3Provider>(options);
+auto provider = std::make_shared<va::thirdparty::turn::SmartTurnV3Provider>(options);
 // TurnDetectionProcessor(provider), after provider->initialize(audioConfig, ringBuffer)
 ```
 

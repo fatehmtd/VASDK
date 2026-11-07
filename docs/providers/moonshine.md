@@ -12,7 +12,7 @@ Useful Sensors' Moonshine streaming models (English; tiny, small or medium): aud
 
 ## Options
 
-In C++, `va::thirdparty::MoonshineSttOptions` (in [`MoonshineSttProvider.hpp`](../../VASDK_3P_IMPL/MoonshineSTT/MoonshineSttProvider.hpp)). Every field has a default except the ones marked "required" in its comment.
+In C++, `va::thirdparty::stt::MoonshineSttOptions` (in [`MoonshineSttProvider.hpp`](../../VASDK_3P_IMPL/MoonshineSTT/MoonshineSttProvider.hpp)). Every field has a default except the ones marked "required" in its comment.
 
 | Field | Default | Meaning |
 | --- | --- | --- |
@@ -57,9 +57,9 @@ From C++:
 ```cpp
 #include "MoonshineSTT/MoonshineSttProvider.hpp"
 
-va::thirdparty::MoonshineSttOptions options;
+va::thirdparty::stt::MoonshineSttOptions options;
 options.modelDir = "...";
-auto provider = std::make_shared<va::thirdparty::MoonshineSttProvider>(options);
+auto provider = std::make_shared<va::thirdparty::stt::MoonshineSttProvider>(options);
 // TranscriptionFrameProcessor(provider); setAudioConfiguration() before the pipeline starts
 ```
 

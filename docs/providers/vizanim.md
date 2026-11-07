@@ -12,7 +12,7 @@ Audio features for live animations (level, bands, spectral centroid, onsets, pit
 
 ## Options
 
-In C++, `va::thirdparty::VizAnimOptions` (in [`VizAnimProvider.h`](../../VASDK_3P_IMPL/VizAnim/VizAnimProvider.h)). Every field has a default except the ones marked "required" in its comment.
+In C++, `va::thirdparty::audio::VizAnimOptions` (in [`VizAnimProvider.h`](../../VASDK_3P_IMPL/VizAnim/VizAnimProvider.h)). Every field has a default except the ones marked "required" in its comment.
 
 | Field | Default | Meaning |
 | --- | --- | --- |
@@ -33,8 +33,8 @@ All of them are listed in [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md)
 ```cpp
 #include "VizAnim/VizAnimProvider.h"
 
-va::thirdparty::VizAnimOptions options;
-auto provider = std::make_shared<va::thirdparty::VizAnimProvider>(options);
+va::thirdparty::audio::VizAnimOptions options;
+auto provider = std::make_shared<va::thirdparty::audio::VizAnimProvider>(options);
 // provider->initialize(audioConfig); provider->computeFeatures(audio, samples)
 ```
 

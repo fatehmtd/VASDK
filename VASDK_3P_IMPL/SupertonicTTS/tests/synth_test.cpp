@@ -81,12 +81,12 @@ int main(int argc, char** argv) {
     cfg.format     = va::audio::AudioFormat::SHORT;
 
     Collector collector;
-    va::thirdparty::SupertonicVoiceSynthesisOptions options;
+    va::thirdparty::tts::SupertonicVoiceSynthesisOptions options;
     options.onnxDir        = onnxDir.string();
     options.voiceStylePath = stylePath.string();
     options.language       = lang;
     if (steps > 0) options.totalSteps = steps;
-    va::thirdparty::SupertonicVoiceSynthesisProvider tts(options);
+    va::thirdparty::tts::SupertonicVoiceSynthesisProvider tts(options);
     tts.setAudioConfiguration(cfg);
     tts.setVoiceSynthesisResultListener(&collector);
     if (!tts.startVoiceSynthesisProvider()) {

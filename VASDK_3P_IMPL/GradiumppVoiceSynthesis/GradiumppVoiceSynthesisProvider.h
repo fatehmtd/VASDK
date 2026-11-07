@@ -9,7 +9,7 @@
 #include <string>
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::tts {
 
 /** Settings of GradiumppVoiceSynthesisProvider; every field but the API key has a default. */
 struct GradiumppVoiceSynthesisOptions {
@@ -64,5 +64,5 @@ private:
     std::atomic<int> _requestCounter{ 1 };
 };
 
-} // namespace thirdparty
+} // namespace thirdparty::tts
 } // namespace va

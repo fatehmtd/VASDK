@@ -6,7 +6,7 @@
 #include <vector>
 #include <mutex>
 
-namespace va::thirdparty {
+namespace va::thirdparty::tts {
 
 /**
  * @brief PIMPL wrapper around supertonic's ONNX-based TTS engine.
@@ -91,6 +91,6 @@ private:
     mutable std::mutex mutex_; // guard inference and config (ONNX sessions are not thread-safe)
 };
 
-} // namespace va::thirdparty
+} // namespace va::thirdparty::tts
 
 #endif // SUPERTONIC_INFERENCE_IMPL_HPP

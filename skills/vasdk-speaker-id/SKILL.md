@@ -17,7 +17,7 @@ description: Speaker identification in VASDK - voice prints with pyannote (WeSpe
 
 | Backend | Folder | Kind |
 | --- | --- | --- |
-| pyannote (WeSpeaker ResNet34-LM) | `VASDK_3P_IMPL/PyannoteSpeaker/` | local ONNX, 16 kHz mono, Kaldi fbank front end matched to torchaudio, on by default, `va::thirdparty` |
+| pyannote (WeSpeaker ResNet34-LM) | `VASDK_3P_IMPL/PyannoteSpeaker/` | local ONNX, 16 kHz mono, Kaldi fbank front end matched to torchaudio, on by default, `va::thirdparty::speaker` |
 
 Speaker identification is not yet selectable in the engine config: there is no `providers.speaker` spec. Adding one is core work ([vasdk-core-component](../vasdk-core-component/SKILL.md)), not part of a new provider.
 

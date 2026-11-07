@@ -5,7 +5,10 @@
   python3 VASDK_3P_IMPL/check_rules.py --self-test  check the checker on planted cases
 
 Rules checked:
-  1. every header and source of an integration declares its code in namespace va::thirdparty
+  1. every header and source of an integration declares its code in namespace
+     va::thirdparty::<category>, the category being one of CATEGORIES (the catalog, which
+     registers every category, sits in va::thirdparty itself); inside it, the core namespaces
+     that a category shadows (audio, transport, llm, nlu) are written in full: va::audio::
   2. no `static` variable in a source file (.cpp/.cc), at file scope or in a function; static
      functions and class constants are fine, fixed tables are constexpr
 Tests (tests/ folders, *_test.cpp), programs (a main()) and the exemptions below are skipped.
@@ -31,7 +34,11 @@ STATIC_EXEMPT = {
                                         "so its wrapper and mutex are too",
 }
 
-NAMESPACE = re.compile(r"namespace\s+va::thirdparty\b|namespace\s+va\s*\{\s*namespace\s+thirdparty\b")
+# One per stage skill (skills/vasdk-<stage>); a new kind of integration adds its category here and in AGENTS.md.
+CATEGORIES = ("vad", "stt", "tts", "turn", "wakeword", "llm", "nlu", "speaker", "audio", "transport")
+CATALOG_FOLDER = "ProviderCatalog/"
+NAMESPACE = re.compile(r"namespace\s+(?:va::thirdparty|va\s*\{\s*namespace\s+thirdparty)(?:::(\w+)(?:::\w+)*)?\s*\{")
+SHADOWED_CORE = re.compile(r"(?<![\w:])(audio|transport|llm|nlu)::(?=[A-Za-z_])")
 STATIC_LINE = re.compile(r"^\s*(?:inline\s+)?static\b(?!_)(.*)$", re.MULTILINE)
 
 
@@ -55,8 +62,19 @@ def is_variable(declaration):
 def violations(relative_path, text):
     found = []
     code = strip_comments_and_strings(text)
-    if relative_path not in NAMESPACE_EXEMPT and not NAMESPACE.search(code):
-        found.append(f"{relative_path}: not in namespace va::thirdparty")
+    if relative_path not in NAMESPACE_EXEMPT:
+        categories = [match.group(1) for match in NAMESPACE.finditer(code)]
+        if relative_path.startswith(CATALOG_FOLDER):
+            if not categories:
+                found.append(f"{relative_path}: not in namespace va::thirdparty")
+        elif not any(category in CATEGORIES for category in categories):
+            found.append(f"{relative_path}: not in namespace va::thirdparty::<category> "
+                         f"(one of {', '.join(CATEGORIES)})")
+        # in the catalog (va::thirdparty), nlu:: rightly names the category, so only categories are checked
+        for match in ([] if relative_path.startswith(CATALOG_FOLDER) else SHADOWED_CORE.finditer(code)):
+            line = code.count("\n", 0, match.start()) + 1
+            found.append(f"{relative_path}:{line}: write va::{match.group(1)}:: in full "
+                         f"(va::thirdparty::{match.group(1)} shadows it)")
     if relative_path.endswith((".cpp", ".cc")) and relative_path not in STATIC_EXEMPT:
         for match in STATIC_LINE.finditer(code):
             if is_variable(match.group(1)):
@@ -89,16 +107,22 @@ def check(root):
 
 
 def self_test():
-    good = 'namespace va::thirdparty {\nnamespace {\nconstexpr int kRate = 16000;\nint helper(int x) { return x; }\n}\n'
+    good = 'namespace va::thirdparty::stt {\nnamespace {\nconstexpr int kRate = 16000;\nint helper(int x) { return x; }\n}\n'
     cases = [
         ("Good/Good.cpp", good + 'static int twice(int x) { return 2 * x; }\nstruct A { static constexpr int k = 1; static A& get(); };\n}\n', []),
-        ("Old/Old.h", "class Old {};\n", ["not in namespace va::thirdparty"]),
-        ("Nested/Nested.h", "namespace va {\nnamespace thirdparty {\nclass N {};\n}\n}\n", []),
+        ("Old/Old.h", "class Old {};\n", ["not in namespace va::thirdparty::<category>"]),
+        ("Flat/Flat.h", "namespace va::thirdparty {\nclass F {};\n}\n", ["not in namespace va::thirdparty::<category>"]),
+        ("Unknown/Unknown.h", "namespace va::thirdparty::misc {\nclass U {};\n}\n", ["not in namespace va::thirdparty::<category>"]),
+        ("Nested/Nested.h", "namespace va {\nnamespace thirdparty::tts {\nclass N {};\n}\n}\n", []),
+        ("Port/impl/port.h", "namespace va::thirdparty::tts::port {\nclass P {};\n}\n", []),
+        ("ProviderCatalog/Catalog.h", "namespace va::thirdparty {\nvoid registerAll();\nusing E = nlu::Encoder;\n}\n", []),
+        ("Shadow/Shadow.h", "namespace va::thirdparty::stt {\nusing Config = audio::AudioConfig;\n"
+                            "using Full = va::audio::AudioConfig;\n}\n", ["write va::audio:: in full"]),
         ("File/File.cpp", good + "static int counter = 0;\n}\n", ["static variable: static int counter = 0;"]),
         ("Local/Local.cpp", good + "void f() {\n    static std::mutex lock;\n}\n}\n", ["static variable: static std::mutex lock;"]),
         ("Table/Table.cpp", good + 'void f() {\n    static const char* const kNames[] = {"a"};\n}\n}\n', ["static variable: static const char* const kNames[] ="]),
         ("Comment/Comment.cpp", good + "// static int notCode = 0;\n/* static int alsoNot = 1; */\n}\n", []),
-        ("Header/Header.h", "namespace va::thirdparty {\nstatic int allowedInHeaders = 0;\n}\n", []),
+        ("Header/Header.h", "namespace va::thirdparty::vad {\nstatic int allowedInHeaders = 0;\n}\n", []),
         ("WhistleSTT/impl/NeedleEngine.cpp", good + "Engine& get() { static Engine engine; return engine; }\n}\n", []),
     ]
     failures = 0

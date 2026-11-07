@@ -8,7 +8,7 @@
 #include <cstring>
 #include <spdlog/spdlog.h>
 
-namespace va::thirdparty {
+namespace va::thirdparty::vad {
 
 EnergyZCRVAD::EnergyZCRVAD(EnergyZCRVADOptions options) : _options(options) {}
 
@@ -114,4 +114,4 @@ bool EnergyZCRVAD::initialize(const va::audio::AudioConfig &audioConfig, int buf
     return true;
 }
 
-} // namespace va::thirdparty
+} // namespace va::thirdparty::vad

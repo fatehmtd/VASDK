@@ -7,13 +7,13 @@
 #include <utility>
 #include <vector>
 
-namespace va::thirdparty {
+namespace va::thirdparty::transport {
 
 //  Lifecycle 
 
 FileTransport::FileTransport(FileTransportOptions options)
     : filePath_(options.filePath)
-    , _audioSource(std::make_shared<FFmpegAudioSource>(FFmpegAudioSourceOptions{std::move(options.filePath)}))
+    , _audioSource(std::make_shared<va::thirdparty::audio::FFmpegAudioSource>(va::thirdparty::audio::FFmpegAudioSourceOptions{std::move(options.filePath)}))
 {
     // Default: 16 kHz, mono, 16-bit PCM (matches LocalTransport defaults).
     audioConfig_.sampleRate = 16000;
@@ -189,4 +189,4 @@ FileTransport::bufferToFrame(const char* buffer, uint32_t numSamples) {
     return frame;
 }
 
-} // namespace va::thirdparty
+} // namespace va::thirdparty::transport

@@ -5,7 +5,7 @@
 #include <map>
 #include <vector>
 
-namespace va::thirdparty {
+namespace va::thirdparty::transport {
 
 /**
  * @brief Puts RTP payloads back in sequence order.
@@ -68,4 +68,4 @@ private:
     std::map<uint16_t, Payload> _held;
 };
 
-} // namespace va::thirdparty
+} // namespace va::thirdparty::transport

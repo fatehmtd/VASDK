@@ -19,7 +19,7 @@
 #include <cstring>
 #include <vector>
 
-namespace va::thirdparty::phonon {
+namespace va::thirdparty::tts::phonon {
 
 // ---------------------------------------------------------------------------
 // Mimi transformer — 2 causal layers, LayerScale, sliding-window attention.
@@ -260,4 +260,4 @@ std::vector<float> mimi_decode(const std::vector<std::vector<float>>& latents,
     return mimi_decode_stream(latents, cfg, weights, state);
 }
 
-} // namespace va::thirdparty::phonon
+} // namespace va::thirdparty::tts::phonon

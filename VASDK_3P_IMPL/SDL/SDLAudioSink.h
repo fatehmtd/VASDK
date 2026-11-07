@@ -4,7 +4,7 @@
 #include <VASDK/GenericAudioSink.h>
 #include <mutex>
 
-namespace va::thirdparty {
+namespace va::thirdparty::audio {
 
 /**
  * @brief The SDLAudioSink class
@@ -43,4 +43,4 @@ private:
     std::mutex       _callbackMutex;
 };
 
-} // namespace va::thirdparty
+} // namespace va::thirdparty::audio

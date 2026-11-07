@@ -9,7 +9,7 @@
 #include <vector>
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::nlu {
 
 /** Settings of MiniLmSentenceEncoder. */
 struct MiniLmSentenceEncoderOptions {
@@ -21,7 +21,7 @@ struct MiniLmSentenceEncoderOptions {
  * @brief all-MiniLM-L6-v2 on ONNX Runtime: a sentence as a 384-number vector (mean of its tokens,
  *        length 1). About 23 MB int8; a few milliseconds a sentence on a phone.
  */
-class MiniLmSentenceEncoder : public nlu::SentenceEncoder {
+class MiniLmSentenceEncoder : public va::nlu::SentenceEncoder {
 public:
     explicit MiniLmSentenceEncoder(MiniLmSentenceEncoderOptions options);
     ~MiniLmSentenceEncoder() override;
@@ -47,5 +47,5 @@ private:
     mutable std::mutex _mutex;   // one inference at a time
 };
 
-} // namespace thirdparty
+} // namespace thirdparty::nlu
 } // namespace va

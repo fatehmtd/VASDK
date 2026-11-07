@@ -12,7 +12,7 @@ Cartesia's Sonic speech synthesis over WebSocket, through [CartesiaPP](https://g
 
 ## Options
 
-In C++, `va::thirdparty::CartesiappVoiceSynthesisOptions` (in [`CartesiappVoiceSynthesisProvider.h`](../../VASDK_3P_IMPL/CartesiappVoiceSynthesis/CartesiappVoiceSynthesisProvider.h)). Every field has a default except the ones marked "required" in its comment.
+In C++, `va::thirdparty::tts::CartesiappVoiceSynthesisOptions` (in [`CartesiappVoiceSynthesisProvider.h`](../../VASDK_3P_IMPL/CartesiappVoiceSynthesis/CartesiappVoiceSynthesisProvider.h)). Every field has a default except the ones marked "required" in its comment.
 
 | Field | Default | Meaning |
 | --- | --- | --- |
@@ -55,9 +55,9 @@ From C++:
 ```cpp
 #include "CartesiappVoiceSynthesis/CartesiappVoiceSynthesisProvider.h"
 
-va::thirdparty::CartesiappVoiceSynthesisOptions options;
+va::thirdparty::tts::CartesiappVoiceSynthesisOptions options;
 options.apiKey = "...";
-auto provider = std::make_shared<va::thirdparty::CartesiappVoiceSynthesisProvider>(options);
+auto provider = std::make_shared<va::thirdparty::tts::CartesiappVoiceSynthesisProvider>(options);
 // TTSFrameProcessor(provider); setAudioConfiguration() before the pipeline starts
 ```
 

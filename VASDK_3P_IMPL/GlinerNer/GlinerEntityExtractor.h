@@ -7,7 +7,7 @@
 #include <string>
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::nlu {
 
 /** Settings of GlinerEntityExtractor; every field but the model folder has a default. */
 struct GlinerEntityExtractorOptions {
@@ -24,14 +24,14 @@ struct GlinerEntityExtractorOptions {
  *        Models: onnx-community/gliner_small-v2.1 int8, English, or gliner_multi-v2.1,
  *        multilingual; Apache-2.0.
  */
-class GlinerEntityExtractor : public nlu::EntityExtractor {
+class GlinerEntityExtractor : public va::nlu::EntityExtractor {
 public:
     explicit GlinerEntityExtractor(GlinerEntityExtractorOptions options);
     ~GlinerEntityExtractor() override;
     /** False, with the reason logged, when a file is missing or unreadable. */
     bool initialize();
     std::string name() const override { return "gliner"; }
-    std::vector<nlu::EntitySpan> extract(const std::vector<std::string>& words, const std::vector<nlu::EntityLabel>& labels,
+    std::vector<va::nlu::EntitySpan> extract(const std::vector<std::string>& words, const std::vector<va::nlu::EntityLabel>& labels,
                                          bool sensitive) const override;
 
 private:
@@ -42,5 +42,5 @@ private:
     mutable std::mutex _mutex;   // one inference at a time
 };
 
-} // namespace thirdparty
+} // namespace thirdparty::nlu
 } // namespace va

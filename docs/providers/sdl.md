@@ -27,8 +27,8 @@ All of them are listed in [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md)
 ```cpp
 #include "SDL/SDLAudioSource.h"
 
-auto provider = std::make_shared<va::thirdparty::SDLAudioSource>();
-// LocalTransport(source, std::make_shared<va::thirdparty::SDLAudioSink>())
+auto provider = std::make_shared<va::thirdparty::audio::SDLAudioSource>();
+// LocalTransport(source, std::make_shared<va::thirdparty::audio::SDLAudioSink>())
 ```
 
 ## How it works

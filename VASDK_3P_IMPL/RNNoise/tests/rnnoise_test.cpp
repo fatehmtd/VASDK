@@ -34,7 +34,7 @@ double energy(const std::vector<int16_t>& samples, size_t from, size_t to) {
 } // namespace
 
 int main() {
-    va::thirdparty::RNNoiseDSPProvider denoiser;
+    va::thirdparty::audio::RNNoiseDSPProvider denoiser;
     expect(denoiser.initialize(monoShort()), "initializes at 16 kHz mono with the built-in model");
     expect(denoiser.getName() == "RNNoise", "is named RNNoise");
 
@@ -60,12 +60,12 @@ int main() {
     expect(denoiser.getLastVADProbability() < 0.5f, "does not take hiss for voice");
     denoiser.release();
 
-    va::thirdparty::RNNoiseDSPProvider stereo;
+    va::thirdparty::audio::RNNoiseDSPProvider stereo;
     expect(!stereo.initialize(monoShort(2)), "refuses stereo input");
 
-    va::thirdparty::RNNoiseDSPOptions missingModel;
+    va::thirdparty::audio::RNNoiseDSPOptions missingModel;
     missingModel.modelPath = "/no/such/model.rnnn";
-    va::thirdparty::RNNoiseDSPProvider custom(missingModel);
+    va::thirdparty::audio::RNNoiseDSPProvider custom(missingModel);
     expect(!custom.initialize(monoShort()), "fails to initialize with a model file that doesn't exist");
 
     return failures == 0 ? 0 : 1;

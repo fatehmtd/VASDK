@@ -12,7 +12,7 @@ Supertone's Supertonic 3: diffusion TTS on ONNX Runtime in 31 languages, with vo
 
 ## Options
 
-In C++, `va::thirdparty::SupertonicVoiceSynthesisOptions` (in [`SupertonicVoiceSynthesisProvider.hpp`](../../VASDK_3P_IMPL/SupertonicTTS/SupertonicVoiceSynthesisProvider.hpp)). Every field has a default except the ones marked "required" in its comment.
+In C++, `va::thirdparty::tts::SupertonicVoiceSynthesisOptions` (in [`SupertonicVoiceSynthesisProvider.hpp`](../../VASDK_3P_IMPL/SupertonicTTS/SupertonicVoiceSynthesisProvider.hpp)). Every field has a default except the ones marked "required" in its comment.
 
 | Field | Default | Meaning |
 | --- | --- | --- |
@@ -64,9 +64,9 @@ From C++:
 ```cpp
 #include "SupertonicTTS/SupertonicVoiceSynthesisProvider.hpp"
 
-va::thirdparty::SupertonicVoiceSynthesisOptions options;
+va::thirdparty::tts::SupertonicVoiceSynthesisOptions options;
 options.onnxDir = "...";
-auto provider = std::make_shared<va::thirdparty::SupertonicVoiceSynthesisProvider>(options);
+auto provider = std::make_shared<va::thirdparty::tts::SupertonicVoiceSynthesisProvider>(options);
 // TTSFrameProcessor(provider); setAudioConfiguration() before the pipeline starts
 ```
 

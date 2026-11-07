@@ -8,7 +8,7 @@
 #include <sstream>
 #include <utility>
 
-namespace va::thirdparty {
+namespace va::thirdparty::tts {
 
 SupertonicVoiceSynthesisProvider::SupertonicVoiceSynthesisProvider(SupertonicVoiceSynthesisOptions options)
     : QueuedVoiceSynthesisProvider("SupertonicTTS", Delivery::Thread),
@@ -401,4 +401,4 @@ std::string SupertonicVoiceSynthesisProvider::normalizeText(const std::string& t
     return result;
 }
 
-} // namespace va::thirdparty
+} // namespace va::thirdparty::tts

@@ -4,7 +4,7 @@
 #include <memory>
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::stt {
 
 /** Settings of GladiaPPTranscriptionProvider; every field but the API key has a default. */
 struct GladiaPPTranscriptionOptions {
@@ -54,5 +54,5 @@ private:
     std::unique_ptr<gladiapp::v2::ws::GladiaWebsocketClientSession> _session{nullptr};
 };
 
-} // namespace thirdparty
+} // namespace thirdparty::stt
 } // namespace va

@@ -160,7 +160,7 @@ endif()
 
 #  The agent skills (skills/, AGENTS.md): every path, link, heading and provider id they name
 #  still exists, so a rename fails here instead of leaving a skill stale. And the third-party code
-#  rules (va::thirdparty, no static variables) on every integration in VASDK_3P_IMPL
+#  rules (va::thirdparty::<category>, no static variables) on every integration in VASDK_3P_IMPL
 
 if(VASDK_BUILD_TESTS)
     find_package(Python3 COMPONENTS Interpreter QUIET)

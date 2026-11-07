@@ -11,7 +11,7 @@
 #include <fstream>
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::nlu {
 
 struct GlinerEntityExtractor::Model {
     Ort::Env env{ORT_LOGGING_LEVEL_WARNING, "GLiNER"};
@@ -79,8 +79,8 @@ bool GlinerEntityExtractor::initialize() {
     return true;
 }
 
-std::vector<nlu::EntitySpan> GlinerEntityExtractor::extract(const std::vector<std::string>& words,
-                                                            const std::vector<nlu::EntityLabel>& labels, bool) const {
+std::vector<va::nlu::EntitySpan> GlinerEntityExtractor::extract(const std::vector<std::string>& words,
+                                                            const std::vector<va::nlu::EntityLabel>& labels, bool) const {
     if (!_model || words.empty() || labels.empty()) return {};
     const size_t types = std::min(labels.size(), _model->maxTypes);
     // [CLS] <<ENT>> label ... <<SEP>> word ... [SEP]; words_mask: each word's first piece, from 1.
@@ -128,7 +128,7 @@ std::vector<nlu::EntitySpan> GlinerEntityExtractor::extract(const std::vector<st
     const std::array<const char*, 6> names{"input_ids", "attention_mask", "words_mask", "text_lengths", "span_idx", "span_mask"};
     const char* output = "logits";
 
-    std::vector<nlu::EntitySpan> found;
+    std::vector<va::nlu::EntitySpan> found;
     std::lock_guard<std::mutex> lock(_mutex);
     try {
         auto outputs = _model->session->Run(Ort::RunOptions{nullptr}, names.data(), inputs.data(), inputs.size(), &output, 1);
@@ -150,8 +150,8 @@ std::vector<nlu::EntitySpan> GlinerEntityExtractor::extract(const std::vector<st
         spdlog::error("[GLiNER] extract: {}", error.what());
         return {};
     }
-    return nlu::nonOverlapping(std::move(found));
+    return va::nlu::nonOverlapping(std::move(found));
 }
 
-} // namespace thirdparty
+} // namespace thirdparty::nlu
 } // namespace va

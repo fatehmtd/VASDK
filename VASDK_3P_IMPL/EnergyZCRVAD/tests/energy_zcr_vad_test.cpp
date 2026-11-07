@@ -23,7 +23,7 @@ va::audio::AudioConfig floatAudio() {
     return config;
 }
 
-bool voiced(const va::thirdparty::EnergyZCRVAD& vad, const std::vector<float>& samples) {
+bool voiced(const va::thirdparty::vad::EnergyZCRVAD& vad, const std::vector<float>& samples) {
     return !vad.detectVoiceActivity(reinterpret_cast<const char*>(samples.data()), 0, samples.size()).empty();
 }
 
@@ -39,21 +39,21 @@ int main() {
     std::uniform_real_distribution<float> noise(-0.25f, 0.25f);
     for (float& sample : hiss) sample = noise(generator);
 
-    va::thirdparty::EnergyZCRVAD vad;
+    va::thirdparty::vad::EnergyZCRVAD vad;
     expect(vad.initialize(floatAudio(), static_cast<int>(length)), "initializes with the default options");
     expect(!voiced(vad, silence), "silence is not speech");
     expect(voiced(vad, tone), "a loud low tone is speech");
     expect(!voiced(vad, hiss), "loud hiss is not speech (zero-crossing rate too high)");
 
-    va::thirdparty::EnergyZCRVADOptions deaf;
+    va::thirdparty::vad::EnergyZCRVADOptions deaf;
     deaf.energyThreshold = 1e6;
-    va::thirdparty::EnergyZCRVAD deafVad(deaf);
+    va::thirdparty::vad::EnergyZCRVAD deafVad(deaf);
     deafVad.initialize(floatAudio(), static_cast<int>(length));
     expect(!voiced(deafVad, tone), "a higher energy threshold rejects the tone");
 
-    va::thirdparty::EnergyZCRVADOptions permissive;
+    va::thirdparty::vad::EnergyZCRVADOptions permissive;
     permissive.zeroCrossingRateThreshold = 1.0;
-    va::thirdparty::EnergyZCRVAD permissiveVad(permissive);
+    va::thirdparty::vad::EnergyZCRVAD permissiveVad(permissive);
     permissiveVad.initialize(floatAudio(), static_cast<int>(length));
     expect(voiced(permissiveVad, hiss), "a zero-crossing threshold of 1 lets hiss through");
 

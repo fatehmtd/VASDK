@@ -4,7 +4,7 @@
 #include <nnapi_provider_factory.h>
 #endif
 
-namespace va::thirdparty {
+namespace va::thirdparty::tts {
 
 SupertonicInferenceImpl::SupertonicInferenceImpl(const std::string& onnxDir,
                                                  const std::string& stylePath,
@@ -135,4 +135,4 @@ int SupertonicInferenceImpl::getSampleRate() const {
     return tts_ ? tts_->getSampleRate() : 0;
 }
 
-} // namespace va::thirdparty
+} // namespace va::thirdparty::tts

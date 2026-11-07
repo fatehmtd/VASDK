@@ -3,7 +3,7 @@
 #include <string>
 #include <vector>
 
-namespace va::thirdparty {
+namespace va::thirdparty::stt {
 
 /**
  * @brief NeedleEngine
@@ -65,4 +65,4 @@ private:
     std::vector<char> _out;
 };
 
-} // namespace va::thirdparty
+} // namespace va::thirdparty::stt

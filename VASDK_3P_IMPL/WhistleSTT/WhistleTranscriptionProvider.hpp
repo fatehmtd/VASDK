@@ -9,7 +9,7 @@
 #include <thread>
 #include <vector>
 
-namespace va::thirdparty {
+namespace va::thirdparty::stt {
 
 /** Settings of WhistleTranscriptionProvider; every field but the model path has a default. */
 struct WhistleTranscriptionOptions {
@@ -109,4 +109,4 @@ private:
     std::vector<std::string> _hints;   // under _mtx: from setContextHints
 };
 
-} // namespace va::thirdparty
+} // namespace va::thirdparty::stt

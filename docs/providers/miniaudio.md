@@ -12,7 +12,7 @@ The default microphone and speaker on desktop: `MiniAudioSource` and `MiniAudioS
 
 ## Options
 
-In C++, `va::thirdparty::MiniAudioSourceOptions` (in [`MiniAudioSource.h`](../../VASDK_3P_IMPL/MiniAudio/MiniAudioSource.h)). Every field has a default except the ones marked "required" in its comment.
+In C++, `va::thirdparty::audio::MiniAudioSourceOptions` (in [`MiniAudioSource.h`](../../VASDK_3P_IMPL/MiniAudio/MiniAudioSource.h)). Every field has a default except the ones marked "required" in its comment.
 
 | Field | Default | Meaning |
 | --- | --- | --- |
@@ -33,9 +33,9 @@ All of them are listed in [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md)
 ```cpp
 #include "MiniAudio/MiniAudioSource.h"
 
-va::thirdparty::MiniAudioSourceOptions options;
-auto provider = std::make_shared<va::thirdparty::MiniAudioSource>(options);
-// LocalTransport(source, std::make_shared<va::thirdparty::MiniAudioSink>())
+va::thirdparty::audio::MiniAudioSourceOptions options;
+auto provider = std::make_shared<va::thirdparty::audio::MiniAudioSource>(options);
+// LocalTransport(source, std::make_shared<va::thirdparty::audio::MiniAudioSink>())
 ```
 
 ## How it works

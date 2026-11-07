@@ -6,7 +6,7 @@
 #include "model_types.h"
 #include <vector>
 
-namespace va::thirdparty::phonon {
+namespace va::thirdparty::tts::phonon {
 
 // Carried state for chunked (streaming) Mimi decoding.  Every stage of the
 // decoder keeps exactly the left-context it needs across chunk boundaries:
@@ -54,4 +54,4 @@ std::vector<float> mimi_decode(const std::vector<std::vector<float>>& latents,
                                const Config& cfg,
                                const ModelWeights& weights);
 
-} // namespace va::thirdparty::phonon
+} // namespace va::thirdparty::tts::phonon

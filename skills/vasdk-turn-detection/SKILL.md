@@ -18,7 +18,7 @@ description: End-of-turn detection and turn-taking in VASDK - SmartTurn v3, turn
 
 | Id | Folder | Kind | Options |
 | --- | --- | --- | --- |
-| `smartturn-v3` | `VASDK_3P_IMPL/SmartTurnV3/` | local ONNX, on by default, `va::thirdparty` | `SmartTurnOptions`: `model_path` |
+| `smartturn-v3` | `VASDK_3P_IMPL/SmartTurnV3/` | local ONNX, on by default, `va::thirdparty::turn` | `SmartTurnOptions`: `model_path` |
 
 ## Using it
 
@@ -39,7 +39,7 @@ If it cuts people off, use `PATIENT` or raise the pause threshold. If it answers
 ## Adding one
 
 1. The steps, files and code rules in [vasdk-provider](../vasdk-provider/SKILL.md). Interface: `va::audio::TurnDetectionProvider`. Options: a new `<Name>Options`.
-2. Template: `VASDK_3P_IMPL/SmartTurnV3/` (`va::thirdparty`, ONNX, a golden-parity test of its audio features against the Python reference: `VASDK_3P_IMPL/SmartTurnV3/tests/gen_features_golden.py` and `VASDK_3P_IMPL/SmartTurnV3/tests/golden/`).
+2. Template: `VASDK_3P_IMPL/SmartTurnV3/` (`va::thirdparty::turn`, ONNX, a golden-parity test of its audio features against the Python reference: `VASDK_3P_IMPL/SmartTurnV3/tests/gen_features_golden.py` and `VASDK_3P_IMPL/SmartTurnV3/tests/golden/`).
 3. Register it with `registry.add<va::audio::TurnDetectionProvider, providers::<Name>Options>("<id>", ...)`.
 
 ## Tests

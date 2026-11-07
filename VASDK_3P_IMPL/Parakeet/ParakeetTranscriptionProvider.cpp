@@ -6,7 +6,7 @@
 #include <cstring>  // std::memcpy
 #include <utility>
 
-namespace va::thirdparty {
+namespace va::thirdparty::stt {
 
 namespace {
 
@@ -768,4 +768,4 @@ void ParakeetTranscriptionProvider::inferenceLoop()
     }
 }
 
-} // namespace va::thirdparty
+} // namespace va::thirdparty::stt

@@ -22,7 +22,7 @@
 #include <nnapi_provider_factory.h>
 #endif
 
-namespace va::thirdparty {
+namespace va::thirdparty::vad {
 
 // timestamp_t class: stores the start and end (in samples) of a speech segment.
 class timestamp_t {
@@ -314,4 +314,4 @@ public:
     }
 };
 
-} // namespace va::thirdparty
+} // namespace va::thirdparty::vad

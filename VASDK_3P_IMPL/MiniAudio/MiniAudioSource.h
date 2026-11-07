@@ -3,7 +3,7 @@
 #include <memory>
 #include <chrono>
 
-namespace va::thirdparty {
+namespace va::thirdparty::audio {
 
 /** Settings of MiniAudioSource; every field has a default. */
 struct MiniAudioSourceOptions {
@@ -55,4 +55,4 @@ private:
     std::unique_ptr<Impl> _impl;
 };
 
-} // namespace va::thirdparty
+} // namespace va::thirdparty::audio

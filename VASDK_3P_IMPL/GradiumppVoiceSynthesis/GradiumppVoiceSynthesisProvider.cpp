@@ -5,7 +5,7 @@
 #include <spdlog/spdlog.h>
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::tts {
 
 GradiumppVoiceSynthesisProvider::GradiumppVoiceSynthesisProvider(GradiumppVoiceSynthesisOptions options)
     : _apiKey(std::move(options.apiKey)),
@@ -251,5 +251,5 @@ void GradiumppVoiceSynthesisProvider::connectCallbacks()
     });
 }
 
-} // namespace thirdparty
+} // namespace thirdparty::tts
 } // namespace va

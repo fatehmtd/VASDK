@@ -12,7 +12,7 @@ Soniox's streaming speech synthesis over WebSocket, through [SonioxPP](https://g
 
 ## Options
 
-In C++, `va::thirdparty::SonioxppVoiceSynthesisOptions` (in [`SonioxppVoiceSynthesisProvider.h`](../../VASDK_3P_IMPL/SonioxppVoiceSynthesis/SonioxppVoiceSynthesisProvider.h)). Every field has a default except the ones marked "required" in its comment.
+In C++, `va::thirdparty::tts::SonioxppVoiceSynthesisOptions` (in [`SonioxppVoiceSynthesisProvider.h`](../../VASDK_3P_IMPL/SonioxppVoiceSynthesis/SonioxppVoiceSynthesisProvider.h)). Every field has a default except the ones marked "required" in its comment.
 
 | Field | Default | Meaning |
 | --- | --- | --- |
@@ -55,9 +55,9 @@ From C++:
 ```cpp
 #include "SonioxppVoiceSynthesis/SonioxppVoiceSynthesisProvider.h"
 
-va::thirdparty::SonioxppVoiceSynthesisOptions options;
+va::thirdparty::tts::SonioxppVoiceSynthesisOptions options;
 options.apiKey = "...";
-auto provider = std::make_shared<va::thirdparty::SonioxppVoiceSynthesisProvider>(options);
+auto provider = std::make_shared<va::thirdparty::tts::SonioxppVoiceSynthesisProvider>(options);
 // TTSFrameProcessor(provider); setAudioConfiguration() before the pipeline starts
 ```
 

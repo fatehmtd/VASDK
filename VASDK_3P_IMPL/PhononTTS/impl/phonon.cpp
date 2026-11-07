@@ -37,7 +37,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace va::thirdparty::phonon {
+namespace va::thirdparty::tts::phonon {
 
     // ---------------------------------------------------------------------------
     // GGML linear: y[seq, out] = x[seq, in] @ W^T + bias
@@ -1224,4 +1224,4 @@ namespace va::thirdparty::phonon {
         return parse_config_impl(json_path);
     }
 
-} // namespace va::thirdparty::phonon
+} // namespace va::thirdparty::tts::phonon

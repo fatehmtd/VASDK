@@ -3,7 +3,7 @@
 #include <spdlog/spdlog.h>
 #include <VASDK/GenericAudioSource.h>
 
-namespace va::thirdparty {
+namespace va::thirdparty::audio {
 
 /**
  * @brief The SDLAudioSource class
@@ -30,4 +30,4 @@ private:
     SDL_AudioStream *_audioStream = nullptr;
 };
 
-} // namespace va::thirdparty
+} // namespace va::thirdparty::audio

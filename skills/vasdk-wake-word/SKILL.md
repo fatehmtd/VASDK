@@ -38,7 +38,7 @@ virtual void reset() {}   // forget partial matches
 
 ## Adding the first one
 
-1. The steps, files and code rules in [vasdk-provider](../vasdk-provider/SKILL.md): `va::thirdparty`, `<Name>Options` (model path, phrases, sensitivity) with defaults, a download script for the model, every platform including Android.
+1. The steps, files and code rules in [vasdk-provider](../vasdk-provider/SKILL.md): `va::thirdparty::wakeword`, `<Name>Options` (model path, phrases, sensitivity) with defaults, a download script for the model, every platform including Android.
 2. Template: `VASDK_3P_IMPL/SmartTurnV3/` for the ONNX audio-model structure.
 3. Register it with `registry.add<va::audio::WakeWordProvider, providers::<Name>Options>("<id>", ...)`. The stage is already in `VASDK/proto/vasdk/engine/engine_config.proto` (`wake_word`), and the runtime already uses it.
 4. Docs: its page; in [activation](../../docs/reference/engine-config.md#activation), replace "No wake-word provider ships yet" with the new id; add a "Wake word" row to the README provider table and to `docs/provider-catalog.md`.

@@ -131,12 +131,12 @@ std::string systemPrompt(const std::string& agentFile) {
 
 std::shared_ptr<va::transport::AudioTransport> createLocalAudio(const va::audio::AudioConfig& input) {
 #ifdef VASDK_HAS_MINIAUDIO
-    auto sink = std::make_shared<va::thirdparty::MiniAudioSink>();
-    auto source = std::make_shared<va::thirdparty::MiniAudioSource>();
+    auto sink = std::make_shared<va::thirdparty::audio::MiniAudioSink>();
+    auto source = std::make_shared<va::thirdparty::audio::MiniAudioSource>();
 #elif defined(VASDK_HAS_SDL)
     (void)input;
-    auto sink = std::make_shared<va::thirdparty::SDLAudioSink>();
-    auto source = std::make_shared<va::thirdparty::SDLAudioSource>();
+    auto sink = std::make_shared<va::thirdparty::audio::SDLAudioSink>();
+    auto source = std::make_shared<va::thirdparty::audio::SDLAudioSource>();
 #else
 #error "No audio I/O backend - enable VASDK_BUILD_MINIAUDIO or VASDK_BUILD_SDL"
 #endif
@@ -233,9 +233,9 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 #ifdef VASDK_HAS_LIBDATACHANNEL_WEBRTC
-    std::shared_ptr<va::thirdparty::LibDataChannelWebRtcProvider> peer;
+    std::shared_ptr<va::thirdparty::transport::LibDataChannelWebRtcProvider> peer;
     if (args.webrtc) {
-        peer = std::make_shared<va::thirdparty::LibDataChannelWebRtcProvider>();
+        peer = std::make_shared<va::thirdparty::transport::LibDataChannelWebRtcProvider>();
         options.transport = std::make_shared<va::transport::WebRtcTransport>(peer);
     } else
 #endif

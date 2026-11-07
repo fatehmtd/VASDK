@@ -6,7 +6,7 @@
 
 #include <algorithm>
 
-namespace va::thirdparty {
+namespace va::thirdparty::tts {
 
 // ---------------------------------------------------------------------------
 // Constructor / Destructor
@@ -101,4 +101,4 @@ bool PocketVoiceSynthesisProvider::synthesizeOne(const std::string& text) {
     return PocketTTSImpl::normalizeText(text);
 }
 
-} // namespace va::thirdparty
+} // namespace va::thirdparty::tts

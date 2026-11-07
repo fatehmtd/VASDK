@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-namespace va::thirdparty::phonon {
+namespace va::thirdparty::tts::phonon {
 
     namespace text { class Tokenizer; }
 
@@ -171,4 +171,4 @@ namespace va::thirdparty::phonon {
         std::unique_ptr<PhononTTSImpl> _ttsImpl;
     };
 
-} // namespace va::thirdparty::phonon
+} // namespace va::thirdparty::tts::phonon

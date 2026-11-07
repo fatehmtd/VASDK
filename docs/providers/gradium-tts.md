@@ -12,7 +12,7 @@ Gradium's streaming speech synthesis, through [GradiumPP](https://github.com/fat
 
 ## Options
 
-In C++, `va::thirdparty::GradiumppVoiceSynthesisOptions` (in [`GradiumppVoiceSynthesisProvider.h`](../../VASDK_3P_IMPL/GradiumppVoiceSynthesis/GradiumppVoiceSynthesisProvider.h)). Every field has a default except the ones marked "required" in its comment.
+In C++, `va::thirdparty::tts::GradiumppVoiceSynthesisOptions` (in [`GradiumppVoiceSynthesisProvider.h`](../../VASDK_3P_IMPL/GradiumppVoiceSynthesis/GradiumppVoiceSynthesisProvider.h)). Every field has a default except the ones marked "required" in its comment.
 
 | Field | Default | Meaning |
 | --- | --- | --- |
@@ -52,9 +52,9 @@ From C++:
 ```cpp
 #include "GradiumppVoiceSynthesis/GradiumppVoiceSynthesisProvider.h"
 
-va::thirdparty::GradiumppVoiceSynthesisOptions options;
+va::thirdparty::tts::GradiumppVoiceSynthesisOptions options;
 options.apiKey = "...";
-auto provider = std::make_shared<va::thirdparty::GradiumppVoiceSynthesisProvider>(options);
+auto provider = std::make_shared<va::thirdparty::tts::GradiumppVoiceSynthesisProvider>(options);
 // TTSFrameProcessor(provider); setAudioConfiguration() before the pipeline starts
 ```
 

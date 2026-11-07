@@ -6,7 +6,7 @@
 #include <cstring>
 
 namespace va {
-    namespace thirdparty {
+    namespace thirdparty::audio {
 
         // 
         // Lifecycle
@@ -110,5 +110,5 @@ namespace va {
             return features;
         }
 
-    } // namespace thirdparty
+    } // namespace thirdparty::audio
 } // namespace va

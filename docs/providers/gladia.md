@@ -12,7 +12,7 @@ Gladia's real-time speech recognition, through [gladiapp](https://github.com/fat
 
 ## Options
 
-In C++, `va::thirdparty::GladiaPPTranscriptionOptions` (in [`GladiaPPTranscriptionProvider.h`](../../VASDK_3P_IMPL/GladiappTranscription/GladiaPPTranscriptionProvider.h)). Every field has a default except the ones marked "required" in its comment.
+In C++, `va::thirdparty::stt::GladiaPPTranscriptionOptions` (in [`GladiaPPTranscriptionProvider.h`](../../VASDK_3P_IMPL/GladiappTranscription/GladiaPPTranscriptionProvider.h)). Every field has a default except the ones marked "required" in its comment.
 
 | Field | Default | Meaning |
 | --- | --- | --- |
@@ -53,9 +53,9 @@ From C++:
 ```cpp
 #include "GladiappTranscription/GladiaPPTranscriptionProvider.h"
 
-va::thirdparty::GladiaPPTranscriptionOptions options;
+va::thirdparty::stt::GladiaPPTranscriptionOptions options;
 options.apiKey = "...";
-auto provider = std::make_shared<va::thirdparty::GladiaPPTranscriptionProvider>(options);
+auto provider = std::make_shared<va::thirdparty::stt::GladiaPPTranscriptionProvider>(options);
 // TranscriptionFrameProcessor(provider); setAudioConfiguration() before the pipeline starts
 ```
 

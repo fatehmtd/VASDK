@@ -5,7 +5,7 @@
 #include <algorithm>
 #include <utility>
 
-namespace va::thirdparty {
+namespace va::thirdparty::stt {
 
 // ---------------------------------------------------------------------------
 // MoonshineSttProvider
@@ -254,4 +254,4 @@ void MoonshineSttProvider::inferenceLoop()
     }
 }
 
-} // namespace va::thirdparty
+} // namespace va::thirdparty::stt

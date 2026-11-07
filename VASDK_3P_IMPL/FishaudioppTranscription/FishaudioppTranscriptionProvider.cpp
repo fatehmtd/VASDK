@@ -122,7 +122,7 @@ std::shared_ptr<fishaudiopp::transport::HttpTransportInterface> makeHttpTranspor
 } // namespace
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::stt {
 
 FishaudioppTranscriptionProvider::FishaudioppTranscriptionProvider(FishaudioppTranscriptionOptions options)
     : _apiKey(std::move(options.apiKey)),
@@ -342,5 +342,5 @@ va::audio::TranscriptionResult FishaudioppTranscriptionProvider::transcribe(cons
     return result;
 }
 
-} // namespace thirdparty
+} // namespace thirdparty::stt
 } // namespace va

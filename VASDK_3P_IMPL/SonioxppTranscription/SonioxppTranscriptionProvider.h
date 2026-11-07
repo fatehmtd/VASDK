@@ -9,7 +9,7 @@
 #include <vector>
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::stt {
 
 /** Settings of SonioxppTranscriptionProvider; every field but the API key has a default. */
 struct SonioxppTranscriptionOptions {
@@ -73,5 +73,5 @@ private:
     mutable std::mutex _clientMutex;
 };
 
-} // namespace thirdparty
+} // namespace thirdparty::stt
 } // namespace va

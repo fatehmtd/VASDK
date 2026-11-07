@@ -12,7 +12,7 @@ Fish Audio's speech recognition over REST, through [fishaudiopp](https://github.
 
 ## Options
 
-In C++, `va::thirdparty::FishaudioppTranscriptionOptions` (in [`FishaudioppTranscriptionProvider.h`](../../VASDK_3P_IMPL/FishaudioppTranscription/FishaudioppTranscriptionProvider.h)). Every field has a default except the ones marked "required" in its comment.
+In C++, `va::thirdparty::stt::FishaudioppTranscriptionOptions` (in [`FishaudioppTranscriptionProvider.h`](../../VASDK_3P_IMPL/FishaudioppTranscription/FishaudioppTranscriptionProvider.h)). Every field has a default except the ones marked "required" in its comment.
 
 | Field | Default | Meaning |
 | --- | --- | --- |
@@ -54,9 +54,9 @@ From C++:
 ```cpp
 #include "FishaudioppTranscription/FishaudioppTranscriptionProvider.h"
 
-va::thirdparty::FishaudioppTranscriptionOptions options;
+va::thirdparty::stt::FishaudioppTranscriptionOptions options;
 options.apiKey = "...";
-auto provider = std::make_shared<va::thirdparty::FishaudioppTranscriptionProvider>(options);
+auto provider = std::make_shared<va::thirdparty::stt::FishaudioppTranscriptionProvider>(options);
 // TranscriptionFrameProcessor(provider); setAudioConfiguration() before the pipeline starts
 ```
 

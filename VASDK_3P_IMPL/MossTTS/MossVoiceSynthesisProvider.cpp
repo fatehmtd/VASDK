@@ -6,7 +6,7 @@
 
 #include <algorithm>
 
-namespace va::thirdparty {
+namespace va::thirdparty::tts {
 
 // ---------------------------------------------------------------------------
 // Constructor / Destructor
@@ -105,4 +105,4 @@ bool MossVoiceSynthesisProvider::synthesizeOne(const std::string& text) {
     return finishHandoff();
 }
 
-} // namespace va::thirdparty
+} // namespace va::thirdparty::tts

@@ -9,7 +9,7 @@
 #include <array>
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::speaker {
 
 struct PyannoteEmbeddingProvider::Impl {
     Ort::Env env{ ORT_LOGGING_LEVEL_WARNING, "PyannoteEmbedding" };
@@ -107,5 +107,5 @@ std::vector<float> PyannoteEmbeddingProvider::computeEmbedding(const float* samp
     }
 }
 
-} // namespace thirdparty
+} // namespace thirdparty::speaker
 } // namespace va

@@ -88,7 +88,7 @@ std::shared_ptr<cartesiapp::transport::IHttpTransport> makeHttpTransport(const s
 } // namespace
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::stt {
 
 CartesiappTranscriptionProvider::CartesiappTranscriptionProvider(CartesiappTranscriptionOptions options)
     : _apiKey(std::move(options.apiKey)),
@@ -430,5 +430,5 @@ va::audio::TranscriptionResult CartesiappTranscriptionProvider::buildResult(
     return result;
 }
 
-} // namespace thirdparty
+} // namespace thirdparty::stt
 } // namespace va

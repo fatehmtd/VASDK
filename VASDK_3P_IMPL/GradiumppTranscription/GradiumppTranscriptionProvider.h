@@ -10,7 +10,7 @@
 #include <string>
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::stt {
 
 /** Settings of GradiumppTranscriptionProvider; every field but the API key has a default. */
 struct GradiumppTranscriptionOptions {
@@ -84,5 +84,5 @@ private:
     std::atomic<bool> _setupFailed{ false };
 };
 
-} // namespace thirdparty
+} // namespace thirdparty::stt
 } // namespace va

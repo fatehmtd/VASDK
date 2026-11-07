@@ -17,7 +17,7 @@ extern "C" {
 
 //  Helpers 
 
-namespace va::thirdparty {
+namespace va::thirdparty::audio {
 
 namespace {
 
@@ -369,4 +369,4 @@ bool FFmpegAudioSource::resampleIntoStaging() {
     return true;
 }
 
-} // namespace va::thirdparty
+} // namespace va::thirdparty::audio

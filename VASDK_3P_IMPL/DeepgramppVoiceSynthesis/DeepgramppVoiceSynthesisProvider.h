@@ -9,7 +9,7 @@
 #include <string>
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::tts {
 
 /** Settings of DeepgramppVoiceSynthesisProvider; every field but the API key has a default. */
 struct DeepgramppVoiceSynthesisOptions {
@@ -61,5 +61,5 @@ private:
     mutable std::mutex _clientMutex;
 };
 
-} // namespace thirdparty
+} // namespace thirdparty::tts
 } // namespace va

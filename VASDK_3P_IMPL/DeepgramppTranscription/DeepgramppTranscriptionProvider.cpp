@@ -79,7 +79,7 @@ std::vector<int16_t> toPcm16(const uint8_t* data, size_t size, va::audio::AudioF
 } // namespace
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::stt {
 
 DeepgramppTranscriptionProvider::DeepgramppTranscriptionProvider(DeepgramppTranscriptionOptions options)
     : _apiKey(std::move(options.apiKey)),
@@ -409,5 +409,5 @@ va::audio::TranscriptionResult DeepgramppTranscriptionProvider::buildResult(
     return result;
 }
 
-} // namespace thirdparty
+} // namespace thirdparty::stt
 } // namespace va
