@@ -71,6 +71,8 @@ The media stack sits behind [`WebRtcInterface`](../../VASDK/include/VASDK/networ
 
 **`LibDataChannelWebRtcProvider`** ([`VASDK_3P_IMPL/LibDataChannelWebRtc`](../../VASDK_3P_IMPL/LibDataChannelWebRtc/LibDataChannelWebRtcProvider.h), `-DVASDK_BUILD_LIBDATACHANNEL_WEBRTC=ON`) is the shipped provider: a direct PeerConnection via [libdatachannel](https://github.com/paullouisageneau/libdatachannel) with one sendrecv Opus track.
 
+Without writing C++: an engine config's `providers { webrtc { id: "libdatachannel" } }` makes `VAEngine` build this transport over the catalog's peer, which serves its signaling and the demo page on its `port` ([WebRTC options](../providers/webrtc.md#options)). That's how the C API's and Python's sessions take browser calls.
+
 - Signaling is one non-trickle SDP exchange: `handleOffer(offerSdp)` returns the answer once ICE gathering completes. `startSignalingServer(port, host, pagePath)` exposes it as `POST /offer` (WHIP-shaped; `409` while a peer is connected) and serves a page at `GET /`. `setPipelineDescription(fn)` adds `GET /pipeline` with `fn()`'s JSON, for example `Pipeline::describeAsJson()`; the demo page uses it to list the processors and providers. **No authentication** - it binds `127.0.0.1` by default; put it behind your own auth before exposing it.
 - Events go out on the data channel the browser creates with its offer (the demo page calls it `events`). `sendEvent` returns false until that channel is open, so events from before then are lost.
 - Opus runs directly at the transport's rates, which must be 8/12/16/24/48 kHz (`open()` fails otherwise - there is no resampler).

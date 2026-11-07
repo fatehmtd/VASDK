@@ -675,6 +675,8 @@ class Session:
     """A spoken conversation: the providers and the LLM an engine config names, and an agent (or
     None for the LLM alone). The app brings the audio: push_audio() the user's 16-bit mono PCM,
     and get the assistant's speech through on_audio(). Or type: inject_text().
+    A config whose providers name a webrtc peer (providers { webrtc { id: "libdatachannel" } })
+    talks to a browser instead, and push_audio() and on_audio() go unused.
 
         session = vasdk.Session("engine.txtpb", vasdk.Providers(), agent, models_dir="models")
 

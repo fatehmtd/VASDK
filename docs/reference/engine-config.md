@@ -49,10 +49,12 @@ Each `ProviderSpec` has:
   | `vasdk.providers.LocalSttOptions` | `whistle`, `moonshine`, `parakeet` | `model_dir`, `idle_timeout_ms`, `partial_interval_ms`, `language` |
   | `vasdk.providers.LocalTtsOptions` | `supertonic`, `moss`, `phonon`, `pocket` | `model_dir`, `voice`, `language`, `steps`, `prebuffer_ms` (pocket, moss: audio made before playback starts, against stalls on slow phones) |
   | `vasdk.providers.SmartTurnOptions` | `smartturn-v3` | `model_path` |
+  | `vasdk.providers.LibDataChannelWebRtcOptions` | `libdatachannel` (`webrtc`) | `ice_servers`, `port` (8080), `host`, `page` ([WebRTC](../providers/webrtc.md#options)) |
 
   A recognizer's or voice's `language` is the provider's own setting: set it to match the agent's `locale` ([Languages](languages.md)), which the providers don't read.
 
-- `fallback`: ids to try, in order, when `id` is not built into the binary or fails to start (a missing model file, for example), and to switch to when the network drops ([When the network drops](engine.md#when-the-network-drops)). `options` apply to `id`; a fallback gets its `fallback_options` entry (`fallback_options { key: "parakeet" value { [type.googleapis.com/vasdk.providers.LocalSttOptions] { model_dir: "models/parakeet" } } }`), or starts with its defaults. The log shows which provider was used and why the others were skipped.
+- `webrtc` (a stage of its own): a browser brings the audio instead of the app. `providers { webrtc { id: "libdatachannel" } }` makes `VAEngine` (and the C API's and Python's sessions) talk over a [`WebRtcTransport`](transports.md#webrtctransport), serve the signaling and a demo page on its `port`, and send the agent's state to the page. The app's own transport, `vasdk_session_push_audio` and the audio callback then go unused. Needs `-DVASDK_BUILD_LIBDATACHANNEL_WEBRTC=ON`, and not SonioxPP beside it ([why](../providers/webrtc.md#options)).
+- `fallback`: ids to try, in order, when `id` is not built into the binary or fails to start (a missing model file, or a cloud provider with no API key, for example), and to switch to when the network drops ([When the network drops](engine.md#when-the-network-drops)). `options` apply to `id`; a fallback gets its `fallback_options` entry (`fallback_options { key: "parakeet" value { [type.googleapis.com/vasdk.providers.LocalSttOptions] { model_dir: "models/parakeet" } } }`), or starts with its defaults. The log shows which provider was used and why the others were skipped.
 
 ## Activation
 

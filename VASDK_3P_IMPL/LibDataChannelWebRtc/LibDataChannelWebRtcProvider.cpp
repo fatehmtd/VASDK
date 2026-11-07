@@ -55,6 +55,7 @@ struct LibDataChannelWebRtcProvider::Impl : std::enable_shared_from_this<Impl> {
     std::shared_ptr<rtc::Track> track;
     std::shared_ptr<rtc::RtpPacketizationConfig> rtpConfig;
     std::shared_ptr<rtc::DataChannel> events;  // opened by the browser; carries sendEvent()
+    std::vector<std::string> pendingEvents;    // sent while connected, before the browser's channel opened
     std::atomic<int> payloadType{111};
     std::atomic<bool> connected{false};
     std::atomic<int64_t> lastMediaMs{0};
@@ -100,6 +101,7 @@ struct LibDataChannelWebRtcProvider::Impl : std::enable_shared_from_this<Impl> {
             track.reset();
             rtpConfig.reset();
             events.reset();
+            pendingEvents.clear();
         }
         // Close outside the lock: close() fires state callbacks synchronously.
         if (old) old->close();
@@ -273,19 +275,28 @@ bool LibDataChannelWebRtcProvider::sendAudio(const int16_t* pcm, size_t samples)
     return true;
 }
 
-bool LibDataChannelWebRtcProvider::sendEvent(const std::string& json) {
-    std::shared_ptr<rtc::DataChannel> dc;
-    {
-        std::lock_guard<std::mutex> lock(_impl->pcMutex);
-        dc = _impl->events;
-    }
-    if (!dc || !dc->isOpen()) return false;
+namespace {
+
+bool sendOn(rtc::DataChannel& channel, const std::string& json) {
     try {
-        return dc->send(json);
+        return channel.send(json);
     } catch (const std::exception& e) {
         spdlog::debug("[LibDataChannelWebRtc] event send failed: {}", e.what());
         return false;
     }
+}
+
+} // namespace
+
+bool LibDataChannelWebRtcProvider::sendEvent(const std::string& json) {
+    // Under the lock, so what was held for the channel goes out first and in order.
+    std::lock_guard<std::mutex> lock(_impl->pcMutex);
+    if (_impl->events && _impl->events->isOpen()) return sendOn(*_impl->events, json);
+    // The call is up but the browser's channel isn't open yet (the greeting): held until it is.
+    constexpr size_t maximumPendingEvents = 256;
+    if (!_impl->pc || !_impl->connected || _impl->pendingEvents.size() >= maximumPendingEvents) return false;
+    _impl->pendingEvents.push_back(json);
+    return true;
 }
 
 std::string LibDataChannelWebRtcProvider::handleOffer(const std::string& offerSdp) {
@@ -356,7 +367,22 @@ std::string LibDataChannelWebRtcProvider::handleOffer(const std::string& offerSd
             auto i = weak.lock();
             if (!i) return;
             std::lock_guard<std::mutex> lock(i->pcMutex);
-            if (i->pc.get() == self) i->events = std::move(dc);
+            if (i->pc.get() != self) return;
+            i->events = dc;
+            auto flush = [weak, self] {   // what was sent before the channel opened
+                auto impl = weak.lock();
+                if (!impl) return;
+                std::lock_guard<std::mutex> held(impl->pcMutex);
+                if (impl->pc.get() != self || !impl->events || !impl->events->isOpen()) return;
+                for (const auto& json : impl->pendingEvents) sendOn(*impl->events, json);
+                impl->pendingEvents.clear();
+            };
+            if (dc->isOpen()) {
+                for (const auto& json : i->pendingEvents) sendOn(*dc, json);
+                i->pendingEvents.clear();
+            } else {
+                dc->onOpen(flush);
+            }
         });
 
         auto gathered = std::make_shared<std::promise<void>>();

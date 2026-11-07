@@ -46,6 +46,7 @@ If no, C++ extensions and a `<name>_agentc` tool, as in `VASDK_APP/agents/garage
 | `sentence_encoder` | `MiniLmOptions` | whether the agent should understand paraphrases its examples miss |
 | `entity_model` | `GlinerOptions` (`gliner`); none for `tagger`, `llm` | `threshold` ([which one](../../docs/reference/flows.md#entity-models)) |
 | `wake_word` | | none ships yet: say so and point to [vasdk-wake-word](../vasdk-wake-word/SKILL.md) |
+| `webrtc` | `LibDataChannelWebRtcOptions` (`libdatachannel`) | whether a browser brings the audio instead of the app; `port`. Not with SonioxPP in the same build ([webrtc](../../docs/providers/webrtc.md#options)) |
 
 Every cloud provider gets a local `fallback`. Check each choice's doc page against the platforms from step 2 and say what isn't supported where. The stage skill has the rest ([vasdk-stt](../vasdk-stt/SKILL.md), [vasdk-tts](../vasdk-tts/SKILL.md), [vasdk-vad](../vasdk-vad/SKILL.md), [vasdk-turn-detection](../vasdk-turn-detection/SKILL.md), [vasdk-nlu](../vasdk-nlu/SKILL.md)).
 

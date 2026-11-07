@@ -15,6 +15,10 @@ struct LibDataChannelWebRtcOptions {
     /** STUN/TURN URLs, e.g. "stun:stun.l.google.com:19302". Empty: host candidates only (same machine
      *  or LAN). */
     std::vector<std::string> iceServers = {"stun:stun.l.google.com:19302"};
+    /** Where a peer created from an engine config (the catalog's "libdatachannel") serves its
+     *  signaling: startSignalingServer(signalingPort, signalingHost, page). */
+    uint16_t signalingPort = 8080;
+    std::string signalingHost = "127.0.0.1";
 };
 
 /**
