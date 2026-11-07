@@ -157,3 +157,16 @@ endif()
 if(VASDK_BUILD_TESTS)
     add_subdirectory(VASDK_PYTHON_APP)
 endif()
+
+#  The agent skills (skills/, AGENTS.md): every path, link, heading and provider id they name
+#  still exists, so a rename fails here instead of leaving a skill stale
+
+if(VASDK_BUILD_TESTS)
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+    if(Python3_Interpreter_FOUND)
+        add_test(NAME vasdk_skills COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/skills/check_skills.py)
+        add_test(NAME vasdk_skills_self_test COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/skills/check_skills.py --self-test)
+    else()
+        message(WARNING "Python 3 not found: the vasdk_skills tests are not registered")
+    endif()
+endif()

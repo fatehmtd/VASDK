@@ -137,6 +137,7 @@ On by default: MiniAudio, Silero VAD, SmartTurn v3, pyannote, MiniLM, Whistle, P
 - [Documentation index](docs/README.md): where to start, by role (evaluating, building an app, writing a provider, extending the core).
 - [Example apps](docs/apps/README.md) and [worked examples](docs/README.md#worked-examples).
 - [Plain-language overview](docs/overview.md) for product and project people.
+- [AGENTS.md](AGENTS.md) and [skills](skills/README.md) for coding agents and contributors: one skill per stage (VAD, STT, TTS, LLM, …), for new providers, core components, agents and apps, with the definition of done.
 
 ## License
 
