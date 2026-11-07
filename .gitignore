@@ -104,6 +104,10 @@ bindings/python/vasdk/flow/
 bindings/python/vasdk/goal/
 bindings/python/vasdk/nlu/
 bindings/python/build/
+# The Kotlin binding built by hand with Gradle (ctest builds it under build/)
+bindings/kotlin/build/
+bindings/kotlin/.gradle/
+bindings/kotlin/.kotlin/
 bindings/python/*.egg-info/
 dist/
 __pycache__/

@@ -171,6 +171,12 @@ if(VASDK_BUILD_TESTS AND VASDK_BUILD_PYTHON_BINDING)
     add_subdirectory(VASDK_PYTHON_APP)
 endif()
 
+#  The Kotlin binding on the JVM (bindings/kotlin), by Gradle; Android builds the same sources (VASDK_ANDROID/vasdk)
+
+if(VASDK_BUILD_KOTLIN_BINDING)
+    add_subdirectory(bindings/kotlin)
+endif()
+
 #  The agent skills (skills/, AGENTS.md): every path, link, heading and provider id they name
 #  still exists, so a rename fails here instead of leaving a skill stale. And the third-party code
 #  rules (va::thirdparty::<category>, no static variables) on every integration in VASDK_3P_IMPL
@@ -185,7 +191,7 @@ if(VASDK_BUILD_TESTS)
         # C, Python and Kotlin level with the C++ API (skills/vasdk-binding-parity): reads sources
         # only, so it runs with the bindings off too, and a new C++ capability can't go unbound unnoticed
         add_test(NAME vasdk_binding_parity
-                 COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/skills/vasdk-binding-parity/check_parity.py --bindings c,python)
+                 COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/skills/vasdk-binding-parity/check_parity.py)
         add_test(NAME vasdk_binding_parity_self_test
                  COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/skills/vasdk-binding-parity/check_parity.py --self-test)
         # The binding's tests (vasdk_python_*) need protobuf in this interpreter

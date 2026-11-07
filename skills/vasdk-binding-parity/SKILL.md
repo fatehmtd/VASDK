@@ -37,8 +37,8 @@ flowchart LR
    - a new `*_message` function taking and giving protos, plus a JSON twin only when plain C needs it (list the twin under "C functions the bindings leave out").
    - for an interface the app implements (a provider, a processor, a context source), callbacks with a `user` pointer, as `vasdk_registry_add_tool` does: a `create`/`destroy` pair per session, never one global instance.
 4. **Python** in `bindings/python/vasdk/__init__.py`: `_declare` the function, wrap it in a method with the manifest's name, and keep callbacks alive while C holds them (`_keep`).
-5. **Kotlin** in the Kotlin binding (bindings/kotlin): declare the function on the JNA interface, wrap it with the manifest's camelCase name, and hold callback objects for as long as C may call them.
-6. **Tests** for each layer ([vasdk-bindings](../vasdk-bindings/SKILL.md#tests)): a C test in `VASDK/tests/`, the same scenario in `bindings/python/tests/` and in the Kotlin tests. The binding tests run only with `-DVASDK_BUILD_PYTHON_BINDING=ON` / `-DVASDK_BUILD_KOTLIN_BINDING=ON` (both off by default), so turn them on for this work.
+5. **Kotlin** in `bindings/kotlin/src/main/kotlin/com/vasdk/`: declare the function on the JNA interface in `Native.kt`, wrap it in its class (`Session.kt`, `Agent.kt`, `Providers.kt`, `Vasdk.kt`) with the manifest's camelCase name, and hold callback objects for as long as C may call them (`keep`, which also keeps the calling thread attached to the JVM).
+6. **Tests** for each layer ([vasdk-bindings](../vasdk-bindings/SKILL.md#tests)): a C test in `VASDK/tests/`, the same scenario in `bindings/python/tests/` and in `bindings/kotlin/src/test/kotlin/com/vasdk/` (ctest: `vasdk_kotlin`). The binding tests run only with `-DVASDK_BUILD_PYTHON_BINDING=ON` / `-DVASDK_BUILD_KOTLIN_BINDING=ON` (both off by default), so turn them on for this work.
 7. **Manifest:** fill the row, then re-run the check until it prints `bindings at parity`.
 
 ## Pitfalls
