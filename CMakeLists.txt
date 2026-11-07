@@ -188,12 +188,25 @@ if(VASDK_BUILD_TESTS)
         add_test(NAME vasdk_skills_self_test COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/skills/check_skills.py --self-test)
         add_test(NAME vasdk_thirdparty_rules COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/VASDK_3P_IMPL/check_rules.py)
         add_test(NAME vasdk_thirdparty_rules_self_test COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/VASDK_3P_IMPL/check_rules.py --self-test)
-        # C, Python and Kotlin level with the C++ API (skills/vasdk-binding-parity): reads sources
-        # only, so it runs with the bindings off too, and a new C++ capability can't go unbound unnoticed
-        add_test(NAME vasdk_binding_parity
-                 COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/skills/vasdk-binding-parity/check_parity.py)
-        add_test(NAME vasdk_binding_parity_self_test
-                 COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/skills/vasdk-binding-parity/check_parity.py --self-test)
+        # C and the bindings that are on level with the C++ API (skills/vasdk-binding-parity)
+        if(VASDK_BUILD_PYTHON_BINDING OR VASDK_BUILD_KOTLIN_BINDING)
+            set(_vasdk_parity_bindings c)
+            if(VASDK_BUILD_PYTHON_BINDING)
+                string(APPEND _vasdk_parity_bindings ",python")
+            endif()
+            if(VASDK_BUILD_KOTLIN_BINDING)
+                string(APPEND _vasdk_parity_bindings ",kotlin")
+            endif()
+            add_test(NAME vasdk_binding_parity
+                     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/skills/vasdk-binding-parity/check_parity.py
+                             --bindings ${_vasdk_parity_bindings})
+            add_test(NAME vasdk_binding_parity_self_test
+                     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/skills/vasdk-binding-parity/check_parity.py --self-test)
+        else()
+            message(WARNING "VASDK_BUILD_PYTHON_BINDING and VASDK_BUILD_KOTLIN_BINDING are off: the binding parity "
+                            "checks (vasdk_binding_parity) are not registered, so a C++ API the bindings don't follow "
+                            "goes unnoticed. Turn a binding on, or run skills/vasdk-binding-parity/check_parity.py")
+        endif()
         # The binding's tests (vasdk_python_*) need protobuf in this interpreter
         if(VASDK_BUILD_PYTHON_BINDING)
             execute_process(COMMAND ${Python3_EXECUTABLE} -c "import google.protobuf"

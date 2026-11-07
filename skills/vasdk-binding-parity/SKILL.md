@@ -5,7 +5,7 @@ description: Bring the C API, the Python binding and the Kotlin binding level wi
 
 # Binding parity: C, Python and Kotlin level with C++
 
-[vasdk-bindings](../vasdk-bindings/SKILL.md) takes **one** feature to every platform. This skill finds **every** place where a binding lags the C++ and closes it. "Done" is the check below passing, so it can't drift: ctest runs it as `vasdk_binding_parity`.
+[vasdk-bindings](../vasdk-bindings/SKILL.md) takes **one** feature to every platform. This skill finds **every** place where a binding lags the C++ and closes it. "Done" is the check below passing, so it can't drift: ctest runs it as `vasdk_binding_parity` when a binding is on (`-DVASDK_BUILD_PYTHON_BINDING=ON` / `-DVASDK_BUILD_KOTLIN_BINDING=ON`), for C and the bindings that are on. With both off it isn't registered and configure warns; run the script by hand then.
 
 ```mermaid
 flowchart LR
