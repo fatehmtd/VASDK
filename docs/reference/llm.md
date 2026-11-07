@@ -54,7 +54,7 @@ flowchart LR
 ```cpp
 auto tmpl = va::llm::PromptTemplate::create(va::llm::ChatFormat::LFM2_5);
 tmpl->addSystem("You are a {role}. Task: {goal_objective}")
-     ->addUser("{user_input}");
+     .addUser("{user_input}");
 tmpl->set("role", "scheduling assistant");
 ```
 
@@ -95,12 +95,14 @@ tool.addParameter({"city", "City name", "string", /*required*/ true})
 
 ([`LLMProcessor.h`](../../VASDK/include/VASDK/llm/LLMProcessor.h)) The pipeline-side coordinator. What it manages, in the order a turn experiences it:
 
-1. **Caching partials** - every partial `TranscriptionFrame` above `setConfidenceThreshold()` (default 0.5) is cached.
-2. **Firing** - on `AgentStateFrame{USER_STOPPED_SPEAKING}`, the fire policy decides whether to send the cached partial immediately or wait for the final transcript. A watchdog (`setFinalWatchdogTimeoutMs`, default 2000 ms) fires anyway if the final never arrives.
+1. **The turn** - a [`TurnAssemblerProcessor`](processors.md#turnassemblerprocessor) before it decides when the user's turn is complete and sends a `UserTurnFrame`; the LLM request fires on that. The fire policy and the watchdog for a late final live there.
+2. **Speculative firing** (optional, `setSpeculativeFiring`) - the request starts on the latest partial at a VAD pause, and its reply is held until the turn confirms it.
 3. **Streaming out** - response chunks stream downstream as `TextFrame{isFinal=false}` (UIs and transports render them live; `TTSFrameProcessor` deliberately ignores them); the last chunk carries `isFinal=true` with the full speech text - that's the one TTS synthesizes - plus `isExpecting`/`choices` when the model set them.
 4. **Tool calls** - parsed tool invocations go to the dispatcher as `ToolCallFrame`s; results come back, get injected into the transport, and the model continues. Depth is capped at 5 nested batches, and an exact repeat of the previous batch is detected and broken (small local models loop otherwise).
 5. **Cancellation** - `AgentStateFrame{INTERRUPTED / USER_SPOKE_WHILE_THINKING}` cancels the in-flight request; a generation counter discards responses that arrive after cancellation. If the user was only pausing, the cancelled turn is merged into the next one - see [Follow-ups](#follow-ups).
 6. **Reasoning models** - `<think>…</think>`-style spans are stripped before TTS, using the template's `reasoningTags()` or an explicit `setReasoningTags()` override.
+7. **Profiles** (optional, `setProfiles`) - the configs the conversation may switch to, by name. A `UserTurnFrame` whose `llmProfile` names one (an agent route's `llm_profile`) is answered by it, its tool round trips included; the next turn that names none goes back to the config the processor had when profiles were set. The switch happens on the request thread, just before the turn's request, so the history is one conversation whichever model answers. An unknown name is answered by the default, with a warning. Profiles must share the transport's API. `Session` builds them from the engine config's [`llm_profiles`](engine-config.md#different-llms-for-different-tasks).
+8. **Failure replies** (`setFailureReplies`) - when a turn's request fails or times out before anything was said, and the user didn't cut it off, one of these is spoken, in turn, instead of silence. `Session` sets them from `llm.failure_replies`, with a default.
 
 ### Follow-ups
 
@@ -109,32 +111,34 @@ People pause mid-thought. When a pause ends the turn and the user then keeps tal
 ```mermaid
 sequenceDiagram
     participant U as User
+    participant A as TurnAssemblerProcessor
     participant L as LLMProcessor
     participant T as LLMTransport
-    participant O as Downstream (TTS, transport, UI)
-    U->>L: final "Can you help me schedule a flight to Paris?"<br/>(turn ended at the pause)
+    U->>A: final "Can you help me schedule a flight to Paris?"<br/>(turn ended at the pause)
+    A->>L: UserTurnFrame
     L->>T: request 1 (history += that user message)
-    U->>L: speaks again: AgentStateFrame USER_SPOKE_WHILE_THINKING<br/>or BARGE_IN_INTERRUPT
-    L->>T: cancel() + rollbackExchange(request 1)
-    Note over L: keeps the first utterance as the follow-up prefix
-    U->>L: final "Actually, make it to Toulouse."
-    L->>O: TranscriptionFrame{isFollowUp} with the merged text
-    L->>T: request 2: "Can you help me schedule a flight to Paris?<br/>Actually, make it to Toulouse."
+    U->>A: speaks again: AgentStateFrame USER_SPOKE_WHILE_THINKING<br/>or BARGE_IN_INTERRUPT
+    A->>L: (the same AgentStateFrame)
+    L->>T: cancel()
+    Note over A: keeps the first utterance to put in front of the next turn
+    U->>A: final "Actually, make it to Toulouse."
+    A->>L: TranscriptionFrame{isFollowUp} with the merged text,<br/>TurnReplacedFrame{turn 1}, then UserTurnFrame{replacesPrevious}
+    L->>T: rollbackExchange(request 1), then request 2:<br/>"Can you help me schedule a flight to Paris? Actually, make it to Toulouse."
 ```
 
 A turn is merged into the next one when:
 
 - the user speaks while the agent is still **thinking** (`USER_SPOKE_WHILE_THINKING`), however long that takes;
-- the user **barges in within `setFollowUpWindowMs()`** (default 3000 ms) of the turn being sent. Later barge-ins are ordinary interruptions and the new turn goes on its own;
+- the user **barges in within `TurnAssemblerProcessor::setResumeMergeMs()`** (default 3000 ms) of the turn being sent. Later barge-ins are ordinary interruptions and the new turn goes on its own;
 - the turn was **never sent**: the turn detector judged the utterance unfinished, so its final transcript was staged waiting for a turn end, and the user resumed. Those words always carry over.
 
-The interrupted request is cancelled and its exchange rolled back from history, so the model sees only the merged message, not the first half or a partial reply. Resuming again extends the same message. `setFollowUpWindowMs(0)` turns follow-ups off. Every confirmed turn goes through this, whichever fire path sends it (turn end, final transcript, partial, watchdog).
+The interrupted request is cancelled, and its exchange is rolled back from history when the merged turn is sent. Just before it, a `TurnReplacedFrame` names the turn it replaces, and every reply's `TextFrame` carries the turn it answers (`TextFrame::turnId`, 0 for speech that answers none, such as a greeting). So the replaced turn's reply is dropped wherever it is, even if it arrives late (an agent still handling that turn hands it on after the interrupt): the `DialogProcessor` neither says it nor passes it on, the `LLMProcessor` cancels it if it asked, and the `TTSFrameProcessor` drops its queued text, stops it if it's playing, and drops what of it comes later. The model sees only the merged message, not the first half or a partial reply. Resuming again extends the same message. `setResumeMergeMs(0)` turns follow-ups off. Every turn goes through this, whichever path completes it (turn end, final transcript, partial, watchdog).
 
 Known limits: a sentence the agent already spoke before a barge-in isn't in history, so the model may repeat it; a back-channel note attached to the interrupted turn is dropped; with [speculative firing](#fire-policies---when-does-the-llm-fire) on, the merged text never matches the speculative partial, so that request is redone.
 
 ### Fire policies - when does the LLM fire?
 
-([`LLMFirePolicy.h`](../../VASDK/include/VASDK/llm/LLMFirePolicy.h)) The latency/accuracy trade-off is pluggable via `setFirePolicy()`:
+([`LLMFirePolicy.h`](../../VASDK/include/VASDK/llm/LLMFirePolicy.h)) The latency/accuracy trade-off is pluggable via `TurnAssemblerProcessor::setFirePolicy()`:
 
 | Policy | Behavior | Choose when |
 | --- | --- | --- |

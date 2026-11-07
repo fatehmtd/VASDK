@@ -1,0 +1,35 @@
+# proto-file: vasdk/flow/agent.proto
+# proto-message: vasdk.flow.Agent
+#
+# The car on the road: fuel and speed, read from $context.car.drive (the app keeps it current),
+# and a warning when fuel runs low. Part of ../../agents/car/agent.txtpb (include_files).
+envelopes: ["drive"]
+
+# Agent-wide commands are tried part by part, in include order: a part's examples are specific, so
+# drive's "gas" doesn't take "take me to a gas station" from navigation.
+intents { name: "fuel"  examples: ["how much fuel", "how much gas", "fuel level", "gas level", "range", "how far can i go",
+                                   "gas tank", "fuel tank", "do i need gas", "do i need fuel"] }
+intents { name: "speed" examples: ["how fast am i going", "what's my speed", "how fast are we going", "current speed"] }
+
+envelope_defs {
+  name: "drive"
+  routes {
+    intent: "fuel"
+    steps { branch { if: "exists($context.car.drive.fuel_percent)"
+                     then { say { text: "Fuel is at ${context.car.drive.fuel_percent} percent: about ${context.car.drive.range_km} kilometers." } }
+                     else { say { text: "I can't read the fuel gauge right now." } } } }
+  }
+  routes {
+    intent: "speed"
+    steps { branch { if: "$context.car.drive.moving"
+                     then { say { text: "${context.car.drive.speed_kmh} kilometers an hour." } }
+                     else { say { text: "We're stopped." } } } }
+  }
+}
+
+triggers {
+  name: "low_fuel"
+  source { context_change { condition: "$context.car.drive.fuel_percent < 15" } }
+  action { say { text: "Heads up: fuel is low. About ${context.car.drive.range_km} kilometers left." } }
+  delivery { priority: HIGH cooldown_ms: 1800000 }
+}

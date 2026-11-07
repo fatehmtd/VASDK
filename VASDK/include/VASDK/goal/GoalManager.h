@@ -13,6 +13,12 @@
 namespace va {
 namespace goal {
 
+struct AttachOptions {
+    /// Wipe the conversation history on attach (the original behaviour). Set to false
+    /// when switching goals mid-conversation so the LLM keeps context.
+    bool clearHistory = true;
+};
+
 class VASDK_EXPORT GoalManager {
 public:
     /// maxReprompts - after this many failed collection attempts the LLM is
@@ -30,14 +36,15 @@ public:
     /// and {escalation_hint} template variable resolvers on the transport.
     /// App must set a PromptTemplate using these variables before calling this,
     /// and call this before registering the {tool_descriptions} resolver (also app-provided).
-    void attachToLLMTransport(va::llm::LLMTransport* transport);
+    void attachToLLMTransport(va::llm::LLMTransport* transport, AttachOptions options = {});
 
     /// Registers the update_slot, update_object_slot, request_confirmation,
     /// complete_goal, and escalate tools.
     void attachToToolDispatcher(va::llm::ToolDispatchProcessor* dispatcher);
 
     /// Convenience: calls attachToLLMTransport then attachToToolDispatcher.
-    void attach(va::llm::LLMTransport* transport, va::llm::ToolDispatchProcessor* dispatcher);
+    void attach(va::llm::LLMTransport* transport, va::llm::ToolDispatchProcessor* dispatcher,
+                AttachOptions options = {});
 
     //  Callbacks 
 

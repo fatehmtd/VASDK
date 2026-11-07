@@ -1,0 +1,6 @@
+# proto-file: vasdk/flow/test_case.proto
+# proto-message: vasdk.flow.FlowTestCase
+name: "an account the CRM doesn't know goes to a person"
+turns { expect { page: "welcome" } }
+turns { user: "account" expect { page: "account" } }
+turns { user: "ACC 999" expect { said_contains: "I couldn't find that account." said_contains: "Connecting you to an agent now." ends_session: true } }

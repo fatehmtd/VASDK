@@ -382,7 +382,7 @@ void LLMTransport::applyProviderAuthHeaders(std::map<std::string, std::string>& 
         break;
     case LLMProvider::ANTHROPIC:
         headers["x-api-key"] = _config.apiKey;
-        headers["anthropic-version"] = "2023-06-01";
+        headers["anthropic-version"] = "2026-10-21";   // no sampling settings (temperature etc.) on this version
         break;
     default:
         break;

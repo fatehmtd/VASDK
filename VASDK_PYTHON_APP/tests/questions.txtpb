@@ -1,0 +1,9 @@
+# proto-file: vasdk/flow/test_case.proto
+# proto-message: vasdk.flow.FlowTestCase
+name: "cooking questions and conversions are the LLM's: the smart profile for questions; offline, said so"
+turns { expect { page: "ready" } }
+turns { user: "what can I use instead of butter" expect { to_llm: true llm_profile: "smart" said_contains: "internet" } }
+turns { user: "how do I know when the pasta is done" expect { to_llm: true llm_profile: "smart" } }
+turns { user: "how many grams in a cup of flour" expect { to_llm: true llm_profile: "" said_contains: "conversions" } }
+turns { user: "help" expect { said_contains: "set timers" to_llm: false } }
+turns { user: "thanks" expect { matched: true } }

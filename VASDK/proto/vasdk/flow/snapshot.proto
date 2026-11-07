@@ -1,0 +1,21 @@
+// Where a conversation with an agent is, to pick it up later: a caller who hangs up mid-form and
+// calls back (FlowRuntime::snapshot and resume, Session::conversationSnapshot). Sensitive slots
+// and params are left out, so it can be stored. Its JSON form (proto field names) is what the
+// JSON APIs give and take. Fields are only ever added.
+syntax = "proto3";
+
+package vasdk.flow;
+
+import "google/protobuf/struct.proto";
+
+message ConversationSnapshot {
+  string flow = 1;                       // empty: not started, or ended
+  string page = 2;
+  google.protobuf.Struct session = 3;    // the session params that have a value
+  Form form = 4;                         // the page's form, when it has one
+
+  message Form {
+    string goal = 1;
+    google.protobuf.Struct slots = 2;    // the slots filled so far
+  }
+}

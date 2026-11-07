@@ -78,6 +78,7 @@ GoalDefinition GoalDefinitionLoader::fromJson(const nlohmann::json& j) {
     GoalDefinition def;
     def.name      = j.at("name").get<std::string>();
     def.objective = j.value("objective", "");
+    def.requireConfirmation = j.value("requireConfirmation", false);
 
     if (j.contains("slots")) {
         for (const auto& s : j["slots"]) {

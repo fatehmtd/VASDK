@@ -1,0 +1,131 @@
+# proto-file: vasdk/flow/agent.proto
+# proto-message: vasdk.flow.Agent
+#
+# Navigation: "take me to the mall" offers three routes (said, and shown as a card the dashboard
+# draws), picked by voice, by a tap, or with "the second one"; then guidance, an arrival, and a
+# warning when the fuel won't last the trip (from $context.car.navigation and
+# $context.car.drive). Places come from code (Navigation.cpp, "places"), as from a map.
+# Part of ../../agents/car/agent.txtpb (include_files).
+envelopes: ["navigation"]
+goal_files: ["goals/destination.txtpb"]
+
+session_params { name: "route"       type: STRUCT }   # what the navigation tool last returned
+session_params { name: "destination" type: STRING }   # the place being planned
+
+entity_types { name: "place" description: "A place to drive to" code { extractor: "places" } }
+entity_types {
+  name: "route_option"
+  list {
+    values { value: "fastest"  spoken: "the fastest route" synonyms: ["fastest", "the fastest", "quickest", "the quick one", "highway"] }
+    values { value: "shortest" spoken: "the shortest route" synonyms: ["shortest", "the shortest", "shorter", "main street"] }
+    values { value: "no_tolls" spoken: "the route without tolls" synonyms: ["no tolls", "avoid tolls", "without tolls", "toll free",
+                                                                             "coast road", "the coast"] }
+  }
+}
+
+intents { name: "navigate" examples: ["take me to @place", "navigate to @place", "directions to @place", "drive to @place",
+                                      "go to @place", "get me to @place", "how do i get to @place", "find @place", "find a @place",
+                                      "nearest @place", "navigate", "directions", "take me somewhere", "start navigation"] }
+intents { name: "stop_navigation" examples: ["stop navigation", "cancel navigation", "cancel the route", "stop the route",
+                                             "end navigation", "stop directions", "navigation off"] }
+intents { name: "eta" examples: ["how long", "how much longer", "when do we arrive", "when will we get there", "eta",
+                                 "arrival time", "are we there yet", "how far is it", "how far to go"] }
+intents { name: "route_options" examples: ["other routes", "the others", "what are the options", "other options", "alternatives",
+                                           "what else", "options"] }
+
+envelope_defs {
+  name: "navigation"
+  routes { intent: "navigate" target: "flow:navigate" }   # "take me to the mall": the form gets the place on the way in
+  routes {
+    intent: "stop_navigation"
+    steps { call_tool { name: "navigation" args { key: "action" value: "'stop'" } into: "$session.route" } }
+    steps { branch { if: "$session.route.stopped" then { say { text: "Navigation off." } }
+                     else { say { text: "You're not navigating anywhere." } } } }
+  }
+  routes {
+    intent: "eta"
+    steps { call_tool { name: "navigation" args { key: "action" value: "'status'" } into: "$session.route" } }
+    steps { branch { if: "$session.route.state = 'guiding'"
+                     then { say { text: "About ${session.route.eta_min} minutes to ${session.route.destination_name}: ${session.route.remaining_km} kilometers." } }
+                     else { say { text: "You're not navigating anywhere." } } } }
+  }
+}
+
+triggers {
+  name: "arrived"
+  source { context_change { condition: "$context.car.navigation.state = 'arrived'" } }
+  action { say { text: "You've arrived at ${context.car.navigation.destination_name}." } }
+}
+# Two verticals' state in one condition: the route's length and the fuel's range.
+triggers {
+  name: "out_of_range"
+  source { context_change { condition: "$context.car.navigation.state = 'guiding' AND NOT $context.car.navigation.refuel_stop AND $context.car.navigation.remaining_km > $context.car.drive.range_km" } }
+  action { start_flow: "refuel" }
+  delivery { priority: HIGH cooldown_ms: 1800000
+             ask_first { text: "You won't make it to ${context.car.navigation.destination_name} on the fuel left. Add a gas station on the way?" } }
+}
+
+flows {
+  name: "navigate"
+  start_page: "where"
+  # Where to: named on the way in ("take me to the airport"), or asked.
+  pages {
+    name: "where"
+    form { goal: "destination" }
+    routes { condition: "$form.complete" steps { set { key: "$session.destination" value: "$form.place" } } target: "routes" }
+    routes { condition: "$form.failed" steps { say { text: "Sorry, I couldn't find that place." } } target: "END_FLOW" }
+    routes { intent: "sys.cancel" steps { say { text: "Okay." } } target: "END_FLOW" }
+  }
+  # Three routes: the fastest said, all three shown (the dashboard draws them from the car's state).
+  pages {
+    name: "routes"
+    on_enter { call_tool { name: "navigation" args { key: "action" value: "'plan'" } args { key: "value" value: "$session.destination" } into: "$session.route" } }
+    on_enter { ask {
+      say { text: "To ${session.route.destination_name}, the fastest way is ${session.route.options[0].minutes} minutes by ${session.route.options[0].via}. Take it?"
+            ui { fields { key: "card" value { string_value: "routes" } } } }
+      choices { label: "Fastest" value: "fastest" }
+      choices { label: "Shortest" value: "shortest" }
+      choices { label: "No tolls" value: "no tolls" }
+    } }
+    routes {
+      entity: "@route_option"
+      steps { call_tool { name: "navigation" args { key: "action" value: "'start'" } args { key: "value" value: "$entity" } into: "$session.route" } }
+      steps { say { text: "Starting directions to ${session.route.destination_name} by ${session.route.via}: ${session.route.eta_min} minutes." } }
+      target: "END_FLOW"
+    }
+    routes {
+      intent: "sys.yes"
+      steps { call_tool { name: "navigation" args { key: "action" value: "'start'" } args { key: "value" value: "'fastest'" } into: "$session.route" } }
+      steps { say { text: "Starting directions to ${session.route.destination_name} by ${session.route.via}: ${session.route.eta_min} minutes." } }
+      target: "END_FLOW"
+    }
+    routes {
+      intent: "route_options"
+      steps { say { text: "The shortest is ${session.route.options[1].km} kilometers by ${session.route.options[1].via}, ${session.route.options[1].minutes} minutes. Without tolls, it's ${session.route.options[2].minutes} minutes by ${session.route.options[2].via}." } }
+    }
+    routes {
+      intent: "sys.no"
+      steps { call_tool { name: "navigation" args { key: "action" value: "'stop'" } into: "$session.route" } }
+      steps { say { text: "Okay, no directions." } }
+      target: "END_FLOW"
+    }
+    routes {
+      intent: "sys.cancel"
+      steps { call_tool { name: "navigation" args { key: "action" value: "'stop'" } into: "$session.route" } }
+      steps { say { text: "Okay, no directions." } }
+      target: "END_FLOW"
+    }
+  }
+}
+
+# The out-of-range offer's yes: a stop on the way.
+flows {
+  name: "refuel"
+  start_page: "add_stop"
+  pages {
+    name: "add_stop"
+    on_enter { call_tool { name: "navigation" args { key: "action" value: "'add_stop'" } args { key: "value" value: "'gas_station'" } into: "$session.route" } }
+    on_enter { say { text: "Added a stop at ${session.route.stop_name}, ${session.route.stop_km} kilometers ahead." } }
+    on_enter { goto { target: "END_FLOW" } }
+  }
+}

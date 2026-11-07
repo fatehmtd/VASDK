@@ -1,0 +1,210 @@
+# proto-file: vasdk/nlu/entity.proto
+# proto-message: vasdk.nlu.EntityPack
+#
+# Countries, as people name them: values in snake_case, the ISO 3166 codes as attributes
+# ($form.country.iso2). In an agent: entity_files: ["<path to VASDK>/entities/country.txtpb"].
+name: "country"
+description: "a country"
+entity_types {
+  name: "country"
+  description: "a country"
+  list {
+      values { value: "afghanistan" spoken: "Afghanistan" attributes { fields { key: "iso2" value { string_value: "AF" } } fields { key: "iso3" value { string_value: "AFG" } } } }
+      values { value: "albania" spoken: "Albania" attributes { fields { key: "iso2" value { string_value: "AL" } } fields { key: "iso3" value { string_value: "ALB" } } } }
+      values { value: "algeria" spoken: "Algeria" attributes { fields { key: "iso2" value { string_value: "DZ" } } fields { key: "iso3" value { string_value: "DZA" } } } }
+      values { value: "andorra" spoken: "Andorra" attributes { fields { key: "iso2" value { string_value: "AD" } } fields { key: "iso3" value { string_value: "AND" } } } }
+      values { value: "angola" spoken: "Angola" attributes { fields { key: "iso2" value { string_value: "AO" } } fields { key: "iso3" value { string_value: "AGO" } } } }
+      values { value: "antigua_and_barbuda" spoken: "Antigua and Barbuda" synonyms: ["antigua"] attributes { fields { key: "iso2" value { string_value: "AG" } } fields { key: "iso3" value { string_value: "ATG" } } } }
+      values { value: "argentina" spoken: "Argentina" attributes { fields { key: "iso2" value { string_value: "AR" } } fields { key: "iso3" value { string_value: "ARG" } } } }
+      values { value: "armenia" spoken: "Armenia" attributes { fields { key: "iso2" value { string_value: "AM" } } fields { key: "iso3" value { string_value: "ARM" } } } }
+      values { value: "australia" spoken: "Australia" attributes { fields { key: "iso2" value { string_value: "AU" } } fields { key: "iso3" value { string_value: "AUS" } } } }
+      values { value: "austria" spoken: "Austria" attributes { fields { key: "iso2" value { string_value: "AT" } } fields { key: "iso3" value { string_value: "AUT" } } } }
+      values { value: "azerbaijan" spoken: "Azerbaijan" attributes { fields { key: "iso2" value { string_value: "AZ" } } fields { key: "iso3" value { string_value: "AZE" } } } }
+      values { value: "bahamas" spoken: "the Bahamas" attributes { fields { key: "iso2" value { string_value: "BS" } } fields { key: "iso3" value { string_value: "BHS" } } } }
+      values { value: "bahrain" spoken: "Bahrain" attributes { fields { key: "iso2" value { string_value: "BH" } } fields { key: "iso3" value { string_value: "BHR" } } } }
+      values { value: "bangladesh" spoken: "Bangladesh" attributes { fields { key: "iso2" value { string_value: "BD" } } fields { key: "iso3" value { string_value: "BGD" } } } }
+      values { value: "barbados" spoken: "Barbados" attributes { fields { key: "iso2" value { string_value: "BB" } } fields { key: "iso3" value { string_value: "BRB" } } } }
+      values { value: "belarus" spoken: "Belarus" attributes { fields { key: "iso2" value { string_value: "BY" } } fields { key: "iso3" value { string_value: "BLR" } } } }
+      values { value: "belgium" spoken: "Belgium" attributes { fields { key: "iso2" value { string_value: "BE" } } fields { key: "iso3" value { string_value: "BEL" } } } }
+      values { value: "belize" spoken: "Belize" attributes { fields { key: "iso2" value { string_value: "BZ" } } fields { key: "iso3" value { string_value: "BLZ" } } } }
+      values { value: "benin" spoken: "Benin" attributes { fields { key: "iso2" value { string_value: "BJ" } } fields { key: "iso3" value { string_value: "BEN" } } } }
+      values { value: "bhutan" spoken: "Bhutan" attributes { fields { key: "iso2" value { string_value: "BT" } } fields { key: "iso3" value { string_value: "BTN" } } } }
+      values { value: "bolivia" spoken: "Bolivia" attributes { fields { key: "iso2" value { string_value: "BO" } } fields { key: "iso3" value { string_value: "BOL" } } } }
+      values { value: "bosnia_and_herzegovina" spoken: "Bosnia and Herzegovina" synonyms: ["bosnia"] attributes { fields { key: "iso2" value { string_value: "BA" } } fields { key: "iso3" value { string_value: "BIH" } } } }
+      values { value: "botswana" spoken: "Botswana" attributes { fields { key: "iso2" value { string_value: "BW" } } fields { key: "iso3" value { string_value: "BWA" } } } }
+      values { value: "brazil" spoken: "Brazil" attributes { fields { key: "iso2" value { string_value: "BR" } } fields { key: "iso3" value { string_value: "BRA" } } } }
+      values { value: "brunei" spoken: "Brunei" attributes { fields { key: "iso2" value { string_value: "BN" } } fields { key: "iso3" value { string_value: "BRN" } } } }
+      values { value: "bulgaria" spoken: "Bulgaria" attributes { fields { key: "iso2" value { string_value: "BG" } } fields { key: "iso3" value { string_value: "BGR" } } } }
+      values { value: "burkina_faso" spoken: "Burkina Faso" attributes { fields { key: "iso2" value { string_value: "BF" } } fields { key: "iso3" value { string_value: "BFA" } } } }
+      values { value: "burundi" spoken: "Burundi" attributes { fields { key: "iso2" value { string_value: "BI" } } fields { key: "iso3" value { string_value: "BDI" } } } }
+      values { value: "cabo_verde" spoken: "Cabo Verde" synonyms: ["cape verde"] attributes { fields { key: "iso2" value { string_value: "CV" } } fields { key: "iso3" value { string_value: "CPV" } } } }
+      values { value: "cambodia" spoken: "Cambodia" attributes { fields { key: "iso2" value { string_value: "KH" } } fields { key: "iso3" value { string_value: "KHM" } } } }
+      values { value: "cameroon" spoken: "Cameroon" attributes { fields { key: "iso2" value { string_value: "CM" } } fields { key: "iso3" value { string_value: "CMR" } } } }
+      values { value: "canada" spoken: "Canada" attributes { fields { key: "iso2" value { string_value: "CA" } } fields { key: "iso3" value { string_value: "CAN" } } } }
+      values { value: "central_african_republic" spoken: "the Central African Republic" attributes { fields { key: "iso2" value { string_value: "CF" } } fields { key: "iso3" value { string_value: "CAF" } } } }
+      values { value: "chad" spoken: "Chad" attributes { fields { key: "iso2" value { string_value: "TD" } } fields { key: "iso3" value { string_value: "TCD" } } } }
+      values { value: "chile" spoken: "Chile" attributes { fields { key: "iso2" value { string_value: "CL" } } fields { key: "iso3" value { string_value: "CHL" } } } }
+      values { value: "china" spoken: "China" attributes { fields { key: "iso2" value { string_value: "CN" } } fields { key: "iso3" value { string_value: "CHN" } } } }
+      values { value: "colombia" spoken: "Colombia" attributes { fields { key: "iso2" value { string_value: "CO" } } fields { key: "iso3" value { string_value: "COL" } } } }
+      values { value: "comoros" spoken: "the Comoros" attributes { fields { key: "iso2" value { string_value: "KM" } } fields { key: "iso3" value { string_value: "COM" } } } }
+      values { value: "republic_of_the_congo" spoken: "the Republic of the Congo" synonyms: ["congo brazzaville"] attributes { fields { key: "iso2" value { string_value: "CG" } } fields { key: "iso3" value { string_value: "COG" } } } }
+      values { value: "democratic_republic_of_the_congo" spoken: "the Democratic Republic of the Congo" synonyms: ["congo kinshasa", "drc"] attributes { fields { key: "iso2" value { string_value: "CD" } } fields { key: "iso3" value { string_value: "COD" } } } }
+      values { value: "costa_rica" spoken: "Costa Rica" attributes { fields { key: "iso2" value { string_value: "CR" } } fields { key: "iso3" value { string_value: "CRI" } } } }
+      values { value: "cote_d_ivoire" spoken: "Côte d'Ivoire" synonyms: ["ivory coast", "cote d'ivoire"] attributes { fields { key: "iso2" value { string_value: "CI" } } fields { key: "iso3" value { string_value: "CIV" } } } }
+      values { value: "croatia" spoken: "Croatia" attributes { fields { key: "iso2" value { string_value: "HR" } } fields { key: "iso3" value { string_value: "HRV" } } } }
+      values { value: "cuba" spoken: "Cuba" attributes { fields { key: "iso2" value { string_value: "CU" } } fields { key: "iso3" value { string_value: "CUB" } } } }
+      values { value: "cyprus" spoken: "Cyprus" attributes { fields { key: "iso2" value { string_value: "CY" } } fields { key: "iso3" value { string_value: "CYP" } } } }
+      values { value: "czech_republic" spoken: "the Czech Republic" synonyms: ["czechia"] attributes { fields { key: "iso2" value { string_value: "CZ" } } fields { key: "iso3" value { string_value: "CZE" } } } }
+      values { value: "denmark" spoken: "Denmark" attributes { fields { key: "iso2" value { string_value: "DK" } } fields { key: "iso3" value { string_value: "DNK" } } } }
+      values { value: "djibouti" spoken: "Djibouti" attributes { fields { key: "iso2" value { string_value: "DJ" } } fields { key: "iso3" value { string_value: "DJI" } } } }
+      values { value: "dominica" spoken: "Dominica" attributes { fields { key: "iso2" value { string_value: "DM" } } fields { key: "iso3" value { string_value: "DMA" } } } }
+      values { value: "dominican_republic" spoken: "the Dominican Republic" attributes { fields { key: "iso2" value { string_value: "DO" } } fields { key: "iso3" value { string_value: "DOM" } } } }
+      values { value: "ecuador" spoken: "Ecuador" attributes { fields { key: "iso2" value { string_value: "EC" } } fields { key: "iso3" value { string_value: "ECU" } } } }
+      values { value: "egypt" spoken: "Egypt" attributes { fields { key: "iso2" value { string_value: "EG" } } fields { key: "iso3" value { string_value: "EGY" } } } }
+      values { value: "el_salvador" spoken: "El Salvador" attributes { fields { key: "iso2" value { string_value: "SV" } } fields { key: "iso3" value { string_value: "SLV" } } } }
+      values { value: "equatorial_guinea" spoken: "Equatorial Guinea" attributes { fields { key: "iso2" value { string_value: "GQ" } } fields { key: "iso3" value { string_value: "GNQ" } } } }
+      values { value: "eritrea" spoken: "Eritrea" attributes { fields { key: "iso2" value { string_value: "ER" } } fields { key: "iso3" value { string_value: "ERI" } } } }
+      values { value: "estonia" spoken: "Estonia" attributes { fields { key: "iso2" value { string_value: "EE" } } fields { key: "iso3" value { string_value: "EST" } } } }
+      values { value: "eswatini" spoken: "Eswatini" synonyms: ["swaziland"] attributes { fields { key: "iso2" value { string_value: "SZ" } } fields { key: "iso3" value { string_value: "SWZ" } } } }
+      values { value: "ethiopia" spoken: "Ethiopia" attributes { fields { key: "iso2" value { string_value: "ET" } } fields { key: "iso3" value { string_value: "ETH" } } } }
+      values { value: "fiji" spoken: "Fiji" attributes { fields { key: "iso2" value { string_value: "FJ" } } fields { key: "iso3" value { string_value: "FJI" } } } }
+      values { value: "finland" spoken: "Finland" attributes { fields { key: "iso2" value { string_value: "FI" } } fields { key: "iso3" value { string_value: "FIN" } } } }
+      values { value: "france" spoken: "France" attributes { fields { key: "iso2" value { string_value: "FR" } } fields { key: "iso3" value { string_value: "FRA" } } } }
+      values { value: "gabon" spoken: "Gabon" attributes { fields { key: "iso2" value { string_value: "GA" } } fields { key: "iso3" value { string_value: "GAB" } } } }
+      values { value: "gambia" spoken: "the Gambia" attributes { fields { key: "iso2" value { string_value: "GM" } } fields { key: "iso3" value { string_value: "GMB" } } } }
+      values { value: "georgia" spoken: "Georgia" attributes { fields { key: "iso2" value { string_value: "GE" } } fields { key: "iso3" value { string_value: "GEO" } } } }
+      values { value: "germany" spoken: "Germany" attributes { fields { key: "iso2" value { string_value: "DE" } } fields { key: "iso3" value { string_value: "DEU" } } } }
+      values { value: "ghana" spoken: "Ghana" attributes { fields { key: "iso2" value { string_value: "GH" } } fields { key: "iso3" value { string_value: "GHA" } } } }
+      values { value: "greece" spoken: "Greece" attributes { fields { key: "iso2" value { string_value: "GR" } } fields { key: "iso3" value { string_value: "GRC" } } } }
+      values { value: "grenada" spoken: "Grenada" attributes { fields { key: "iso2" value { string_value: "GD" } } fields { key: "iso3" value { string_value: "GRD" } } } }
+      values { value: "guatemala" spoken: "Guatemala" attributes { fields { key: "iso2" value { string_value: "GT" } } fields { key: "iso3" value { string_value: "GTM" } } } }
+      values { value: "guinea" spoken: "Guinea" attributes { fields { key: "iso2" value { string_value: "GN" } } fields { key: "iso3" value { string_value: "GIN" } } } }
+      values { value: "guinea_bissau" spoken: "Guinea-Bissau" attributes { fields { key: "iso2" value { string_value: "GW" } } fields { key: "iso3" value { string_value: "GNB" } } } }
+      values { value: "guyana" spoken: "Guyana" attributes { fields { key: "iso2" value { string_value: "GY" } } fields { key: "iso3" value { string_value: "GUY" } } } }
+      values { value: "haiti" spoken: "Haiti" attributes { fields { key: "iso2" value { string_value: "HT" } } fields { key: "iso3" value { string_value: "HTI" } } } }
+      values { value: "honduras" spoken: "Honduras" attributes { fields { key: "iso2" value { string_value: "HN" } } fields { key: "iso3" value { string_value: "HND" } } } }
+      values { value: "hungary" spoken: "Hungary" attributes { fields { key: "iso2" value { string_value: "HU" } } fields { key: "iso3" value { string_value: "HUN" } } } }
+      values { value: "iceland" spoken: "Iceland" attributes { fields { key: "iso2" value { string_value: "IS" } } fields { key: "iso3" value { string_value: "ISL" } } } }
+      values { value: "india" spoken: "India" attributes { fields { key: "iso2" value { string_value: "IN" } } fields { key: "iso3" value { string_value: "IND" } } } }
+      values { value: "indonesia" spoken: "Indonesia" attributes { fields { key: "iso2" value { string_value: "ID" } } fields { key: "iso3" value { string_value: "IDN" } } } }
+      values { value: "iran" spoken: "Iran" attributes { fields { key: "iso2" value { string_value: "IR" } } fields { key: "iso3" value { string_value: "IRN" } } } }
+      values { value: "iraq" spoken: "Iraq" attributes { fields { key: "iso2" value { string_value: "IQ" } } fields { key: "iso3" value { string_value: "IRQ" } } } }
+      values { value: "ireland" spoken: "Ireland" synonyms: ["republic of ireland"] attributes { fields { key: "iso2" value { string_value: "IE" } } fields { key: "iso3" value { string_value: "IRL" } } } }
+      values { value: "israel" spoken: "Israel" attributes { fields { key: "iso2" value { string_value: "IL" } } fields { key: "iso3" value { string_value: "ISR" } } } }
+      values { value: "italy" spoken: "Italy" attributes { fields { key: "iso2" value { string_value: "IT" } } fields { key: "iso3" value { string_value: "ITA" } } } }
+      values { value: "jamaica" spoken: "Jamaica" attributes { fields { key: "iso2" value { string_value: "JM" } } fields { key: "iso3" value { string_value: "JAM" } } } }
+      values { value: "japan" spoken: "Japan" attributes { fields { key: "iso2" value { string_value: "JP" } } fields { key: "iso3" value { string_value: "JPN" } } } }
+      values { value: "jordan" spoken: "Jordan" attributes { fields { key: "iso2" value { string_value: "JO" } } fields { key: "iso3" value { string_value: "JOR" } } } }
+      values { value: "kazakhstan" spoken: "Kazakhstan" attributes { fields { key: "iso2" value { string_value: "KZ" } } fields { key: "iso3" value { string_value: "KAZ" } } } }
+      values { value: "kenya" spoken: "Kenya" attributes { fields { key: "iso2" value { string_value: "KE" } } fields { key: "iso3" value { string_value: "KEN" } } } }
+      values { value: "kiribati" spoken: "Kiribati" attributes { fields { key: "iso2" value { string_value: "KI" } } fields { key: "iso3" value { string_value: "KIR" } } } }
+      values { value: "kosovo" spoken: "Kosovo" attributes { fields { key: "iso2" value { string_value: "XK" } } fields { key: "iso3" value { string_value: "XKX" } } } }
+      values { value: "kuwait" spoken: "Kuwait" attributes { fields { key: "iso2" value { string_value: "KW" } } fields { key: "iso3" value { string_value: "KWT" } } } }
+      values { value: "kyrgyzstan" spoken: "Kyrgyzstan" attributes { fields { key: "iso2" value { string_value: "KG" } } fields { key: "iso3" value { string_value: "KGZ" } } } }
+      values { value: "laos" spoken: "Laos" attributes { fields { key: "iso2" value { string_value: "LA" } } fields { key: "iso3" value { string_value: "LAO" } } } }
+      values { value: "latvia" spoken: "Latvia" attributes { fields { key: "iso2" value { string_value: "LV" } } fields { key: "iso3" value { string_value: "LVA" } } } }
+      values { value: "lebanon" spoken: "Lebanon" attributes { fields { key: "iso2" value { string_value: "LB" } } fields { key: "iso3" value { string_value: "LBN" } } } }
+      values { value: "lesotho" spoken: "Lesotho" attributes { fields { key: "iso2" value { string_value: "LS" } } fields { key: "iso3" value { string_value: "LSO" } } } }
+      values { value: "liberia" spoken: "Liberia" attributes { fields { key: "iso2" value { string_value: "LR" } } fields { key: "iso3" value { string_value: "LBR" } } } }
+      values { value: "libya" spoken: "Libya" attributes { fields { key: "iso2" value { string_value: "LY" } } fields { key: "iso3" value { string_value: "LBY" } } } }
+      values { value: "liechtenstein" spoken: "Liechtenstein" attributes { fields { key: "iso2" value { string_value: "LI" } } fields { key: "iso3" value { string_value: "LIE" } } } }
+      values { value: "lithuania" spoken: "Lithuania" attributes { fields { key: "iso2" value { string_value: "LT" } } fields { key: "iso3" value { string_value: "LTU" } } } }
+      values { value: "luxembourg" spoken: "Luxembourg" attributes { fields { key: "iso2" value { string_value: "LU" } } fields { key: "iso3" value { string_value: "LUX" } } } }
+      values { value: "madagascar" spoken: "Madagascar" attributes { fields { key: "iso2" value { string_value: "MG" } } fields { key: "iso3" value { string_value: "MDG" } } } }
+      values { value: "malawi" spoken: "Malawi" attributes { fields { key: "iso2" value { string_value: "MW" } } fields { key: "iso3" value { string_value: "MWI" } } } }
+      values { value: "malaysia" spoken: "Malaysia" attributes { fields { key: "iso2" value { string_value: "MY" } } fields { key: "iso3" value { string_value: "MYS" } } } }
+      values { value: "maldives" spoken: "the Maldives" attributes { fields { key: "iso2" value { string_value: "MV" } } fields { key: "iso3" value { string_value: "MDV" } } } }
+      values { value: "mali" spoken: "Mali" attributes { fields { key: "iso2" value { string_value: "ML" } } fields { key: "iso3" value { string_value: "MLI" } } } }
+      values { value: "malta" spoken: "Malta" attributes { fields { key: "iso2" value { string_value: "MT" } } fields { key: "iso3" value { string_value: "MLT" } } } }
+      values { value: "marshall_islands" spoken: "the Marshall Islands" attributes { fields { key: "iso2" value { string_value: "MH" } } fields { key: "iso3" value { string_value: "MHL" } } } }
+      values { value: "mauritania" spoken: "Mauritania" attributes { fields { key: "iso2" value { string_value: "MR" } } fields { key: "iso3" value { string_value: "MRT" } } } }
+      values { value: "mauritius" spoken: "Mauritius" attributes { fields { key: "iso2" value { string_value: "MU" } } fields { key: "iso3" value { string_value: "MUS" } } } }
+      values { value: "mexico" spoken: "Mexico" attributes { fields { key: "iso2" value { string_value: "MX" } } fields { key: "iso3" value { string_value: "MEX" } } } }
+      values { value: "micronesia" spoken: "Micronesia" attributes { fields { key: "iso2" value { string_value: "FM" } } fields { key: "iso3" value { string_value: "FSM" } } } }
+      values { value: "moldova" spoken: "Moldova" attributes { fields { key: "iso2" value { string_value: "MD" } } fields { key: "iso3" value { string_value: "MDA" } } } }
+      values { value: "monaco" spoken: "Monaco" attributes { fields { key: "iso2" value { string_value: "MC" } } fields { key: "iso3" value { string_value: "MCO" } } } }
+      values { value: "mongolia" spoken: "Mongolia" attributes { fields { key: "iso2" value { string_value: "MN" } } fields { key: "iso3" value { string_value: "MNG" } } } }
+      values { value: "montenegro" spoken: "Montenegro" attributes { fields { key: "iso2" value { string_value: "ME" } } fields { key: "iso3" value { string_value: "MNE" } } } }
+      values { value: "morocco" spoken: "Morocco" attributes { fields { key: "iso2" value { string_value: "MA" } } fields { key: "iso3" value { string_value: "MAR" } } } }
+      values { value: "mozambique" spoken: "Mozambique" attributes { fields { key: "iso2" value { string_value: "MZ" } } fields { key: "iso3" value { string_value: "MOZ" } } } }
+      values { value: "myanmar" spoken: "Myanmar" synonyms: ["burma"] attributes { fields { key: "iso2" value { string_value: "MM" } } fields { key: "iso3" value { string_value: "MMR" } } } }
+      values { value: "namibia" spoken: "Namibia" attributes { fields { key: "iso2" value { string_value: "NA" } } fields { key: "iso3" value { string_value: "NAM" } } } }
+      values { value: "nauru" spoken: "Nauru" attributes { fields { key: "iso2" value { string_value: "NR" } } fields { key: "iso3" value { string_value: "NRU" } } } }
+      values { value: "nepal" spoken: "Nepal" attributes { fields { key: "iso2" value { string_value: "NP" } } fields { key: "iso3" value { string_value: "NPL" } } } }
+      values { value: "netherlands" spoken: "the Netherlands" synonyms: ["holland"] attributes { fields { key: "iso2" value { string_value: "NL" } } fields { key: "iso3" value { string_value: "NLD" } } } }
+      values { value: "new_zealand" spoken: "New Zealand" attributes { fields { key: "iso2" value { string_value: "NZ" } } fields { key: "iso3" value { string_value: "NZL" } } } }
+      values { value: "nicaragua" spoken: "Nicaragua" attributes { fields { key: "iso2" value { string_value: "NI" } } fields { key: "iso3" value { string_value: "NIC" } } } }
+      values { value: "niger" spoken: "Niger" attributes { fields { key: "iso2" value { string_value: "NE" } } fields { key: "iso3" value { string_value: "NER" } } } }
+      values { value: "nigeria" spoken: "Nigeria" attributes { fields { key: "iso2" value { string_value: "NG" } } fields { key: "iso3" value { string_value: "NGA" } } } }
+      values { value: "north_korea" spoken: "North Korea" attributes { fields { key: "iso2" value { string_value: "KP" } } fields { key: "iso3" value { string_value: "PRK" } } } }
+      values { value: "north_macedonia" spoken: "North Macedonia" synonyms: ["macedonia"] attributes { fields { key: "iso2" value { string_value: "MK" } } fields { key: "iso3" value { string_value: "MKD" } } } }
+      values { value: "norway" spoken: "Norway" attributes { fields { key: "iso2" value { string_value: "NO" } } fields { key: "iso3" value { string_value: "NOR" } } } }
+      values { value: "oman" spoken: "Oman" attributes { fields { key: "iso2" value { string_value: "OM" } } fields { key: "iso3" value { string_value: "OMN" } } } }
+      values { value: "pakistan" spoken: "Pakistan" attributes { fields { key: "iso2" value { string_value: "PK" } } fields { key: "iso3" value { string_value: "PAK" } } } }
+      values { value: "palau" spoken: "Palau" attributes { fields { key: "iso2" value { string_value: "PW" } } fields { key: "iso3" value { string_value: "PLW" } } } }
+      values { value: "palestine" spoken: "Palestine" attributes { fields { key: "iso2" value { string_value: "PS" } } fields { key: "iso3" value { string_value: "PSE" } } } }
+      values { value: "panama" spoken: "Panama" attributes { fields { key: "iso2" value { string_value: "PA" } } fields { key: "iso3" value { string_value: "PAN" } } } }
+      values { value: "papua_new_guinea" spoken: "Papua New Guinea" attributes { fields { key: "iso2" value { string_value: "PG" } } fields { key: "iso3" value { string_value: "PNG" } } } }
+      values { value: "paraguay" spoken: "Paraguay" attributes { fields { key: "iso2" value { string_value: "PY" } } fields { key: "iso3" value { string_value: "PRY" } } } }
+      values { value: "peru" spoken: "Peru" attributes { fields { key: "iso2" value { string_value: "PE" } } fields { key: "iso3" value { string_value: "PER" } } } }
+      values { value: "philippines" spoken: "the Philippines" attributes { fields { key: "iso2" value { string_value: "PH" } } fields { key: "iso3" value { string_value: "PHL" } } } }
+      values { value: "poland" spoken: "Poland" attributes { fields { key: "iso2" value { string_value: "PL" } } fields { key: "iso3" value { string_value: "POL" } } } }
+      values { value: "portugal" spoken: "Portugal" attributes { fields { key: "iso2" value { string_value: "PT" } } fields { key: "iso3" value { string_value: "PRT" } } } }
+      values { value: "qatar" spoken: "Qatar" attributes { fields { key: "iso2" value { string_value: "QA" } } fields { key: "iso3" value { string_value: "QAT" } } } }
+      values { value: "romania" spoken: "Romania" attributes { fields { key: "iso2" value { string_value: "RO" } } fields { key: "iso3" value { string_value: "ROU" } } } }
+      values { value: "russia" spoken: "Russia" attributes { fields { key: "iso2" value { string_value: "RU" } } fields { key: "iso3" value { string_value: "RUS" } } } }
+      values { value: "rwanda" spoken: "Rwanda" attributes { fields { key: "iso2" value { string_value: "RW" } } fields { key: "iso3" value { string_value: "RWA" } } } }
+      values { value: "saint_kitts_and_nevis" spoken: "Saint Kitts and Nevis" synonyms: ["st kitts"] attributes { fields { key: "iso2" value { string_value: "KN" } } fields { key: "iso3" value { string_value: "KNA" } } } }
+      values { value: "saint_lucia" spoken: "Saint Lucia" synonyms: ["st lucia"] attributes { fields { key: "iso2" value { string_value: "LC" } } fields { key: "iso3" value { string_value: "LCA" } } } }
+      values { value: "saint_vincent_and_the_grenadines" spoken: "Saint Vincent and the Grenadines" synonyms: ["saint vincent", "st vincent"] attributes { fields { key: "iso2" value { string_value: "VC" } } fields { key: "iso3" value { string_value: "VCT" } } } }
+      values { value: "samoa" spoken: "Samoa" attributes { fields { key: "iso2" value { string_value: "WS" } } fields { key: "iso3" value { string_value: "WSM" } } } }
+      values { value: "san_marino" spoken: "San Marino" attributes { fields { key: "iso2" value { string_value: "SM" } } fields { key: "iso3" value { string_value: "SMR" } } } }
+      values { value: "sao_tome_and_principe" spoken: "São Tomé and Príncipe" synonyms: ["sao tome", "são tomé and príncipe"] attributes { fields { key: "iso2" value { string_value: "ST" } } fields { key: "iso3" value { string_value: "STP" } } } }
+      values { value: "saudi_arabia" spoken: "Saudi Arabia" attributes { fields { key: "iso2" value { string_value: "SA" } } fields { key: "iso3" value { string_value: "SAU" } } } }
+      values { value: "senegal" spoken: "Senegal" attributes { fields { key: "iso2" value { string_value: "SN" } } fields { key: "iso3" value { string_value: "SEN" } } } }
+      values { value: "serbia" spoken: "Serbia" attributes { fields { key: "iso2" value { string_value: "RS" } } fields { key: "iso3" value { string_value: "SRB" } } } }
+      values { value: "seychelles" spoken: "Seychelles" attributes { fields { key: "iso2" value { string_value: "SC" } } fields { key: "iso3" value { string_value: "SYC" } } } }
+      values { value: "sierra_leone" spoken: "Sierra Leone" attributes { fields { key: "iso2" value { string_value: "SL" } } fields { key: "iso3" value { string_value: "SLE" } } } }
+      values { value: "singapore" spoken: "Singapore" attributes { fields { key: "iso2" value { string_value: "SG" } } fields { key: "iso3" value { string_value: "SGP" } } } }
+      values { value: "slovakia" spoken: "Slovakia" attributes { fields { key: "iso2" value { string_value: "SK" } } fields { key: "iso3" value { string_value: "SVK" } } } }
+      values { value: "slovenia" spoken: "Slovenia" attributes { fields { key: "iso2" value { string_value: "SI" } } fields { key: "iso3" value { string_value: "SVN" } } } }
+      values { value: "solomon_islands" spoken: "the Solomon Islands" attributes { fields { key: "iso2" value { string_value: "SB" } } fields { key: "iso3" value { string_value: "SLB" } } } }
+      values { value: "somalia" spoken: "Somalia" attributes { fields { key: "iso2" value { string_value: "SO" } } fields { key: "iso3" value { string_value: "SOM" } } } }
+      values { value: "south_africa" spoken: "South Africa" attributes { fields { key: "iso2" value { string_value: "ZA" } } fields { key: "iso3" value { string_value: "ZAF" } } } }
+      values { value: "south_korea" spoken: "South Korea" attributes { fields { key: "iso2" value { string_value: "KR" } } fields { key: "iso3" value { string_value: "KOR" } } } }
+      values { value: "south_sudan" spoken: "South Sudan" attributes { fields { key: "iso2" value { string_value: "SS" } } fields { key: "iso3" value { string_value: "SSD" } } } }
+      values { value: "spain" spoken: "Spain" attributes { fields { key: "iso2" value { string_value: "ES" } } fields { key: "iso3" value { string_value: "ESP" } } } }
+      values { value: "sri_lanka" spoken: "Sri Lanka" attributes { fields { key: "iso2" value { string_value: "LK" } } fields { key: "iso3" value { string_value: "LKA" } } } }
+      values { value: "sudan" spoken: "Sudan" attributes { fields { key: "iso2" value { string_value: "SD" } } fields { key: "iso3" value { string_value: "SDN" } } } }
+      values { value: "suriname" spoken: "Suriname" attributes { fields { key: "iso2" value { string_value: "SR" } } fields { key: "iso3" value { string_value: "SUR" } } } }
+      values { value: "sweden" spoken: "Sweden" attributes { fields { key: "iso2" value { string_value: "SE" } } fields { key: "iso3" value { string_value: "SWE" } } } }
+      values { value: "switzerland" spoken: "Switzerland" attributes { fields { key: "iso2" value { string_value: "CH" } } fields { key: "iso3" value { string_value: "CHE" } } } }
+      values { value: "syria" spoken: "Syria" attributes { fields { key: "iso2" value { string_value: "SY" } } fields { key: "iso3" value { string_value: "SYR" } } } }
+      values { value: "taiwan" spoken: "Taiwan" attributes { fields { key: "iso2" value { string_value: "TW" } } fields { key: "iso3" value { string_value: "TWN" } } } }
+      values { value: "tajikistan" spoken: "Tajikistan" attributes { fields { key: "iso2" value { string_value: "TJ" } } fields { key: "iso3" value { string_value: "TJK" } } } }
+      values { value: "tanzania" spoken: "Tanzania" attributes { fields { key: "iso2" value { string_value: "TZ" } } fields { key: "iso3" value { string_value: "TZA" } } } }
+      values { value: "thailand" spoken: "Thailand" attributes { fields { key: "iso2" value { string_value: "TH" } } fields { key: "iso3" value { string_value: "THA" } } } }
+      values { value: "timor_leste" spoken: "Timor-Leste" synonyms: ["east timor"] attributes { fields { key: "iso2" value { string_value: "TL" } } fields { key: "iso3" value { string_value: "TLS" } } } }
+      values { value: "togo" spoken: "Togo" attributes { fields { key: "iso2" value { string_value: "TG" } } fields { key: "iso3" value { string_value: "TGO" } } } }
+      values { value: "tonga" spoken: "Tonga" attributes { fields { key: "iso2" value { string_value: "TO" } } fields { key: "iso3" value { string_value: "TON" } } } }
+      values { value: "trinidad_and_tobago" spoken: "Trinidad and Tobago" synonyms: ["trinidad"] attributes { fields { key: "iso2" value { string_value: "TT" } } fields { key: "iso3" value { string_value: "TTO" } } } }
+      values { value: "tunisia" spoken: "Tunisia" attributes { fields { key: "iso2" value { string_value: "TN" } } fields { key: "iso3" value { string_value: "TUN" } } } }
+      values { value: "turkey" spoken: "Turkey" synonyms: ["turkiye", "türkiye"] attributes { fields { key: "iso2" value { string_value: "TR" } } fields { key: "iso3" value { string_value: "TUR" } } } }
+      values { value: "turkmenistan" spoken: "Turkmenistan" attributes { fields { key: "iso2" value { string_value: "TM" } } fields { key: "iso3" value { string_value: "TKM" } } } }
+      values { value: "tuvalu" spoken: "Tuvalu" attributes { fields { key: "iso2" value { string_value: "TV" } } fields { key: "iso3" value { string_value: "TUV" } } } }
+      values { value: "uganda" spoken: "Uganda" attributes { fields { key: "iso2" value { string_value: "UG" } } fields { key: "iso3" value { string_value: "UGA" } } } }
+      values { value: "ukraine" spoken: "Ukraine" attributes { fields { key: "iso2" value { string_value: "UA" } } fields { key: "iso3" value { string_value: "UKR" } } } }
+      values { value: "united_arab_emirates" spoken: "the United Arab Emirates" synonyms: ["uae", "emirates"] attributes { fields { key: "iso2" value { string_value: "AE" } } fields { key: "iso3" value { string_value: "ARE" } } } }
+      values { value: "united_kingdom" spoken: "the United Kingdom" synonyms: ["uk", "britain", "great britain", "england", "scotland", "wales"] attributes { fields { key: "iso2" value { string_value: "GB" } } fields { key: "iso3" value { string_value: "GBR" } } } }
+      values { value: "united_states" spoken: "the United States" synonyms: ["united states of america", "usa", "america", "the states"] attributes { fields { key: "iso2" value { string_value: "US" } } fields { key: "iso3" value { string_value: "USA" } } } }
+      values { value: "uruguay" spoken: "Uruguay" attributes { fields { key: "iso2" value { string_value: "UY" } } fields { key: "iso3" value { string_value: "URY" } } } }
+      values { value: "uzbekistan" spoken: "Uzbekistan" attributes { fields { key: "iso2" value { string_value: "UZ" } } fields { key: "iso3" value { string_value: "UZB" } } } }
+      values { value: "vanuatu" spoken: "Vanuatu" attributes { fields { key: "iso2" value { string_value: "VU" } } fields { key: "iso3" value { string_value: "VUT" } } } }
+      values { value: "vatican_city" spoken: "Vatican City" synonyms: ["vatican", "holy see"] attributes { fields { key: "iso2" value { string_value: "VA" } } fields { key: "iso3" value { string_value: "VAT" } } } }
+      values { value: "venezuela" spoken: "Venezuela" attributes { fields { key: "iso2" value { string_value: "VE" } } fields { key: "iso3" value { string_value: "VEN" } } } }
+      values { value: "vietnam" spoken: "Vietnam" synonyms: ["viet nam"] attributes { fields { key: "iso2" value { string_value: "VN" } } fields { key: "iso3" value { string_value: "VNM" } } } }
+      values { value: "yemen" spoken: "Yemen" attributes { fields { key: "iso2" value { string_value: "YE" } } fields { key: "iso3" value { string_value: "YEM" } } } }
+      values { value: "zambia" spoken: "Zambia" attributes { fields { key: "iso2" value { string_value: "ZM" } } fields { key: "iso3" value { string_value: "ZMB" } } } }
+      values { value: "zimbabwe" spoken: "Zimbabwe" attributes { fields { key: "iso2" value { string_value: "ZW" } } fields { key: "iso3" value { string_value: "ZWE" } } } }
+  }
+}

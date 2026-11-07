@@ -1,28 +1,5 @@
 #  SentencePiece 
-# Static build only - avoids distributing a separate .so alongside the library.
-set(SPM_ENABLE_SHARED OFF CACHE BOOL "" FORCE)
-set(SPM_BUILD_TEST    OFF CACHE BOOL "" FORCE)
-set(SPM_BUILD_EXAMPLE OFF CACHE BOOL "" FORCE)
-# Disable building spm_encode/spm_decode utilities to avoid NDK linker issues
-set(SPM_ENABLE_TCMALLOC OFF CACHE BOOL "" FORCE)
-
-# sentencepiece v0.2.0 has cmake_minimum_required(VERSION 2.8); allow it under CMake 4.
-set(CMAKE_POLICY_VERSION_MINIMUM 3.5 CACHE STRING "" FORCE)
-
-FetchContent_Declare(
-    sentencepiece
-    GIT_REPOSITORY https://github.com/google/sentencepiece.git
-    GIT_TAG        v0.2.0
-    GIT_SHALLOW    ON
-)
-FetchContent_MakeAvailable(sentencepiece)
-
-# Ensure 'log' is linked on Android for sentencepiece's internal protobuf usage
-if(ANDROID)
-    if(TARGET sentencepiece-static)
-        target_link_libraries(sentencepiece-static INTERFACE log)
-    endif()
-endif()
+include(${CMAKE_CURRENT_LIST_DIR}/../cmake/FetchSentencepiece.cmake)
 
 #  Library 
 

@@ -13,7 +13,9 @@
 //     the final differs, or when the speculative reply wants a tool;
 //   - a follow-up: the user resumes while the agent is thinking, so the interrupted turn and the new
 //     one reach the LLM as a single message.
+// Frames go through a TurnAssemblerProcessor first, as in a real pipeline: it decides the turns.
 
+#include <VASDK/TurnAssemblerProcessor.h>
 #include <VASDK/llm/LLMProcessor.h>
 #include <VASDK/llm/AnthropicTransport.h>
 #include <VASDK/llm/OpenAITransport.h>
@@ -49,16 +51,24 @@ public:
     std::vector<std::string> replies;  // one per request when set (tool round trips)
     std::atomic<int> requests{0};
     bool anthropic = false;
-    std::string lastBody;
+    bool timesOut = false;   // every request fails, as a timeout does
+    std::string lastBody, lastUrl;
     std::atomic<bool> cancelled{false};
     std::atomic<int> generation{0};  // like CurlHttpProvider: a cancel hits requests started before it
     Clock::time_point cancelTime, returnTime;
 
-    network::HttpResponse post(const std::string&, const std::map<std::string, std::string>&, const std::string& body,
+    network::HttpResponse post(const std::string& url, const std::map<std::string, std::string>&, const std::string& body,
                                int, std::function<void(const std::string&)> onChunk) override {
         cancelled = false;
         const int gen = generation.load();
         lastBody = body;
+        lastUrl = url;
+        if (timesOut) {
+            ++requests;
+            network::HttpResponse failed;
+            failed.error = {network::NetworkErrorCode::Timeout, "Timeout was reached"};
+            return failed;
+        }
         const int n = requests++;
         const std::string reply =
             replies.empty() ? this->reply : replies[std::min<size_t>(n, replies.size() - 1)];
@@ -97,6 +107,7 @@ struct Spoken {
     std::string text;
     bool isFinal, isExpecting;
     Clock::time_point at;
+    uint64_t turnId;
 };
 
 class Recorder : public pipeline::FrameProcessor {
@@ -110,7 +121,7 @@ public:
         if (f->getType() != transport::FrameType::TEXT) return;
         auto t = std::static_pointer_cast<transport::TextFrame>(f);
         std::lock_guard<std::mutex> l(m);
-        frames.push_back({t->text, t->isFinal, t->isExpecting, Clock::now()});
+        frames.push_back({t->text, t->isFinal, t->isExpecting, Clock::now(), t->turnId});
     }
     std::vector<Spoken> snapshot() {
         std::lock_guard<std::mutex> l(m);
@@ -129,6 +140,7 @@ void check(bool ok, const char* what) {
 struct Rig {
     std::shared_ptr<FakeHttp> http = std::make_shared<FakeHttp>();
     std::shared_ptr<llm::LLMTransport> transport;
+    std::shared_ptr<pipeline::TurnAssemblerProcessor> assembler = std::make_shared<pipeline::TurnAssemblerProcessor>();
     std::shared_ptr<llm::LLMProcessor> llm;
     std::shared_ptr<Recorder> recorder = std::make_shared<Recorder>();
 
@@ -163,14 +175,18 @@ struct Rig {
         recorder->start();
         llm->initialize();
         llm->start();
+        assembler->setDownstream(llm);
+        assembler->initialize();
+        assembler->start();
     }
     ~Rig() {
+        assembler->stop();
         llm->stop();
         if (tools) tools->stop();
         recorder->stop();
     }
 
-    void send(std::shared_ptr<transport::Frame> f) { llm->processFrame(f, pipeline::FlowDirection::DOWNSTREAM); }
+    void send(std::shared_ptr<transport::Frame> f) { assembler->processFrame(f, pipeline::FlowDirection::DOWNSTREAM); }
 
     // Agent listening, streaming STT partial cached, then the VAD reports a sustained pause.
     void userPausesAfter(const std::string& partialText) {
@@ -200,12 +216,12 @@ struct Rig {
     void userSays(const std::string& text) {
         auto stopped = std::make_shared<transport::AgentStateFrame>();
         stopped->transition = transport::AgentStateTransition::USER_STOPPED_SPEAKING;
-        llm->processFrame(stopped, pipeline::FlowDirection::DOWNSTREAM);
+        send(stopped);
         auto final = std::make_shared<transport::TranscriptionFrame>();
         final->isFinal = true;
         final->transcriptionResult.text = text;
         final->transcriptionResult.confidence = 1.0f;
-        llm->processFrame(final, pipeline::FlowDirection::DOWNSTREAM);
+        send(final);
     }
 };
 
@@ -237,7 +253,7 @@ void bargeInAbortsAndRollsBack() {
 
     auto interrupt = std::make_shared<transport::AgentStateFrame>();
     interrupt->transition = transport::AgentStateTransition::BARGE_IN_INTERRUPT;
-    rig.llm->processFrame(interrupt, pipeline::FlowDirection::DOWNSTREAM);
+    rig.send(interrupt);
     const size_t spokenAtInterrupt = rig.recorder->snapshot().size();
     std::this_thread::sleep_for(1500ms);
 
@@ -357,6 +373,87 @@ void extraPayloadMergedIntoRequests() {
     }
 }
 
+// A turn that names an LLM profile (a route's llm_profile) is answered by it; the next turn that
+// names none by the default. One conversation, one history, whichever model answers.
+void profileAnswersTheTurnsThatNameIt() {
+    Rig rig(R"({"text": "Sure."})");
+    llm::LLMConfig smart = rig.transport->getConfig();
+    smart.model = "smart-model";
+    smart.endpoint = "http://localhost:2/v1/chat/completions";
+    rig.llm->setProfiles({{"smart", smart}});
+    auto turn = [&rig](const std::string& text, const std::string& profile) {
+        auto frame = std::make_shared<transport::UserTurnFrame>();
+        frame->text = text;
+        frame->confidence = 1.0f;
+        frame->llmProfile = profile;
+        rig.llm->processFrame(frame, pipeline::FlowDirection::DOWNSTREAM);
+        std::this_thread::sleep_for(600ms);
+        return nlohmann::json::parse(rig.http->lastBody).value("model", std::string());
+    };
+    check(turn("Tell me a story.", "smart") == "smart-model" && rig.http->lastUrl == smart.endpoint,
+          "[profiles] the turn that names one is answered by it, at its endpoint");
+    check(turn("Thanks.", "") == "fake" && rig.http->lastUrl == "http://localhost:1/v1/chat/completions",
+          "[profiles] the next turn by the default");
+    check(turn("Again.", "nope") == "fake", "[profiles] an unknown one: the default");
+    check(rig.userTurnsInHistory().size() == 3, "[profiles] one history across them");
+}
+
+// The stale turn reaches the LLM after the interrupt (a slow Dialog), the merged one right behind
+// it, as TurnAssemblerProcessor sends them: only the merged one is answered, its frames tagged with it.
+void replacingTurnCancelsThePreviousReply() {
+    Rig rig("");
+    rig.http->replies = {R"({"text": "Got it. What would you like to do next?"})",
+                         R"({"text": "Once upon a time there was a stone."})"};
+    auto turn = [&rig](const std::string& text, uint64_t turnId, bool replacesPrevious) {
+        if (replacesPrevious) {
+            auto replaced = std::make_shared<transport::TurnReplacedFrame>();
+            replaced->turnId = turnId - 1;
+            rig.llm->processFrame(replaced, pipeline::FlowDirection::DOWNSTREAM);
+        }
+        auto frame = std::make_shared<transport::UserTurnFrame>();
+        frame->text = text;
+        frame->confidence = 1.0f;
+        frame->turnId = turnId;
+        frame->replacesPrevious = replacesPrevious;
+        rig.llm->processFrame(frame, pipeline::FlowDirection::DOWNSTREAM);
+    };
+    turn("Actually.", 3, false);
+    std::this_thread::sleep_for(50ms);   // its request is streaming
+    turn("Actually. Tell me a story.", 4, true);
+    std::this_thread::sleep_for(1500ms);
+    std::string spoken;
+    bool tagged = true;
+    for (const auto& frame : rig.recorder->snapshot()) {
+        spoken += frame.text;
+        tagged = tagged && frame.turnId == 4;
+    }
+    check(spoken == "Once upon a time there was a stone.", "[replaces] only the merged turn's reply is said");
+    check(tagged, "[replaces] its frames carry the turn they answer");
+    check(rig.userTurnsInHistory() == std::vector<std::string>{"Actually. Tell me a story."},
+          "[replaces] only the merged turn in history");
+
+    // A turn the LLM never got (the Dialog answered it): the exchange before it stays.
+    turn("Thanks.", 5, false);
+    std::this_thread::sleep_for(1200ms);
+    auto replaced = std::make_shared<transport::TurnReplacedFrame>();
+    replaced->turnId = 6;
+    rig.llm->processFrame(replaced, pipeline::FlowDirection::DOWNSTREAM);
+    std::this_thread::sleep_for(100ms);
+    check(rig.userTurnsInHistory().size() == 2, "[replaces] another turn's exchange isn't rolled back");
+}
+
+// A request that fails with nothing said: the user hears that, not silence.
+void failedRequestIsSaid() {
+    Rig rig(R"({"text": "Sure."})");
+    rig.llm->setFailureReplies({"Sorry, that took too long."});
+    rig.http->timesOut = true;
+    rig.userSays("Tell me a long story.");
+    std::this_thread::sleep_for(600ms);
+    const auto frames = rig.recorder->snapshot();
+    check(!frames.empty() && frames.back().text == "Sorry, that took too long." && frames.back().isFinal,
+          "[failure] a failed request is said, not left in silence");
+}
+
 void backchannelGoesWithTheNextMessage() {
     Rig rig(R"({"text": "Sure."})");
     auto backchannel = std::make_shared<transport::TranscriptionFrame>();
@@ -382,7 +479,7 @@ void backchannelGoesWithTheNextMessage() {
 void followUpMergedWithInterruptedTurn() {
     for (const bool enabled : {true, false}) {
         Rig rig(kReply);
-        if (!enabled) rig.llm->setFollowUpWindowMs(0);
+        if (!enabled) rig.assembler->setResumeMergeMs(0);
         rig.userSays("Book a flight");
         std::this_thread::sleep_for(100ms);  // request in flight, nothing spoken yet
         auto resumed = std::make_shared<transport::AgentStateFrame>();
@@ -427,6 +524,9 @@ int main() {
     speculationCancelledWhenUserResumes();
     speculativeToolCallNeverRuns();
     extraPayloadMergedIntoRequests();
+    profileAnswersTheTurnsThatNameIt();
+    replacingTurnCancelsThePreviousReply();
+    failedRequestIsSaid();
     backchannelGoesWithTheNextMessage();
     followUpMergedWithInterruptedTurn();
     followUpKeepsStagedUnsentFinal();

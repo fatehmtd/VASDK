@@ -1,0 +1,80 @@
+# proto-file: vasdk/flow/agent.proto
+# proto-message: vasdk.flow.Agent
+#
+# Text messages: "text Sam" opens a form that asks what to say, reads it back and sends on a yes;
+# a message that comes in is offered once the driver isn't in the middle of something, read
+# aloud, and can be answered. Who they're to is @contact, the phone's (../phone/phone.txtpb).
+# Its tool, `messages`, is Messages.cpp. Part of ../../agents/car/agent.txtpb (include_files).
+envelopes: ["messages"]
+goal_files: ["goals/send_message.txtpb"]
+
+session_params { name: "message" type: STRUCT }   # the message read last
+session_params { name: "sent"    type: STRUCT }   # the message sent last
+
+intents { name: "send_message" examples: ["text @contact", "send a text to @contact", "send a message to @contact", "message @contact",
+                                          "send @contact a message", "send @contact a text", "tell @contact", "send a text",
+                                          "send a message", "text someone", "write a message"] }
+intents { name: "read_messages" examples: ["read my messages", "read my texts", "any new messages", "any messages", "do i have messages",
+                                           "new messages", "check my messages"] }
+
+envelope_defs {
+  name: "messages"
+  routes { intent: "send_message" target: "flow:compose" }   # "text Sam": the form gets the contact on the way in
+  routes { intent: "read_messages" target: "flow:read_message" }
+}
+
+# The phone gets a message (Messages::simulate): offered when the driver is between tasks.
+triggers {
+  name: "message_received"
+  source { app_event { name: "message-received" } }
+  action { start_flow: "read_message" }
+  delivery { interrupt: AFTER_FLOW priority: HIGH expires_after_ms: 600000
+             ask_first { text: "New message from ${trigger.payload.from}. Want to hear it?" } }
+}
+
+flows {
+  name: "compose"
+  start_page: "compose"
+  pages {
+    name: "compose"
+    form { goal: "send_message" }
+    routes {
+      condition: "$form.confirmed"
+      steps { call_tool { name: "messages" args { key: "action" value: "'send'" } args { key: "to_name" value: "$form.contact.spoken" }
+                          args { key: "body" value: "$form.body" } into: "$session.sent" } }
+      steps { say { text: "Sent to ${session.sent.to_name}." } }
+      target: "END_FLOW"
+    }
+    routes { condition: "$form.failed" steps { say { text: "Okay, I won't send it." } } target: "END_FLOW" }
+  }
+}
+
+flows {
+  name: "read_message"
+  start_page: "read"
+  pages {
+    name: "read"
+    on_enter { call_tool { name: "messages" args { key: "action" value: "'read_latest'" } into: "$session.message" } }
+    on_enter { branch { if: "NOT $session.message.found"
+                        then { say { text: "No new messages." } }
+                        then { goto { target: "END_FLOW" } } } }
+    on_enter { ask { say { text: "${session.message.from} says: ${session.message.body} Want to reply?" }
+                     expect { intents: ["sys.yes", "sys.no"] } } }
+    routes { intent: "sys.yes" target: "reply" }
+    routes { intent: "sys.no" steps { say { text: "Okay." } } target: "END_FLOW" }
+  }
+  # The same form as compose, to whoever sent it
+  pages {
+    name: "reply"
+    form { goal: "send_message" }
+    on_enter { set { key: "$form.contact" value: "$session.message.from" } }
+    routes {
+      condition: "$form.confirmed"
+      steps { call_tool { name: "messages" args { key: "action" value: "'send'" } args { key: "to_name" value: "$form.contact.spoken" }
+                          args { key: "body" value: "$form.body" } into: "$session.sent" } }
+      steps { say { text: "Sent to ${session.sent.to_name}." } }
+      target: "END_FLOW"
+    }
+    routes { condition: "$form.failed" steps { say { text: "Okay, I won't send it." } } target: "END_FLOW" }
+  }
+}

@@ -1,0 +1,199 @@
+# proto-file: vasdk/proto/vasdk/nlu/language.proto
+# proto-message: vasdk.nlu.Language
+#
+# French, as a deployer would write it: test data for language_test.cpp, showing a pack VASDK
+# doesn't ship. Not complete French.
+
+code: "fr-FR"
+name: "French"
+
+numbers {
+  words { key: "zéro" value: 0 }
+  words { key: "un" value: 1 }
+  words { key: "une" value: 1 }
+  words { key: "deux" value: 2 }
+  words { key: "trois" value: 3 }
+  words { key: "quatre" value: 4 }
+  words { key: "cinq" value: 5 }
+  words { key: "six" value: 6 }
+  words { key: "sept" value: 7 }
+  words { key: "huit" value: 8 }
+  words { key: "neuf" value: 9 }
+  words { key: "dix" value: 10 }
+  words { key: "onze" value: 11 }
+  words { key: "douze" value: 12 }
+  words { key: "treize" value: 13 }
+  words { key: "quatorze" value: 14 }
+  words { key: "quinze" value: 15 }
+  words { key: "seize" value: 16 }
+  words { key: "dix sept" value: 17 }
+  words { key: "dix huit" value: 18 }
+  words { key: "dix neuf" value: 19 }
+  words { key: "vingt" value: 20 }
+  words { key: "trente" value: 30 }
+  words { key: "quarante" value: 40 }
+  words { key: "cinquante" value: 50 }
+  words { key: "soixante" value: 60 }
+  words { key: "soixante dix" value: 70 }
+  words { key: "soixante et onze" value: 71 }
+  words { key: "soixante douze" value: 72 }
+  words { key: "soixante treize" value: 73 }
+  words { key: "soixante quatorze" value: 74 }
+  words { key: "soixante quinze" value: 75 }
+  words { key: "soixante seize" value: 76 }
+  words { key: "quatre vingt" value: 80 }
+  words { key: "quatre vingts" value: 80 }
+  words { key: "quatre vingt dix" value: 90 }
+  words { key: "quatre vingt onze" value: 91 }
+  words { key: "quatre vingt douze" value: 92 }
+  words { key: "quatre vingt treize" value: 93 }
+  words { key: "quatre vingt quatorze" value: 94 }
+  words { key: "quatre vingt quinze" value: 95 }
+  words { key: "quatre vingt seize" value: 96 }
+  scales { key: "cent" value: 100 }
+  scales { key: "cents" value: 100 }
+  scales { key: "mille" value: 1000 }
+  scales { key: "million" value: 1000000 }
+  scales { key: "millions" value: 1000000 }
+  connectors: "et"
+  decimal_points: "virgule"
+  ordinals { key: "premier" value: 1 }
+  ordinals { key: "première" value: 1 }
+  ordinals { key: "deuxième" value: 2 }
+  ordinals { key: "second" value: 2 }
+  ordinals { key: "seconde" value: 2 }
+  ordinals { key: "troisième" value: 3 }
+  ordinals { key: "quatrième" value: 4 }
+  ordinals { key: "cinquième" value: 5 }
+  ordinals { key: "sixième" value: 6 }
+  ordinals { key: "septième" value: 7 }
+  ordinals { key: "huitième" value: 8 }
+  ordinals { key: "neuvième" value: 9 }
+  ordinals { key: "dixième" value: 10 }
+  ordinals { key: "vingtième" value: 20 }
+  ordinals { key: "trentième" value: 30 }
+  ordinal_suffix: "er|re|e|ème|eme"
+  ordinal_leads: ["numéro", "option"]
+}
+
+calendar {
+  weekdays { phrases: "lundi" }
+  weekdays { phrases: "mardi" }
+  weekdays { phrases: "mercredi" }
+  weekdays { phrases: "jeudi" }
+  weekdays { phrases: "vendredi" }
+  weekdays { phrases: "samedi" }
+  weekdays { phrases: "dimanche" }
+  months { phrases: "janvier" }
+  months { phrases: ["février", "fevrier"] }
+  months { phrases: "mars" }
+  months { phrases: "avril" }
+  months { phrases: "mai" }
+  months { phrases: "juin" }
+  months { phrases: "juillet" }
+  months { phrases: ["août", "aout"] }
+  months { phrases: "septembre" }
+  months { phrases: "octobre" }
+  months { phrases: "novembre" }
+  months { phrases: "décembre" }
+  relative_days { key: "aujourd'hui" value: 0 }
+  relative_days { key: "ce soir" value: 0 }
+  relative_days { key: "demain" value: 1 }
+  relative_days { key: "après demain" value: 2 }
+  relative_days { key: "hier" value: -1 }
+  relative_days { key: "la semaine prochaine" value: 7 }
+  from_today: "dans"
+  day_units: ["jour", "jours"]
+  week_units: ["semaine", "semaines"]
+  next: ["prochain", "prochaine"]
+  next_is_coming: true
+  coming: "ce"
+}
+
+clock {
+  noon: "midi"
+  midnight: "minuit"
+  am: "du matin"
+  pm: ["de l'après midi", "du soir"]
+  at: "à"
+  hour_words: ["heure", "heures", "h"]
+  after_hour { key: "et quart" value: 15 }
+  after_hour { key: "et demie" value: 30 }
+  after_hour { key: "et demi" value: 30 }
+  after_hour { key: "moins le quart" value: -15 }
+  after_hour { key: "moins quart" value: -15 }
+  minus: "moins"
+}
+
+durations {
+  units { key: "seconde" value: 1 }
+  units { key: "secondes" value: 1 }
+  units { key: "minute" value: 60 }
+  units { key: "minutes" value: 60 }
+  units { key: "heure" value: 3600 }
+  units { key: "heures" value: 3600 }
+  units { key: "d'heure" value: 3600 }
+  units { key: "jour" value: 86400 }
+  units { key: "jours" value: 86400 }
+  units { key: "semaine" value: 604800 }
+  units { key: "semaines" value: 604800 }
+  amounts { key: "un" value: 1 }
+  amounts { key: "une" value: 1 }
+  amounts { key: "une demi" value: 0.5 }
+  amounts { key: "un quart" value: 0.25 }
+  and_a_half: ["et demie", "et demi"]
+  joiners: "et"
+}
+
+emails {
+  at: "arobase"
+  symbols { key: "point" value: "." }
+  symbols { key: "tiret" value: "-" }
+  symbols { key: "underscore" value: "_" }
+}
+
+yes: ["oui", "ouais", "d'accord", "exact", "exactement", "absolument", "bien sûr"]
+no: ["non", "pas du tout", "jamais"]
+
+intents { key: "sys.yes" value { phrases: ["oui", "ouais", "d'accord", "c'est ça", "exactement", "bien sûr", "allez y"] } }
+intents { key: "sys.no" value { phrases: ["non", "non merci", "pas vraiment"] } }
+intents { key: "sys.cancel" value { phrases: ["annuler", "laisse tomber", "oublie", "arrête"] } }
+intents { key: "sys.repeat" value { phrases: ["répète", "répétez", "pardon", "vous pouvez répéter"] } }
+intents { key: "sys.help" value { phrases: ["aide", "qu'est ce que je peux dire"] } }
+intents { key: "sys.skip" value { phrases: ["passer", "je ne sais pas", "aucune idée"] } }
+
+negations: ["ne", "n'", "pas", "jamais"]
+articles: ["le", "la", "les"]
+stop_words: ["le", "la", "les", "un", "une", "des", "de", "du", "je", "tu", "vous", "est", "ce", "que", "qui", "quoi", "comment"]
+
+turn_taking {
+  backchannels: ["oui", "ouais", "d'accord", "ok", "je vois", "hmm", "mm", "ah bon", "voilà", "super"]
+  interruptions: ["arrête", "stop", "attendez", "attends", "non", "mais", "pardon", "excusez"]
+}
+
+replies {
+  not_understood: "Désolé, je ne peux pas vous aider avec ça ici."
+  tool_failed: "Désolé, je ne peux pas faire ça pour l'instant."
+  did_not_get_that: "Désolé, je n'ai pas compris."
+  say_yes_or_no: "Répondez par oui ou par non, s'il vous plaît."
+  what_to_change: "Que voulez-vous changer ?"
+  declined: "D'accord."
+  ask_slot: "Quel est votre {slot} ?"
+  too_few_digits: ["Je n'ai entendu que {count} chiffre.", "Je n'ai entendu que {count} chiffres."]
+}
+
+speaking {
+  date: "{weekday} {day_ordinal} {month}"
+  ordinal_suffixes { condition: "$n = 1" suffix: "er" }
+  time: "{hour} h {minute}"
+  whole_hour: "{hour} heures"
+  date_time: "{date} à {time}"
+  plural_rules: "$n < 2"
+  units { key: "day" value { phrases: ["jour", "jours"] } }
+  units { key: "hour" value { phrases: ["heure", "heures"] } }
+  units { key: "minute" value { phrases: ["minute", "minutes"] } }
+  units { key: "second" value { phrases: ["seconde", "secondes"] } }
+  list_separator: ", "
+  list_last: " et "
+  digits: ["zéro", "un", "deux", "trois", "quatre", "cinq", "six", "sept", "huit", "neuf"]
+}

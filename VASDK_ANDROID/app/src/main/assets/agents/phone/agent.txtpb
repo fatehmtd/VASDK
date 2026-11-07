@@ -1,0 +1,43 @@
+# proto-file: vasdk/flow/agent.proto
+# proto-message: vasdk.flow.Agent
+#
+# On the phone, before the LLM: "call mom" finds the contact by its name in the phone book,
+# confirms, and calls. Everything else goes on to the LLM as before.
+# The app fills @contact from the phone book (ContactsEntity) and provides place_call (Kotlin).
+#   vasdk_agentc test agents/phone/agent.txtpb ../../../../agent-tests/phone/*.txtpb
+schema_version: 1
+name: "android-phone"
+start_flow: "main"
+
+session_params { name: "number" type: STRING sensitive: true }
+
+# The phone book, by name: value = the number, spoken = the contact's name.
+entity_types { name: "contact" dynamic: true matching { phonetic: true } list { } }
+
+intents { name: "call" examples: ["call @contact", "phone @contact", "ring @contact", "dial @contact", "give @contact a call"] }
+
+# Written in Kotlin (VasdkEngine.registerAgentTool): starts the call.
+tools { name: "place_call" description: "Calls a phone number" }
+
+flows {
+  name: "main"
+  start_page: "idle"
+  pages {
+    name: "idle"   # says nothing: the assistant is always listening
+    routes {
+      intent: "call"
+      entity: "@contact"
+      steps { set { key: "$session.number" value: "$entity" } }
+      steps { ask { say { text: "Call $entity?" } expect { mode: YES_NO } } }
+      target: "confirm"
+    }
+  }
+  pages {
+    name: "confirm"
+    routes { intent: "sys.yes"
+             steps { call_tool { name: "place_call" args { key: "number" value: "$session.number" } } }
+             steps { say { text: "Calling." } }
+             target: "idle" }
+    routes { intent: "sys.no" steps { say { text: "Okay, I won't call." } } target: "idle" }
+  }
+}

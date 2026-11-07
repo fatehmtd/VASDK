@@ -1,0 +1,9 @@
+# proto-file: vasdk/flow/test_case.proto
+# proto-message: vasdk.flow.FlowTestCase
+name: "three routes offered, one picked by name, then stopped"
+turns { user: "take me to the mall" expect { flow: "navigate" page: "routes" said_contains: "To Harbor Mall" choices: ["Fastest", "Shortest", "No tolls"] } }
+turns { user: "what are the options" expect { said_contains: ["The shortest is", "Without tolls"] page: "routes" } }
+turns { user: "avoid tolls" expect { said_contains: "by Coast Road" flow: "drive" } }
+turns { user: "stop navigation" expect { said: "Navigation off." } }
+turns { user: "navigate" expect { said: "Where to?" } }
+turns { user: "never mind" expect { said: "Okay." flow: "drive" } }

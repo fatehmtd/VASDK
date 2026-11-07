@@ -1,0 +1,15 @@
+# proto-file: vasdk/flow/test_case.proto
+# proto-message: vasdk.flow.FlowTestCase
+name: "the temperature: set, warmer and cooler, a side of its own, and out of range"
+turns { expect { page: "ready" said_contains: "climate" expects_reply: false } }
+turns { user: "set the temperature to 22" expect { said_contains: "22 degrees." tools_called: ["climate"] } }
+turns { user: "I'm cold" expect { said_contains: "23 degrees." } }
+turns { user: "set the passenger side to 25" expect { said_contains: "25 degrees on the passenger side." } }
+turns { user: "it's freezing on my side" expect { said_contains: "24 degrees on your side." } }
+turns { user: "make it 40 degrees" expect { said: "I can set the temperature from 16 to 30 degrees." tools_called: [] } }
+turns { user: "turn off the AC" }
+turns { user: "turn off the AC" expect { said: "The AC is already off." } }
+turns { user: "it's too hot in here" expect { said_contains: "Turning on the AC, at 23 degrees." } }   # a degree down, and the AC on
+turns { user: "set it to 30" }
+turns { user: "warmer" expect { said: "That's as warm as it goes: 30 degrees." } }
+turns { user: "what's the temperature" expect { said_contains: "set to 30." } }

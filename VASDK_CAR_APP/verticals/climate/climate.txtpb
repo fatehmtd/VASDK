@@ -1,0 +1,212 @@
+# proto-file: vasdk/flow/agent.proto
+# proto-message: vasdk.flow.Agent
+#
+# Climate: temperature per side, AC, fan, defrost, recirculation and seat heating, on every page;
+# and an offer to cool a hot cabin, from $context.car.climate. Its tool, `climate`, is Climate.cpp.
+# Part of ../../agents/car/agent.txtpb (include_files).
+envelopes: ["climate"]
+
+session_params { name: "climate" type: STRUCT }   # what the climate tool last returned
+
+entity_types { name: "temperature"  description: "A cabin temperature, in Celsius" derived { base: "@sys.number" min: 16 max: 30 } }
+entity_types { name: "fan_level"    derived { base: "@sys.integer" min: 1 max: 7 } }
+entity_types { name: "heat_level"   derived { base: "@sys.integer" min: 0 max: 3 } }
+entity_types {
+  name: "zone"
+  description: "Whose side of the car"
+  list {
+    values { value: "driver"    spoken: "your side"          synonyms: ["driver", "driver's side", "drivers side", "driver side", "my side"] }
+    values { value: "passenger" spoken: "the passenger side" synonyms: ["passenger", "passenger side", "passenger's side", "passengers side"] }
+    values { value: "both"      spoken: "both sides"         synonyms: ["both", "both sides", "everyone", "everybody"] }
+  }
+}
+
+intents { name: "set_temperature" examples: ["set the temperature to @temperature", "temperature to @temperature", "temperature at @temperature",
+                                             "@temperature degrees", "make it @temperature", "set it to @temperature", "set @zone to @temperature",
+                                             "set the temperature", "change the temperature", "degrees"] }
+intents { name: "warmer" examples: ["warmer", "i'm cold", "i am cold", "it's cold", "too cold", "freezing", "chilly", "heat it up",
+                                    "turn up the heat", "turn the heat up", "heat up", "more heat", "turn up the temperature", "raise the temperature",
+                                    "warm it up", "a bit warmer", "make it warmer", "warmer in here", "getting cold in here",
+                                    "it's getting cold", "too cold in here", "cold in here"] }   # whole sentences: mid-story, a command must be most of the words
+intents { name: "cooler" examples: ["cooler", "colder", "i'm hot", "i am hot", "it's hot", "too hot", "too warm", "boiling", "cool it down",
+                                    "turn down the heat", "turn the heat down", "less heat", "turn down the temperature",
+                                    "lower the temperature", "a bit cooler", "make it cooler", "cooler in here", "getting warm in here",
+                                    "getting hot in here", "it's getting warm", "it's getting hot", "too hot in here", "too warm in here",
+                                    "warm in here", "hot in here"] }
+intents { name: "ac_on"  examples: ["ac", "ac on", "turn on the ac", "switch on the ac", "start the ac", "air conditioning",
+                                    "air conditioning on", "turn on the air conditioning", "aircon", "air con"] }
+intents { name: "ac_off" examples: ["ac off", "turn off the ac", "switch off the ac", "stop the ac", "air conditioning off",
+                                    "turn off the air conditioning", "aircon off", "air con off"] }
+intents { name: "set_fan" examples: ["fan to @fan_level", "fan at @fan_level", "fan on @fan_level", "fan speed @fan_level",
+                                     "fan speed to @fan_level", "set the fan to @fan_level", "fan level @fan_level", "fan up to @fan_level",
+                                     "fan down to @fan_level", "turn the fan to @fan_level",
+                                     "fan to @sys.integer", "fan at @sys.integer", "set the fan to @sys.integer"] }   # out of range: the second route
+intents { name: "fan_up"   examples: ["fan up", "more air", "more fan", "turn up the fan", "increase the fan", "fan higher", "fan faster", "stronger fan"] }
+intents { name: "fan_down" examples: ["fan down", "less air", "less fan", "turn down the fan", "decrease the fan", "fan lower", "fan slower",
+                                      "too windy", "too drafty"] }
+intents { name: "defrost_on"  examples: ["defrost", "defog", "demist", "defrost the windshield", "clear the windshield", "windshield is fogged up",
+                                         "windows are fogged up", "fogged up", "foggy"] }
+intents { name: "defrost_off" examples: ["defrost off", "turn off the defrost", "stop defrosting", "defog off", "demist off"] }
+intents { name: "recirculation_on"  examples: ["recirculate", "recirculation", "recirculation on", "recirculate the air", "outside air off",
+                                               "stop the outside air", "it smells", "bad smell"] }
+intents { name: "recirculation_off" examples: ["recirculation off", "fresh air", "outside air", "outside air on", "stop recirculating"] }
+intents { name: "seat_heat" examples: ["heat my seat", "heat the seat", "seat heating", "seat heater", "heated seat", "heated seats",
+                                       "warm my seat", "heat up my seat", "seat warmer", "seat heat", "seat heating to @heat_level", "seat heat @heat_level"] }
+intents { name: "seat_heat_off" examples: ["seat heating off", "seat heater off", "seat heat off", "turn off the seat heating",
+                                           "turn off my seat heater", "turn off the heated seat", "turn off the seat heater"] }
+intents { name: "climate_auto" examples: ["auto climate", "climate on auto", "climate to auto", "automatic climate", "auto mode"] }
+intents { name: "climate_off"  examples: ["climate off", "turn off the climate", "climate control off", "turn off the climate control"] }
+intents { name: "climate_on"   examples: ["climate on", "turn on the climate", "climate control on", "turn on the climate control"] }
+intents { name: "climate_status" examples: ["what's the temperature", "what is the temperature", "how warm is it", "how hot is it",
+                                            "how cold is it", "temperature inside", "cabin temperature", "what's the climate set to"] }
+
+envelope_defs {
+  name: "climate"
+  # Temperature: a value, or warmer and cooler by a degree. A zone named sets that side only.
+  routes {
+    intent: "set_temperature"
+    entity: "@temperature"
+    steps { call_tool { name: "climate" args { key: "action" value: "'set_temperature'" } args { key: "value" value: "$entity" }
+                        args { key: "zone" value: "$nlu.entities.zone" } into: "$session.climate" } }
+    steps { say { text: ["Okay, ${session.climate.temperature} degrees${session.climate.where}.",
+                         "Setting ${session.climate.temperature} degrees${session.climate.where}."] } }
+  }
+  routes { intent: "set_temperature" steps { say { text: "I can set the temperature from 16 to 30 degrees." } } }
+  routes {
+    intent: "warmer"
+    steps { call_tool { name: "climate" args { key: "action" value: "'adjust_temperature'" } args { key: "value" value: "1" }
+                        args { key: "zone" value: "$nlu.entities.zone" } into: "$session.climate" } }
+    steps { branch { if: "$session.climate.limit = 'max'"
+                     then { say { text: "That's as warm as it goes: ${session.climate.temperature} degrees." } }
+                     else { say { text: ["Warming it up to ${session.climate.temperature} degrees${session.climate.where}.",
+                                         "Okay, ${session.climate.temperature} degrees${session.climate.where}."] } } } }
+  }
+  # Cooler: a degree down, and the AC on if it was off.
+  routes {
+    intent: "cooler"
+    steps { call_tool { name: "climate" args { key: "action" value: "'adjust_temperature'" } args { key: "value" value: "-1" }
+                        args { key: "zone" value: "$nlu.entities.zone" } into: "$session.climate" } }
+    steps { branch {
+      if: "NOT $session.climate.ac"
+      then { call_tool { name: "climate" args { key: "action" value: "'ac'" } args { key: "value" value: "'on'" }
+                         args { key: "zone" value: "$nlu.entities.zone" } into: "$session.climate" } }
+      then { say { text: "Turning on the AC, at ${session.climate.temperature} degrees${session.climate.where}." } }
+      else { branch { if: "$session.climate.limit = 'min'"
+                      then { say { text: "That's as cool as it goes: ${session.climate.temperature} degrees." } }
+                      else { say { text: ["Cooling it down to ${session.climate.temperature} degrees${session.climate.where}.",
+                                          "Okay, ${session.climate.temperature} degrees${session.climate.where}."] } } } } } }
+  }
+  routes {
+    intent: "ac_off"
+    steps { call_tool { name: "climate" args { key: "action" value: "'ac'" } args { key: "value" value: "'off'" } into: "$session.climate" } }
+    steps { branch { if: "$session.climate.changed" then { say { text: ["AC off.", "Turning off the AC."] } }
+                     else { say { text: "The AC is already off." } } } }
+  }
+  routes {
+    intent: "ac_on"
+    steps { call_tool { name: "climate" args { key: "action" value: "'ac'" } args { key: "value" value: "'on'" } into: "$session.climate" } }
+    steps { branch { if: "$session.climate.changed" then { say { text: ["AC on.", "Turning on the AC."] } }
+                     else { say { text: "The AC is already on." } } } }
+  }
+  # Fan
+  routes {
+    intent: "set_fan"
+    entity: "@fan_level"
+    steps { call_tool { name: "climate" args { key: "action" value: "'fan'" } args { key: "value" value: "$entity" } into: "$session.climate" } }
+    steps { say { text: "Fan at ${session.climate.fan}." } }
+  }
+  routes { intent: "set_fan" steps { say { text: "The fan goes from 1 to 7." } } }
+  routes {
+    intent: "fan_up"
+    steps { call_tool { name: "climate" args { key: "action" value: "'adjust_fan'" } args { key: "value" value: "1" } into: "$session.climate" } }
+    steps { branch { if: "$session.climate.changed" then { say { text: "Fan at ${session.climate.fan}." } }
+                     else { say { text: "The fan is at its highest." } } } }
+  }
+  routes {
+    intent: "fan_down"
+    steps { call_tool { name: "climate" args { key: "action" value: "'adjust_fan'" } args { key: "value" value: "-1" } into: "$session.climate" } }
+    steps { branch { if: "$session.climate.changed" then { say { text: "Fan at ${session.climate.fan}." } }
+                     else { say { text: "The fan is at its lowest." } } } }
+  }
+  # Defrost, recirculation, seat heating, the whole climate
+  routes {
+    intent: "defrost_off"
+    steps { call_tool { name: "climate" args { key: "action" value: "'defrost'" } args { key: "value" value: "'off'" } into: "$session.climate" } }
+    steps { say { text: "Defrost off." } }
+  }
+  routes {
+    intent: "defrost_on"
+    steps { call_tool { name: "climate" args { key: "action" value: "'defrost'" } args { key: "value" value: "'on'" } into: "$session.climate" } }
+    steps { say { text: "Defrosting the windshield." } }
+  }
+  routes {
+    intent: "recirculation_off"
+    steps { call_tool { name: "climate" args { key: "action" value: "'recirculation'" } args { key: "value" value: "'off'" } into: "$session.climate" } }
+    steps { say { text: "Bringing in fresh air." } }
+  }
+  routes {
+    intent: "recirculation_on"
+    steps { call_tool { name: "climate" args { key: "action" value: "'recirculation'" } args { key: "value" value: "'on'" } into: "$session.climate" } }
+    steps { say { text: "Recirculating the air inside." } }
+  }
+  routes {
+    intent: "seat_heat_off"
+    steps { call_tool { name: "climate" args { key: "action" value: "'seat_heat'" } args { key: "value" value: "0" }
+                        args { key: "zone" value: "$nlu.entities.zone" } into: "$session.climate" } }
+    steps { say { text: "Seat heating off." } }
+  }
+  routes {
+    intent: "seat_heat"
+    steps { call_tool { name: "climate" args { key: "action" value: "'seat_heat'" } args { key: "value" value: "$nlu.entities.heat_level" }
+                        args { key: "zone" value: "$nlu.entities.zone" } into: "$session.climate" } }
+    steps { branch { if: "$session.climate.level = 0" then { say { text: "Seat heating off." } }
+                     else { say { text: "Heating ${session.climate.seats}, level ${session.climate.level}." } } } }
+  }
+  routes {
+    intent: "climate_auto"
+    steps { call_tool { name: "climate" args { key: "action" value: "'auto'" } args { key: "value" value: "'on'" } into: "$session.climate" } }
+    steps { say { text: "Climate on auto, at ${session.climate.temperature} degrees." } }
+  }
+  routes {
+    intent: "climate_off"
+    steps { call_tool { name: "climate" args { key: "action" value: "'power'" } args { key: "value" value: "'off'" } into: "$session.climate" } }
+    steps { say { text: "Climate off." } }
+  }
+  routes {
+    intent: "climate_on"
+    steps { call_tool { name: "climate" args { key: "action" value: "'power'" } args { key: "value" value: "'on'" } into: "$session.climate" } }
+    steps { say { text: "Climate on, at ${session.climate.temperature} degrees." } }
+  }
+  routes {
+    intent: "climate_status"
+    steps { call_tool { name: "climate" args { key: "action" value: "'status'" } into: "$session.climate" } }
+    steps { branch {
+      if: "$session.climate.power"
+      then { say { text: "It's ${session.climate.cabin_temp} degrees inside, and the climate is set to ${session.climate.driver_temp}." } }
+      else { say { text: "It's ${session.climate.cabin_temp} degrees inside. The climate is off." } } } }
+  }
+}
+
+# From $context.vehicle, which the app keeps up to date: checked every second.
+triggers {
+  name: "hot_cabin"
+  source { context_change { condition: "$context.car.climate.cabin_temp >= 28 AND $context.car.climate.ac = false" } }
+  action { start_flow: "cool_down" }
+  delivery { cooldown_ms: 600000
+             ask_first { text: "It's ${context.car.climate.cabin_temp} degrees in here. Want me to cool it down?" } }
+}
+
+# The hot-cabin trigger's yes: the AC on, and not above 21 degrees.
+flows {
+  name: "cool_down"
+  start_page: "cool"
+  pages {
+    name: "cool"
+    on_enter { call_tool { name: "climate" args { key: "action" value: "'ac'" } args { key: "value" value: "'on'" } into: "$session.climate" } }
+    on_enter { branch { if: "$session.climate.driver_temp > 21"
+                        then { call_tool { name: "climate" args { key: "action" value: "'set_temperature'" } args { key: "value" value: "21" }
+                                           into: "$session.climate" } } } }
+    on_enter { say { text: "AC on, at ${session.climate.temperature} degrees. It'll be cooler in a few minutes." } }
+    on_enter { goto { target: "END_FLOW" } }
+  }
+}

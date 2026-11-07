@@ -1,0 +1,161 @@
+// What a running engine reports to its listeners; see docs/reference/engine.md.
+// Fields are only ever added, so listeners built against an older schema keep working.
+syntax = "proto3";
+
+package vasdk.engine;
+
+import "google/protobuf/struct.proto";
+import "vasdk/flow/expectation.proto";
+import "vasdk/flow/trigger.proto";
+
+message Event {
+  int64 timestamp_ms = 1;   // milliseconds since the Unix epoch
+  string session_id = 2;    // Session::Options::id; empty for an unnamed session
+  oneof kind {
+    Transcript transcript = 10;
+    AgentReply agent_reply = 11;
+    AgentStateChange agent_state = 12;
+    ToolCall tool_call = 13;
+    Error error = 15;
+    ListeningWindow listening_window = 16;
+    UserSpeech user_speech = 17;
+    PageChanged page_changed = 20;
+    SessionEnded session_ended = 23;
+    TriggerFired trigger_fired = 24;
+    ProviderSwitched provider_switched = 25;
+    AgentTurn agent_turn = 26;
+  }
+}
+
+// STT, TTS or the LLM changed: the network dropped (Session::setNetworkAvailable) or a provider
+// failed, so the local fallback took over; or the network came back.
+message ProviderSwitched {
+  string kind = 1;     // "stt", "tts" or "llm"
+  string from = 2;     // provider ids; for the LLM, "on" or "off"
+  string to = 3;
+  string reason = 4;   // "network down", "network up", or the provider's error
+}
+
+// What the user said (or sent with injectUserText).
+message Transcript {
+  string text = 1;
+  bool is_final = 2;          // false: a partial result that later ones replace
+  float confidence = 3;
+  bool is_backchannel = 4;    // "mm-hmm" while the assistant spoke: recorded, never answered
+}
+
+// What the assistant says. Sent once per streamed piece; `text` is the whole reply so far.
+message AgentReply {
+  string text = 1;
+  bool is_final = 2;          // the reply is complete
+  bool expects_reply = 3;     // set on the final piece: the assistant asked the user something
+  repeated string choices = 4;  // set on the final piece: answers a UI can offer as buttons
+  repeated string choice_values = 5;  // what each choice sends back with injectUserText ("" for an LLM's)
+  string ui_json = 6;         // set on the final piece: an agent's `ui` for the app, as a JSON object
+  vasdk.flow.Expectation expect = 7;   // set on an agent's final piece: what to offer for the answer (a keypad)
+}
+
+// The assistant's conversation state: IDLE, LISTENING, THINKING, SPEAKING or INTERRUPTED.
+message AgentStateChange {
+  string state = 1;
+  string previous_state = 2;
+  string transition = 3;      // why, e.g. USER_STOPPED_SPEAKING, BARGE_IN_INTERRUPT
+}
+
+// A tool the LLM or a call_tool step called, reported when the tool returns. Sensitive values are masked.
+message ToolCall {
+  string name = 1;
+  string arguments_json = 2;
+  string result_json = 3;     // {"error": ...} when the tool failed or is unknown
+}
+
+// An agent's trigger fired (Session::fireTrigger, inactivity, session start), and what became of it.
+message TriggerFired {
+  string name = 1;
+  vasdk.flow.TriggerDecision decision = 2;
+  string reason = 3;          // why it was dropped, expired or suppressed
+}
+
+// The user's voice, as voice activity detection hears it: for a "you're speaking" indicator.
+message UserSpeech {
+  enum State {
+    STARTED = 0;
+    ONGOING = 1;    // still speaking, after a pause
+    ENDED = 2;
+  }
+  State state = 1;
+}
+
+// The follow-up window after a reply: the mic is open without the wake phrase or button.
+// For a live mic indicator.
+message ListeningWindow {
+  enum State {
+    OPENED = 0;     // closes_in_ms says for how long (-1: until further notice)
+    EXTENDED = 1;   // the user started answering: open until their turn is answered
+    CLOSED = 2;     // reason: "timeout", or the transition that ended it
+  }
+  State state = 1;
+  int32 closes_in_ms = 2;
+  string reason = 3;
+}
+
+message Error {
+  enum Severity {
+    SEVERITY_ERROR = 0;       // prefixed: a bare ERROR collides with a Windows macro
+    SEVERITY_WARNING = 1;
+    SEVERITY_FATAL = 2;
+  }
+  Severity severity = 1;
+  string source = 2;          // the processor or component that failed, e.g. "LLM"
+  string message = 3;
+  int32 code = 4;
+}
+
+// The conversation moved to another page of the agent (Session::Options::agent).
+message PageChanged {
+  string from_flow = 1;   // empty when the conversation starts
+  string from_page = 2;
+  string to_flow = 3;
+  string to_page = 4;
+  string reason = 5;      // "start", "restart", "route:<intent>", "goto"
+}
+
+// The agent answered: a user turn, silence, a trigger, its greeting. Before its words are spoken.
+message AgentTurn {
+  string intent = 1;    // the route's intent, when one matched
+  bool matched = 2;     // false: no route understood the words
+  string event = 3;     // what the turn raised: no-match, no-input, max-reprompts, tool-error, clarify; empty if none
+  string flow = 4;      // where the conversation is after it
+  string page = 5;
+  bool mid_chat = 6;    // answered mid-chat with the LLM: only routes that explain most of the words counted
+}
+
+// The agent ended the conversation (an end step or END_SESSION); the next one starts over.
+message SessionEnded {
+  string flow = 1;   // where it ended
+  string page = 2;
+}
+
+// What a remote client asks a running session to do (remote_control in CONTROL mode), as JSON:
+//   {"injectText": "book an oil change"}, {"selectChoice": 0}, {"interrupt": true},
+//   {"fireTrigger": {"name": "car-ready", "payload": {"car": "Golf"}}}
+message Command {
+  oneof kind {
+    string inject_text = 1;                 // a user turn, as if spoken
+    int32 select_choice = 2;                // the last reply's choice, from 0
+    TriggerCommand fire_trigger = 3;
+    string say = 4;                         // spoken as the assistant
+    bool interrupt = 5;                     // stops the reply playing
+    SessionParamCommand set_session_param = 6;
+  }
+}
+
+message TriggerCommand {
+  string name = 1;
+  google.protobuf.Struct payload = 2;
+}
+
+message SessionParamCommand {
+  string name = 1;
+  google.protobuf.Value value = 2;
+}

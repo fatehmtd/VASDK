@@ -41,6 +41,18 @@ namespace va {
         };
 
         /**
+         * @brief How a text is said: another of the provider's own voices, or another pace.
+         * The default, an empty voice and speed 0, is the provider's usual way.
+         */
+        struct SpeechStyle {
+            std::string voice;   // a voice the provider has ("cosette", "Ava"); empty: its own
+            float speed = 0;     // 1.2 faster, 0.8 slower; 0: as usual
+            bool isDefault() const { return voice.empty() && speed <= 0; }
+            bool operator==(const SpeechStyle& other) const { return voice == other.voice && speed == other.speed; }
+            bool operator!=(const SpeechStyle& other) const { return !(*this == other); }
+        };
+
+        /**
          * @brief The GenericVoiceSynthesisEngine class
          */
         class GenericVoiceSynthesisProvider {
@@ -54,6 +66,16 @@ namespace va {
              * @param text The text to be synthesized
              */
             virtual bool synthesizeSpeech(const std::string& text) = 0;
+
+            /**
+             * @brief Says `text` in `style`: a part of a reply in another voice, or slower (an
+             * agent's `say { voice speed }`). A provider that can't change them says it as
+             * synthesizeSpeech() does, the default.
+             */
+            virtual bool synthesizeStyledSpeech(const std::string& text, const SpeechStyle& style) {
+                (void)style;
+                return synthesizeSpeech(text);
+            }
 
             /**
              * @brief Cancel any in-progress synthesis immediately.
@@ -76,6 +98,18 @@ namespace va {
              * previous one; with true it hands sentences over as soon as they arrive.
              */
             virtual bool acceptsQueuedSynthesis() const { return false; }
+
+            /**
+             * @brief Whether synthesizeSpeech() accepts SSML (a <speak> document). With false (the
+             * default) TTSFrameProcessor sends plain text: the frame's text, or its SSML untagged.
+             */
+            virtual bool supportsSsml() const { return false; }
+            /**
+             * Whether the voice reads dates, times and phone numbers well by itself. When not
+             * (the default), TTSFrameProcessor gives it nlu::Language::speakable() text, in the
+             * reply's language: "2026-11-10" as "Tuesday, November 10th", "555-123-4567" digit by digit.
+             */
+            virtual bool normalizesText() const { return false; }
 
             /**
              * @brief startVoiceSynthesisProvider

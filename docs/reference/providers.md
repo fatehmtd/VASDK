@@ -45,7 +45,7 @@ flowchart LR
     LT --> SRC & SNK --> I6
 ```
 
-Sources, GitHub links, and licenses for every implementation: [root README, "Provider sources and licenses"](../../README.md#provider-sources-and-licenses).
+Sources, GitHub links, and licenses for every implementation: [Providers, "Sources and licenses"](../provider-catalog.md#sources-and-licenses).
 
 Common conventions across all provider interfaces:
 
@@ -132,11 +132,23 @@ Plus lifecycle (`initializeTranscriptionProvider`, `start/stopTranscriptionProvi
 ```cpp
 virtual bool synthesizeSpeech(const std::string& text) = 0;
 virtual void cancelSynthesis() {}   // optional but important - see below
+virtual bool supportsSsml() const { return false; }   // true: synthesizeSpeech() may get a <speak> document
+// A part of a reply in another voice or at another pace (say { voice speed }); by default, as synthesizeSpeech()
+virtual bool synthesizeStyledSpeech(const std::string& text, const SpeechStyle& style);
 ```
 
 The **`cancelSynthesis()` contract** is what makes barge-in work: it must be non-blocking, stop audio emission promptly, and still fire `onSynthesisCompleted()` (or `onSynthesisError()`) once cancellation is confirmed - that completion is what lets `TTSFrameProcessor` emit `SynthesisStateFrame{INTERRUPTED}` upstream and unblock the agent state machine. A provider that can't cancel leaves the assistant talking over the user.
 
 Implementations: Supertonic, PocketTTS and MOSS-TTS-Nano (local ONNX), Phonon (local GGUF on ggml), Soniox, Deepgram, Cartesia, Fish Audio, and Gradium (cloud).
+
+**A voice that runs on this machine** derives from [`QueuedVoiceSynthesisProvider`](../../VASDK/include/VASDK/QueuedVoiceSynthesisProvider.h), as the four local voices do. It covers the whole interface. It queues the texts and speaks them on a worker thread, and sends the started and completed events. A cancel drops only what was queued before it, so a reply sent right after a cancel is still said. It delivers the audio: resampled to the pipeline's rate, converted to its format, optionally pre-buffered. The voice only implements two functions:
+
+```cpp
+bool loadEngine() override;                          // on start: load the model
+bool synthesizeOne(const std::string& text) override; // on the worker: one text, true when said in full
+```
+
+In `synthesizeOne()`, `style()` is the voice and pace the text is to be said in (an agent's `say { voice speed }`); the default style is the voice's own. It passes audio to `handoffAudio(pcm, sampleRate)` and ends with `return finishHandoff();`. A delivery thread plays each piece while the next one is synthesized. If the engine streams audio on a thread of its own, construct the base with `Delivery::Direct` and call `deliverAudio()` instead, as Phonon does. `onCancel()` stops the engine early; `cancelFlag()` is there for an engine that checks between steps. The provider's destructor calls `stopVoiceSynthesisProvider()`.
 
 ## GenericAudioDSPProvider
 
@@ -167,7 +179,7 @@ virtual TurnEvaluation evaluate(const std::shared_ptr<transport::Frame> frame,
                                 bool agentIsSpeaking) = 0;
 ```
 
-`evaluate()` is called per frame (VAD state frames and others); return `NONE` to stay silent, or a `TURN_START`/`TURN_END` decision and `TurnDetectionProcessor` emits the corresponding `TurnStateFrame`. `agentIsSpeaking` is how you classify `INTERRUPT` (user barged in over TTS) vs `NORMAL`. The built-in fallback (no provider) maps VAD `STARTING`→start, `ENDED`→end at VAD confidence; the SmartTurn v3 implementation in `VASDK_3P_IMPL` adds a semantic end-of-turn model, thresholds, rolling averages, and minimum-duration suppression. By default SmartTurn scores a few frames after VAD `ENDED`; `setEvaluateOnPause(true)` (on the `TurnDetectionProvider` base, like `setPauseThreshold`) also scores each frame while the VAD is `PAUSED`/`ENDING`, and a `TURN_END` there - which needs `pauseThreshold()` confidence, default 0.85, since a pause is often just a breath - makes `TurnDetectionProcessor` end the VAD segment early (one inference per paused frame, ~60 ms on CPU). A `TURN_START` returned on VAD `STARTING` is held by the processor until the VAD confirms speech.
+`evaluate()` is called per frame (VAD state frames and others); return `NONE` to stay silent, or a `TURN_START`/`TURN_END` decision and `TurnDetectionProcessor` emits the corresponding `TurnStateFrame`. `agentIsSpeaking` is how you classify `INTERRUPT` (user barged in over TTS) vs `NORMAL`. The built-in fallback (no provider) maps VAD `STARTING`→start, `ENDED`→end at VAD confidence; the SmartTurn v3 implementation in `VASDK_3P_IMPL` adds a semantic end-of-turn model, thresholds, rolling averages, and minimum-duration suppression. By default SmartTurn scores a few frames after VAD `ENDED`; `setEvaluateOnPause(true)` (on the `TurnDetectionProvider` base, like `setPauseThreshold`) also scores each frame while the VAD is `PAUSED`/`ENDING`, and a `TURN_END` there - which needs `pauseThreshold()` confidence, default 0.85, since a pause is often just a breath - makes `TurnDetectionProcessor` end the VAD segment early (one inference per paused frame). A `TURN_START` returned on VAD `STARTING` is held by the processor until the VAD confirms speech.
 
 ## SpeakerEmbeddingProvider
 
@@ -179,6 +191,51 @@ AudioConfig getAudioConfig() const;  // format of the pipeline audio, set by the
 ```
 
 Return an empty vector on failure. The `PyannoteSpeaker` implementation in `VASDK_3P_IMPL` (`-DVASDK_BUILD_PYANNOTE_SPEAKER=ON`) runs the embedding model of [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) (WeSpeaker ResNet34-LM, ONNX export downloaded at configure time) with a Kaldi fbank front end matched to torchaudio; it needs 16 kHz mono.
+
+## Understanding: SentenceEncoder and EntityExtractor
+
+Two providers help an [agent](flows.md) understand what was said. An engine config chooses them by id (`providers { sentence_encoder { id } entity_model { id } }`), and a `Session` hands them to the agent. Both are shared by every session, so they must be thread-safe.
+
+### SentenceEncoder
+
+([`EmbeddingNluProvider.h`](../../VASDK/include/VASDK/nlu/EmbeddingNluProvider.h)) Turns a sentence into a vector, so intents can be found by meaning: `EmbeddingNluProvider` compares it with each intent example.
+
+```cpp
+virtual std::string name() const = 0;
+virtual std::vector<float> encode(const std::string& sentence) const = 0;   // normalized to length 1; empty on failure
+virtual std::vector<std::vector<float>> encodeWords(const std::vector<std::string>& words) const;   // optional: one vector per word
+```
+
+`encodeWords` is what the `tagger` entity model reads. An encoder without it can't be used for one. `MiniLmSentenceEncoder` (all-MiniLM-L6-v2, id `minilm`) implements both.
+
+### EntityExtractor
+
+([`EntityExtractor.h`](../../VASDK/include/VASDK/nlu/EntityExtractor.h)) An [entity model](flows.md#entity-models): it finds which words say which of the agent's list entities. `EntityCatalog` then resolves those words to values, and lets misspellings count only inside them.
+
+```cpp
+virtual std::string name() const = 0;
+virtual std::vector<EntitySpan> extract(const std::vector<std::string>& words,     // flow::entityWords(text): lowercased words
+                                        const std::vector<EntityLabel>& labels,    // {entity, label, description, examples}
+                                        bool sensitive) const = 0;
+```
+
+- **Labels:** each one comes from an entity type's `matching { label }` (default: its name) and up to 12 of its values.
+- **Spans:** return `{entity, start, length, score}`, indexing `words`, with `score` from 0 to 1 and no two overlapping. `nlu::nonOverlapping(spans)` keeps the best of overlapping ones.
+- **`sensitive`:** the words may be a secret answer. An extractor that sends them off the device returns nothing.
+
+Implementations: `GlinerEntityExtractor` in `VASDK_3P_IMPL/GlinerNer` (id `gliner`, `GlinerOptions`), and in the core `TaggerEntityExtractor` and `LlmEntityExtractor`. The ids `tagger` and `llm` are built by `Session` itself, so give yours another id:
+
+```cpp
+registry.add<va::nlu::EntityExtractor, acme::MyNerOptions>("myner",
+    [](const acme::MyNerOptions& options, const va::engine::ProviderContext& context)
+        -> std::shared_ptr<va::nlu::EntityExtractor> {
+        auto ner = std::make_shared<MyNer>(context.modelsDir + "/myner", options.threshold());
+        if (!ner->initialize()) return nullptr;   // the Runtime fails with "Entity model: ..."
+        return ner;
+    });
+```
+
+Compare it with the others with `eval … --engine-config`, in a copy of the agent tool given your registry (`runAgentTool(argc, argv, registry, &providers)`, see [Checking and testing](flows.md#checking-and-testing-vasdk_agentc)). Don't confuse it with `FlowRegistry::addEntityExtractor`, which finds the values of one `code` entity, such as a database lookup.
 
 ---
 

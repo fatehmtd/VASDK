@@ -1,0 +1,4 @@
+# proto-file: vasdk/flow/test_case.proto
+# proto-message: vasdk.flow.FlowTestCase
+name: "asking for a person hands off and ends"
+turns { user: "can I talk to a human" expect { flow: "handoff" page: "transfer" said: "Connecting you to a person now." ends_session: true } }

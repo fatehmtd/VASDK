@@ -75,7 +75,10 @@ bool Pipeline::start() {
         return false;
     }
 
-    for (auto& processor : _processors) {
+    // Output end first: a frame sent while starting (AgentState's PIPELINE_START, an agent's
+    // greeting) must find every stage after it already running.
+    for (auto it = _processors.rbegin(); it != _processors.rend(); ++it) {
+        auto& processor = *it;
         if (!processor->start()) {
             spdlog::error("[Pipeline] Failed to start processor: {}", processor->getName());
             return false;

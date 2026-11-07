@@ -1,4 +1,7 @@
 #pragma once
+#include <optional>
+
+#include <functional>
 
 #include "FrameProcessor.h"
 #include "VADProvider.h"
@@ -18,6 +21,10 @@ namespace va {
             uint64_t maxSpeechPauseDurationMs = 500; // Max pause before considering speech ended
             uint64_t maxSpeechEndDurationMs = 1000;  // Max time in ending state before fully ended
             int resumingSilenceFramesToPause = 3;    // Consecutive silent frames in RESUMING before going back to PAUSED
+            // While the assistant speaks (setAgentSpeaking): speech needed to confirm a barge-in.
+            // Shorter than minSpeechDurationMs because the browser's or the device's echo
+            // cancellation turns the user's voice down during the overlap. 0: minSpeechDurationMs.
+            uint64_t bargeInMinSpeechDurationMs = 0;
         };
 
         /**
@@ -34,6 +41,11 @@ namespace va {
          *
          * A TurnStateFrame(USER, END) arriving UPSTREAM (from turn detection) while PAUSED or
          * ENDING ends the segment at once instead of waiting out the pause/end timers.
+         *
+         * STARTING decides once minSpeechDurationMs of audio has passed. One quiet frame right
+         * after voice is tolerated there (the decision waits a frame), so a dip in otherwise
+         * steady speech doesn't discard it; two quiet frames in a row, or a lone blip, still
+         * go back to QUIET.
          */
         class VASDK_EXPORT VADFrameProcessor : public FrameProcessor {
             public:
@@ -53,7 +65,10 @@ namespace va {
 
             void processFrame(std::shared_ptr<transport::Frame> frame, FlowDirection direction) override;
 
-            void setConfig(const VADConfig& config) { _vadConfig = config; }
+            void setConfig(const VADConfig& config) {
+                _vadConfig = config;
+                _configuredVadConfig.reset();
+            }
             const VADConfig& getConfig() const { return _vadConfig; }
 
             void setMetricsConfig(const va::metrics::VADMetricsConfig& config);
@@ -63,6 +78,12 @@ namespace va {
              * @brief Set the shared ring buffer for reading audio data
              */
             void setRingBuffer(std::shared_ptr<AudioRingBuffer> ringBuffer) { _ringBuffer = ringBuffer; }
+
+            /**
+             * Whether the assistant is speaking now, for VADConfig::bargeInMinSpeechDurationMs.
+             * A callback because the agent's state is decided after this stage. Before start().
+             */
+            void setAgentSpeaking(std::function<bool()> agentSpeaking) { _agentSpeaking = std::move(agentSpeaking); }
 
             protected:
             bool shouldProcess(std::shared_ptr<transport::Frame> frame) const override;
@@ -99,6 +120,8 @@ namespace va {
 
             std::shared_ptr<audio::VADProvider> _vadProvider;
             VADConfig _vadConfig;
+            std::optional<VADConfig> _configuredVadConfig;   // before a TurnPolicyFrame changed it
+            void applyTurnPolicy(transport::TurnPolicyFrame::TurnEnd turnEnd);
             struct Metrics {
                 va::metrics::VADMetricsConfig config;
                 va::metrics::SamplerHandle    inference;    // inference latency ms
@@ -130,6 +153,9 @@ namespace va {
 
             // flag to track if we are currently in speech or not, to handle transitions between states correctly
             bool _isInSpeech{ false };
+            // STARTING: the last frame had voice, so one quiet frame at the decision is tolerated.
+            bool _lastStartingFrameVoiced{ false };
+            std::function<bool()> _agentSpeaking;
 
             uint64_t _minFrameSizeSamples{ 0 };
             float _lookbackMultiplier{ 4.0f }; // Multiplier for calculating lookback size based on frame size

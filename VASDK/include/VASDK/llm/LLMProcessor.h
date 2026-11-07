@@ -7,8 +7,10 @@
 #include <VASDK/metrics/MetricsCollector.h>
 #include <VASDK/metrics/MetricHandles.h>
 #include <VASDK/metrics/MetricsConfig.h>
+#include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 #include <utility>
@@ -25,6 +27,13 @@ namespace llm {
 // Forward declaration - include ToolDispatchProcessor.h in .cpp only
 class ToolDispatchProcessor;
 
+/**
+ * @brief Answers each user turn with the LLM.
+ *
+ * Responds to UserTurnFrames, so put a TurnAssemblerProcessor before it: that decides when a
+ * turn is complete. Partial transcriptions and VAD pauses are still read here for speculative
+ * firing, back-channel transcriptions for the note sent with the next turn.
+ */
 class VASDK_EXPORT LLMProcessor : public pipeline::FrameProcessor {
 public:
     explicit LLMProcessor(std::shared_ptr<LLMTransport> transport);
@@ -42,6 +51,16 @@ public:
 
     void setConfig(const LLMConfig& config);
     const LLMConfig& getConfig() const;
+    /**
+     * The engine config's llm_profiles the conversation may switch to, by name: a turn that names
+     * one (UserTurnFrame::llmProfile, a route's llm_profile) is answered by it, tool round trips
+     * included, and the next turn that names none by the config this had when profiles were set.
+     * The history is the same whichever answers. An unknown name: the default, logged.
+     */
+    void setProfiles(std::map<std::string, LLMConfig> profiles);
+    /** Said, in turn, when a turn's request fails or times out before anything was said (not when
+     *  the user cut it off). Empty: silence, as before. */
+    void setFailureReplies(std::vector<std::string> replies) { _failureReplies = std::move(replies); }
 
     void setHistoryEnabled(bool enabled);
     void clearHistory();
@@ -59,14 +78,6 @@ public:
     void setMetricsConfig(const va::metrics::LLMMetricsConfig& config);
     const va::metrics::LLMMetricsConfig& getLLMMetricsConfig() const { return _metrics.config; }
 
-    void setFirePolicy(std::shared_ptr<LLMFirePolicyInterface> policy) {
-        if (policy) _firePolicy = policy;
-    }
-
-    const LLMFirePolicyInterface& firePolicy() const { return *_firePolicy; }
-
-    void setFinalWatchdogTimeoutMs(uint32_t ms) { _finalWatchdogTimeoutMs = ms; }
-
     void setToolDispatcher(std::shared_ptr<ToolDispatchProcessor> dispatcher);
 
     /**
@@ -83,6 +94,12 @@ public:
      * setStreamSpeech(true). Empty (the default) disables it.
      */
     void setToolFillerPhrases(std::vector<std::string> phrases) { _toolFillerPhrases = std::move(phrases); }
+    /** While `offline()` holds (the network is down, the LLM is remote), a turn isn't sent: one
+     *  of `replies` is said instead, in turn, so the user hears why there's no answer. */
+    void setOfflineReplies(std::function<bool()> offline, std::vector<std::string> replies) {
+        _offline = std::move(offline);
+        _offlineReplies = std::move(replies);
+    }
 
     /**
      * Start the LLM before the turn is confirmed: when the VAD reports a sustained pause (ENDING)
@@ -97,15 +114,6 @@ public:
         _speculativeMinWords = minWords;
     }
 
-    /**
-     * Follow-ups: when the user resumes talking after a brief pause that ended their turn, the
-     * interrupted turn is rolled back from history and its text is sent in front of the next
-     * one, so "Book a flight ... to Paris" reaches the LLM as a single message. Applies when the
-     * user speaks while the agent is still thinking, or barges in within windowMs of the turn
-     * being sent. 0 disables it.
-     */
-    void setFollowUpWindowMs(uint32_t windowMs) { _followUpWindowMs = windowMs; }
-
     void setReasoningTags(std::string openTag, std::string closeTag) {
         _reasoningTagOpen = std::move(openTag);
         _reasoningTagClose = std::move(closeTag);
@@ -117,24 +125,19 @@ protected:
     void processDownstream(std::shared_ptr<transport::Frame> frame);
     void onTransportFrameReceived(std::shared_ptr<transport::Frame> frame);
 
-    // Dispatches on agentFrame->transition. Returns true if it already pushed
-    // agentFrame downstream and dispatched an LLM request - processDownstream
-    // must not push the frame again in that case.
-    bool handleAgentStateTransition(std::shared_ptr<transport::AgentStateFrame> agentFrame);
+    void handleAgentStateTransition(std::shared_ptr<transport::AgentStateFrame> agentFrame);
     void handleInterruptTransition(transport::AgentStateTransition t);
+    // Drops the reply being made: the request in flight, queued ones, streamed text, tool calls.
+    void cancelReply();
     void handleUserStartedSpeakingTransition();
     void handleBackchannelTransition();
     void recordBackchannel(const std::string& text);
-    void handleTranscriptionReadyTransition();
-    bool handleUserStoppedSpeakingTransition(std::shared_ptr<transport::AgentStateFrame> agentFrame);
 
 private:
     std::shared_ptr<LLMTransport> _transport;
     bool _processPartialTranscriptions = false;
     float _confidenceThreshold = 0.5f;
-    bool _partialAlreadySent = false;
-    std::shared_ptr<LLMFirePolicyInterface> _firePolicy{ std::make_shared<EagerFirePolicy>() };
-
+    // Latest partial transcription: what a speculative request is sent on.
     mutable std::mutex _partialCacheMutex;
     std::string        _latestPartialText;
     float              _latestPartialConfidence{ 0.0f };
@@ -146,36 +149,25 @@ private:
     std::string _backchannelNote;          // not yet sent
     std::string _backchannelNoteInFlight;  // sent with the latest request; restored if that was a cancelled speculation
 
-    std::mutex  _pendingTurnMutex;
-    bool        _pendingTurnEnd{false};
-    std::string _pendingFallbackText;
-    float       _pendingFallbackConf{0.0f};
-    std::string _accumulatedFinalText;
-    float       _accumulatedFinalConf{0.0f};
-
-    uint32_t                _finalWatchdogTimeoutMs{2000};
-    std::thread             _finalWatchdogThread;
-    std::mutex              _watchdogMutex;
-    std::condition_variable _watchdogCv;
-    bool                    _watchdogArmed{false};
-    bool                    _watchdogStop{false};
-
-    void startFinalWatchdog();
-    void cancelFinalWatchdog();
-    void finalWatchdogLoop();
     // Fires a request for a confirmed user turn; confirms or replaces a pending speculation first.
-    void dispatchLLMRequest(const std::string& text, float confidence);
-    void dispatchRequestNow(const std::string& text, float confidence);
+    void dispatchLLMRequest(const std::string& text, float confidence, uint64_t turnId = 0);
+    // Returns the user message as written to history (with any back-channel note). turnId tags
+    // the reply's TextFrames; 0 (a speculation) keeps the running one's.
+    std::string dispatchRequestNow(const std::string& text, float confidence, uint64_t turnId = 0);
+    // The user turn the running request answers: its TextFrames carry it (TextFrame::turnId).
+    std::atomic<uint64_t> _runningTurnId{0};
+    // A TurnReplacedFrame for the last turn asked: its reply is cancelled and its exchange rolled back.
+    void handleTurnReplaced(uint64_t turnId);
+    std::map<std::string, LLMConfig> _profiles;   // setProfiles
+    std::optional<LLMConfig> _defaultConfig;      // the config when they were set
+    std::optional<LLMConfig> _turnConfig;         // what the current turn is answered with; unset: no profiles
+    std::vector<std::string> _failureReplies;     // setFailureReplies
+    size_t _nextFailureReply = 0;
 
-    // Last user turn sent to the LLM; becomes _followUpPrefix if the user cuts in to continue it.
-    std::mutex  _followUpMutex;
-    uint32_t    _followUpWindowMs{3000};
-    std::string _lastTurnText;         // as the user said it
-    std::string _lastTurnRequestText;  // as written to history (with any back-channel note)
-    std::chrono::steady_clock::time_point _lastTurnAt;
-    std::string _followUpPrefix;
-    // Moves a final transcript staged for a turn end that never came into _followUpPrefix.
-    void keepUnsentTurnAsFollowUp();
+    // The last confirmed turn as written to history: rolled back when the user resumes it.
+    std::mutex  _lastTurnMutex;
+    std::string _lastTurnRequestText;
+    uint64_t    _lastTurnId = 0;   // its UserTurnFrame::turnId; on the frame thread
 
     void handleVadStateFrame(std::shared_ptr<transport::VADStateFrame> frame);
     void cancelSpeculation(const char* reason);
@@ -185,6 +177,7 @@ private:
     struct Speculation {
         bool active = false, confirmed = false, discarded = false;
         std::string text;
+        std::string requestText;  // as written to history
         std::vector<std::shared_ptr<transport::TextFrame>> held;  // speech waiting for confirmation
     };
     std::mutex  _specMutex;
@@ -234,6 +227,9 @@ private:
     std::unique_ptr<StreamingReplyExtractor> _extractor;  // current streamed reply
     std::atomic<bool> _speechOpen{false};  // sentence frames went out for a reply that has no final frame yet
     std::vector<std::string> _toolFillerPhrases;
+    std::function<bool()> _offline;
+    std::vector<std::string> _offlineReplies;
+    size_t _nextOfflineReply = 0;
     size_t _nextFiller{0};
     bool _fillerSent{false};  // for the current streamed reply; guarded by _streamingMutex
     // A tool batch was dispatched and its follow-up reply hasn't started: keep the spoken turn open.

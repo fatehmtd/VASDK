@@ -96,13 +96,6 @@ bool LLMProcessor::start() {
     }
 
     {
-        std::lock_guard<std::mutex> lock(_watchdogMutex);
-        _watchdogStop = false;
-        _watchdogArmed = false;
-    }
-    _finalWatchdogThread = std::thread(&LLMProcessor::finalWatchdogLoop, this);
-
-    {
         std::lock_guard<std::mutex> lock(_requestMutex);
         _requestStop = false;
         _requestQueue.clear();
@@ -118,14 +111,6 @@ void LLMProcessor::stop() {
     if (!_running) {
         return;
     }
-
-    {
-        std::lock_guard<std::mutex> lock(_watchdogMutex);
-        _watchdogStop = true;
-        _watchdogArmed = false;
-    }
-    _watchdogCv.notify_all();
-    if (_finalWatchdogThread.joinable()) _finalWatchdogThread.join();
 
     {
         std::lock_guard<std::mutex> lock(_requestMutex);
@@ -167,6 +152,11 @@ const LLMConfig& LLMProcessor::getConfig() const {
     return _transport->getConfig();
 }
 
+void LLMProcessor::setProfiles(std::map<std::string, LLMConfig> profiles) {
+    _profiles = std::move(profiles);
+    if (_transport && !_profiles.empty()) _defaultConfig = _transport->getConfig();
+}
+
 void LLMProcessor::setHistoryEnabled(bool enabled) {
     if (_transport) {
         _transport->setHistoryEnabled(enabled);
@@ -199,12 +189,14 @@ bool LLMProcessor::shouldProcess(std::shared_ptr<transport::Frame> frame) const 
     switch(type) {
         case transport::FrameType::AGENT_STATE:
         case transport::FrameType::TRANSCRIPTION:
-        case transport::FrameType::TURN_STATE:
+        case transport::FrameType::USER_TURN:
         case transport::FrameType::TOOL_CALL:
         case transport::FrameType::TOOL_RESULT:
             return true;
         case transport::FrameType::VAD_STATE:
             return _speculativeFiring;
+        case transport::FrameType::CONTROL:
+            return dynamic_cast<const transport::TurnReplacedFrame*>(frame.get()) != nullptr;
         default:
             break;
     }
@@ -468,181 +460,54 @@ void LLMProcessor::processDownstream(std::shared_ptr<transport::Frame> frame) {
 
     if (frame->getType() == transport::FrameType::AGENT_STATE) {
         auto agentFrame = std::dynamic_pointer_cast<transport::AgentStateFrame>(frame);
-        if (agentFrame) _agentState = agentFrame->currentState;
-        if (agentFrame && handleAgentStateTransition(agentFrame)) {
-            return; // handler already pushed the frame downstream and dispatched a request
+        if (agentFrame) {
+            _agentState = agentFrame->currentState;
+            handleAgentStateTransition(agentFrame);
         }
         pushDownstream(frame);
         return;
     }
 
-    if (frame->getType() == transport::FrameType::TURN_STATE) {
-        auto turnFrame = std::dynamic_pointer_cast<transport::TurnStateFrame>(frame);
-        if (turnFrame &&
-            turnFrame->actor == transport::TurnStateFrame::TurnActor::USER &&
-            turnFrame->state == transport::TurnStateFrame::TurnState::END &&
-            _transport && _transport->isConnected()) {
+    if (auto replaced = std::dynamic_pointer_cast<transport::TurnReplacedFrame>(frame)) {
+        handleTurnReplaced(replaced->turnId);
+        pushDownstream(frame);   // TTS drops what of that reply it already has
+        return;
+    }
 
-            std::string stagedFinal;
-            float       stagedConf = 0.0f;
-            bool        alreadyStaged = false;
-            {
-                std::lock_guard<std::mutex> lock(_pendingTurnMutex);
-                if (_pendingTurnEnd && !_accumulatedFinalText.empty()) {
-                    stagedFinal = _accumulatedFinalText;
-                    stagedConf  = _accumulatedFinalConf;
-                    _pendingTurnEnd = false;
-                    _accumulatedFinalText.clear();
-                    alreadyStaged = true;
-                }
-            }
-            if (alreadyStaged) {
-                cancelFinalWatchdog();
-                spdlog::info("[LLMProcessor] TurnStateFrame END - final already staged; "
-                    "firing LLM immediately: \"{}\" (conf={:.2f})",
-                    stagedFinal.substr(0, std::min<size_t>(60, stagedFinal.size())),
-                    stagedConf);
-                pushDownstream(frame);
-                dispatchLLMRequest(stagedFinal, stagedConf);
-                return;
-            }
+    if (frame->getType() == transport::FrameType::USER_TURN) {
+        // Answered here, not passed on: the turn ends with this processor.
+        auto turn = std::static_pointer_cast<transport::UserTurnFrame>(frame);
+        spdlog::info("[LLMProcessor] User turn {}: \"{}\" (conf={:.2f})", turn->turnId,
+                     turn->text.substr(0, std::min<size_t>(60, turn->text.size())), turn->confidence);
+        if (_offline && !_offlineReplies.empty() && _offline()) {
+            const auto& reply = _offlineReplies[_nextOfflineReply++ % _offlineReplies.size()];
+            spdlog::info("[LLMProcessor] Offline: not asked; \"{}\"", reply);
+            _runningTurnId = turn->turnId;
+            pushSpeech(reply, true);
+            return;
         }
-    }
-
-    if (!shouldProcess(frame)) {
-        pushDownstream(frame);
+        if (_defaultConfig) {   // with profiles: the one the turn names, else the default
+            const auto named = turn->llmProfile.empty() ? _profiles.end() : _profiles.find(turn->llmProfile);
+            if (!turn->llmProfile.empty() && named == _profiles.end())
+                spdlog::warn("[LLMProcessor] no LLM profile \"{}\": the default answers", turn->llmProfile);
+            _turnConfig = named != _profiles.end() ? named->second : *_defaultConfig;
+            if (named != _profiles.end()) spdlog::info("[LLMProcessor] answered by profile \"{}\" ({})", named->first, named->second.model);
+        }
+        dispatchLLMRequest(turn->text, turn->confidence, turn->turnId);
         return;
     }
 
-    auto transcriptionFrame = std::dynamic_pointer_cast<transport::TranscriptionFrame>(frame);
-    if (transcriptionFrame && transcriptionFrame->isBackchannel) {
-        recordBackchannel(transcriptionFrame->transcriptionResult.text);
-        pushDownstream(frame);
-        return;
-    }
-    if (transcriptionFrame && !transcriptionFrame->isFinal) {
-        if (!transcriptionFrame->transcriptionResult.text.empty()) {
+    if (auto transcription = std::dynamic_pointer_cast<transport::TranscriptionFrame>(frame)) {
+        if (transcription->isBackchannel) {
+            recordBackchannel(transcription->transcriptionResult.text);
+        } else if (!transcription->isFinal && !transcription->transcriptionResult.text.empty()) {
+            // For speculative firing at the next VAD pause.
             std::lock_guard<std::mutex> lock(_partialCacheMutex);
-            _latestPartialText = transcriptionFrame->transcriptionResult.text;
-            _latestPartialConfidence = transcriptionFrame->transcriptionResult.confidence;
-        }
-        pushDownstream(frame);
-        return;
-    }
-
-    spdlog::info("[LLMProcessor] Processing frame for LLM, type: {}, transport: {}, transport connected: {}",
-        static_cast<int>(frame->getType()),
-        _transport ? _transport->getName() : "null",
-        _transport ? (_transport->isConnected() ? "yes" : "no") : "N/A");
-
-    {
-        bool shouldFire = false;
-        bool emptyFinal = false;
-        std::string textToFire;
-        float confToFire = 0.0f;
-        auto finalTF = std::dynamic_pointer_cast<transport::TranscriptionFrame>(frame);
-        {
-            std::lock_guard<std::mutex> lock(_pendingTurnMutex);
-            if (_pendingTurnEnd && finalTF) {
-                const std::string& incoming = finalTF->transcriptionResult.text;
-                if (!_accumulatedFinalText.empty() && !incoming.empty()) {
-                    _accumulatedFinalText += " ";
-                }
-                _accumulatedFinalText += incoming;
-                if (finalTF->transcriptionResult.confidence > _accumulatedFinalConf) {
-                    _accumulatedFinalConf = finalTF->transcriptionResult.confidence;
-                }
-                textToFire = _accumulatedFinalText;
-                confToFire = _accumulatedFinalConf;
-                shouldFire = !textToFire.empty();
-                _pendingTurnEnd = false;
-                if (!shouldFire) {
-                    // The final we were waiting for arrived but carried no text.
-                    // There is nothing left to wait for, so fall back to the
-                    // cached partial now; waiting for the watchdog here loses the
-                    // turn whenever the user re-speaks before it expires (the
-                    // interrupt path discards the pending fallback).
-                    emptyFinal = true;
-                    textToFire = _pendingFallbackText;
-                    confToFire = _pendingFallbackConf;
-                }
-            }
-        }
-        if (shouldFire) {
-            cancelFinalWatchdog();
-            spdlog::info("[LLMProcessor] Final transcription after turn end - firing LLM: \"{}\" "
-                "(conf={:.2f})",
-                textToFire.substr(0, std::min<size_t>(60, textToFire.size())),
-                confToFire);
-            pushDownstream(frame);
-            dispatchLLMRequest(textToFire, confToFire);
-            return;
-        }
-        if (emptyFinal) {
-            cancelFinalWatchdog();
-            if (!textToFire.empty()) {
-                int wordCount = 0;
-                bool inWord = false;
-                for (char c : textToFire) {
-                    if (c == ' ' || c == '\t' || c == '\n') { inWord = false; }
-                    else if (!inWord) { ++wordCount; inWord = true; }
-                }
-                LLMFireContext ctx{ textToFire, confToFire, 0.0f, wordCount };
-                LLMFireDecision decision = _firePolicy->evaluate(ctx);
-                if (decision == LLMFireDecision::FIRE_NOW) {
-                    spdlog::warn("[LLMProcessor] Final transcription after turn end was empty; "
-                        "firing fallback partial: \"{}\" (conf={:.2f}, words={})",
-                        textToFire.substr(0, std::min<size_t>(60, textToFire.size())),
-                        confToFire, wordCount);
-                    pushDownstream(frame);
-                    dispatchLLMRequest(textToFire, confToFire);
-                    return;
-                }
-                spdlog::warn("[LLMProcessor] Final transcription after turn end was empty; "
-                    "fire policy suppressed partial fallback: \"{}\"",
-                    textToFire.substr(0, std::min<size_t>(60, textToFire.size())));
-            }
-            else {
-                spdlog::warn("[LLMProcessor] Final transcription after turn end was empty "
-                    "and no fallback partial is available; not firing LLM");
-            }
-            pushDownstream(frame);
-            return;
+            _latestPartialText = transcription->transcriptionResult.text;
+            _latestPartialConfidence = transcription->transcriptionResult.confidence;
         }
     }
-
-    if (_transport && _transport->isConnected()) {
-        if (_partialAlreadySent) {
-            spdlog::info("[LLMProcessor] Skipping FINAL transcription - LLM already fired from partial (TRANSCRIPTION_READY)");
-            _partialAlreadySent = false;
-            pushDownstream(frame);
-            return;
-        }
-
-        if (auto finalTF = std::dynamic_pointer_cast<transport::TranscriptionFrame>(frame)) {
-            const std::string& text = finalTF->transcriptionResult.text;
-            if (!text.empty()) {
-                spdlog::info("[LLMProcessor] Final transcription arrived before turn-end signal "
-                    "- pre-staging for USER_STOPPED_SPEAKING: \"{}\"",
-                    text.substr(0, std::min<size_t>(60, text.size())));
-                {
-                    std::lock_guard<std::mutex> lock(_pendingTurnMutex);
-                    _pendingTurnEnd = true;
-                    _pendingFallbackText = text;
-                    _pendingFallbackConf = finalTF->transcriptionResult.confidence;
-                    _accumulatedFinalText = text;
-                    _accumulatedFinalConf = finalTF->transcriptionResult.confidence;
-                }
-                startFinalWatchdog();
-            }
-        }
-        pushDownstream(frame);
-        return;
-    }
-    else {
-        spdlog::warn("[LLMProcessor] Transport not connected, passing frame through");
-        pushDownstream(frame);
-    }
+    pushDownstream(frame);
 }
 
 void LLMProcessor::onTransportFrameReceived(std::shared_ptr<transport::Frame> frame) {
@@ -797,31 +662,30 @@ void LLMProcessor::onTransportFrameReceived(std::shared_ptr<transport::Frame> fr
     pushDownstream(frame);
 }
 
-bool LLMProcessor::handleAgentStateTransition(std::shared_ptr<transport::AgentStateFrame> agentFrame) {
+void LLMProcessor::handleAgentStateTransition(std::shared_ptr<transport::AgentStateFrame> agentFrame) {
     switch (agentFrame->transition) {
     case transport::AgentStateTransition::BARGE_IN_INTERRUPT:
     case transport::AgentStateTransition::USER_SPOKE_WHILE_THINKING:
         handleInterruptTransition(agentFrame->transition);
-        return false;
+        break;
     case transport::AgentStateTransition::USER_STARTED_SPEAKING:
         handleUserStartedSpeakingTransition();
-        return false;
+        break;
     case transport::AgentStateTransition::BACKCHANNEL:
         handleBackchannelTransition();
-        return false;
-    case transport::AgentStateTransition::TRANSCRIPTION_READY:
-        handleTranscriptionReadyTransition();
-        return false;
-    case transport::AgentStateTransition::USER_STOPPED_SPEAKING:
-        return handleUserStoppedSpeakingTransition(agentFrame);
+        break;
     default:
-        return false;
+        break;
     }
 }
 
 void LLMProcessor::handleInterruptTransition(transport::AgentStateTransition t) {
     spdlog::info("[LLMProcessor] Interrupt received ({}); cancelling LLM",
         transport::toString(t));
+    cancelReply();
+}
+
+void LLMProcessor::cancelReply() {
     cancelSpeculation("interrupt");
     // Bump the generation and drop queued requests before aborting the one in flight, so
     // nothing queued behind it starts after the cancel.
@@ -832,27 +696,10 @@ void LLMProcessor::handleInterruptTransition(transport::AgentStateTransition t) 
     }
     if (_transport) _transport->cancel();
     {
-        std::lock_guard<std::mutex> lock(_followUpMutex);
-        const bool stillThinking = t == transport::AgentStateTransition::USER_SPOKE_WHILE_THINKING;
-        const bool withinWindow  = std::chrono::steady_clock::now() - _lastTurnAt <=
-                                   std::chrono::milliseconds(_followUpWindowMs);
-        if (_followUpWindowMs > 0 && !_lastTurnText.empty() && (stillThinking || withinWindow)) {
-            spdlog::info("[LLMProcessor] User resumed after a pause; \"{}\" will be merged into the next turn",
-                         _lastTurnText.substr(0, std::min<size_t>(60, _lastTurnText.size())));
-            _followUpPrefix = _lastTurnText;
-            // Queued after the cancel: also removes a reply that completed just before it.
-            enqueueRequest([this, request = _lastTurnRequestText] { _transport->rollbackExchange(request); });
-        }
-        _lastTurnText.clear();
-    }
-    _partialAlreadySent = false;
-    {
         std::lock_guard<std::mutex> lock(_partialCacheMutex);
         _latestPartialText.clear();
         _latestPartialConfidence = 0.0f;
     }
-    cancelFinalWatchdog();
-    keepUnsentTurnAsFollowUp();
     {
         std::lock_guard<std::mutex> lk(_streamingMutex);
         _streamingBuffer.clear();
@@ -882,28 +729,10 @@ void LLMProcessor::handleUserStartedSpeakingTransition() {
         _latestPartialText.clear();
         _latestPartialConfidence = 0.0f;
     }
-    cancelFinalWatchdog();
-    keepUnsentTurnAsFollowUp();
-}
-
-void LLMProcessor::keepUnsentTurnAsFollowUp() {
-    std::string unsent;
-    {
-        std::lock_guard<std::mutex> lock(_pendingTurnMutex);
-        if (_pendingTurnEnd) unsent = _accumulatedFinalText;
-        _pendingTurnEnd = false;
-        _accumulatedFinalText.clear();
-    }
-    if (unsent.empty() || _followUpWindowMs == 0) return;
-    // The turn detector judged the utterance unfinished and the user proved it right: keep their words.
-    std::lock_guard<std::mutex> lock(_followUpMutex);
-    spdlog::info("[LLMProcessor] User resumed before \"{}\" was sent; it will be merged into the next turn",
-                 unsent.substr(0, std::min<size_t>(60, unsent.size())));
-    _followUpPrefix = _followUpPrefix.empty() ? unsent : _followUpPrefix + " " + unsent;
 }
 
 void LLMProcessor::handleBackchannelTransition() {
-    // The dismissed "mm-hmm" must not become the fallback text of the user's next turn.
+    // The dismissed "mm-hmm" must not seed a speculative request.
     std::lock_guard<std::mutex> lock(_partialCacheMutex);
     _latestPartialText.clear();
     _latestPartialConfidence = 0.0f;
@@ -917,118 +746,7 @@ void LLMProcessor::recordBackchannel(const std::string& text) {
     spdlog::info("[LLMProcessor] Back-channel {} kept for the next user message", text);
 }
 
-void LLMProcessor::handleTranscriptionReadyTransition() {
-    if (!_transport || !_transport->isConnected()) return;
-
-    std::string partial;
-    float partialConf;
-    {
-        std::lock_guard<std::mutex> lock(_partialCacheMutex);
-        partial = _latestPartialText;
-        partialConf = _latestPartialConfidence;
-    }
-    constexpr float kDefinitiveTurnConf = 1.0f;
-
-    int wordCount = 0;
-    bool inWord = false;
-    for (char c : partial) {
-        if (c == ' ' || c == '\t' || c == '\n') { inWord = false; }
-        else if (!inWord) { ++wordCount; inWord = true; }
-    }
-
-    LLMFireContext ctx{ partial, partialConf, kDefinitiveTurnConf, wordCount };
-    LLMFireDecision decision = _firePolicy->evaluate(ctx);
-
-    if (decision == LLMFireDecision::FIRE_NOW) {
-        spdlog::info("[LLMProcessor] {} FIRE_NOW on TRANSCRIPTION_READY - partial: \"{}\" "
-            "(partialConf={:.2f}, words={})",
-            _firePolicy->name(),
-            partial.substr(0, std::min<size_t>(60, partial.size())),
-            partialConf, wordCount);
-        _partialAlreadySent = true;
-        dispatchLLMRequest(partial, 1.0f);
-    }
-    else {
-        spdlog::info("[LLMProcessor] {} WAIT_FOR_FINAL on TRANSCRIPTION_READY "
-            "(partialConf={:.2f}, words={})",
-            _firePolicy->name(), partialConf, wordCount);
-    }
-}
-
-bool LLMProcessor::handleUserStoppedSpeakingTransition(std::shared_ptr<transport::AgentStateFrame> agentFrame) {
-    if (!_transport || !_transport->isConnected()) return false;
-
-    std::string partial;
-    float partialConf;
-    {
-        std::lock_guard<std::mutex> lock(_partialCacheMutex);
-        partial = _latestPartialText;
-        partialConf = _latestPartialConfidence;
-    }
-
-    std::string stagedFinal;
-    float       stagedConf = 0.0f;
-    bool        alreadyStaged = false;
-    {
-        std::lock_guard<std::mutex> lock(_pendingTurnMutex);
-        if (_pendingTurnEnd && !_accumulatedFinalText.empty()) {
-            stagedFinal = _accumulatedFinalText;
-            stagedConf = _accumulatedFinalConf;
-            _pendingTurnEnd = false;
-            _accumulatedFinalText.clear();
-            alreadyStaged = true;
-        }
-    }
-
-    if (alreadyStaged) {
-        cancelFinalWatchdog();
-        spdlog::info("[LLMProcessor] USER_STOPPED_SPEAKING - final already staged; "
-            "firing LLM immediately: \"{}\" (conf={:.2f})",
-            stagedFinal.substr(0, std::min<size_t>(60, stagedFinal.size())),
-            stagedConf);
-        pushDownstream(agentFrame);
-        dispatchLLMRequest(stagedFinal, stagedConf);
-        return true;
-    }
-
-    spdlog::info("[LLMProcessor] USER_STOPPED_SPEAKING - "
-        "waiting for final transcription (fallback partial: \"{}\" conf={:.2f})",
-        partial.substr(0, std::min<size_t>(60, partial.size())),
-        partialConf);
-    {
-        std::lock_guard<std::mutex> lock(_pendingTurnMutex);
-        _pendingTurnEnd = true;
-        _pendingFallbackText = partial;
-        _pendingFallbackConf = partialConf;
-        _accumulatedFinalText.clear();
-        _accumulatedFinalConf = 0.0f;
-    }
-    startFinalWatchdog();
-    return false;
-}
-
-void LLMProcessor::dispatchLLMRequest(const std::string& userText, float confidence) {
-    std::string text = userText;
-    {
-        std::lock_guard<std::mutex> lock(_followUpMutex);
-        if (!_followUpPrefix.empty()) {
-            text = _followUpPrefix + " " + userText;
-            _followUpPrefix.clear();
-            spdlog::info("[LLMProcessor] Follow-up merged with the interrupted turn: \"{}\"",
-                         text.substr(0, std::min<size_t>(60, text.size())));
-        }
-    }
-    if (text.size() != userText.size()) {
-        // Tell UIs and transports what the LLM actually receives for this turn.
-        auto merged = std::make_shared<transport::TranscriptionFrame>();
-        merged->isFinal = true;
-        merged->isFollowUp = true;
-        merged->transcriptionResult.text = text;
-        merged->transcriptionResult.confidence = confidence;
-        merged->timestamp = transport::Frame::getCurrentTimestamp();
-        merged->sourceId = getName();
-        pushDownstream(merged);
-    }
+void LLMProcessor::dispatchLLMRequest(const std::string& text, float confidence, uint64_t turnId) {
     {
         std::unique_lock<std::mutex> lk(_specMutex);
         if (_spec.active && _spec.confirmed) {
@@ -1047,8 +765,17 @@ void LLMProcessor::dispatchLLMRequest(const std::string& userText, float confide
                 spdlog::info("[LLMProcessor] Speculative reply confirmed by the final transcript - "
                              "releasing {} held frame(s)", _spec.held.size());
                 _spec.confirmed = true;
+                {
+                    std::lock_guard<std::mutex> lock(_lastTurnMutex);
+                    _lastTurnRequestText = _spec.requestText;
+                }
+                _lastTurnId = turnId;
+                if (turnId) _runningTurnId = turnId;   // what it streams from now on answers this turn
                 // Under the lock, so frames the request thread pushes next can't overtake them.
-                for (auto& f : _spec.held) pushDownstream(f);
+                for (auto& f : _spec.held) {
+                    if (auto text = std::dynamic_pointer_cast<transport::TextFrame>(f); text && turnId) text->turnId = turnId;
+                    pushDownstream(f);
+                }
                 _spec.held.clear();
                 return;
             }
@@ -1058,7 +785,26 @@ void LLMProcessor::dispatchLLMRequest(const std::string& userText, float confide
                                         : "final transcript differs from the partial");
         }
     }
-    dispatchRequestNow(text, confidence);
+    _lastTurnId = turnId;
+    const std::string requestText = dispatchRequestNow(text, confidence, turnId);
+    std::lock_guard<std::mutex> lock(_lastTurnMutex);
+    _lastTurnRequestText = requestText;
+}
+
+void LLMProcessor::handleTurnReplaced(uint64_t turnId) {
+    // Not the last turn asked (the Dialog answered it, or dropped it): nothing of it is here.
+    if (turnId == 0 || turnId != _lastTurnId) return;
+    spdlog::info("[LLMProcessor] Turn {} was replaced; cancelling its reply", turnId);
+    cancelReply();
+    std::string previous;
+    {
+        std::lock_guard<std::mutex> lock(_lastTurnMutex);
+        previous = std::move(_lastTurnRequestText);
+        _lastTurnRequestText.clear();
+    }
+    _lastTurnId = 0;
+    // On the request thread, after the cancelled request returned: the merged turn repeats its words.
+    if (!previous.empty()) enqueueRequest([this, previous] { _transport->rollbackExchange(previous); });
 }
 
 void LLMProcessor::cancelSpeculation(const char* reason) {
@@ -1119,7 +865,9 @@ void LLMProcessor::handleVadStateFrame(std::shared_ptr<transport::VADStateFrame>
         }
         spdlog::info("[LLMProcessor] User pausing - speculative request on partial: \"{}\"",
                      partial.substr(0, std::min<size_t>(60, partial.size())));
-        dispatchRequestNow(partial, conf);
+        const std::string requestText = dispatchRequestNow(partial, conf);
+        std::lock_guard<std::mutex> lk(_specMutex);
+        if (_spec.active && _spec.text == partial) _spec.requestText = requestText;
         break;
     }
     case transport::VADState::RESUMING:
@@ -1130,11 +878,11 @@ void LLMProcessor::handleVadStateFrame(std::shared_ptr<transport::VADStateFrame>
     }
 }
 
-void LLMProcessor::dispatchRequestNow(const std::string& text, float confidence) {
+std::string LLMProcessor::dispatchRequestNow(const std::string& text, float confidence, uint64_t turnId) {
     VASDK_CTRACK_NAME("LLM::dispatchRequest");
     if (!_transport || !_transport->isConnected()) {
         spdlog::warn("[LLMProcessor] dispatchLLMRequest: transport not connected, skipping");
-        return;
+        return {};
     }
     _llmRequestStart = std::chrono::steady_clock::now();
     _firstTokenReceived = false;
@@ -1154,12 +902,6 @@ void LLMProcessor::dispatchRequestNow(const std::string& text, float confidence)
             requestText = "(While you were speaking I said " + _backchannelNote + ".) " + text;
         _backchannelNote.clear();
     }
-    {
-        std::lock_guard<std::mutex> lock(_followUpMutex);
-        _lastTurnText = text;
-        _lastTurnRequestText = requestText;
-        _lastTurnAt = std::chrono::steady_clock::now();
-    }
 
     auto frame = std::make_shared<transport::TranscriptionFrame>();
     frame->isFinal = true;
@@ -1167,7 +909,24 @@ void LLMProcessor::dispatchRequestNow(const std::string& text, float confidence)
     frame->transcriptionResult.confidence = confidence;
     frame->timestamp = transport::Frame::getCurrentTimestamp();
     frame->sourceId = getName();
-    enqueueRequest([this, frame] { _transport->sendFrame(frame); });
+    enqueueRequest([this, frame, config = _turnConfig, turnId] {
+        if (turnId) _runningTurnId = turnId;
+        if (config) {   // a profile's turn, or back to the default: switched before its request, on this thread
+            const auto& now = _transport->getConfig();
+            if (now.endpoint != config->endpoint || now.model != config->model || now.apiKey != config->apiKey ||
+                now.reasoningEffort != config->reasoningEffort)
+                _transport->setConfig(*config);
+        }
+        const bool answered = _transport->sendFrame(frame);
+        // Failed or timed out with nothing said, and not cut off by the user: say so.
+        if (!answered && !_speechOpen && !_awaitingToolFollowUp && !_failureReplies.empty() &&
+            _runningGeneration.load() == _currentGeneration.load()) {
+            const auto& reply = _failureReplies[_nextFailureReply++ % _failureReplies.size()];
+            spdlog::warn("[LLMProcessor] no answer from the LLM: \"{}\"", reply);
+            pushSpeech(reply, true);
+        }
+    });
+    return requestText;
 }
 
 void LLMProcessor::enqueueRequest(std::function<void()> job) {
@@ -1221,6 +980,7 @@ void LLMProcessor::pushSpeech(const std::string& text, bool isFinal, bool isExpe
     frame->choices     = std::move(choices);
     frame->timestamp   = transport::Frame::getCurrentTimestamp();
     frame->sourceId    = getName();
+    frame->turnId      = _runningTurnId.load();
     _speechOpen        = !isFinal;
     {
         std::lock_guard<std::mutex> lk(_specMutex);
@@ -1230,93 +990,6 @@ void LLMProcessor::pushSpeech(const std::string& text, bool isFinal, bool isExpe
         }
     }
     pushDownstream(frame);
-}
-
-void LLMProcessor::startFinalWatchdog() {
-    {
-        std::lock_guard<std::mutex> lock(_watchdogMutex);
-        _watchdogArmed = true;
-    }
-    _watchdogCv.notify_one();
-}
-
-void LLMProcessor::cancelFinalWatchdog() {
-    {
-        std::lock_guard<std::mutex> lock(_watchdogMutex);
-        _watchdogArmed = false;
-    }
-    _watchdogCv.notify_one();
-}
-
-void LLMProcessor::finalWatchdogLoop() {
-    while (true) {
-        std::unique_lock<std::mutex> lock(_watchdogMutex);
-        _watchdogCv.wait(lock, [this] {
-            return _watchdogArmed || _watchdogStop;
-        });
-
-        if (_watchdogStop) break;
-
-        const auto timeout = std::chrono::milliseconds(_finalWatchdogTimeoutMs);
-        const bool timedOut = !_watchdogCv.wait_for(lock, timeout, [this] {
-            return !_watchdogArmed || _watchdogStop;
-        });
-
-        if (_watchdogStop) break;
-
-        if (timedOut && _watchdogArmed) {
-            _watchdogArmed = false;
-            lock.unlock();
-
-            std::string textToFire;
-            float confToFire  = 0.0f;
-            bool  isFinalText = false;
-            {
-                std::lock_guard<std::mutex> ptLock(_pendingTurnMutex);
-                if (!_pendingTurnEnd) continue;
-                _pendingTurnEnd = false;
-                isFinalText = !_accumulatedFinalText.empty();
-                textToFire  = isFinalText ? _accumulatedFinalText : _pendingFallbackText;
-                confToFire  = isFinalText ? _accumulatedFinalConf  : _pendingFallbackConf;
-                _accumulatedFinalText.clear();
-            }
-
-            if (!textToFire.empty()) {
-                if (isFinalText) {
-                    spdlog::info("[LLMProcessor] Watchdog timeout - final already staged; "
-                        "firing LLM: \"{}\" (conf={:.2f})",
-                        textToFire.substr(0, std::min<size_t>(60, textToFire.size())),
-                        confToFire);
-                    dispatchLLMRequest(textToFire, confToFire);
-                } else {
-                    int wordCount = 0;
-                    bool inWord = false;
-                    for (char c : textToFire) {
-                        if (c == ' ' || c == '\t' || c == '\n') { inWord = false; }
-                        else if (!inWord) { ++wordCount; inWord = true; }
-                    }
-                    LLMFireContext ctx{ textToFire, confToFire, 0.0f, wordCount };
-                    LLMFireDecision decision = _firePolicy->evaluate(ctx);
-                    if (decision == LLMFireDecision::FIRE_NOW) {
-                        spdlog::warn("[LLMProcessor] Watchdog timeout - no final transcription "
-                            "received; firing fallback partial: \"{}\" (conf={:.2f}, words={})",
-                            textToFire.substr(0, std::min<size_t>(60, textToFire.size())),
-                            confToFire, wordCount);
-                        dispatchLLMRequest(textToFire, confToFire);
-                    }
-                    else {
-                        spdlog::warn("[LLMProcessor] Watchdog timeout - fire policy suppressed "
-                            "partial fallback (no final arrived): \"{}\"",
-                            textToFire.substr(0, std::min<size_t>(60, textToFire.size())));
-                    }
-                }
-            }
-            else {
-                spdlog::info("[LLMProcessor] Watchdog timeout - no partial or final text; "
-                    "not firing LLM");
-            }
-        }
-    }
 }
 
 void LLMProcessor::setMetricsConfig(const va::metrics::LLMMetricsConfig& config) {

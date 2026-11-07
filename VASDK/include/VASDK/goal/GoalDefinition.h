@@ -15,6 +15,10 @@ struct GoalDefinition {
 
     std::vector<GoalSlot> slots;
 
+    /// When true, complete_goal is refused until request_confirmation has been called
+    /// after the last slot change.
+    bool requireConfirmation = false;
+
     /// Called when all required slots are confirmed and complete.
     /// Receives all collected slot values as a json object.
     /// Returns true on success, false to signal the external action failed.

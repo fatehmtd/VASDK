@@ -5,6 +5,25 @@ if(POLICY CMP0169)
     cmake_policy(SET CMP0169 OLD)
 endif()
 
+# A test executable's DLLs beside it on Windows (no rpath there): a shared VASDK and ONNX Runtime.
+function(vasdk_test_dlls target)
+    if(NOT WIN32)
+        return()
+    endif()
+    get_target_property(_vasdk_type VASDK TYPE)
+    if(_vasdk_type STREQUAL "SHARED_LIBRARY")   # VASDK.dll and what it loads (protobuf, curl, OpenSSL, zlib)
+        add_custom_command(TARGET ${target} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:VASDK> $<TARGET_RUNTIME_DLLS:VASDK>
+                    $<TARGET_FILE_DIR:${target}>
+            COMMAND_EXPAND_LISTS)
+    endif()
+    if(DEFINED onnxruntime_SOURCE_DIR AND EXISTS "${onnxruntime_SOURCE_DIR}/lib/onnxruntime.dll")
+        add_custom_command(TARGET ${target} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${onnxruntime_SOURCE_DIR}/lib/onnxruntime.dll"
+                    $<TARGET_FILE_DIR:${target}>)
+    endif()
+endfunction()
+
 # Audio 
 option(VASDK_BUILD_FFMPEG_AUDIO "Build FFmpeg audio file provider" OFF)
 option(VASDK_BUILD_MINIAUDIO "Build MiniAudio audio I/O provider" ON)
@@ -17,6 +36,8 @@ option(VASDK_BUILD_ENERGY_ZCR_VAD "Build Energy/ZCR VAD provider" OFF)
 
 # Turn detection
 option(VASDK_BUILD_SMART_TURN_V3 "Build SmartTurn v3 provider" ON)
+option(VASDK_BUILD_MINILM_NLU "Build the MiniLM sentence encoder (agents understand paraphrases)" ON)
+option(VASDK_BUILD_GLINER_NER "Build the GLiNER entity model (entity_model gliner; downloads 183 MB, 349 MB multilingual)" OFF)
 
 # Speaker identification
 option(VASDK_BUILD_PYANNOTE_SPEAKER "Build pyannote speaker embedding provider (speaker enrollment / identification)" ON)
@@ -67,7 +88,7 @@ endif()
 
 # Check if ONNX Runtime is needed by any enabled module
 set(VASDK_NEEDS_ONNXRUNTIME OFF)
-if(VASDK_BUILD_SILERO_VAD OR VASDK_BUILD_PARAKEET OR VASDK_BUILD_MOONSHINE_STT OR VASDK_BUILD_SUPERTONIC_TTS OR VASDK_BUILD_SMART_TURN_V3 OR VASDK_BUILD_POCKET_TTS OR VASDK_BUILD_MOSS_TTS OR VASDK_BUILD_PYANNOTE_SPEAKER)
+if(VASDK_BUILD_SILERO_VAD OR VASDK_BUILD_PARAKEET OR VASDK_BUILD_MOONSHINE_STT OR VASDK_BUILD_SUPERTONIC_TTS OR VASDK_BUILD_SMART_TURN_V3 OR VASDK_BUILD_POCKET_TTS OR VASDK_BUILD_MOSS_TTS OR VASDK_BUILD_PYANNOTE_SPEAKER OR VASDK_BUILD_MINILM_NLU OR VASDK_BUILD_GLINER_NER)
     set(VASDK_NEEDS_ONNXRUNTIME ON)
 endif()
 
@@ -134,6 +155,14 @@ endif()
 
 if(VASDK_BUILD_WHISTLE_STT)
     include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/DownloadWhistleSTT.cmake)
+endif()
+
+if(VASDK_BUILD_MINILM_NLU AND NOT ANDROID)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/DownloadMiniLmModel.cmake)
+endif()
+
+if(VASDK_BUILD_GLINER_NER AND NOT ANDROID)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/DownloadGlinerModel.cmake)
 endif()
 
 if(VASDK_BUILD_SMART_TURN_V3 AND NOT ANDROID)
@@ -492,6 +521,14 @@ if(VASDK_BUILD_RNNOISE)
     add_subdirectory(RNNoise)
 endif()
 
+if(VASDK_BUILD_MINILM_NLU AND VASDK_ENABLE_ENGINE_CONFIG)
+    add_subdirectory(MiniLmNlu)
+endif()
+
+if(VASDK_BUILD_GLINER_NER AND VASDK_ENABLE_ENGINE_CONFIG)
+    add_subdirectory(GlinerNer)
+endif()
+
 if(VASDK_BUILD_SMART_TURN_V3)
     add_subdirectory(SmartTurnV3)
 endif()
@@ -502,4 +539,9 @@ endif()
 
 if(VASDK_BUILD_LLAMACPP)
     add_subdirectory(LlamaCpp)
+endif()
+
+# Provider catalog (engine config ids -> providers); needs the protobuf-based engine config
+if(VASDK_ENABLE_ENGINE_CONFIG)
+    add_subdirectory(ProviderCatalog)
 endif()

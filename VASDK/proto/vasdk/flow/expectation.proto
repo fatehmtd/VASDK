@@ -1,0 +1,52 @@
+// What the user is expected to say after a reply. Every reply has one: derived from the
+// question (an ask, a form slot, a read-back), and changed by an `expect` on the ask or the slot,
+// whose fields that are set replace the derived ones. Apps get it with the reply (the engine's
+// AgentReply.expect) to show a keypad or buttons.
+syntax = "proto3";
+
+package vasdk.flow;
+
+message Expectation {
+  enum Mode {
+    MODE_UNSET = 0;     // in an `expect`: keep the derived mode
+    NONE = 1;           // nothing was asked
+    OPEN = 2;           // a question with any answer
+    CHOICE = 3;         // one of the reply's choices
+    YES_NO = 4;
+    SLOT = 5;           // a form slot's value
+    DIGITS = 6;         // a run of digits, written or spoken: a phone or card number
+    CONFIRMATION = 7;   // yes or no to a form's read-back
+  }
+  enum Keyboard {
+    KEYBOARD_UNSET = 0;   // the app's usual input
+    TEXT = 1;
+    NUMERIC = 2;          // a keypad
+    EMAIL = 3;
+  }
+  Mode mode = 1;
+  string slot = 2;                    // the form slot asked for
+  // Only these intents are matched on the page while the question is open; empty: all of them.
+  repeated string intents = 3;
+  optional bool allow_global = 4;     // false: the envelopes' routes (hours, a person) don't match; unset: true
+  // DIGITS: how many an answer has. Fewer is a partial answer (partial_reprompt); on a STRING
+  // slot, the answer is read as its digits. A PHONE slot is DIGITS from 7 to 11 by itself.
+  optional int32 min_digits = 5;
+  optional int32 max_digits = 6;
+  repeated string partial_reprompt = 7;   // after too few digits; $input.digit_count reads how many. Unset: "I only got N digits." and the question
+  optional int32 no_input_ms = 8;     // silence before no-input, instead of the page's settings
+  optional int32 max_reprompts = 9;   // misses in a row before max-reprompts, instead of the goal's or the page's
+  optional int32 follow_up_listen_ms = 10;   // how long the mic stays open after the question (0: close, -1: never)
+  Keyboard keyboard = 11;
+  optional bool secure_entry = 12;    // the app hides what's typed: a card number
+  // When the answer is over. Unset: PATIENT for DIGITS and an EMAIL keyboard, SNAPPY for YES_NO
+  // and CONFIRMATION, else the engine's turn-taking.
+  TurnEnd turn_end = 13;
+  repeated string hints = 14;         // words the answer may hold, for the speech recognizer; added to those derived
+
+  enum TurnEnd {
+    TURN_END_UNSET = 0;
+    NORMAL = 1;     // the engine's turn-taking
+    PATIENT = 2;    // pauses don't end it ("five five five... one two three"): silence decides, held longer
+    SNAPPY = 3;     // short answers: ends sooner after the user stops
+  }
+}

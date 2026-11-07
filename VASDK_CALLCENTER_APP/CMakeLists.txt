@@ -7,6 +7,39 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include(GNUInstallDirs)
 
+# The call center agent's CRM tools, and callcenter_agentc: vasdk_agentc with them registered,
+# which runs the agent's scripted calls. Needs no audio, so before the checks below.
+if(VASDK_ENABLE_ENGINE_CONFIG AND TARGET VASDK)
+    set(CALLCENTER_AGENT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/agents/callcenter)
+    add_library(callcenter_tools STATIC crm/CallCenterTools.cpp)
+    target_include_directories(callcenter_tools PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/crm>)
+    target_link_libraries(callcenter_tools PUBLIC VASDK)
+
+    add_executable(callcenter_agentc crm/callcenter_agentc.cpp)
+    target_link_libraries(callcenter_agentc PRIVATE callcenter_tools)
+
+    if(VASDK_BUILD_TESTS)
+        file(GLOB CALLCENTER_TESTS ${CALLCENTER_AGENT_DIR}/tests/*.txtpb)
+        add_test(NAME vasdk_agent_callcenter
+                 COMMAND callcenter_agentc test ${CALLCENTER_AGENT_DIR}/agent.txtpb ${CALLCENTER_TESTS})
+        # The same calls with an LLM after the rules: nothing the agent understands changes
+        add_executable(callcenter_suite_test crm/callcenter_suite_test.cpp)
+        target_link_libraries(callcenter_suite_test PRIVATE callcenter_tools)
+        if(WIN32)   # a VASDK.dll beside them is loaded first: keep it the current one
+            get_target_property(_vasdk_type VASDK TYPE)
+            if(_vasdk_type STREQUAL "SHARED_LIBRARY")
+                foreach(_tool callcenter_suite_test callcenter_agentc)
+                    if(TARGET ${_tool})
+                        add_custom_command(TARGET ${_tool} POST_BUILD
+                            COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:VASDK> $<TARGET_FILE_DIR:${_tool}>)
+                    endif()
+                endforeach()
+            endif()
+        endif()
+        add_test(NAME vasdk_agent_callcenter_with_llm COMMAND callcenter_suite_test ${CALLCENTER_AGENT_DIR})
+    endif()
+endif()
+
 #  Requirement checks (mirror VASDK_APP logic) 
 
 set(CC_REQUIRED_ENABLED TRUE)
@@ -32,6 +65,11 @@ if(NOT (VASDK_BUILD_POCKET_TTS OR VASDK_BUILD_PHONON_TTS OR VASDK_BUILD_MOSS_TTS
     list(APPEND CC_MISSING "At least one TTS provider (POCKET_TTS, PHONON_TTS, MOSS_TTS, SUPERTONIC_TTS, DEEPGRAMPP_TTS, CARTESIAPP_TTS, FISHAUDIOPP_TTS, GRADIUMPP_TTS, SONIOXPP_TTS)")
 endif()
 
+if(NOT VASDK_ENABLE_ENGINE_CONFIG)
+    set(CC_REQUIRED_ENABLED FALSE)
+    list(APPEND CC_MISSING "VASDK_ENABLE_ENGINE_CONFIG (the call runs as an engine session)")
+endif()
+
 if(NOT CC_REQUIRED_ENABLED)
     message(WARNING
         "VASDK_CallCenter requires the following modules but they are disabled:\n"
@@ -46,11 +84,15 @@ add_executable(VASDK_CallCenter callcenter_pipeline.cpp)
 
 target_link_libraries(VASDK_CallCenter
     PRIVATE VASDK
+    PRIVATE callcenter_tools
     PRIVATE nlohmann_json::nlohmann_json
     PRIVATE CLI11::CLI11
     PRIVATE spdlog::spdlog
     PRIVATE dotenv
 )
+
+# Where --dnis looks for an agent per number: agents/<dnis>/agent.txtpb, else agents/callcenter.
+target_compile_definitions(VASDK_CallCenter PRIVATE CALLCENTER_AGENTS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/agents")
 
 #  Audio I/O 
 
@@ -68,138 +110,8 @@ if(VASDK_BUILD_LIBDATACHANNEL_WEBRTC AND TARGET vasdk_libdatachannel_webrtc)
         VASDK_WEBRTC_DEMO_PAGE="${CMAKE_SOURCE_DIR}/assets/webrtc/index.html")
 endif()
 
-#  VAD 
-
-if(VASDK_BUILD_SILERO_VAD AND TARGET vasdk_silero_vad)
-    target_link_libraries(VASDK_CallCenter PRIVATE vasdk_silero_vad)
-    target_compile_definitions(VASDK_CallCenter PRIVATE VASDK_HAS_SILERO_VAD)
-endif()
-
-#  STT 
-
-if(VASDK_BUILD_MOONSHINE_STT AND TARGET vasdk_moonshine_stt)
-    target_link_libraries(VASDK_CallCenter PRIVATE vasdk_moonshine_stt)
-    target_compile_definitions(VASDK_CallCenter PRIVATE VASDK_HAS_MOONSHINE_STT)
-    message(STATUS "[VASDK_CallCenter] Moonshine STT enabled")
-endif()
-
-if(VASDK_BUILD_PARAKEET AND TARGET vasdk_parakeet)
-    target_link_libraries(VASDK_CallCenter PRIVATE vasdk_parakeet)
-    target_compile_definitions(VASDK_CallCenter PRIVATE VASDK_HAS_PARAKEET)
-    message(STATUS "[VASDK_CallCenter] Parakeet STT enabled")
-endif()
-
-if(VASDK_BUILD_WHISPERCPP AND TARGET vasdk_whispercpp)
-    target_link_libraries(VASDK_CallCenter PRIVATE vasdk_whispercpp)
-    target_compile_definitions(VASDK_CallCenter PRIVATE VASDK_HAS_WHISPERCPP)
-    message(STATUS "[VASDK_CallCenter] Whisper.cpp STT enabled")
-endif()
-
-if(VASDK_BUILD_WHISTLE_STT AND TARGET vasdk_whistle_stt)
-    target_link_libraries(VASDK_CallCenter PRIVATE vasdk_whistle_stt)
-    target_compile_definitions(VASDK_CallCenter PRIVATE VASDK_HAS_WHISTLE_STT)
-    message(STATUS "[VASDK_CallCenter] Whistle STT enabled")
-endif()
-
-if(VASDK_BUILD_GLADIAPP AND TARGET vasdk_gladiapp_transcription)
-    target_link_libraries(VASDK_CallCenter PRIVATE vasdk_gladiapp_transcription)
-    target_compile_definitions(VASDK_CallCenter PRIVATE VASDK_HAS_GLADIAPP)
-    message(STATUS "[VASDK_CallCenter] Gladia STT enabled")
-endif()
-
-if(VASDK_BUILD_SONIOXPP_STT AND TARGET vasdk_sonioxpp_stt)
-    target_link_libraries(VASDK_CallCenter PRIVATE vasdk_sonioxpp_stt)
-    target_compile_definitions(VASDK_CallCenter PRIVATE VASDK_HAS_SONIOXPP_STT)
-    message(STATUS "[VASDK_CallCenter] Soniox STT enabled")
-endif()
-
-if(VASDK_BUILD_DEEPGRAMPP_STT AND TARGET vasdk_deepgrampp_stt)
-    target_link_libraries(VASDK_CallCenter PRIVATE vasdk_deepgrampp_stt)
-    target_compile_definitions(VASDK_CallCenter PRIVATE VASDK_HAS_DEEPGRAMPP_STT)
-    message(STATUS "[VASDK_CallCenter] Deepgram STT enabled")
-endif()
-
-if(VASDK_BUILD_CARTESIAPP_STT AND TARGET vasdk_cartesiapp_stt)
-    target_link_libraries(VASDK_CallCenter PRIVATE vasdk_cartesiapp_stt)
-    target_compile_definitions(VASDK_CallCenter PRIVATE VASDK_HAS_CARTESIAPP_STT)
-    message(STATUS "[VASDK_CallCenter] Cartesia STT enabled")
-endif()
-
-if(VASDK_BUILD_FISHAUDIOPP_STT AND TARGET vasdk_fishaudiopp_stt)
-    target_link_libraries(VASDK_CallCenter PRIVATE vasdk_fishaudiopp_stt)
-    target_compile_definitions(VASDK_CallCenter PRIVATE VASDK_HAS_FISHAUDIOPP_STT)
-    message(STATUS "[VASDK_CallCenter] Fish Audio STT enabled")
-endif()
-
-if(VASDK_BUILD_GRADIUMPP_STT AND TARGET vasdk_gradiumpp_stt)
-    target_link_libraries(VASDK_CallCenter PRIVATE vasdk_gradiumpp_stt)
-    target_compile_definitions(VASDK_CallCenter PRIVATE VASDK_HAS_GRADIUMPP_STT)
-    message(STATUS "[VASDK_CallCenter] Gradium STT enabled")
-endif()
-
-#  TTS
-
-if(VASDK_BUILD_POCKET_TTS AND TARGET vasdk_pocket_tts)
-    target_link_libraries(VASDK_CallCenter PRIVATE vasdk_pocket_tts)
-    target_compile_definitions(VASDK_CallCenter PRIVATE VASDK_HAS_POCKET_TTS)
-    message(STATUS "[VASDK_CallCenter] PocketTTS enabled")
-endif()
-
-if(VASDK_BUILD_PHONON_TTS AND TARGET vasdk_phonon_tts)
-    target_link_libraries(VASDK_CallCenter PRIVATE vasdk_phonon_tts)
-    target_compile_definitions(VASDK_CallCenter PRIVATE VASDK_HAS_PHONON_TTS)
-    message(STATUS "[VASDK_CallCenter] Phonon TTS enabled")
-endif()
-
-if(VASDK_BUILD_MOSS_TTS AND TARGET vasdk_moss_tts)
-    target_link_libraries(VASDK_CallCenter PRIVATE vasdk_moss_tts)
-    target_compile_definitions(VASDK_CallCenter PRIVATE VASDK_HAS_MOSS_TTS)
-    message(STATUS "[VASDK_CallCenter] MOSS-TTS-Nano enabled")
-endif()
-
-if(VASDK_BUILD_SUPERTONIC_TTS AND TARGET vasdk_supertonic_tts)
-    target_link_libraries(VASDK_CallCenter PRIVATE vasdk_supertonic_tts)
-    target_compile_definitions(VASDK_CallCenter PRIVATE VASDK_HAS_SUPERTONIC_TTS)
-    message(STATUS "[VASDK_CallCenter] Supertonic TTS enabled")
-endif()
-
-if(VASDK_BUILD_DEEPGRAMPP_TTS AND TARGET vasdk_deepgrampp_tts)
-    target_link_libraries(VASDK_CallCenter PRIVATE vasdk_deepgrampp_tts)
-    target_compile_definitions(VASDK_CallCenter PRIVATE VASDK_HAS_DEEPGRAMPP_TTS)
-    message(STATUS "[VASDK_CallCenter] Deepgram TTS enabled")
-endif()
-
-if(VASDK_BUILD_CARTESIAPP_TTS AND TARGET vasdk_cartesiapp_tts)
-    target_link_libraries(VASDK_CallCenter PRIVATE vasdk_cartesiapp_tts)
-    target_compile_definitions(VASDK_CallCenter PRIVATE VASDK_HAS_CARTESIAPP_TTS)
-    message(STATUS "[VASDK_CallCenter] Cartesia TTS enabled")
-endif()
-
-if(VASDK_BUILD_FISHAUDIOPP_TTS AND TARGET vasdk_fishaudiopp_tts)
-    target_link_libraries(VASDK_CallCenter PRIVATE vasdk_fishaudiopp_tts)
-    target_compile_definitions(VASDK_CallCenter PRIVATE VASDK_HAS_FISHAUDIOPP_TTS)
-    message(STATUS "[VASDK_CallCenter] Fish Audio TTS enabled")
-endif()
-
-if(VASDK_BUILD_GRADIUMPP_TTS AND TARGET vasdk_gradiumpp_tts)
-    target_link_libraries(VASDK_CallCenter PRIVATE vasdk_gradiumpp_tts)
-    target_compile_definitions(VASDK_CallCenter PRIVATE VASDK_HAS_GRADIUMPP_TTS)
-    message(STATUS "[VASDK_CallCenter] Gradium TTS enabled")
-endif()
-
-if(VASDK_BUILD_SONIOXPP_TTS AND TARGET vasdk_sonioxpp_tts)
-    target_link_libraries(VASDK_CallCenter PRIVATE vasdk_sonioxpp_tts)
-    target_compile_definitions(VASDK_CallCenter PRIVATE VASDK_HAS_SONIOXPP_TTS)
-    message(STATUS "[VASDK_CallCenter] Soniox TTS enabled")
-endif()
-
-#  Optional: Smart turn detection 
-
-if(VASDK_BUILD_SMART_TURN_V3 AND TARGET vasdk_smartturn_v3)
-    target_link_libraries(VASDK_CallCenter PRIVATE vasdk_smartturn_v3)
-    target_compile_definitions(VASDK_CallCenter PRIVATE VASDK_HAS_SMART_TURN_V3)
-    message(STATUS "[VASDK_CallCenter] SmartTurn v3 enabled")
-endif()
+# VAD, STT, TTS and turn detection: every provider built in this tree; the call takes the first of each
+target_link_libraries(VASDK_CallCenter PRIVATE vasdk_provider_catalog)
 
 #  Optional: Speaker tracking / identification
 

@@ -1,0 +1,242 @@
+// Engine configuration: which providers to run and how to reach the LLM.
+// Written as text proto (engine.txtpb), JSON or binary; see docs/reference/engine-config.md.
+// Fields are only ever added, so older config files keep loading.
+syntax = "proto3";
+
+package vasdk.engine;
+
+import "google/protobuf/any.proto";
+
+// One provider choice. `id` names an entry in the ProviderRegistry ("parakeet", "soniox", ...).
+message ProviderSpec {
+  string id = 1;                       // empty: the first provider built into this binary
+  google.protobuf.Any options = 2;     // the provider's own options message, e.g. vasdk.providers.CloudOptions
+  repeated string fallback = 3;        // ids tried in order when `id` is not built in or fails to start,
+                                       // and switched to when the network drops (Session::setNetworkAvailable)
+  map<string, google.protobuf.Any> fallback_options = 4;   // a fallback's options, by its id; unset: its defaults
+}
+
+message Providers {
+  ProviderSpec vad = 1;
+  ProviderSpec stt = 2;
+  ProviderSpec tts = 3;
+  ProviderSpec turn = 4;               // end-of-turn model; none built in: VAD silence decides
+  ProviderSpec wake_word = 5;          // used by the WAKE_WORD and HYBRID activation modes
+  ProviderSpec sentence_encoder = 6;   // an agent understands paraphrases its examples miss (MiniLM), after its rules
+  // A file the sentence encoder's vectors of the agent's examples and knowledge questions are
+  // kept in, relative to models_dir: read when a session starts, and written when anything had to
+  // be encoded, so later starts (a phone app's) don't encode again. Unset: encoded as needed.
+  string sentence_encoder_cache = 7;
+  // What finds where an agent's list entities are said; with one, a value's misspellings and
+  // sound-alikes count only inside the words it marks as that entity ("times" isn't "tires").
+  //   gliner: a zero-shot model on device (VASDK_BUILD_GLINER_NER; options GlinerOptions)
+  //   tagger: trained when a session starts from the agent's examples ("book @service"), on the
+  //           sentence_encoder's word vectors (needs sentence_encoder: minilm)
+  //   llm:    the LLM the agent's understanding asks (llm, or understanding.llm_profile)
+  // Unset: values are found by their words alone, misspellings anywhere.
+  ProviderSpec entity_model = 8;
+}
+
+message LlmConfig {
+  string endpoint = 1;
+  string model = 2;
+  string api_key = 3;
+  int32 history = 4;                   // messages kept in the conversation; 0: 10
+  bool speculative_firing = 5;         // start the request on the partial at a pause (needs streaming_transcription)
+  int32 speculative_min_words = 6;     // 0: 3
+  repeated string tool_filler_phrases = 7;  // said in turn while a tool runs, e.g. "One moment."
+  // An agent's LLM intent check (what its rules aren't sure of) is given up after this, and the
+  // rules' guess stands: the turn waits for it. unset: 1500; 0 or less: up to the LLM's 8 s.
+  optional int32 intent_timeout_ms = 8;
+  enum Api {
+    OPENAI_COMPATIBLE = 0;   // chat completions: OpenAI, OpenRouter, LM Studio, vLLM, llama.cpp server, Ollama
+    ANTHROPIC = 1;           // Claude, by the Messages API; endpoint unset: https://api.anthropic.com/v1/messages
+  }
+  Api api = 9;               // how endpoint is spoken to, by the conversation and the agent alike
+  string effort = 10;        // reasoning effort (none, low, medium, high): the agent's requests, and the conversation's on
+                             // OpenAI-compatible endpoints; unset: the API's, "low" for the agent on Claude
+  // Said, in turn, for a turn that would go to this LLM while the network is down
+  // (Session::setNetworkAvailable) and its endpoint isn't on this machine; an agent answers what
+  // it can first. unset: "I can't reach the internet right now, so I can't answer that. Please
+  // try again in a moment."
+  repeated string offline_replies = 11;
+  // Said, in turn, when a request for a user's turn fails or times out with nothing said yet, so
+  // the user isn't left in silence. unset: "Sorry, I couldn't get an answer just now. Could you
+  // ask me again?"
+  repeated string failure_replies = 12;
+}
+
+// How quickly the assistant decides the user has finished speaking.
+message TurnTaking {
+  enum Preset {
+    BALANCED = 0;   // desktop assistant: 250 ms to start, 500 ms pauses within speech
+    SNAPPY = 1;     // phone calls: 150 ms to start, 200 ms pauses
+    PATIENT = 2;    // people who stop to think: longer minimum speech and end silence
+  }
+  Preset preset = 1;
+  bool streaming_transcription = 2;    // STT runs while the user speaks and sends partial results
+  VoiceActivity voice_activity = 3;    // each value set here replaces the preset's
+  Backchannel backchannel = 4;         // each value set here replaces Session::Options::backchannel's
+  optional int32 interrupt_timeout_ms = 5;  // INTERRUPTED falls back to LISTENING after this; unset: 500
+}
+
+// When speech starts and ends (VADFrameProcessor). Unset values come from the preset.
+//            start  min_speech  pause  end_silence   (ms)
+// BALANCED    250      250       500      250
+// SNAPPY      150      150       200      150
+// PATIENT     250      400       500      600
+message VoiceActivity {
+  optional int32 start_ms = 1;              // voice this long before speech may start
+  optional int32 min_speech_ms = 2;         // speech this long before it counts (shorter blips are dropped)
+  optional int32 pause_ms = 3;              // silence this long inside speech is a pause, not the end
+  optional int32 end_silence_ms = 4;        // after a pause, silence this long ends the speech
+  optional int32 resume_silent_frames = 5;  // silent frames while resuming before it counts as paused again; unset: 3
+  optional int32 barge_in_min_speech_ms = 6;  // min_speech_ms while the assistant speaks; unset: 150, 0: same as min_speech_ms
+  optional float lookback_factor = 7;       // audio kept before the detected start, as a multiple of the start window; unset: 3 (BALANCED) or 5
+}
+
+// Speech over the assistant: a back-channel ("yeah", "mm-hmm") or a real interruption.
+message Backchannel {
+  enum PendingPlayback {
+    DUCK = 0;        // keep playing, quieter, while deciding
+    PAUSE = 1;       // pause, and resume from the same place if it was a back-channel
+    CONTINUE = 2;    // no change
+  }
+  enum History {
+    DROP = 0;                // back-channels never reach the LLM
+    APPEND_TO_HISTORY = 1;   // recorded in the LLM history, not answered
+  }
+  enum TailOverlap {
+    TREAT_AS_TURN = 0;   // speech over the last tail_overlap_ms: let the reply finish, then answer it
+    CLASSIFY = 1;        // classify it like any other overlap
+  }
+  optional bool enabled = 1;                    // false: any speech over the assistant interrupts it
+  optional PendingPlayback pending_playback = 2;
+  optional History history = 3;
+  optional TailOverlap tail_overlap = 4;
+  optional float duck_gain_db = 5;              // playback level while ducked; default -12
+  optional int32 duck_ms = 6;                   // the duck lasts at least this long; default 2500
+  optional int32 commit_after_ms = 7;           // speech longer than this interrupts; default 600
+  optional int32 final_transcription_wait_ms = 8;  // wait for the final transcript after the user stops; default 300
+  optional int32 tail_overlap_ms = 9;           // default 700
+  optional int32 max_backchannel_words = 10;    // default 4
+  optional float min_interrupt_confidence = 11; // 1-2 word finals below this STT confidence are back-channels; default 0.6
+  optional int32 low_confidence_max_words = 12; // default 2
+  repeated string phrases = 13;                 // replace the built-in back-channel phrases when set
+  repeated string interrupt_words = 14;         // replace the built-in words that always interrupt ("stop", "wait", ...)
+  // Speech over the assistant that is only its own words (its voice from the speakers, with no
+  // echo cancellation) doesn't interrupt it; default true. echo_min_share: the share of what's heard
+  // that must be the reply's words; default 0.8. echo_words_wait_ms: long speech with no words
+  // yet waits this much longer for them (600 for open speakers whose STT is slow with words: every interruption then waits as long); default 0.
+  optional bool reject_echo = 15;
+  optional float echo_min_share = 16;
+  optional int32 echo_words_wait_ms = 17;
+}
+
+// Raw PCM between the transport and the providers. The providers resample from their own rates.
+message AudioFormat {
+  enum Encoding {
+    PCM_16 = 0;     // signed 16-bit
+    PCM_8 = 1;      // signed 8-bit
+    PCM_32 = 2;     // signed 32-bit
+    FLOAT_32 = 3;   // 32-bit float
+  }
+  optional int32 sample_rate = 1;      // Hz
+  optional Encoding encoding = 2;
+  optional int32 channels = 3;
+}
+
+// Unset values keep the app's Runtime::Options (16 kHz, PCM_16, mono, 100 ms frames by default).
+message Audio {
+  AudioFormat input = 1;               // mic: what the VAD, turn model, wake word and STT receive
+  AudioFormat output = 2;              // speaker: what the TTS produces
+  optional int32 frame_ms = 3;         // input frame length: the grid VAD and turn decisions run on
+}
+
+// When the assistant listens.
+message Activation {
+  enum Mode {
+    ALWAYS_ON = 0;      // always listening
+    WAKE_WORD = 1;      // asleep until the wake phrase (needs a providers.wake_word)
+    PUSH_TO_TALK = 2;   // listens while the app holds the button (Session::pushToTalk)
+    HYBRID = 3;         // wake phrase or button
+  }
+  Mode mode = 1;
+  FollowUp follow_up = 2;
+}
+
+// After every reply the mic stays open, so the user can answer without the wake phrase or button.
+message FollowUp {
+  optional int32 listen_ms = 1;        // unset: 8000; 0: close at once; -1: never close
+}
+
+// What agents' tools may reach. Secrets live here, never in agent files.
+message Security {
+  repeated string http_allow = 1;      // URLs HTTP tools may call; * matches anything: "https://api.acme.example/*"
+  optional int32 max_response_kb = 2;  // a longer reply fails the call; unset: 256
+  optional int32 timeout_ms = 3;       // a tool still running after this fails; unset: 8000
+  map<string, string> secrets = 4;     // read by tool headers as $secrets.<name>; "${ENV}" works here
+}
+
+message EngineConfig {
+  string models_dir = 1;               // base directory for local model files
+  Providers providers = 2;
+  LlmConfig llm = 3;                   // unset: the app's command-line or built-in defaults
+  TurnTaking turn_taking = 4;
+  Activation activation = 5;
+  Audio audio = 6;
+  Security security = 7;
+  RemoteControl remote_control = 8;
+  Understanding understanding = 9;
+  // More LLMs, by name, for the tasks that name one: a small, fast model for the intent check
+  // (understanding.llm_profile), a capable one for the hard turns (a route's llm_profile, an llm
+  // step's or a generative page's profile). What else isn't named uses `llm`.
+  repeated LlmProfile llm_profiles = 10;
+}
+
+// One more LLM. Each field left unset is `llm`'s, so a profile may be only another model on the
+// same endpoint: llm_profiles { name: "smart" model: "claude-opus-5-5" }. The conversation (a route's
+// llm_profile) can switch only between profiles of `llm`'s api: one conversation, one API.
+message LlmProfile {
+  string name = 1;
+  string endpoint = 2;
+  string model = 3;
+  string api_key = 4;
+  optional LlmConfig.Api api = 5;
+  string effort = 6;          // reasoning effort, as llm.effort
+}
+
+// How sure an agent's understanding must be: judgement calls, to measure on what users say
+// (vasdk_agentc eval --sweep). Each unset value is the default.
+message Understanding {
+  optional float min_confidence = 1;   // a stage's answer is taken from this confidence; unset: 0.55
+  optional float keyword_words = 2;    // a matched word may stand for a sentence this many words long; unset: 6
+  optional float chat_min_share = 3;   // mid-chat with the LLM, the share of the words a route must explain; unset: 0.25
+  // The llm_profiles entry the agent asks what its rules aren't sure of (the intent check, form
+  // answers) and runs llm steps and generative pages with, unless they name their own. Unset: `llm`.
+  string llm_profile = 4;
+}
+
+// Watch, and with CONTROL drive, a running session from a browser or a script, over HTTP:
+//   GET  /events   every event (events.proto) as Server-Sent Events, one JSON object each
+//   POST /command  a Command as JSON (CONTROL only)
+//   GET  /         a page that shows the live trace
+// Every request needs the token: "Authorization: Bearer <token>", or ?token=<token> (EventSource
+// can't send headers). Off unless enabled; without a token it doesn't start.
+message RemoteControl {
+  enum Mode {
+    OBSERVE = 0;   // events only: commands are refused
+    CONTROL = 1;   // events, and commands
+  }
+  bool enabled = 1;
+  string bind = 2;    // "host:port"; unset: "127.0.0.1:8765", this machine only. Port 0: any free one
+  string token = 3;   // required, e.g. "${VASDK_RC_TOKEN}"
+  Mode mode = 4;
+  // HTTPS instead of HTTP, for a bind beyond this machine: the token and the conversation travel
+  // encrypted. PEM files; needs a build whose cpp-httplib has OpenSSL (desktop builds do).
+  Tls tls = 5;
+  message Tls {
+    string cert_file = 1;
+    string key_file = 2;
+  }
+}

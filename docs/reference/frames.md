@@ -57,7 +57,7 @@ Every `FrameType`, its concrete class, and what carries it:
 | `TURN_STATE` | `TurnStateFrame` | actor (`USER`/`SYSTEM`/`OTHER`), state (`START`/`END`), type (`NORMAL`/`INTERRUPT`/`OVERLAP`), confidence | `TurnDetectionProcessor` → `AgentStateProcessor`; also **upstream** to `VADFrameProcessor` (user `END` = close the speech segment now) |
 | `TRANSCRIPTION` | `TranscriptionFrame` | full `TranscriptionResult` (text, confidence, word timings, language tags, alternatives) + `isFinal`; `isBackchannel` marks a dismissed back-channel forwarded for history (`BackchannelHistoryMode::AppendToHistory`); `isFollowUp` marks the merged text `LLMProcessor` sent for a [follow-up](llm.md#follow-ups), pushed downstream so UIs can show what the LLM received | `TranscriptionFrameProcessor` → agent state, LLM |
 | `AGENT_STATE` | `AgentStateFrame` | current/previous `AgentState`, the `AgentStateTransition` that caused it, trigger confidence. `BARGE_IN_PENDING` and `BACKCHANNEL` are SPEAKING → SPEAKING transitions: speech over the agent is being classified, then was only a back-channel ([processors.md](processors.md#back-channels-speech-over-the-agent-that-isnt-an-interruption)) | `AgentStateProcessor` → LLM, TTS, transports |
-| `TEXT` | `TextFrame` | text, language, `isFinal` (mid-stream vs last chunk), `isExpecting` (LLM awaits a spoken reply), UI `choices` | `LLMProcessor` → TTS, UI transports |
+| `TEXT` | `TextFrame` | text, language (an agent's reply: its locale's code; empty when unknown), `isFinal` (mid-stream vs last chunk), `isExpecting` (LLM awaits a spoken reply), UI `choices` | `LLMProcessor` → TTS, UI transports |
 | `TOOL_CALL` | `ToolCallFrame` | tool name + JSON args (as a string, to keep nlohmann/json out of `Frame.h`) | `LLMProcessor` → `ToolDispatchProcessor` |
 | `TOOL_RESULT` | `ToolResultFrame` | tool name + JSON result string | `ToolDispatchProcessor` → back to LLM |
 | `SYNTHESIS` | `SynthesisFrame` | **actual audio bytes** (`audioData`) + source text + voice ID | `TTSFrameProcessor` → output transport |
@@ -71,7 +71,44 @@ Every `FrameType`, its concrete class, and what carries it:
 | `SPEAKER_ENROLLMENT` | `SpeakerEnrollmentFrame` | speaker id + `REQUESTED` / `ENROLLED` / `FAILED` + error message | app/tool → `SpeakerIdentificationProcessor` (`REQUESTED`), which answers downstream |
 | `SPEAKER_IDENTIFICATION` | `SpeakerIdentificationFrame` | best-matching enrolled speaker id (empty = unknown) + cosine similarity, new-vs-same flag, similarity to the tracked voice | `SpeakerIdentificationProcessor` → app, `WebRtcTransport` (as `speaker` events) |
 
-Note the asymmetry that trips people up: **`AudioFrame` (mic side) carries no audio; `SynthesisFrame` (TTS side) does.** Mic audio is a continuous firehose shared by several consumers, so it lives once in a ring buffer and frames carry offsets. Synthesized audio is bursty and single-consumer, so it rides in the frame. The [root README's ring buffer section](../../README.md#the-audio-ring-buffer) explains the design in depth.
+Note the asymmetry that trips people up: **`AudioFrame` (mic side) carries no audio; `SynthesisFrame` (TTS side) does.** Mic audio is a continuous firehose shared by several consumers, so it lives once in a ring buffer and frames carry offsets. Synthesized audio is bursty and single-consumer, so it rides in the frame. [The audio ring buffer](#the-audio-ring-buffer) below explains the design in depth.
+
+## The audio ring buffer
+
+The single biggest reason `AudioFrame` doesn't carry samples is `AudioRingBuffer` (`AudioRingBuffer.h`): a fixed-capacity circular buffer, shared via `shared_ptr` across the transport and every processor that touches raw mic-side audio. Instead of pushing PCM through a chain of stage-to-stage copies, only two integers move downstream: `absoluteOffset` and `numSamples`. Whoever actually needs the bytes calls `readAbsolute()` against the shared buffer, however many frames behind the write cursor they've fallen.
+
+That shared-buffer design pays for itself in three concrete ways, beyond just "fewer memcpys":
+
+- **Raw and clean streams, kept separate.** `LocalTransport` writes mic audio into one ring buffer and never touches it again - the raw signal stays raw. `AudioDSPProcessor` reads from that raw buffer, runs it through a `GenericAudioDSPProvider` (e.g. RNNoise), and writes the result into a second, identically-sized "clean" ring buffer, advanced in lock-step so the same `AudioFrame::ringbufferOffset` addresses the same instant in both. VAD and STT are pointed at whichever buffer they need - the clean one when denoising is enabled, the raw one directly when it isn't - and neither buffer is ever mutated in place. That clean stream is just as available to anything else that wants processed audio without paying for its own DSP pass: a wake-word detector, a voice-cloning reference recorder for TTS, a debug logger, or whatever gets added next - they all read the same offsets, no extra plumbing required. (`AudioRingBuffer` does expose a lower-level `overwrite()` for in-place mutation of a single buffer, but the shipped `AudioDSPProcessor` doesn't use it; keeping raw and clean as two buffers means nothing downstream ever loses access to the untouched signal.)
+- **Free lookback.** `VADFrameProcessor` doesn't keep its own pre-roll window to avoid clipping the start of an utterance. When it detects speech onset, it computes an earlier `absoluteOffset` (`lookbackMultiplier` samples before the detected boundary) and emits *that* offset in the `VADStateFrame`. `TranscriptionProcessor` reads from it directly - the "extra" audio was already sitting in the ring buffer the whole time, so pre-roll costs nothing extra to capture.
+- **No backpressure stalls.** Nothing blocks waiting for a slow reader, so a burst of audio never backs up the capture thread. The trade-off is explicit rather than hidden: each buffer has to be sized generously enough (in samples/duration) that the slowest consumer reading from it can't fall behind by more than its capacity before the write cursor wraps and overwrites data that hasn't been read yet. There's no locking and no queueing of raw audio - only bounded staleness, and that bound is a constructor argument you control per buffer.
+
+This only covers the inbound, near-continuous mic path. Outbound audio doesn't need it: `SynthesisFrame` (TTS output) carries its `audioData` directly, since synthesized speech is bursty and short-lived rather than a firehose the whole pipeline needs to share cheaply.
+
+```mermaid
+sequenceDiagram
+    participant Transport as Transport (mic)
+    participant Raw as Raw ring buffer
+    participant DSP as AudioDSPProcessor (RNNoise, optional)
+    participant Clean as Clean ring buffer
+    participant VAD
+    participant STT as Transcription
+    participant Other as Wake-word / other consumers
+
+    Transport->>Raw: write(samples) → offset X
+    Transport->>DSP: AudioFrame{absoluteOffset=X, numSamples}
+    DSP->>Raw: readAbsolute(X, numSamples)
+    DSP->>Clean: write(denoised samples) → offset X (lock-step)
+    DSP->>VAD: AudioFrame{absoluteOffset=X, numSamples}
+    VAD->>Clean: readAbsolute(X, numSamples)
+    Note over VAD: speech onset detected -<br/>back up by lookbackSamples
+    VAD->>STT: VADStateFrame{speechStartOffset = X − lookback}
+    STT->>Clean: readAbsolute(speechStartOffset, …)
+    Other->>Clean: readAbsolute(...) - same offsets,<br/>no DSP pass of its own
+    Note over Raw,Clean: identical capacity, same offset space -<br/>consumers pick whichever stream they need
+```
+
+If DSP is disabled at runtime, there's no processor sitting between `Transport` and `Clean` in that diagram - VAD/STT are simply pointed at the raw buffer directly instead, so the "clean" concept costs nothing when you don't need it.
 
 ## The two state machines encoded in frames
 
@@ -79,7 +116,7 @@ Two enums deserve special attention because processors key their behavior off th
 
 **`VADState`** (acoustic, emitted by `VADFrameProcessor`): `QUIET → STARTING → ONGOING → PAUSED ⇄ RESUMING → ENDING → ENDED`. Distinguishes a hesitation (`PAUSED`) from the end of an utterance (`ENDED`).
 
-**`AgentState`** (conversational, emitted by `AgentStateProcessor`): `IDLE → LISTENING → THINKING → SPEAKING → INTERRUPTED`. See [processors.md](processors.md#agentstateprocessor--the-conversation-state-machine) for the full transition diagram.
+**`AgentState`** (conversational, emitted by `AgentStateProcessor`): `IDLE → LISTENING → THINKING → SPEAKING → INTERRUPTED`. See [processors.md](processors.md#agentstateprocessor---the-conversation-state-machine) for the full transition diagram.
 
 ## Adding a new frame type
 

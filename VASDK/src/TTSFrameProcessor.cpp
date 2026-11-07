@@ -1,4 +1,5 @@
 #include "VASDK/TTSFrameProcessor.h"
+#include "VASDK/Masking.h"
 #include <VASDK/profiling/CTrack.h>
 #include <spdlog/spdlog.h>
 #include <algorithm>
@@ -8,6 +9,16 @@
 
 namespace va {
     namespace pipeline {
+
+        namespace {
+        // Another provider took over after an error: the cut-off reply is spoken again, on the
+        // processor's own thread.
+        class RespeakFrame : public transport::Frame {
+        public:
+            transport::FrameType getType() const override { return transport::FrameType::CONTROL; }
+            std::shared_ptr<transport::Frame> clone() const override { return std::make_shared<RespeakFrame>(); }
+        };
+        } // namespace
 
         TTSFrameProcessor::TTSFrameProcessor(
             std::shared_ptr<audio::GenericVoiceSynthesisProvider> provider)
@@ -78,10 +89,27 @@ namespace va {
         void TTSFrameProcessor::processFrame(std::shared_ptr<transport::Frame> frame, FlowDirection direction) {
             VASDK_CTRACK_NAME("TTS::processFrame");
             if (direction == FlowDirection::DOWNSTREAM) {
+                if (dynamic_cast<const RespeakFrame*>(frame.get())) {
+                    applyReplacement();
+                    respeakCutOff();
+                    return;
+                }
                 if (frame->getType() == transport::FrameType::AGENT_STATE) {
                     handleAgentStateFrame(std::dynamic_pointer_cast<transport::AgentStateFrame>(frame));
                     pushDownstream(frame);
                     return;
+                }
+                if (auto replaced = dynamic_cast<const transport::TurnReplacedFrame*>(frame.get())) {
+                    dropReplacedTurn(replaced->turnId);
+                    pushDownstream(frame);
+                    return;
+                }
+                if (frame->getType() == transport::FrameType::TEXT) {
+                    const uint64_t turnId = static_cast<const transport::TextFrame&>(*frame).turnId;
+                    if (turnId != 0 && std::find(_replacedTurns.begin(), _replacedTurns.end(), turnId) != _replacedTurns.end()) {
+                        spdlog::info("[TTSFrameProcessor] Dropping text of replaced turn {}", turnId);
+                        return;   // not said, nor shown downstream
+                    }
                 }
 
                 if (_cancelPending) {
@@ -90,6 +118,12 @@ namespace va {
                 else if (frame->getType() == transport::FrameType::TEXT) {
                     // TranscriptionFrames are intentionally not synthesized - TTS speaks
                     // only LLM responses (TextFrames), not user transcriptions.
+                    {   // a new reply: what the error cut off before it isn't said any more
+                        std::lock_guard<std::mutex> lock(_turnMutex);
+                        if (_cutOffClosed) _cutOff.clear();
+                    }
+                    applyReplacement();
+                    respeakCutOff();   // the rest of a reply still coming: its cut-off parts first
                     synthesizeTextFrame(std::dynamic_pointer_cast<transport::TextFrame>(frame));
                 }
             }
@@ -108,7 +142,10 @@ namespace va {
                 {
                     std::lock_guard<std::mutex> lock(_turnMutex);
                     _pendingSentences.clear();
-                    _providerBusy = _textClosed = _turnActive = _sentInTurn = false;
+                    _sentParts.clear();
+                    _cutOff.clear();
+                    _providerBusy = _textClosed = _turnActive = _sentInTurn = _protectedSending = false;
+                    _protectedStart = _protectedEnd = {};
                     _playbackPaused = false;  // the queued audio is gone
                 }
                 if (_playbackFlush) _playbackFlush(); // flush SDL buffer immediately
@@ -129,6 +166,11 @@ namespace va {
             case transport::AgentStateTransition::SYNTHESIS_COMPLETED:
                 holdPlayback(false);
                 break;
+            case transport::AgentStateTransition::USER_STARTED_SPEAKING: {
+                std::lock_guard<std::mutex> lock(_turnMutex);   // the user went on: a cut-off reply isn't said again
+                _cutOff.clear();
+                break;
+            }
             default:
                 break;
             }
@@ -191,11 +233,23 @@ namespace va {
 
         int TTSFrameProcessor::getRemainingReplyPlaybackMs() {
             std::lock_guard<std::mutex> lock(_turnMutex);
-            if (!_turnActive || !_textClosed) return -1;
+            // Until every sentence is synthesized the reply's length isn't known; 0 would read as "almost done".
+            if (!_turnActive || !_textClosed || !_draining) return -1;
             const auto remaining = _playbackPaused
                 ? _playbackRemainingWhilePaused
                 : std::chrono::duration_cast<std::chrono::microseconds>(_playbackEndTime - std::chrono::steady_clock::now());
             return static_cast<int>(std::max<int64_t>(0, remaining.count() / 1000));
+        }
+
+        int TTSFrameProcessor::getProtectedPlaybackMs() {
+            std::lock_guard<std::mutex> lock(_turnMutex);
+            const auto now = std::chrono::steady_clock::now();
+            // The sink plays a little behind the model: the hardware buffer.
+            const auto margin = std::chrono::milliseconds(_hardwareBufferMarginMs);
+            if (_protectedStart == std::chrono::steady_clock::time_point{} || now < _protectedStart + margin) return 0;
+            const auto end = _protectedEnd + margin;
+            if (now >= end) return _protectedSending ? 1 : 0;   // still synthesizing: more is coming
+            return std::max(1, static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(end - now).count()));
         }
 
         void TTSFrameProcessor::synthesizeTextFrame(std::shared_ptr<transport::TextFrame> frame) {
@@ -205,8 +259,9 @@ namespace va {
             for (const auto& choice : frame->choices) {
                 choicesStr += choice.text + "; ";
             }
+            const std::string logged = redact(frame->text, frame->sensitiveValues);
             spdlog::info("[TTSFrameProcessor] Received Structured Text frame: '{}', isFinal={}, isExpecting={}, choices={}",
-                frame->text, frame->isFinal, frame->isExpecting, choicesStr);
+                logged, frame->isFinal, frame->isExpecting, redact(choicesStr, frame->sensitiveValues));
 
             bool mergeIntoDrainingTurn = false;
             {
@@ -216,8 +271,17 @@ namespace va {
                     _textClosed = false;
                     mergeIntoDrainingTurn = _draining;
                 }
-                if (!frame->text.empty()) _pendingSentences.push_back(frame->text);
+                const bool ssml = !frame->ssml.empty() && _synthesisProvider->supportsSsml();
+                if (ssml || !frame->text.empty())
+                    _pendingSentences.push_back({ssml                                   ? frame->ssml
+                                                 : _synthesisProvider->normalizesText() ? frame->text
+                                                                                        : speakable(frame->text),
+                                                 frame->interruptible,
+                                                 {frame->voice, frame->speed},
+                                                 logged,
+                                                 frame->turnId});
                 if (frame->isFinal) _textClosed = true;
+                _openTurnId = frame->isFinal ? 0 : frame->turnId;
             }
             if (mergeIntoDrainingTurn) cancelDrainWait();
             pumpSentences();
@@ -225,25 +289,42 @@ namespace va {
         }
 
         void TTSFrameProcessor::pumpSentences() {
-            std::vector<std::string> toSend;
+            struct ToSend {
+                std::string text;
+                va::audio::SpeechStyle style;
+                std::string logged;
+            };
+            std::vector<ToSend> toSend;
             {
                 std::lock_guard<std::mutex> lock(_turnMutex);
                 const bool queued = _synthesisProvider->acceptsQueuedSynthesis();
                 while (!_pendingSentences.empty() && (queued || !_providerBusy)) {
+                    const bool isProtected = !_pendingSentences.front().interruptible;
+                    // A part that can't be interrupted is synthesized alone, so its audio is all its own.
+                    if ((isProtected || _protectedSending) && _providerBusy) break;
+                    const auto now = std::chrono::steady_clock::now();
                     if (!_sentInTurn) {
                         _sentInTurn = true;
-                        _synthesisStartTime = std::chrono::steady_clock::now();
+                        _synthesisStartTime = now;
+                        _lastReplyText.clear();
                     }
-                    toSend.push_back(std::move(_pendingSentences.front()));
+                    if (isProtected) {
+                        _protectedSending = true;
+                        _protectedStart = _protectedEnd = _turnActive ? std::max(now, _playbackEndTime) : now;
+                    }
+                    _sentParts.push_back({_pendingSentences.front(), false, {}});
+                    toSend.push_back({std::move(_pendingSentences.front().text), _pendingSentences.front().style,
+                                      _pendingSentences.front().logged});
                     _pendingSentences.pop_front();
                     _providerBusy = true;
                 }
             }
             // Outside the lock: cloud providers fire onSynthesisStarted() from inside this call.
-            for (const auto& text : toSend) {
-                spdlog::info("[TTSFrameProcessor] Synthesizing: {}", text);
+            for (const auto& [text, style, logged] : toSend) {
+                spdlog::info("[TTSFrameProcessor] Synthesizing: {}", logged);
                 _metrics.requests.increment();
-                _synthesisProvider->synthesizeSpeech(text);
+                if (style.isDefault()) _synthesisProvider->synthesizeSpeech(text);
+                else _synthesisProvider->synthesizeStyledSpeech(text, style);
             }
         }
 
@@ -303,10 +384,87 @@ namespace va {
                     spdlog::info("[TTSFrameProcessor] Synthesis finished after interrupt (no-op)");
                     return;
                 }
-                _providerBusy = false;
+                _providerBusy = _protectedSending = false;
+                for (auto& part : _sentParts) {
+                    if (part.synthesized) continue;
+                    part.synthesized = true;   // its audio is all in: it ends playing with what's queued
+                    part.endsAt = _playbackEndTime;
+                    break;
+                }
             }
             pumpSentences();
             maybeStartDrain();
+        }
+
+        std::string TTSFrameProcessor::currentReplyText() {
+            std::lock_guard<std::mutex> lock(_turnMutex);
+            std::string text;
+            for (const auto& part : _sentParts) text += (text.empty() ? "" : " ") + part.sentence.text;
+            for (const auto& sentence : _pendingSentences) text += (text.empty() ? "" : " ") + sentence.text;
+            return text.empty() ? _lastReplyText : text;
+        }
+
+        void TTSFrameProcessor::replaceProvider(std::shared_ptr<audio::GenericVoiceSynthesisProvider> provider) {
+            {
+                std::lock_guard<std::mutex> lock(_providerMutex);
+                _replacement = provider == _synthesisProvider ? nullptr : std::move(provider);
+                if (!_replacement) return;
+            }
+            bool cutOff;
+            {
+                std::lock_guard<std::mutex> lock(_turnMutex);
+                cutOff = !_cutOff.empty();
+            }
+            if (cutOff) enqueueFrame(std::make_shared<RespeakFrame>(), FlowDirection::DOWNSTREAM);
+        }
+
+        void TTSFrameProcessor::respeakCutOff() {
+            {
+                std::lock_guard<std::mutex> lock(_turnMutex);
+                if (_cutOff.empty() || _turnActive || _providerBusy || !_pendingSentences.empty()) return;
+                {
+                    std::lock_guard<std::mutex> provider(_providerMutex);
+                    // Still the provider that failed: only the rest of the same reply tries it again.
+                    if (_synthesisProvider == _cutOffBy && _cutOffClosed) return;
+                    spdlog::info("[TTSFrameProcessor] speaking again, with {}, the {} part(s) the error cut off",
+                                 _synthesisProvider ? _synthesisProvider->getName() : std::string(), _cutOff.size());
+                }
+                _pendingSentences = std::move(_cutOff);
+                _cutOff.clear();
+                _textClosed = _cutOffClosed;
+            }
+            pumpSentences();
+            maybeStartDrain();
+        }
+
+        // On the pipeline thread, before a reply's text, when no reply is in progress.
+        void TTSFrameProcessor::applyReplacement() {
+            {
+                std::lock_guard<std::mutex> turn(_turnMutex);
+                if (_turnActive || _providerBusy || !_pendingSentences.empty()) return;
+            }
+            std::shared_ptr<audio::GenericVoiceSynthesisProvider> next, previous;
+            {
+                std::lock_guard<std::mutex> lock(_providerMutex);
+                if (!_replacement) return;
+                next = std::move(_replacement);
+                _replacement.reset();
+                previous = _synthesisProvider;
+            }
+            if (previous) previous->stopVoiceSynthesisProvider();
+            next->setVoiceSynthesisResultListener(this);
+            if (!next->startVoiceSynthesisProvider()) {
+                spdlog::error("[TTSFrameProcessor] {} failed to start; keeping {}", next->getName(),
+                              previous ? previous->getName() : std::string("none"));
+                if (previous) previous->startVoiceSynthesisProvider();
+                return;
+            }
+            {   // pumpSentences reads it under _turnMutex
+                std::lock_guard<std::mutex> turn(_turnMutex);
+                std::lock_guard<std::mutex> lock(_providerMutex);
+                _synthesisProvider = next;
+            }
+            spdlog::info("[TTSFrameProcessor] now speaking with {}", next->getName());
         }
 
         void TTSFrameProcessor::onSynthesisError(const std::string& error) {
@@ -314,14 +472,34 @@ namespace va {
             cancelDrainWait();
             {
                 std::lock_guard<std::mutex> lock(_turnMutex);
+                // What the user hasn't fully heard (its audio is flushed below): from the first part
+                // not done playing, and what wasn't sent yet. Spoken again once another provider takes over.
+                const auto heardBy = std::chrono::steady_clock::now() - std::chrono::milliseconds(_hardwareBufferMarginMs);
+                _cutOff.clear();
+                bool unheard = false;
+                for (const auto& part : _sentParts) {
+                    unheard = unheard || !part.synthesized || part.endsAt > heardBy;
+                    if (unheard) _cutOff.push_back(part.sentence);
+                }
+                for (const auto& sentence : _pendingSentences) _cutOff.push_back(sentence);
+                _cutOffClosed = _textClosed;
+                {
+                    std::lock_guard<std::mutex> provider(_providerMutex);
+                    _cutOffBy = _synthesisProvider;
+                }
+                _sentParts.clear();
                 _pendingSentences.clear();
-                _providerBusy = _textClosed = _turnActive = _sentInTurn = false;
+                _providerBusy = _textClosed = _turnActive = _sentInTurn = _protectedSending = false;
+                _protectedStart = _protectedEnd = {};
             }
             if (_playbackFlush) _playbackFlush();
             emitSynthesisState(transport::SynthesisState::ERROR, error);
+            // After the cut-off is known: the callback may switch providers at once.
+            if (_onProviderError) _onProviderError(error);
         }
 
         void TTSFrameProcessor::startDrainWait() {
+            std::lock_guard<std::mutex> threadLock(_drainThreadMutex);
             {
                 std::lock_guard<std::mutex> lock(_drainMutex);
                 if (_drainThread.joinable()) _drainStop = true;
@@ -336,6 +514,7 @@ namespace va {
         }
 
         void TTSFrameProcessor::cancelDrainWait() {
+            std::lock_guard<std::mutex> threadLock(_drainThreadMutex);
             {
                 std::lock_guard<std::mutex> lock(_drainMutex);
                 _drainStop = true;
@@ -368,6 +547,9 @@ namespace va {
             {
                 std::lock_guard<std::mutex> lock(_turnMutex);
                 _turnActive = _textClosed = _sentInTurn = _draining = false;
+                _lastReplyText.clear();
+                for (const auto& part : _sentParts) _lastReplyText += (_lastReplyText.empty() ? "" : " ") + part.sentence.text;
+                _sentParts.clear();
             }
             spdlog::info("[TTSFrameProcessor] Audio drained - emitting COMPLETED");
             if (_onAudioDrained) _onAudioDrained();
@@ -400,6 +582,7 @@ namespace va {
                     _playbackRemainingWhilePaused += std::chrono::microseconds(chunkUs);
                 else
                     _playbackEndTime = std::max(_playbackEndTime, now) + std::chrono::microseconds(chunkUs);
+                if (_protectedSending) _protectedEnd = _playbackEndTime;
             }
 
             auto audioFrame = std::make_shared<transport::SynthesisFrame>();
@@ -414,7 +597,56 @@ namespace va {
             auto type = frame->getType();
             return type == transport::FrameType::TEXT
                 || type == transport::FrameType::TRANSCRIPTION
-                || type == transport::FrameType::AGENT_STATE;
+                || type == transport::FrameType::AGENT_STATE
+                || dynamic_cast<const RespeakFrame*>(frame.get()) != nullptr
+                || dynamic_cast<const transport::TurnReplacedFrame*>(frame.get()) != nullptr;
+        }
+
+        void TTSFrameProcessor::dropReplacedTurn(uint64_t turnId) {
+            if (turnId == 0) return;
+            _replacedTurns.push_back(turnId);
+            if (_replacedTurns.size() > 16) _replacedTurns.pop_front();
+            bool playing = false;
+            size_t dropped = 0;
+            {
+                std::lock_guard<std::mutex> lock(_turnMutex);
+                const auto stale = [turnId](const Sentence& sentence) { return sentence.turnId == turnId; };
+                const auto kept = std::remove_if(_pendingSentences.begin(), _pendingSentences.end(), stale);
+                dropped = static_cast<size_t>(std::distance(kept, _pendingSentences.end()));
+                _pendingSentences.erase(kept, _pendingSentences.end());
+                if (_openTurnId == turnId) {   // its final frame will never come: the reply is closed
+                    _textClosed = true;
+                    _openTurnId = 0;
+                }
+                playing = std::any_of(_sentParts.begin(), _sentParts.end(),
+                                      [&](const SentPart& part) { return stale(part.sentence); });
+            }
+            if (!playing) {
+                if (dropped) spdlog::info("[TTSFrameProcessor] Dropped {} queued sentence(s) of replaced turn {}", dropped, turnId);
+                maybeStartDrain();   // what's left of the reply may already have played
+                return;
+            }
+            // Its audio is already with the provider and the sink: stop it all, as an interrupt does,
+            // then go on with what other turns still have queued (or finish the turn).
+            spdlog::info("[TTSFrameProcessor] Stopping the reply to replaced turn {}", turnId);
+            cancelDrainWait();
+            _cancelPending = true;   // the provider's last audio of it is dropped
+            {
+                std::lock_guard<std::mutex> lock(_turnMutex);
+                _sentParts.clear();
+                _cutOff.clear();
+                _providerBusy = _protectedSending = false;
+                _protectedStart = _protectedEnd = {};
+                _playbackPaused = false;   // the queued audio is gone
+                _playbackEndTime = std::chrono::steady_clock::now();
+            }
+            if (_playbackFlush) _playbackFlush();
+            if (_synthesisProvider) _synthesisProvider->cancelSynthesis();
+            // shortcut: a provider that reports the cancelled sentence's completion later (not from
+            // cancelSynthesis) can mark the next queued part done early; fine while queues hold one reply.
+            _cancelPending = false;
+            pumpSentences();
+            maybeStartDrain();   // nothing else to say: COMPLETED once the margin passes
         }
 
         void TTSFrameProcessor::setMetricsConfig(const va::metrics::TTSMetricsConfig& config)

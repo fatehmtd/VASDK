@@ -1,0 +1,61 @@
+// A conversation with an agent by text (the C API's vasdk_conversation_send, Python's
+// Conversation): what it's asked, and what it answers. Fields are only ever added.
+syntax = "proto3";
+
+package vasdk.flow;
+
+import "google/protobuf/struct.proto";
+import "vasdk/flow/trigger.proto";
+
+message ConversationInput {
+  oneof kind {
+    bool start = 1;                   // the agent's greeting
+    string text = 2;                  // what the user said
+    bool no_input = 3;                // the user said nothing
+    int32 select_choice = 4;          // the last reply's choice, from 0
+    TriggerInput fire_trigger = 5;    // an app_event trigger
+  }
+}
+
+message TriggerInput {
+  string name = 1;                    // the trigger's event name
+  google.protobuf.Struct payload = 2; // $trigger.payload
+}
+
+message ConversationReply {
+  message Segment {
+    string text = 1;
+    bool interruptible = 2;           // false: the user can't talk over it
+    string voice = 3;                 // another of the voice's own voices; empty: its usual one
+    float speed = 4;                  // 0: the usual pace
+  }
+  message Choice {
+    string label = 1;
+    string value = 2;                 // what the button sends back as the user's words
+  }
+  message ToolCall {
+    string name = 1;
+    string arguments_json = 2;        // tools take and give JSON (an LLM writes it)
+    string result_json = 3;           // {"error": "..."} when it failed
+    bool ok = 4;
+  }
+  message Trigger {
+    string name = 1;
+    TriggerDecision decision = 2;
+  }
+
+  string text = 1;                    // what to say; empty when nothing is said
+  repeated Segment segments = 2;      // text in parts
+  repeated Choice choices = 3;        // the question's choices
+  bool matched = 4;                   // false: no route understood the turn
+  string intent = 5;                  // the matched route's intent
+  string event = 6;                   // no-match, no-input, max-reprompts, tool-error, ... when the turn raised one
+  bool expects_reply = 7;             // the reply asks a question
+  bool ends_session = 8;              // the conversation ended with this reply
+  bool to_llm = 9;                    // a route handed the turn to an LLM: answer it with yours; text is the answer without one
+  string llm_profile = 10;            // with to_llm: which LLM ("": the config's)
+  string flow = 11;                   // where the conversation is after it
+  string page = 12;
+  repeated ToolCall tool_calls = 13;
+  repeated Trigger triggers = 14;
+}

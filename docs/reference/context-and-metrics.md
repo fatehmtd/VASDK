@@ -28,7 +28,7 @@ The population side is platform code (the Android app feeds these from Android A
 
 ## Metrics - what the pipeline can tell you about itself
 
-> Status honesty (same as the [root README](../../README.md#metrics)): the metrics layer is a solid base for basic visibility, but not yet thoroughly tested as a production observability path. Validate numbers you intend to alert on.
+> Status honesty: the metrics layer is a solid base for basic visibility, but not yet thoroughly tested as a production observability path. Validate numbers you intend to alert on.
 
 The design goal is **zero-cost-when-off, cheap-when-on** instrumentation of a real-time audio path:
 
@@ -41,7 +41,23 @@ What gets measured out of the box: every processor's processing latency, queue w
 
 Two higher-level observers matter for the call center use case:
 
-- **`CallMetrics`** (`CallMetrics.h`) - per-call KPIs, including per-slot collection tracking when attached to a [`GoalManager`](goal.md#goalmanager--the-wiring-hub) via `setMetrics()`.
+- **`CallMetrics`** (`CallMetrics.h`) - per-call KPIs, including per-slot collection tracking when attached to a [`GoalManager`](goal.md#goalmanager---the-wiring-hub) via `setMetrics()`.
 - **`UtteranceObserverInterface`** (`UtteranceObserver.h`) - end-to-end per-utterance timing, attached to `AgentStateProcessor::setUtteranceObserver()`.
 
-Runtime flags for all of this (`--metrics`, `--metrics-interval`, `--prometheus`, `--statsd-host`, alert thresholds, or a full JSON config via `--metrics-config`): see the [VASDK_Pipeline flags](../../VASDK_APP/README.md#cli-flags). A ready-made Prometheus + Grafana stack ships in the repo's `docker-compose` setup ([root README, Metrics](../../README.md#metrics)).
+Runtime flags for all of this (`--metrics`, `--metrics-interval`, `--prometheus`, `--statsd-host`, alert thresholds, or a full JSON config via `--metrics-config`): see the [VASDK_Pipeline flags](../apps/pipeline.md#cli-flags). A ready-made Prometheus + Grafana stack ships in the repo's `docker-compose` setup ([below](#trying-it-locally)).
+
+### Trying it locally
+
+```bash
+cmake -B build -S . -DVASDK_METRICS_PROMETHEUS=ON
+cmake --build build --config Release
+./build/VASDK_APP/VASDK_Pipeline --prometheus --prometheus-port 9099
+# curl http://127.0.0.1:9099/metrics
+```
+
+Or bring up the full local stack (Prometheus scraping the app, Grafana pointed at Prometheus):
+
+```bash
+docker compose up -d
+# Grafana at http://localhost:3000 (admin/admin)
+```

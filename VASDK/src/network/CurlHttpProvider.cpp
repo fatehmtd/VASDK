@@ -14,10 +14,6 @@ namespace providers {
 //  libcurl helpers 
 #ifdef VASDK_HAS_CURL
 
-static size_t writeCallback(void* contents, size_t size, size_t nmemb, void* userp) {
-    static_cast<std::string*>(userp)->append(static_cast<char*>(contents), size * nmemb);
-    return size * nmemb;
-}
 
 struct CancelToken {
     const std::atomic<uint64_t>* generation;
@@ -29,6 +25,7 @@ struct StreamingContext {
     std::string* response;
     std::function<void(const std::string&)> onChunk;
     const CancelToken* cancel;
+    size_t maxBytes;   // 0: no limit
 };
 
 static size_t streamingWriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
@@ -36,6 +33,8 @@ static size_t streamingWriteCallback(void* contents, size_t size, size_t nmemb, 
     auto* ctx = static_cast<StreamingContext*>(userp);
     if (!ctx || !ctx->response) return 0;
     if (ctx->cancel && ctx->cancel->cancelled()) return 0;  // aborts with CURLE_WRITE_ERROR
+
+    if (ctx->maxBytes > 0 && ctx->response->size() + bytes > ctx->maxBytes) return 0;   // too long: abort
 
     const char* chunk = static_cast<const char*>(contents);
     ctx->response->append(chunk, bytes);
@@ -106,7 +105,8 @@ static HttpResponse performRequest(const std::string& url,
                                    int timeoutMs,
                                    const std::function<void(const std::string&)>& onChunk,
                                    const std::function<void(const NetworkError&)>& onError,
-                                   const CancelToken& cancel) {
+                                   const CancelToken& cancel,
+                                   const CurlHttpProvider::Options& options) {
     ensureCurlInit();
 
     HttpResponse result;
@@ -123,9 +123,9 @@ static HttpResponse performRequest(const std::string& url,
     curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, static_cast<long>(timeoutMs));
     // WARNING: disables certificate verification - a workaround for cert errors common
     // in embedded Android environments. Production builds should bundle/trust proper CA certs.
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
-    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, options.verifyTls ? 1L : 0L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, options.verifyTls ? 2L : 0L);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, options.followRedirects ? 1L : 0L);
     curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 5L);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "VASDK/1.0");
 
@@ -135,14 +135,9 @@ static HttpResponse performRequest(const std::string& url,
         curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(body->size()));
     }
 
-    StreamingContext streamCtx{&result.body, onChunk, &cancel};
-    if (onChunk) {
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, streamingWriteCallback);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &streamCtx);
-    } else {
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeCallback);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &result.body);
-    }
+    StreamingContext streamCtx{&result.body, onChunk, &cancel, options.maxResponseBytes};
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, streamingWriteCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &streamCtx);
 
     curl_slist* headerList = nullptr;
     for (const auto& [key, value] : hdrs) {
@@ -217,7 +212,7 @@ HttpResponse CurlHttpProvider::post(const std::string& url,
                                     std::function<void(const std::string&)> onChunk) {
 #ifdef VASDK_HAS_CURL
     auto resp = performRequest(url, headers, &body, timeoutMs, onChunk, onError,
-                               CancelToken{&_cancelGeneration, _cancelGeneration.load()});
+                               CancelToken{&_cancelGeneration, _cancelGeneration.load()}, _options);
     if (resp.error.ok() && onTextReceived && !resp.body.empty())
         onTextReceived(resp.body);
     return resp;
@@ -235,7 +230,7 @@ HttpResponse CurlHttpProvider::get(const std::string& url,
                                    int timeoutMs) {
 #ifdef VASDK_HAS_CURL
     auto resp = performRequest(url, headers, nullptr, timeoutMs, nullptr, onError,
-                               CancelToken{&_cancelGeneration, _cancelGeneration.load()});
+                               CancelToken{&_cancelGeneration, _cancelGeneration.load()}, _options);
     if (resp.error.ok() && onTextReceived && !resp.body.empty())
         onTextReceived(resp.body);
     return resp;

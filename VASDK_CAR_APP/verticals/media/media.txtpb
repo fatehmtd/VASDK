@@ -1,0 +1,189 @@
+# proto-file: vasdk/flow/agent.proto
+# proto-message: vasdk.flow.Agent
+#
+# Media: play, pause, skip, volume, sources, stations, genres and artists, on every page. Its tool,
+# `media`, is Media.cpp.
+# Part of ../../agents/car/agent.txtpb (include_files).
+envelopes: ["media"]
+
+session_params { name: "media"   type: STRUCT }   # what the media tool last returned
+
+entity_types { name: "volume_level" derived { base: "@sys.integer" min: 0 max: 30 } }
+entity_types {
+  name: "genre"
+  list {
+    values { value: "jazz" }
+    values { value: "rock" synonyms: ["rock and roll", "energetic", "something loud", "workout", "marathon"] }
+    values { value: "pop" synonyms: ["upbeat", "happy", "cheerful", "party", "dance", "something fun"] }
+    values { value: "classical" spoken: "classical music" synonyms: ["classical music", "classic music", "classics", "orchestral"] }
+    values { value: "chill" spoken: "chill music" synonyms: ["lofi", "lo-fi", "relaxing", "calm", "chill out", "mellow", "soothing", "peaceful", "quiet", "something slow"] }
+  }
+}
+# The car's music library (Media.cpp). A head unit would make this a dynamic entity
+# with the phone's artists: Session::setEntityValues("artist", ...).
+entity_types {
+  name: "artist"
+  list {
+    values { value: "the marlowe quartet"      spoken: "The Marlowe Quartet"      synonyms: ["marlowe quartet", "marlowe"] }
+    values { value: "nina calloway trio"       spoken: "the Nina Calloway Trio"   synonyms: ["nina calloway", "calloway"] }
+    values { value: "iron orchard"             spoken: "Iron Orchard" }
+    values { value: "the static pines"         spoken: "The Static Pines"         synonyms: ["static pines"] }
+    values { value: "lila monroe"              spoken: "Lila Monroe" }
+    values { value: "juno vale"                spoken: "Juno Vale" }
+    values { value: "aurora chamber orchestra" spoken: "the Aurora Chamber Orchestra" synonyms: ["aurora orchestra"] }
+    values { value: "elias brandt"             spoken: "Elias Brandt" }
+    values { value: "moss and ember"           spoken: "Moss and Ember" }
+    values { value: "quiet harbor"             spoken: "Quiet Harbor" }
+  }
+}
+entity_types {
+  name: "station"
+  list {
+    values { value: "coastal_fm"   spoken: "Coastal FM"   synonyms: ["coastal", "coastal fm", "101.5", "one oh one point five"] }
+    values { value: "metro_news"   spoken: "Metro News"   synonyms: ["metro news", "the news", "news", "94.1"] }
+    values { value: "highway_rock" spoken: "Highway Rock" synonyms: ["highway rock", "104.7"] }
+    values { value: "velvet_jazz"  spoken: "Velvet Jazz"  synonyms: ["velvet jazz", "velvet", "88.3"] }
+  }
+}
+entity_types {
+  name: "source"
+  list {
+    values { value: "radio"     spoken: "the radio" synonyms: ["radio", "fm", "the radio"] }
+    values { value: "bluetooth" spoken: "Bluetooth" synonyms: ["bluetooth", "my phone", "phone"] }
+    values { value: "usb"       spoken: "USB"       synonyms: ["usb", "usb stick", "flash drive"] }
+  }
+}
+
+intents { name: "video_on"  examples: ["play a video", "watch a video", "play a movie", "watch a movie", "show a video", "put on a movie",
+                                      "video on"] }
+intents { name: "video_off" examples: ["stop the video", "video off", "close the video", "stop the movie"] }
+intents { name: "play" examples: ["play", "resume", "play music", "play some music", "start the music", "unpause", "continue playing",
+                                  "keep playing", "music on", "play something"] }
+intents { name: "pause" examples: ["pause", "pause the music", "stop the music", "stop playing", "music off"] }   # not "stop": navigation's
+intents { name: "next" examples: ["next", "next song", "next track", "next station", "skip", "skip this", "skip this song",
+                                  "another song", "change the song", "something else"] }
+intents { name: "previous" examples: ["previous", "previous song", "previous track", "previous station", "last song", "go back a song",
+                                      "play that again", "back one"] }
+intents { name: "set_volume" examples: ["volume to @volume_level", "volume at @volume_level", "volume @volume_level",
+                                        "set the volume to @volume_level", "turn the volume to @volume_level",
+                                        "volume to @sys.integer", "set the volume to @sys.integer"] }
+intents { name: "louder"  examples: ["louder", "volume up", "turn it up", "turn up the volume", "turn up the music", "increase the volume",
+                                     "raise the volume", "crank it up", "pump it up"] }
+intents { name: "quieter" examples: ["quieter", "softer", "volume down", "turn it down", "turn down the volume", "turn down the music",
+                                     "lower the volume", "decrease the volume", "too loud"] }
+intents { name: "mute"    examples: ["mute", "mute the music", "mute it", "silence"] }
+intents { name: "unmute"  examples: ["unmute", "sound on", "unmute the music"] }
+intents { name: "play_station" examples: ["play @station", "tune to @station", "tune in to @station", "switch to @station",
+                                          "put on @station", "listen to @station", "go to @station"] }
+intents { name: "play_source" examples: ["switch to @source", "play from @source", "use @source", "listen to the @source", "listen to @source",
+                                         "put on the @source", "play the @source", "turn on the @source", "change to @source"] }
+intents { name: "play_artist" examples: ["play @artist", "put on @artist", "something by @artist", "songs by @artist", "play some @artist",
+                                         "listen to @artist"] }
+intents { name: "play_genre" examples: ["play @genre", "play some @genre", "put on some @genre", "@genre music", "something @genre",
+                                        "i want @genre", "listen to some @genre", "in the mood for @genre", "put on @genre"] }
+intents { name: "now_playing" examples: ["what's playing", "what is playing", "what song is this", "what's this song", "who is this",
+                                         "who sings this", "who's singing", "what station is this", "name of this song", "what am i listening to"] }
+
+envelope_defs {
+  name: "media"
+  # Video only while parked: a rule on the car's state, read from drive ($context.car.drive)
+  routes {
+    intent: "video_on"
+    condition: "$context.car.drive.moving"
+    steps { say { text: "Videos only play while the car is parked." } }
+  }
+  routes {
+    intent: "video_on"
+    steps { call_tool { name: "media" args { key: "action" value: "'video'" } args { key: "value" value: "'on'" } into: "$session.media" } }
+    steps { say { text: "Playing a video on the screen." } }
+  }
+  routes {
+    intent: "video_off"
+    steps { call_tool { name: "media" args { key: "action" value: "'video'" } args { key: "value" value: "'off'" } into: "$session.media" } }
+    steps { say { text: "Video off." } }
+  }
+  # Media. A station's names come before a source's and a genre's: "play velvet jazz" is the station.
+  routes {
+    intent: "play_station"
+    entity: "@station"
+    steps { call_tool { name: "media" args { key: "action" value: "'station'" } args { key: "value" value: "$entity" } into: "$session.media" } }
+    steps { say { text: "Here's ${session.media.now_playing}." } }
+  }
+  routes {
+    intent: "play_source"
+    entity: "@source"
+    steps { call_tool { name: "media" args { key: "action" value: "'source'" } args { key: "value" value: "$entity" } into: "$session.media" } }
+    steps { say { text: "Switching to ${session.media.source_name}: ${session.media.now_playing}." } }
+  }
+  routes {
+    intent: "play_artist"
+    entity: "@artist"
+    steps { call_tool { name: "media" args { key: "action" value: "'artist'" } args { key: "value" value: "$entity" } into: "$session.media" } }
+    steps { say { text: "Playing ${session.media.now_playing}." } }
+  }
+  routes {
+    intent: "play_genre"
+    entity: "@genre"
+    steps { call_tool { name: "media" args { key: "action" value: "'genre'" } args { key: "value" value: "$entity" } into: "$session.media" } }
+    steps { say { text: ["Here's some $entity: ${session.media.now_playing}.", "Some $entity, coming up: ${session.media.now_playing}."] } }
+  }
+  routes {
+    intent: "play"
+    steps { call_tool { name: "media" args { key: "action" value: "'play'" } into: "$session.media" } }
+    steps { branch { if: "$session.media.changed" then { say { text: "Playing ${session.media.now_playing}." } }
+                     else { say { text: "It's playing: ${session.media.now_playing}." } } } }
+  }
+  routes {
+    intent: "pause"
+    steps { call_tool { name: "media" args { key: "action" value: "'pause'" } into: "$session.media" } }
+    steps { say { text: ["Paused.", "Pausing the music."] } }
+  }
+  routes {
+    intent: "next"
+    steps { call_tool { name: "media" args { key: "action" value: "'next'" } into: "$session.media" } }
+    steps { say { text: "Here's ${session.media.now_playing}." } }
+  }
+  routes {
+    intent: "previous"
+    steps { call_tool { name: "media" args { key: "action" value: "'previous'" } into: "$session.media" } }
+    steps { say { text: "Back to ${session.media.now_playing}." } }
+  }
+  routes {
+    intent: "set_volume"
+    entity: "@volume_level"
+    steps { call_tool { name: "media" args { key: "action" value: "'volume'" } args { key: "value" value: "$entity" } into: "$session.media" } }
+    steps { say { text: "Volume ${session.media.volume}." } }
+  }
+  routes { intent: "set_volume" steps { say { text: "The volume goes from 0 to 30." } } }
+  routes {
+    intent: "louder"
+    steps { call_tool { name: "media" args { key: "action" value: "'adjust_volume'" } args { key: "value" value: "3" } into: "$session.media" } }
+    steps { branch { if: "$session.media.volume = $session.media.max_volume" then { say { text: "That's as loud as it goes." } }
+                     else { say { text: "Volume ${session.media.volume}." } } } }
+  }
+  routes {
+    intent: "quieter"
+    steps { call_tool { name: "media" args { key: "action" value: "'adjust_volume'" } args { key: "value" value: "-3" } into: "$session.media" } }
+    steps { say { text: "Volume ${session.media.volume}." } }
+  }
+  routes {
+    intent: "unmute"
+    steps { call_tool { name: "media" args { key: "action" value: "'mute'" } args { key: "value" value: "'off'" } into: "$session.media" } }
+    steps { say { text: "Sound's back on." } }
+  }
+  routes {
+    intent: "mute"
+    steps { call_tool { name: "media" args { key: "action" value: "'mute'" } args { key: "value" value: "'on'" } into: "$session.media" } }
+    steps { say { text: "Muted." } }
+  }
+  routes {
+    intent: "now_playing"
+    steps { call_tool { name: "media" args { key: "action" value: "'status'" } into: "$session.media" } }
+    steps { branch {
+      if: "NOT $session.media.playing"
+      then { say { text: "Nothing's playing right now." } }
+      else { branch { if: "$session.media.source = 'radio'"
+                      then { say { text: "You're listening to ${session.media.now_playing}." } }
+                      else { say { text: "This is ${session.media.now_playing}." } } } } } }
+  }
+}

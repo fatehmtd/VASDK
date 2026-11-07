@@ -16,7 +16,7 @@ namespace transport {
  * @brief Local transport using hardware audio I/O - captures and plays audio
  * from/to local hardware via GenericAudioSource and GenericAudioSink.
  */
-class VASDK_EXPORT LocalTransport : public BaseTransport {
+class VASDK_EXPORT LocalTransport : public AudioTransport {
 public:
     /**
      * @brief Construct LocalTransport
@@ -46,7 +46,7 @@ public:
      * @brief Set the input audio configuration
      * @param config Audio configuration
      */
-    void setInputAudioConfig(const audio::AudioConfig& config) {
+    void setInputAudioConfig(const audio::AudioConfig& config) override {
         _inputAudioConfig = config;
     }
 
@@ -62,7 +62,7 @@ public:
      * @brief Set the output audio configuration
      * @param config Audio configuration
      */
-    void setOutputAudioConfig(const audio::AudioConfig& config) {
+    void setOutputAudioConfig(const audio::AudioConfig& config) override {
         _outputAudioConfig = config;
     }
 
@@ -78,7 +78,7 @@ public:
      * @brief Set the frame size in samples
      * @param samples Number of samples per frame (default: 2000 = 125ms at 16kHz)
      */
-    void setFrameSize(size_t samples) {
+    void setFrameSize(size_t samples) override {
         _frameSizeInSamples = samples;
     }
 
@@ -86,7 +86,7 @@ public:
      * @brief Set the ring buffer for audio storage
      * @param ringBuffer Shared ring buffer (if nullptr, internal buffer is used)
      */
-    void setRingBuffer(std::shared_ptr<AudioRingBuffer> ringBuffer) {
+    void setRingBuffer(std::shared_ptr<AudioRingBuffer> ringBuffer) override {
         _ringBuffer = ringBuffer;
     }
 
@@ -106,14 +106,14 @@ public:
      * @brief Gracefully fade out and discard buffered output audio (barge-in / interrupt).
      *        Applies a ~50 ms linear ramp-down to prevent an abrupt click.
      */
-    void flushOutputAudio() {
+    void flushOutputAudio() override {
         if (_audioSink) _audioSink->fadeAndFlush();
     }
 
     /**
      * @brief Duck or pause output playback while a barge-in is pending; held = false releases.
      */
-    void holdOutputAudio(PendingPlaybackMode pendingPlaybackMode, bool held, float duckGainDecibels) {
+    void holdOutputAudio(PendingPlaybackMode pendingPlaybackMode, bool held, float duckGainDecibels) override {
         if (_audioSink) _audioSink->holdPlayback(pendingPlaybackMode, held, duckGainDecibels);
     }
 

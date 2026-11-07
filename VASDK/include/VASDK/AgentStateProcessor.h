@@ -1,5 +1,6 @@
 #pragma once
 
+#include "nlu/Language.h"
 #include "FrameProcessor.h"
 #include "Frame.h"
 #include "metrics/MetricsCollector.h"
@@ -12,6 +13,7 @@
 #include <string>
 #include <thread>
 #include <mutex>
+#include <optional>
 #include <condition_variable>
 #include <vector>
 
@@ -60,12 +62,25 @@ namespace va {
             /// ("Hey, hey." for "yeah, yeah"), and a garbled word shouldn't cut the agent off.
             float minInterruptConfidence = 0.6f;
             uint32_t lowConfidenceMaxWords = 2;
-            std::vector<std::string> backchannelPhrases{ "yeah", "yep", "yes", "yup", "mm-hmm", "mhm", "mm", "hmm",
-                "uh-huh", "okay", "ok", "right", "all right", "alright", "sure", "i see", "got it", "cool", "nice", "wow", "ah", "oh" };
-            /// Any of these words makes the speech a real interruption at once ("okay stop").
-            std::vector<std::string> interruptWords{ "stop", "wait", "no", "hold", "hang", "actually", "but",
-                "sorry", "excuse" };
+            /// What may be said over the agent without interrupting it ("yeah", "mm-hmm"). Empty: the
+            /// languages' back-channels (nlu::Language's turn_taking; useLanguageWords).
+            std::vector<std::string> backchannelPhrases;
+            /// Any of these words makes the speech a real interruption at once ("okay stop", "what?": not
+            /// heard). Empty: the languages' interruptions.
+            std::vector<std::string> interruptWords;
+            /// Speech over the agent that is only its own words (speakers heard by the mic, with no echo
+            /// cancellation) doesn't interrupt it. Needs the words being spoken (setSpokenTextProvider).
+            bool rejectEcho = true;
+            /// The share of the words heard that must be the reply's for them to be its echo (2 words or more).
+            float echoMinShare = 0.8f;
+            /// Speech past commitAfterPendingMs with no words yet waits this much longer for them, echo or not.
+            /// 0: it interrupts then, as without rejectEcho. Raise it (600) for speakers with no echo
+            /// cancellation and an STT whose words come late; every interruption then waits as long.
+            uint32_t echoWordsWaitMs = 0;
         };
+
+        /** Fills `config`'s empty phrase and word lists with `languages`' back-channels and interruptions. */
+        VASDK_EXPORT void useLanguageWords(BackchannelConfig& config, const nlu::Languages& languages);
 
         /**
          * @brief Classifies a transcript heard over the agent. Punctuation and case are ignored, and
@@ -75,6 +90,13 @@ namespace va {
         VASDK_EXPORT BackchannelVerdict classifyBackchannel(const std::string& text, bool isFinal,
                                                             const BackchannelConfig& backchannelConfig,
                                                             float confidence = 1.0f);
+
+        /**
+         * @brief Whether `heard` is the agent's own `spoken` words coming back through the mic: 2
+         *        words or more, at least echoMinShare of them in the reply, and no interrupt word
+         *        ("wait, the second one" interrupts even when the reply said "second one").
+         */
+        VASDK_EXPORT bool isEcho(const std::string& heard, const std::string& spoken, const BackchannelConfig& backchannelConfig);
 
         /**
          * @brief Agent state processor - central state machine for the voice pipeline.
@@ -93,7 +115,9 @@ namespace va {
          *    does not emit SynthesisStateFrame{INTERRUPTED}
          *
          * Always-on mode (default): IDLE → LISTENING automatically on start().
-         * Wake-word mode: remains IDLE until TriggerFrame{WAKE_WORD/APP_COMMAND} arrives.
+         * Wake-word mode: remains IDLE until TriggerFrame{WAKE_WORD/APP_COMMAND/SCHEDULED} arrives.
+         * Push-to-talk: TriggerFrame{PUSH_TO_TALK, "down"} listens; "up" stops unless the user is mid-turn.
+         * After each reply, setFollowUpListenMs() keeps the mic open for an answer without a trigger.
          *
          * See docs/reference/processors.md for the full state machine diagram.
          */
@@ -116,14 +140,42 @@ namespace va {
             void setAlwaysOn(bool alwaysOn) { _alwaysOn = alwaysOn; }
 
             /**
+             * @brief How long the mic stays open after every reply, in ms (follow-up listening).
+             *
+             * Starts once the reply has played out, or was interrupted. Speech that starts within it
+             * is a new turn, no wake word or button needed; it cancels the window. When nobody speaks,
+             * the agent goes IDLE (always-on: stays LISTENING), with FOLLOW_UP_WINDOW_CLOSED.
+             * 0 (default): no window, as before: IDLE straight away unless always-on. -1: never closes.
+             * Thread-safe; applies from the next reply. An agent's reply can set its own window
+             * (FollowUpListenFrame, sent upstream by the dialog stage), for that reply only.
+             */
+            void setFollowUpListenMs(int ms) { _followUpListenMs = ms; }
+
+            /**
              * @brief Timeout before forcing INTERRUPTED → LISTENING if TTS does not
              *        emit SynthesisStateFrame{INTERRUPTED}.  Default: 500ms.
              */
             void setInterruptTimeoutMs(uint32_t ms) { _interruptTimeoutMs = ms; }
 
-            /// Back-channel policy. Set before start(); enabled = false restores the plain hard barge-in.
-            void setBackchannelConfig(const BackchannelConfig& backchannelConfig) { _backchannelConfig = backchannelConfig; }
-            const BackchannelConfig& getBackchannelConfig() const { return _backchannelConfig; }
+            /// Back-channel policy; enabled = false restores the plain hard barge-in. Before start(), or
+            /// any time from another thread: it then applies from the next frame. Empty phrase and
+            /// word lists are the languages' (setLanguages).
+            void setBackchannelConfig(const BackchannelConfig& backchannelConfig) {
+                std::lock_guard<std::mutex> lock(_pendingBackchannelMutex);
+                _pendingBackchannel = backchannelConfig;
+                useLanguageWords(*_pendingBackchannel, _languages);
+            }
+            /// The languages the user may speak over the agent in: their back-channels ("yeah",
+            /// "ouais") and interruptions, for a policy that lists none. Default: VASDK's built-in en-US.
+            void setLanguages(const nlu::Languages& languages) {
+                std::lock_guard<std::mutex> lock(_pendingBackchannelMutex);
+                _languages = languages;
+            }
+            /// The policy in use, with any setBackchannelConfig() not yet applied.
+            BackchannelConfig getBackchannelConfig() const {
+                std::lock_guard<std::mutex> lock(_pendingBackchannelMutex);
+                return _pendingBackchannel ? *_pendingBackchannel : _backchannelConfig;
+            }
 
             /**
              * @brief Milliseconds of the agent's reply still to play, or a negative value when unknown
@@ -131,6 +183,24 @@ namespace va {
              */
             void setPlaybackRemainingMsProvider(std::function<int()> playbackRemainingMsProvider) {
                 _playbackRemainingMsProvider = std::move(playbackRemainingMsProvider);
+            }
+
+            /**
+             * @brief The words of the reply being spoken, or the one just finished
+             *        (TTSFrameProcessor::currentReplyText): speech that is only them is echo (rejectEcho).
+             */
+            void setSpokenTextProvider(std::function<std::string()> spokenTextProvider) {
+                _spokenTextProvider = std::move(spokenTextProvider);
+            }
+
+            /**
+             * @brief Milliseconds left of a part of the reply the user can't interrupt, or 0
+             *        (TTSFrameProcessor::getProtectedPlaybackMs). Speech that starts, or would cut
+             *        the reply, while it plays doesn't: it's answered after the reply, like speech
+             *        over the reply's end.
+             */
+            void setProtectedPlaybackMsProvider(std::function<int()> protectedPlaybackMsProvider) {
+                _protectedPlaybackMsProvider = std::move(protectedPlaybackMsProvider);
             }
 
             transport::AgentState getState() const { return _currentState.load(); }
@@ -148,12 +218,14 @@ namespace va {
             bool shouldProcess(std::shared_ptr<transport::Frame> frame) const override;
 
         private:
+            mutable std::mutex _pendingBackchannelMutex;
+            std::optional<BackchannelConfig> _pendingBackchannel;   // applied on the processing thread
             void transitionTo(transport::AgentState next, transport::AgentStateTransition reason,
-                              float confidence = 0.0f, bool emitWhenUnchanged = false);
+                              float confidence = 0.0f, bool emitWhenUnchanged = false, int listenWindowMs = 0);
             void emitAgentStateFrame(transport::AgentState current,
                                      transport::AgentState previous,
                                      transport::AgentStateTransition reason,
-                                     float confidence = 0.0f);
+                                     float confidence = 0.0f, int listenWindowMs = 0);
 
             void handleTurnStateFrame(std::shared_ptr<transport::TurnStateFrame> frame);
             void handleUserTurnStateFrame(std::shared_ptr<transport::TurnStateFrame> frame);
@@ -168,6 +240,7 @@ namespace va {
             void handleAppCommandTrigger(std::shared_ptr<transport::TriggerFrame> frame);
             void handleWakeWordTrigger(std::shared_ptr<transport::TriggerFrame> frame);
             void handleButtonPressTrigger(std::shared_ptr<transport::TriggerFrame> frame);
+            void handlePushToTalkTrigger(std::shared_ptr<transport::TriggerFrame> frame);
             void handleSynthesisStateFrame(std::shared_ptr<transport::SynthesisStateFrame> frame);
 
             void startInterruptTimeout();
@@ -189,11 +262,29 @@ namespace va {
             std::string overlapTextLocked() const;
             std::shared_ptr<transport::TranscriptionFrame> takeOverlapTranscriptionLocked(bool includePartial);
             void replayHeldTurn(std::shared_ptr<transport::TranscriptionFrame> heldTranscription);
-            void resolveInterrupt(transport::AgentState next);
+            void resolveInterrupt();
+            // After a reply ends or is interrupted: LISTENING with a follow-up window, or IDLE.
+            void finishReply(transport::AgentStateTransition reason);
+            void armFollowUpWindow(int ms);
+            void cancelFollowUpWindow();
+            void followUpLoop();
 
             std::atomic<transport::AgentState> _currentState{ transport::AgentState::IDLE };
             bool _alwaysOn{ true };
             uint32_t _interruptTimeoutMs{ 500 };
+            std::atomic<int> _followUpListenMs{ 0 };
+            transport::FollowUpListenFrame _nextReplyWindow;   // the reply being spoken's own window; under _followUpMutex
+            std::atomic<bool> _pushToTalkHeld{ false };
+            std::atomic<bool> _userSpeaking{ false };   // between the user's turn start and end
+
+            // Follow-up window timer
+            std::thread             _followUpThread;
+            std::mutex              _followUpMutex;
+            std::condition_variable _followUpCv;
+            std::chrono::steady_clock::time_point _followUpDeadline;
+            bool                    _followUpArmed{ false };   // a timed window is counting down
+            bool                    _followUpOpen{ false };    // a window is open, timed or not
+            bool                    _followUpStop{ false };
 
             // Interrupt timeout fallback thread
             std::thread             _interruptTimeoutThread;
@@ -203,7 +294,12 @@ namespace va {
             bool                    _interruptStop{ false };
 
             BackchannelConfig    _backchannelConfig;
+            nlu::Languages       _languages{{nlu::Language::builtIn()}};
             std::function<int()> _playbackRemainingMsProvider;
+            std::function<std::string()> _spokenTextProvider;
+            bool echoes(const std::string& heard) const;
+            std::function<int()> _protectedPlaybackMsProvider;
+            bool playbackProtected() const { return _protectedPlaybackMsProvider && _protectedPlaybackMsProvider() > 0; }
             // Guards the overlap fields below: the interrupt-timeout thread also resolves interrupts.
             std::mutex  _backchannelMutex;
             OverlapKind _overlapKind{ OverlapKind::None };

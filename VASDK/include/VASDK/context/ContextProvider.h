@@ -1,6 +1,7 @@
 #ifndef CONTEXTPROVIDER_H
 #define CONTEXTPROVIDER_H
 
+#include "vasdk_export.h"
 #include <nlohmann/json.hpp>
 #include <mutex>
 
@@ -9,7 +10,7 @@ namespace va {
         /**
          * @brief Thread-safe key/value context store backed by JSON.
          */
-        class ContextProvider {
+        class VASDK_EXPORT ContextProvider {
             public:
             ContextProvider() = default;
             ContextProvider(const ContextProvider&) = delete;

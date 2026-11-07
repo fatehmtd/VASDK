@@ -1,0 +1,13 @@
+# proto-file: vasdk/flow/test_case.proto
+# proto-message: vasdk.flow.FlowTestCase
+name: "the booking form: values on the way in, a closed day, the hours, and changing the answers"
+turns { user: "book an oil change for sunday" expect { page: "booking" said: "Which day works for you?" form { key: "service" value: "oil_change" } } }
+turns { user: "sunday" expect { matched: false said: "Sorry, which day? We're open Monday to Saturday." } }
+turns { user: "what are your hours" expect { said: "We're open 8 to 6, Monday to Saturday. Which day works for you?" } }
+turns { user: "saturday at nine" expect { said: "And what's the best number to reach you?" form { key: "time" value: "09:00" } } }
+turns { user: "555 123 4567" expect { said_contains: "an oil change on saturday at 9 AM, for 49 dollars" } }
+turns { user: "no, make it friday" expect { said_contains: ["friday", "Shall I book it?"] form { key: "day" value: "friday" } } }
+turns { user: "no" expect { said: "What would you like to change?" } }
+turns { user: "the phone" expect { said: "And what's the best number to reach you?" form { key: "phone" value: "" } } }
+turns { user: "555 987 6543" expect { said_contains: "555-987-6543" } }
+turns { user: "yep" expect { page: "booked" said_contains: "an oil change, friday at 9 AM" } }

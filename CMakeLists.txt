@@ -144,3 +144,16 @@ option(VASDK_BUILD_CALLCENTER "Build goal-oriented call center pipeline showcase
 if(VASDK_BUILD_CALLCENTER)
     add_subdirectory(VASDK_CALLCENTER_APP)
 endif()
+
+#  In-car assistant showcase: climate, media and phone, with a live dashboard
+
+option(VASDK_BUILD_CAR "Build the in-car assistant showcase" ON)
+if(VASDK_BUILD_CAR)
+    add_subdirectory(VASDK_CAR_APP)
+endif()
+
+#  Kitchen assistant in Python, on the C API's binding: tests only (the app is Python)
+
+if(VASDK_BUILD_TESTS)
+    add_subdirectory(VASDK_PYTHON_APP)
+endif()

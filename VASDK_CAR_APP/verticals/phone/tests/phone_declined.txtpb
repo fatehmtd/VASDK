@@ -1,0 +1,10 @@
+# proto-file: vasdk/flow/test_case.proto
+# proto-message: vasdk.flow.FlowTestCase
+name: "a call declined, and one left to ring"
+turns { expect { page: "ready" } }
+turns { fire_trigger: "incoming-call" tool_results { key: "phone" value: "{\"state\": \"ringing\", \"caller\": \"Sam\"}" }
+        expect { said: "Sam is calling. Answer it?" } }
+turns { user: "no" tool_results { key: "phone" value: "{\"state\": \"idle\"}" } expect { said: "Declined." page: "ready" } }
+turns { fire_trigger: "incoming-call" tool_results { key: "phone" value: "{\"state\": \"ringing\", \"caller\": \"Dentist\"}" }
+        expect { said: "Dentist is calling. Answer it?" } }
+turns { no_input: true tool_results { key: "phone" value: "{\"state\": \"idle\"}" } expect { said: "I sent it to voicemail." page: "ready" } }

@@ -1,0 +1,6 @@
+# proto-file: vasdk/flow/test_case.proto
+# proto-message: vasdk.flow.FlowTestCase
+name: "a known caller's own account, with nothing to ask"
+session { fields { key: "caller" value { string_value: "(555) 1234" } } }
+turns { expect { said_contains: "Hi Alice Johnson" } }
+turns { user: "check my account" expect { page: "account_status" said_contains: "ACC-001, for Alice Johnson, is a premium account" } }

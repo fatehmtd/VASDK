@@ -1,0 +1,11 @@
+# proto-file: vasdk/goal/goal.proto
+# proto-message: vasdk.goal.GoalDefinition
+#
+# What the account page's form collects: filled from the CRM for a known caller.
+name: "account_inquiry"
+objective: "Help the caller with an account balance or status inquiry."
+slots {
+  name: "account_id"
+  description: "the account number, or the phone number on the account"
+  prompt: "What's your account number, or the phone number on the account?"
+}

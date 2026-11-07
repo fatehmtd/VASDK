@@ -1,0 +1,53 @@
+// Options for the providers in VASDK_3P_IMPL, set in an engine config with the Any syntax:
+//   stt { id: "soniox" options { [type.googleapis.com/vasdk.providers.CloudOptions] { api_key: "${SONIOX_API_KEY}" } } }
+// Every field is optional: unset falls back to the provider's environment variable, then its default.
+syntax = "proto3";
+
+package vasdk.providers;
+
+// Cloud STT/TTS: gradium, soniox, deepgram, cartesia, fishaudio, gladia (STT).
+message CloudOptions {
+  string api_key = 1;            // unset: <PROVIDER>_API_KEY, e.g. SONIOX_API_KEY
+  string voice_id = 2;           // TTS only; unset: <PROVIDER>_VOICE_ID, then the service default
+  // Certificates to trust, a PEM file: Android's TLS (mbedTLS) can't read the system store.
+  // Unset: VASDK_CA_BUNDLE, then the TLS library's own. Gradium ignores it.
+  string ca_bundle_path = 3;
+}
+
+// VAD: silero.
+message SileroOptions {
+  string model_path = 1;         // unset: <models_dir>/silero_vad.onnx
+  optional float threshold = 2;  // speech probability (0-1) a frame needs to count as voice; unset: 0.75
+}
+
+// Local STT: whistle, moonshine, parakeet.
+message LocalSttOptions {
+  string model_dir = 1;          // unset: <models_dir>/<id>
+  int32 idle_timeout_ms = 2;     // 0: the provider's tuned default
+  int32 partial_interval_ms = 3; // 0: the provider's tuned default
+  string language = 4;           // whistle only; unset: WHISTLE_LANGUAGE
+}
+
+// Local TTS: supertonic, moss, phonon, pocket.
+message LocalTtsOptions {
+  string model_dir = 1;          // unset: the provider's folder under <models_dir>
+  string voice = 2;              // unset: <PROVIDER>_TTS_VOICE, then the provider default
+  string language = 3;           // supertonic, phonon; unset: <PROVIDER>_TTS_LANG, then "en"
+  int32 steps = 4;               // supertonic diffusion steps, pocket LSD steps; 0: default
+  int32 prebuffer_ms = 5;        // pocket, moss: audio made before playback starts, against stalls on slow phones; 0: default (pocket 250)
+}
+
+message SmartTurnOptions {
+  string model_path = 1;   // default: <models_dir>/smart_turn_v3.onnx
+}
+
+// Sentence encoder: minilm.
+message MiniLmOptions {
+  string model_dir = 1;   // model.onnx and vocab.txt; unset: <models_dir>/minilm
+}
+
+// Entity model: gliner.
+message GlinerOptions {
+  string model_dir = 1;             // model.onnx, spm.model, added_tokens.json, gliner_config.json; unset: <models_dir>/gliner
+  optional float threshold = 2;     // a span's score must reach it, 0 to 1; unset: 0.5
+}

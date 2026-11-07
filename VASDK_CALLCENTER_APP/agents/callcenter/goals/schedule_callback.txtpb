@@ -1,0 +1,45 @@
+# proto-file: vasdk/goal/goal.proto
+# proto-message: vasdk.goal.GoalDefinition
+#
+# What the schedule page's form collects. The CRM fills the name and number for a known caller.
+name: "schedule_callback"
+objective: "Schedule a service callback for the customer."
+require_confirmation: true
+confirm: "So that's a $form.service_type callback for $form.customer_name on $form.appointment_date, and we'll call $form.phone_number. Shall I schedule it?"
+slots {
+  name: "customer_name"
+  description: "the caller's full name"
+  prompt: "Can I have your full name, please?"
+}
+slots {
+  name: "phone_number"
+  description: "the number to call back"
+  type: PHONE
+  sensitive: true
+  prompt: "What's the best number to call you back on?"
+  reprompt: "Sorry, I need a full phone number. What's the best number to call you back on?"
+}
+slots {
+  name: "service_type"
+  description: "the kind of service"
+  type: ENUM
+  values: ["repair", "maintenance", "installation"]
+  prompt: "Is it for a repair, maintenance, or an installation?"
+  reprompt: "We do repairs, maintenance and installations. Which one is it?"
+}
+slots {
+  name: "vehicle"
+  description: "the vehicle's make, model and year"
+  entity: "@vehicle"                            # make, model, year: the agent's composite entity
+  condition: "$form.service_type = 'repair'"   # only asked for a repair
+  prompt: "What's the make, model and year of the vehicle?"
+  reprompt: "Sorry, I didn't catch the vehicle. What's the make and model, for example a 2019 Toyota Camry?"
+}
+slots {
+  name: "appointment_date"
+  description: "the day for the callback"
+  type: DATE
+  must_be_future: true
+  prompt: "What day should we call you?"
+  reprompt: "Sorry, which day? For example, next Tuesday."
+}

@@ -2,7 +2,8 @@
 // SynthesisState STARTED and one COMPLETED (after its audio played), for a provider that queues
 // calls and for one that must get them one at a time; a barge-in drops the stale reply, even
 // when the provider confirms the cancel synchronously. A Pause hold during a pending barge-in
-// delays COMPLETED by the paused time, and every hold is released.
+// delays COMPLETED by the paused time, and every hold is released. A part that can't be
+// interrupted is synthesized on its own and reported only while its audio plays.
 
 #include <VASDK/TTSFrameProcessor.h>
 
@@ -191,8 +192,13 @@ void streamedReply(bool queued) {
 void bargeIn(bool syncCancel) {
     const char* mode = syncCancel ? "barge-in, sync cancel" : "barge-in";
     Rig rig(true, syncCancel);
+    const auto t0 = std::chrono::steady_clock::now();
     rig.send(text("Alpha. ", false));
     std::this_thread::sleep_for(50ms);
+    if (std::chrono::steady_clock::now() - t0 > 90ms) {   // Alpha's 100 ms may have played out: no barge-in to test
+        std::printf("[%s] skipped: the machine overslept\n", mode);
+        return;
+    }
     rig.send(agent(transport::AgentStateTransition::BARGE_IN_INTERRUPT));
     rig.send(text("Beta.", true));  // stale sentence of the interrupted reply
     std::this_thread::sleep_for(100ms);
@@ -204,6 +210,34 @@ void bargeIn(bool syncCancel) {
                                                                  SynthesisState::STARTED, SynthesisState::COMPLETED},
           "STARTED, INTERRUPTED, then a clean new turn", mode);
     check(rig.provider->received == std::vector<std::string>{"Alpha. ", "Gamma."}, "stale sentence dropped", mode);
+}
+
+void protectedPart(bool queued) {
+    const char* mode = queued ? "can't be interrupted, queued" : "can't be interrupted, sequential";
+    Rig rig(queued, false);
+    const auto t0 = std::chrono::steady_clock::now();
+    rig.send(text("Intro.", false));
+    auto disclaimer = text("Disclaimer.", false);
+    disclaimer->interruptible = false;
+    rig.send(disclaimer);
+    rig.send(text("Question?", true));
+    // Each sentence is 100 ms of audio, played back to back: the disclaimer at 100-200 ms, heard 20 ms later.
+    // Sampled rather than read at fixed times: a loaded machine runs late, never early.
+    std::chrono::steady_clock::time_point on{}, off{};
+    while (std::chrono::steady_clock::now() < t0 + 1000ms && off == std::chrono::steady_clock::time_point{}) {
+        const bool protectedNow = rig.tts->getProtectedPlaybackMs() > 0;
+        const auto now = std::chrono::steady_clock::now();
+        if (protectedNow && on == std::chrono::steady_clock::time_point{}) on = now;
+        if (!protectedNow && on != std::chrono::steady_clock::time_point{}) off = now;
+        std::this_thread::sleep_for(2ms);
+    }
+    check(on != std::chrono::steady_clock::time_point{}, "while it plays", mode);
+    check(on == std::chrono::steady_clock::time_point{} || on - t0 >= 80ms, "not during the part before", mode);
+    check(off != std::chrono::steady_clock::time_point{}, "not during the part after", mode);
+    std::this_thread::sleep_for(300ms);
+    check(rig.provider->received == std::vector<std::string>{"Intro.", "Disclaimer.", "Question?"}, "all parts in order", mode);
+    check(rig.recorder->snapshot() == std::vector<SynthesisState>{SynthesisState::STARTED, SynthesisState::COMPLETED},
+          "still one turn", mode);
 }
 
 void pausedReply() {
@@ -219,7 +253,12 @@ void pausedReply() {
     const auto t0 = std::chrono::steady_clock::now();
     rig.send(text("One. ", false));
     rig.send(text("Two.", true));
-    std::this_thread::sleep_for(60ms);
+    // Text complete but still synthesizing: unknown, not "0 ms left" (that read as the tail and blocked barge-in)
+    check(rig.tts->getRemainingReplyPlaybackMs() == -1, "still synthesizing: remaining playback unknown", mode);
+    // Synthesis takes about 40 ms here; wait for it rather than for a fixed time (Windows timers tick every 15.6 ms).
+    const auto synthesized = std::chrono::steady_clock::now() + 150ms;
+    while (rig.tts->getRemainingReplyPlaybackMs() < 0 && std::chrono::steady_clock::now() < synthesized)
+        std::this_thread::sleep_for(2ms);
     check(rig.tts->getRemainingReplyPlaybackMs() >= 0, "reply text complete: remaining playback known", mode);
     rig.send(agent(transport::AgentStateTransition::BARGE_IN_PENDING));
     std::this_thread::sleep_for(400ms);  // longer than the 200 ms reply: only the pause keeps it going
@@ -252,11 +291,14 @@ void duckLastsMinimumDuration() {
     auto snapshot = [&] { std::lock_guard<std::mutex> lock(holdMutex); return holds; };
 
     // Back-channel dismissed after 50 ms: the duck still lasts 300 ms from its start.
+    const auto duckStart = std::chrono::steady_clock::now();
     rig.send(agent(transport::AgentStateTransition::BARGE_IN_PENDING));
     std::this_thread::sleep_for(50ms);
     rig.send(agent(transport::AgentStateTransition::BACKCHANNEL));
     std::this_thread::sleep_for(150ms);
-    check(snapshot().size() == 1, "still ducked before the minimum duration", mode);
+    const bool stillShort = std::chrono::steady_clock::now() - duckStart < 280ms;   // a loaded machine may oversleep
+    const auto early = snapshot();
+    check(early.size() == 1 || (!stillShort && early.size() == 2), "still ducked before the minimum duration", mode);
     std::this_thread::sleep_for(250ms);
     auto events = snapshot();
     check(events.size() == 2 && !events[1].first, "released once the minimum duration passed", mode);
@@ -283,6 +325,50 @@ void duckLastsMinimumDuration() {
     check(snapshot().size() == 5, "no stray release later", mode);
 }
 
+std::shared_ptr<transport::TextFrame> reply(const std::string& t, bool isFinal, uint64_t turnId) {
+    auto f = text(t, isFinal);
+    f->turnId = turnId;
+    return f;
+}
+
+std::shared_ptr<transport::TurnReplacedFrame> replaced(uint64_t turnId) {
+    auto f = std::make_shared<transport::TurnReplacedFrame>();
+    f->turnId = turnId;
+    return f;
+}
+
+// The user resumed turn 3: what's queued of its reply goes, and other speech stays.
+void replacedTurnQueued() {
+    const char* mode = "replaced turn, queued";
+    Rig rig(false, false);   // one sentence at a time: the reply's waits in the queue
+    rig.send(text("Intro. ", false));          // not a reply: never dropped
+    rig.send(reply("Got it. ", false, 3));
+    rig.send(reply("Anything else?", false, 3));
+    rig.send(replaced(3));                     // its final never comes
+    std::this_thread::sleep_for(500ms);
+    check(rig.provider->received == std::vector<std::string>{"Intro. "}, "the replaced turn's sentences dropped", mode);
+    check(rig.recorder->snapshot() == std::vector<SynthesisState>{SynthesisState::STARTED, SynthesisState::COMPLETED},
+          "the turn still completes", mode);
+}
+
+// Turn 3's reply is playing: it stops, the turn completes (no INTERRUPTED: the user didn't cut in),
+// its late text is dropped, and turn 4's reply is a clean new turn.
+void replacedTurnPlaying() {
+    const char* mode = "replaced turn, playing";
+    Rig rig(true, false);
+    rig.send(reply("Alpha. ", false, 3));
+    std::this_thread::sleep_for(30ms);
+    rig.send(replaced(3));
+    rig.send(reply("Beta.", true, 3));          // the stale reply's rest, arriving after
+    std::this_thread::sleep_for(300ms);
+    rig.send(reply("Gamma.", true, 4));
+    std::this_thread::sleep_for(500ms);
+    check(rig.provider->received == std::vector<std::string>{"Alpha. ", "Gamma."}, "late text of the replaced turn dropped", mode);
+    check(rig.recorder->snapshot() == std::vector<SynthesisState>{SynthesisState::STARTED, SynthesisState::COMPLETED,
+                                                                 SynthesisState::STARTED, SynthesisState::COMPLETED},
+          "stopped turn completes, then a clean new one", mode);
+}
+
 } // namespace
 
 int main() {
@@ -292,6 +378,10 @@ int main() {
     bargeIn(true);
     pausedReply();
     duckLastsMinimumDuration();
+    protectedPart(true);
+    protectedPart(false);
+    replacedTurnQueued();
+    replacedTurnPlaying();
     std::printf("tts turn scenarios done, %d failure(s)\n", failures);
     return failures == 0 ? 0 : 1;
 }

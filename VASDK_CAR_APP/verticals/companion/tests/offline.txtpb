@@ -1,0 +1,12 @@
+# proto-file: vasdk/flow/test_case.proto
+# proto-message: vasdk.flow.FlowTestCase
+name: "stories, games and jokes are handed to the LLM, offline they're answered here, and the car's commands are left alone"
+turns { user: "tell me a story about a lighthouse" expect { to_llm: true said_contains: "internet" page: "ready" } }
+turns { user: "let's play trivia" expect { to_llm: true said_contains: "internet" } }     # not media's "play"
+turns { user: "quiz me" expect { to_llm: true } }
+turns { user: "what happens next" expect { to_llm: true } }                               # not the radio's "next"
+turns { user: "next question" expect { to_llm: true } }
+turns { user: "tell me a joke" expect { to_llm: true said_contains: "?" } }               # offline: one of its own
+turns { user: "play some jazz" expect { to_llm: false said_contains: "jazz" } }           # still media's
+turns { user: "next song" expect { to_llm: false matched: true } }
+turns { user: "the answer is a whale" expect { event: "no-match" } }                     # nothing rings: not the phone's

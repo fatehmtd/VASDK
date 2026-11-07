@@ -2,28 +2,18 @@
 #include <chrono>
 #include <ctime>
 #include <VASDK/Pipeline.h>
-#include <VASDK/AudioRingBuffer.h>
-#include <VASDK/VADFrameProcessor.h>
-#include <VASDK/TranscriptionProcessor.h>
-#include <VASDK/llm/LLMProcessor.h>
-#include <VASDK/llm/LLMTransport.h>
-#include <VASDK/llm/OpenAITransport.h>
+#include <VASDK/VAEngine.h>
+#include <VASDK/flow/CompiledAgent.h>
+#include "GarageExtensions.h"
+#include "vasdk/engine/events.pb.h"
 #include <VASDK/llm/Tool.h>
-#include <VASDK/llm/ToolDispatchProcessor.h>
-#include <VASDK/llm/PromptTemplate.h>
 #include <VASDK/FrameProcessor.h>
 #include <VASDK/LocalTransport.h>
 #include <VASDK/WebRtcTransport.h>
-#include <VASDK/TransportInputProcessor.h>
-#include <VASDK/TransportOutputProcessor.h>
-#include <VASDK/TTSFrameProcessor.h>
-#include <VASDK/AudioDSPProcessor.h>
-#include <VASDK/TurnDetectionProcessor.h>
 #include <VASDK/AgentStateProcessor.h>
 #include <VASDK/metrics/MetricsCollector.h>
 #include <VASDK/metrics/MetricsConfig.h>
 #include <VASDK/metrics/MetricsReporter.h>
-#include <VASDK/metrics/MetricsBinder.h>
 #ifdef VASDK_HAS_JSON
 #include <VASDK/SessionWriter.h>
 #include <VASDK/SessionRecorder.h>
@@ -49,6 +39,9 @@
 #include <atomic>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
+#include <google/protobuf/text_format.h>
+#include "vasdk/flow/test_case.pb.h"
 #include <functional>
 #include <optional>
 #include <thread>
@@ -78,98 +71,12 @@
 #include "FFmpegAudio/FileTransport.h"
 #endif
 
-// VAD providers
-#ifdef VASDK_HAS_SILERO_VAD
-#include "SileroVAD/SileroVAD.h"
-#endif
-
-// STT providers
-#ifdef VASDK_HAS_GLADIAPP
-#include "GladiappTranscription/GladiaPPTranscriptionProvider.h"
-#endif
-
-#ifdef VASDK_HAS_SONIOXPP_STT
-#include "SonioxppTranscription/SonioxppTranscriptionProvider.h"
-#endif
-
-#ifdef VASDK_HAS_DEEPGRAMPP_STT
-#include "DeepgramppTranscription/DeepgramppTranscriptionProvider.h"
-#endif
-
-#ifdef VASDK_HAS_CARTESIAPP_STT
-#include "CartesiappTranscription/CartesiappTranscriptionProvider.h"
-#endif
-
-#ifdef VASDK_HAS_FISHAUDIOPP_STT
-#include "FishaudioppTranscription/FishaudioppTranscriptionProvider.h"
-#endif
-
-#ifdef VASDK_HAS_GRADIUMPP_STT
-#include "GradiumppTranscription/GradiumppTranscriptionProvider.h"
-#endif
-
-#ifdef VASDK_HAS_PARAKEET
-#include "Parakeet/ParakeetTranscriptionProvider.hpp"
-#endif
-
-#ifdef VASDK_HAS_MOONSHINE_STT
-#include "MoonshineSTT/MoonshineSttProvider.hpp"
-#endif
-
-#ifdef VASDK_HAS_WHISPERCPP
-#include "WhisperCpp/WhisperCppTranscriptionProvider.hpp"
-#endif
-
-#ifdef VASDK_HAS_WHISTLE_STT
-#include "WhistleSTT/WhistleTranscriptionProvider.hpp"
-#endif
-
-// TTS providers
-#ifdef VASDK_HAS_DEEPGRAMPP_TTS
-#include "DeepgramppVoiceSynthesis/DeepgramppVoiceSynthesisProvider.h"
-#endif
-
-#ifdef VASDK_HAS_CARTESIAPP_TTS
-#include "CartesiappVoiceSynthesis/CartesiappVoiceSynthesisProvider.h"
-#endif
-
-#ifdef VASDK_HAS_FISHAUDIOPP_TTS
-#include "FishaudioppVoiceSynthesis/FishaudioppVoiceSynthesisProvider.h"
-#endif
-
-#ifdef VASDK_HAS_GRADIUMPP_TTS
-#include "GradiumppVoiceSynthesis/GradiumppVoiceSynthesisProvider.h"
-#endif
-
-#ifdef VASDK_HAS_SONIOXPP_TTS
-#include "SonioxppVoiceSynthesis/SonioxppVoiceSynthesisProvider.h"
-#endif
-
-#ifdef VASDK_HAS_SUPERTONIC_TTS
-#include "SupertonicTTS/SupertonicVoiceSynthesisProvider.hpp"
-#endif
-
-#ifdef VASDK_HAS_POCKET_TTS
-#include "PocketTTS/PocketVoiceSynthesisProvider.hpp"
-#endif
-
-#ifdef VASDK_HAS_PHONON_TTS
-#include "PhononTTS/PhononVoiceSynthesisProvider.hpp"
-#endif
-
-#ifdef VASDK_HAS_MOSS_TTS
-#include "MossTTS/MossVoiceSynthesisProvider.hpp"
-#endif
-
-// DSP providers
-#ifdef VASDK_HAS_RNNOISE
-#include "RNNoise/RNNoiseDSPProvider.h"
-#endif
-
-// Smart turn detection
-#ifdef VASDK_HAS_SMART_TURN_V3
-#include "SmartTurnV3/SmartTurnV3Provider.h"
-#endif
+// Engine config + provider catalog (VAD, STT, TTS and turn detection are picked by id from the config)
+#include <VASDK/engine/ProtoFileLoader.h>
+#include <VASDK/engine/ProviderRegistry.h>
+#include <VASDK/engine/Runtime.h>
+#include <vasdk/engine/engine_config.pb.h>
+#include "ProviderCatalog/ProviderCatalog.h"
 
 // Speaker identification
 #ifdef VASDK_HAS_PYANNOTE_SPEAKER
@@ -178,6 +85,8 @@
 #endif
 
 #ifdef VASDK_HAS_LLAMACPP
+#include <VASDK/llm/ToolDispatchProcessor.h>
+#include "LlamaCpp/LlamaCppCompletion.h"
 #include "LlamaCpp/LlamaCppTransport.h"
 #endif
 
@@ -253,112 +162,68 @@ class TimeTool : public va::llm::Tool {
 };
 
 
-// Clears the transcription audio buffer on barge-in so echo-contaminated audio
-// captured during TTS playback doesn't poison the next final inference (hard barge-in only).
-class BargeInHandler : public va::pipeline::FrameProcessor {
-    std::shared_ptr<va::audio::GenericTranscriptionProvider> _transcriptionProvider;
-    bool _backchannelEnabled;
-    public:
-    BargeInHandler(std::shared_ptr<va::audio::GenericTranscriptionProvider> p, bool backchannelEnabled)
-        : _transcriptionProvider(p), _backchannelEnabled(backchannelEnabled) {
-    }
-
-    std::string getName() const override { return "BargeInHandler"; }
-
-    bool shouldProcess(std::shared_ptr<va::transport::Frame> frame) const override {
-        return frame->getType() == va::transport::FrameType::AGENT_STATE;
-    }
-
-    void processFrame(std::shared_ptr<va::transport::Frame> frame, va::pipeline::FlowDirection direction) override {
-        if (direction == va::pipeline::FlowDirection::DOWNSTREAM) {
-            auto agentFrame = std::dynamic_pointer_cast<va::transport::AgentStateFrame>(frame);
-            // Only with back-channel handling off. With it on, the overlap is decided on the STT
-            // result, so the buffer must keep the whole segment: clearing at BARGE_IN_PENDING drops
-            // the first ~300 ms of the user's words, and the segment already starts at the VAD start.
-            if (agentFrame && !_backchannelEnabled &&
-                agentFrame->transition == va::transport::AgentStateTransition::BARGE_IN_INTERRUPT) {
-                _transcriptionProvider->clearAudioBuffer();
-                spdlog::info("[BargeInHandler] Cleared transcription buffer ({})",
-                             va::transport::toString(agentFrame->transition));
-            }
+// A live console of the conversation, from the engine's events.
+// Each user turn the agent answered, as a case of an NLU eval set: what STT heard, the intent
+// the agent took (a guess to check), and whether it was mid-chat with the LLM.
+void addTurnRecorder(va::VAEngine& engine, const std::string& path) {
+    auto heard = std::make_shared<std::string>();
+    auto mutex = std::make_shared<std::mutex>();
+    engine.addListener([path, heard, mutex](const vasdk::engine::Event& event) {
+        std::lock_guard<std::mutex> lock(*mutex);
+        if (event.has_transcript() && event.transcript().is_final() && !event.transcript().is_backchannel()) {
+            *heard += (heard->empty() ? "" : " ") + event.transcript().text();
+            return;
         }
-        pushDownstream(frame);
-    }
-};
+        if (!event.has_agent_turn() || heard->empty()) return;
+        const auto& turn = event.agent_turn();
+        vasdk::flow::NluEvalCase item;
+        item.set_text(*heard);
+        item.set_intent(turn.intent());
+        item.set_mid_chat(turn.mid_chat());
+        heard->clear();
+        std::string line;
+        google::protobuf::TextFormat::Printer printer;
+        printer.SetSingleLineMode(true);
+        printer.PrintToString(item, &line);
+        std::ofstream file(path, std::ios::app);
+        file << "cases { " << line << "}  # the agent's guess" << (turn.matched() ? "" : ": not understood") << '\n';
+    });
+    spdlog::info("  Recording:   user turns to {} (an NLU eval set)", path);
+}
 
-class STTDebugProcessor : public va::pipeline::FrameProcessor {
-    public:
-    std::string getName() const override { return "STTDebugProcessor"; }
-
-    bool shouldProcess(std::shared_ptr<va::transport::Frame> frame) const override {
-        return frame->getType() == va::transport::FrameType::TRANSCRIPTION;
-    }
-
-    void processFrame(std::shared_ptr<va::transport::Frame> frame, va::pipeline::FlowDirection direction) override {
-        if (direction == va::pipeline::FlowDirection::DOWNSTREAM) {
-            auto tf = std::dynamic_pointer_cast<va::transport::TranscriptionFrame>(frame);
-            if (tf) {
-                printResults(*tf);
-            }
+void addConsoleListener(va::VAEngine& engine) {
+    engine.addListener([](const vasdk::engine::Event& event) {
+        switch (event.kind_case()) {
+        case vasdk::engine::Event::kTranscript:
+            if (event.transcript().is_final())
+                spdlog::info("you: {}{}", event.transcript().text(), event.transcript().is_backchannel() ? " (back-channel)" : "");
+            break;
+        case vasdk::engine::Event::kAgentReply:
+            if (event.agent_reply().is_final()) spdlog::info("assistant: {}", event.agent_reply().text());
+            break;
+        case vasdk::engine::Event::kAgentState:
+            spdlog::info("[{} → {}] {}", event.agent_state().previous_state(), event.agent_state().state(),
+                         event.agent_state().transition());
+            break;
+        case vasdk::engine::Event::kToolCall:
+            spdlog::info("[tool] {}({}) → {}", event.tool_call().name(), event.tool_call().arguments_json(),
+                         event.tool_call().result_json());
+            break;
+        case vasdk::engine::Event::kError:
+            spdlog::error("[{}] {}", event.error().source(), event.error().message());
+            break;
+        case vasdk::engine::Event::kPageChanged:
+            spdlog::info("[page {}/{} → {}/{}] {}", event.page_changed().from_flow(), event.page_changed().from_page(),
+                         event.page_changed().to_flow(), event.page_changed().to_page(), event.page_changed().reason());
+            break;
+        case vasdk::engine::Event::kSessionEnded:
+            spdlog::info("[conversation ended on {}/{}]", event.session_ended().flow(), event.session_ended().page());
+            break;
+        default:
+            break;
         }
-        pushDownstream(frame);
-    }
-
-    private:
-    void logTranscriptionDetails(const va::transport::TranscriptionFrame& tf) const {
-        //if(!tf.isFinal) return;
-        const auto& r = tf.transcriptionResult;
-        const char* kind = tf.isFinal ? "FINAL" : "PARTIAL";
-
-        spdlog::info("--- STT {} -----------------------------------", kind);
-        spdlog::info(" Text      : \"{}\"", r.text);
-        spdlog::info(" Confidence: {:.1f}%", r.confidence * 100.0f);
-
-        if (r.startTimeMs > 0 || r.endTimeMs > 0)
-            spdlog::info(" Timing    : {}ms - {}ms", r.startTimeMs, r.endTimeMs);
-
-        if (!r.languageTags.empty()) {
-            std::string langs;
-            for (const auto& l : r.languageTags) {
-                if (!langs.empty()) langs += ", ";
-                langs += l.code + " (" + std::to_string(static_cast<int>(l.confidence * 100)) + "%)";
-            }
-            spdlog::info(" Languages : {}", langs);
-        }
-
-        if (!r.alternatives.empty()) {
-            spdlog::info(" Alternatives ({}):", r.alternatives.size());
-            for (size_t i = 0; i < r.alternatives.size(); ++i)
-                spdlog::info("   [{}] \"{}\"", i + 1, r.alternatives[i]);
-        }
-
-        if (!r.words.empty()) {
-            spdlog::info(" Words ({}):", r.words.size());
-            for (const auto& w : r.words) {
-                std::string extra;
-                if (!w.languageTags.empty()) extra += "  lang=" + w.languageTags.front().code;
-                if (!w.alternatives.empty()) extra += "  alt=\"" + w.alternatives.front() + "\"";
-                spdlog::info("   {:>6}ms - {:>6}ms  {:.0f}%  \"{}\"{}",
-                    w.startTimeMs, w.endTimeMs,
-                    w.confidence * 100.0f,
-                    w.text, extra);
-            }
-        }
-
-        spdlog::info("------------------------------------------");
-    }
-
-    void printResults(const va::transport::TranscriptionFrame& tf) const {
-        std::string finalStr = tf.transcriptionResult.text;
-        if (finalStr.empty()) {
-            for (const auto& w : tf.transcriptionResult.words) {
-                finalStr += w.text + " ";
-            }
-        }
-
-        spdlog::info("Transcription result [{}]: \"{}\" (confidence: {:.1f}%)", tf.isFinal ? "FINAL" : "PARTIAL", finalStr, tf.transcriptionResult.confidence * 100.0f);
-    }
-};
+    });
+}
 
 void signalHandler(int signal) {
     spdlog::info("Received signal {}, shutting down...", signal);
@@ -393,7 +258,10 @@ std::string findModelsDirectory(char* argv[],
 //  Data structs 
 
 struct CliArgs {
+    std::string engineConfigPath;
+    std::string agentPath;
     std::string llmModelPath;
+    std::string agentLlmModelPath;   // a GGUF model for the agent's questions (llama.cpp, in-process)
     std::string llmEndpoint;
     std::string llmApiKey;
     std::string llmModel;
@@ -407,6 +275,7 @@ struct CliArgs {
     double      llmTtftAlertMs = 0.0;
     double      ttsAlertMs     = 0.0;
     std::string sessionOutputDir;
+    std::string recordTurnsPath;   // each user turn appended as an NLU eval case, the agent's guess its intent
     std::string statsdHost;
     uint16_t    statsdPort        = 8125;
     bool        prometheusEnabled = false;
@@ -427,74 +296,6 @@ struct MetricsBundle {
 #endif
 };
 
-struct AudioBundle {
-    va::audio::AudioConfig inputConfig;
-    va::audio::AudioConfig outputConfig;
-    int                    frameSize = 0;
-#ifdef VASDK_HAS_MINIAUDIO
-    std::shared_ptr<va::miniaudio::MiniAudioSource> audioSource;
-    std::shared_ptr<va::miniaudio::MiniAudioSink>   audioSink;
-#elif defined(VASDK_HAS_SDL)
-    std::shared_ptr<SDLAudioSource> audioSource;
-    std::shared_ptr<SDLAudioSink>   audioSink;
-#endif
-#ifdef VASDK_HAS_SILERO_VAD
-    std::shared_ptr<SileroVAD>                                vadProvider;
-#endif
-    std::shared_ptr<va::audio::GenericTranscriptionProvider>  transcriptionProvider;
-    std::shared_ptr<va::audio::GenericVoiceSynthesisProvider> ttsProvider;
-    // Type-erased setter so setupProcessors never needs to know the concrete sink type.
-    std::function<void(std::function<void(const char*, size_t)>)> setPlaybackCallback;
-};
-
-struct LLMBundle {
-    va::llm::LLMConfig                              config;
-    std::shared_ptr<va::llm::LLMTransport>          transport;
-    std::shared_ptr<va::llm::LLMProcessor>          processor;
-    std::shared_ptr<va::llm::ToolDispatchProcessor> toolDispatcher;
-};
-
-struct TransportBundle {
-    std::shared_ptr<va::AudioRingBuffer>           sharedRingBuffer;
-    std::shared_ptr<va::AudioRingBuffer>           cleanRingBuffer;
-    std::shared_ptr<va::transport::BaseTransport>  transport;    // LocalTransport or WebRtcTransport
-    std::function<void()>                          flushOutput;  // barge-in: drop queued playback
-    va::pipeline::TTSFrameProcessor::PlaybackHold  holdOutput;   // pending barge-in: duck or pause playback
-    // Frames sent to the transport: audio only, or (WebRTC) everything, so the page can show state.
-    std::optional<va::transport::FrameType>        outputFilter = va::transport::FrameType::SYNTHESIS;
-#ifdef VASDK_HAS_LIBDATACHANNEL_WEBRTC
-    std::shared_ptr<va::webrtc::LibDataChannelWebRtcProvider> webrtcPeer;
-#endif
-};
-
-struct ProcessorBundle {
-    std::shared_ptr<va::pipeline::TransportInputProcessor>            transportInput;
-    std::shared_ptr<va::pipeline::TransportOutputProcessor>           transportOutput;
-    std::shared_ptr<va::pipeline::AudioDSPProcessor>                  dspProcessor;
-    std::shared_ptr<va::pipeline::VADFrameProcessor>                  vadProcessor;
-    std::shared_ptr<va::pipeline::TurnDetectionProcessor>             turnDetection;
-#ifdef VASDK_HAS_PYANNOTE_SPEAKER
-    std::shared_ptr<va::pipeline::SpeakerIdentificationProcessor>     speakerId;
-#endif
-    std::shared_ptr<va::pipeline::TranscriptionFrameProcessor>        transcription;
-    std::shared_ptr<STTDebugProcessor>                                sttDebug;
-    std::shared_ptr<va::pipeline::AgentStateProcessor>                agentState;
-    std::shared_ptr<BargeInHandler>                                   bargeinHandler;
-    std::shared_ptr<va::llm::LLMProcessor>                            llmProcessor;
-    std::shared_ptr<va::llm::ToolDispatchProcessor>                   toolDispatcher;
-    std::shared_ptr<va::pipeline::TTSFrameProcessor>                  tts;
-    std::shared_ptr<va::thirdparty::AudioInputVizAnimFrameProcessor>  micAnimProcessor;
-    std::shared_ptr<va::thirdparty::OutputAudioVizAnimFrameProcessor> animProcessor;
-#ifdef VASDK_HAS_JSON
-    std::shared_ptr<va::pipeline::SessionWriter>   sessionWriter;
-    std::shared_ptr<va::pipeline::SessionRecorder> audioRec;
-    std::shared_ptr<va::pipeline::SessionRecorder> semRec;
-#endif
-#ifdef VASDK_HAS_FTXUI
-    std::shared_ptr<vasdk_app::AudioFeaturesObserver> tuiObserver;
-#endif
-};
-
 //  Helper functions 
 
 CliArgs parseCliArgs(int argc, char* argv[]) {
@@ -505,7 +306,16 @@ CliArgs parseCliArgs(int argc, char* argv[]) {
     app.add_option("--llm-model-path", args.llmModelPath,
         "Path to GGUF model file for llama.cpp local LLM inference. "
         "When provided, overrides the default OpenAI-compatible transport.");
+    app.add_option("--agent-llm-model-path", args.agentLlmModelPath,
+        "Path to a GGUF model the agent asks, in-process with llama.cpp: what its rules don't "
+        "understand, llm steps and generative pages, with no network (a small instruct model will do)");
 #endif
+    app.add_option("--config", args.engineConfigPath,
+        "Engine config file (.txtpb, .json or .pb): providers, models dir and LLM settings. "
+        "Command-line LLM options override it.");
+    app.add_option("--agent", args.agentPath,
+        "Agent file (.txtpb, .json or .pb): its pages answer each turn, before any LLM, "
+        "e.g. agents/garage-menu/agent.txtpb");
     app.add_option("--llm-endpoint", args.llmEndpoint,
         "OpenAI-compatible LLM endpoint URL (falls back to LLM_ENDPOINT / OPENAI_BASE_URL env vars)");
     app.add_option("--llm-api-key", args.llmApiKey,
@@ -524,6 +334,9 @@ CliArgs parseCliArgs(int argc, char* argv[]) {
         "LLM time-to-first-token alert threshold in ms (0 = disabled)");
     app.add_option("--tts-alert-ms", args.ttsAlertMs,
         "TTS time-to-first-audio alert threshold in ms (0 = disabled)");
+    app.add_option("--record-turns", args.recordTurnsPath,
+        "Append each user turn, as heard, to this NLU eval set (vasdk.flow.NluEvalSet text proto) with the "
+        "agent's intent: correct the intents, then measure with vasdk_agentc eval --sweep");
     app.add_option("--session-dir", args.sessionOutputDir,
         "Directory for session recording output (omit to disable recording)");
     app.add_option("--system-prompt", args.systemPromptFile,
@@ -647,151 +460,6 @@ MetricsBundle setupMetrics(const CliArgs& args) {
     return m;
 }
 
-std::optional<AudioBundle> setupAudioProviders(const std::string& modelsPath, int frameSize) {
-    AudioBundle b;
-    b.frameSize = frameSize;
-
-    b.inputConfig.sampleRate  = 16000;
-    b.inputConfig.channels    = 1;
-    b.inputConfig.format      = va::audio::AudioFormat::SHORT;
-    b.outputConfig.sampleRate = 16000;
-    b.outputConfig.channels   = 1;
-    b.outputConfig.format     = va::audio::AudioFormat::SHORT;
-
-#ifdef VASDK_HAS_MINIAUDIO
-    b.audioSink   = std::make_shared<va::miniaudio::MiniAudioSink>();
-    b.audioSource = std::make_shared<va::miniaudio::MiniAudioSource>(
-        b.inputConfig.sampleRate * b.inputConfig.channels * b.inputConfig.getSampleSizeInBytes() * 30);
-    b.setPlaybackCallback = [sink = b.audioSink](auto cb) { sink->setPlaybackCallback(std::move(cb)); };
-#elif defined(VASDK_HAS_SDL)
-    b.audioSink   = std::make_shared<SDLAudioSink>();
-    b.audioSource = std::make_shared<SDLAudioSource>();
-    b.setPlaybackCallback = [sink = b.audioSink](auto cb) { sink->setPlaybackCallback(std::move(cb)); };
-#else
-#error "No audio I/O backend available. Enable VASDK_BUILD_MINIAUDIO or VASDK_BUILD_SDL."
-#endif
-
-#ifdef VASDK_HAS_SILERO_VAD
-    b.vadProvider = std::make_shared<SileroVAD>(modelsPath + "/silero_vad.onnx");
-    if (!b.vadProvider->initialize(b.inputConfig, b.inputConfig.sampleRate * 4)) {
-        spdlog::error("Failed to initialize VAD provider");
-        return std::nullopt;
-    }
-#endif
-
-#if defined(VASDK_HAS_GRADIUMPP_STT)
-    auto gradiumStt = std::make_shared<va::thirdparty::GradiumppTranscriptionProvider>(
-        std::getenv("GRADIUM_API_KEY") ? std::getenv("GRADIUM_API_KEY") : "");
-    b.transcriptionProvider = gradiumStt;
-#elif defined(VASDK_HAS_SONIOXPP_STT)
-    auto soniox = std::make_shared<va::thirdparty::SonioxppTranscriptionProvider>(
-        std::getenv("SONIOX_API_KEY") ? std::getenv("SONIOX_API_KEY") : "");
-    b.transcriptionProvider = soniox;
-#elif defined(VASDK_HAS_DEEPGRAMPP_STT)
-    auto deepgramStt = std::make_shared<va::thirdparty::DeepgramppTranscriptionProvider>(
-        std::getenv("DEEPGRAM_API_KEY") ? std::getenv("DEEPGRAM_API_KEY") : "");
-    b.transcriptionProvider = deepgramStt;
-#elif defined(VASDK_HAS_CARTESIAPP_STT)
-    auto cartesiaStt = std::make_shared<va::thirdparty::CartesiappTranscriptionProvider>(
-        std::getenv("CARTESIA_API_KEY") ? std::getenv("CARTESIA_API_KEY") : "");
-    b.transcriptionProvider = cartesiaStt;
-#elif defined(VASDK_HAS_FISHAUDIOPP_STT)
-    auto fishaudioStt = std::make_shared<va::thirdparty::FishaudioppTranscriptionProvider>(
-        std::getenv("FISHAUDIO_API_KEY") ? std::getenv("FISHAUDIO_API_KEY") : "");
-    b.transcriptionProvider = fishaudioStt;
-#elif defined(VASDK_HAS_WHISTLE_STT)
-    // Local/offline: opt-in (VASDK_BUILD_WHISTLE_STT), so it wins over Moonshine/Parakeet when built.
-    auto whistle = std::make_shared<WhistleTranscriptionProvider>(modelsPath + "/whistle");
-    WhistleTranscriptionProvider::InferenceConfig inferenceConfig;
-    inferenceConfig.idleTimeoutMs           = 550;
-    inferenceConfig.partialIntervalMs       = 250;
-    inferenceConfig.minNewSamplesForPartial = b.inputConfig.sampleRate / 4;
-    inferenceConfig.minNewSamplesForFinal   = frameSize;
-    if (const char* lang = std::getenv("WHISTLE_LANGUAGE")) inferenceConfig.language = lang;
-    whistle->setInferenceConfig(inferenceConfig);
-    b.transcriptionProvider = whistle;
-#elif defined(VASDK_HAS_MOONSHINE_STT)
-    auto moonshine = std::make_shared<MoonshineSttProvider>(modelsPath + "/moonshine");
-    MoonshineSttProvider::InferenceConfig inferenceConfig;
-    inferenceConfig.idleTimeoutMs     = 350;
-    inferenceConfig.partialIntervalMs = 160;
-    moonshine->setInferenceConfig(inferenceConfig);
-    b.transcriptionProvider = moonshine;
-#elif defined(VASDK_HAS_PARAKEET)
-    auto parakeet = std::make_shared<ParakeetTranscriptionProvider>(modelsPath + "/parakeet");
-    ParakeetTranscriptionProvider::InferenceConfig inferenceConfig;
-    inferenceConfig.idleTimeoutMs           = 550;
-    inferenceConfig.partialIntervalMs       = 250;
-    inferenceConfig.minNewSamplesForPartial = b.inputConfig.sampleRate / 2;
-    inferenceConfig.minNewSamplesForFinal   = inferenceConfig.minNewSamplesForPartial * 2;
-    inferenceConfig.contextSamples          = b.inputConfig.sampleRate / 2;
-    inferenceConfig.silencePaddingSeconds   = 1.0f;
-    parakeet->setInferenceConfig(inferenceConfig);
-    b.transcriptionProvider = parakeet;
-#else
-#error "No transcription provider available - enable VASDK_HAS_SONIOXPP_STT, VASDK_HAS_DEEPGRAMPP_STT, VASDK_HAS_CARTESIAPP_STT, VASDK_HAS_FISHAUDIOPP_STT, VASDK_HAS_GRADIUMPP_STT, VASDK_HAS_WHISTLE_STT, VASDK_HAS_MOONSHINE_STT, VASDK_HAS_PARAKEET, or VASDK_HAS_WHISPERCPP"
-#endif
-    b.transcriptionProvider->setAudioConfiguration(b.inputConfig);
-
-#if defined(VASDK_HAS_GRADIUMPP_TTS)
-    b.ttsProvider = std::make_shared<va::thirdparty::GradiumppVoiceSynthesisProvider>(
-        std::getenv("GRADIUM_API_KEY") ? std::getenv("GRADIUM_API_KEY") : "",
-        std::getenv("GRADIUM_VOICE_ID") ? std::getenv("GRADIUM_VOICE_ID") : "");
-#elif defined(VASDK_HAS_SONIOXPP_TTS)
-    auto sonioxTts = std::make_shared<va::thirdparty::SonioxppVoiceSynthesisProvider>(
-        std::getenv("SONIOX_API_KEY") ? std::getenv("SONIOX_API_KEY") : "");
-    b.ttsProvider = sonioxTts;
-#elif defined(VASDK_HAS_SUPERTONIC_TTS)
-    auto supertonic = std::make_shared<SupertonicVoiceSynthesisProvider>(
-        modelsPath + "/supertonic3/onnx",
-        modelsPath + "/supertonic3/voice_styles/M1.json",
-        std::getenv("SUPERTONIC_TTS_LANG") ? std::getenv("SUPERTONIC_TTS_LANG") : "en");
-    // Diffusion steps trade quality for latency; synthesis time scales roughly linearly with them.
-    supertonic->setTotalSteps(std::getenv("SUPERTONIC_TTS_STEPS") ? std::atoi(std::getenv("SUPERTONIC_TTS_STEPS")) : 10);
-    b.ttsProvider = supertonic;
-#elif defined(VASDK_HAS_DEEPGRAMPP_TTS)
-    b.ttsProvider = std::make_shared<va::thirdparty::DeepgramppVoiceSynthesisProvider>(
-        std::getenv("DEEPGRAM_API_KEY") ? std::getenv("DEEPGRAM_API_KEY") : "");
-#elif defined(VASDK_HAS_CARTESIAPP_TTS)
-    b.ttsProvider = std::make_shared<va::thirdparty::CartesiappVoiceSynthesisProvider>(
-        std::getenv("CARTESIA_API_KEY") ? std::getenv("CARTESIA_API_KEY") : "",
-        std::getenv("CARTESIA_VOICE_ID") ? std::getenv("CARTESIA_VOICE_ID") : "");
-#elif defined(VASDK_HAS_FISHAUDIOPP_TTS)
-    b.ttsProvider = std::make_shared<va::thirdparty::FishaudioppVoiceSynthesisProvider>(
-        std::getenv("FISHAUDIO_API_KEY") ? std::getenv("FISHAUDIO_API_KEY") : "",
-        std::getenv("FISHAUDIO_VOICE_ID") ? std::getenv("FISHAUDIO_VOICE_ID") : "");
-#elif defined(VASDK_HAS_MOSS_TTS)
-    // Local/offline: opt-in (VASDK_BUILD_MOSS_TTS), so it wins over Phonon/PocketTTS when built.
-    auto moss = std::make_shared<MossVoiceSynthesisProvider>(
-        modelsPath + "/moss_tts",
-        std::getenv("MOSS_TTS_VOICE") ? std::getenv("MOSS_TTS_VOICE") : "Ava");
-    moss->setSilenceDuration(0.3f);
-    b.ttsProvider = moss;
-#elif defined(VASDK_HAS_PHONON_TTS)
-    // Local/offline: opt-in (VASDK_BUILD_PHONON_TTS), so it wins over PocketTTS when built.
-    auto phonon = std::make_shared<PhononVoiceSynthesisProvider>(
-        modelsPath + "/phonon_tts",
-        std::getenv("PHONON_TTS_VOICE") ? std::getenv("PHONON_TTS_VOICE") : "Easton",
-        std::getenv("PHONON_TTS_LANG") ? std::getenv("PHONON_TTS_LANG") : "en");
-    if (const char* rules = std::getenv("PHONON_TTS_RULES")) phonon->setNormalizationRules(rules);
-    phonon->setSilenceDuration(0.3f);
-    b.ttsProvider = phonon;
-#elif defined(VASDK_HAS_POCKET_TTS)
-    // Local/offline fallback: only used when no cloud TTS provider is compiled in.
-    auto pocket = std::make_shared<PocketVoiceSynthesisProvider>(modelsPath + "/pocket_tts", "cosette");
-    pocket->setLsdSteps(4);
-    pocket->setVoice("jean");
-    pocket->setPreBufferedSamplesMS(250);
-    pocket->setSilenceDuration(0.3f);
-    b.ttsProvider = pocket;
-#else
-#error "No TTS provider available - enable VASDK_BUILD_SONIOXPP_TTS, VASDK_BUILD_POCKET_TTS, VASDK_BUILD_PHONON_TTS, VASDK_BUILD_MOSS_TTS, VASDK_BUILD_SUPERTONIC_TTS, VASDK_BUILD_DEEPGRAMPP_TTS, VASDK_BUILD_CARTESIAPP_TTS, VASDK_BUILD_FISHAUDIOPP_TTS, or VASDK_BUILD_GRADIUMPP_TTS"
-#endif
-    b.ttsProvider->setAudioConfiguration(b.outputConfig);
-
-    return b;
-}
-
 static bool loadDotenvFile(const std::string& path) {
     std::filesystem::path envPath = path;
     bool exists = std::filesystem::exists(envPath);
@@ -828,358 +496,140 @@ static std::string resolveLlmModel(const std::string& fromCli = "") {
     return "";
 }
 
-LLMBundle setupLLMStack(const std::string& modelsPath, const std::string& llmModelPath,
-                        const std::string& llmEndpoint, const std::string& llmApiKey,
-                        const std::string& llmModel,
-                        const std::string& systemPrompt,
-                        const std::string& formatInstruction) {
-    LLMBundle llmBundle;
 
-    llmBundle.config.endpoint = llmEndpoint;
-    llmBundle.config.apiKey   = llmApiKey;
-    llmBundle.config.model    = llmModel;
-    
-    llmBundle.config.systemPrompt = systemPrompt;
-    llmBundle.config.temperature = 0.1f;
-    llmBundle.config.maxTokens   = 8000;
-    llmBundle.config.nCtx        = 64000;
-    llmBundle.config.timeoutMs   = 30000;
-    llmBundle.config.streaming   = true;
-
-    spdlog::info("LLM Config: endpoint={}, model={}, streaming={}, system prompt={}",
-        llmBundle.config.endpoint, llmBundle.config.model,
-        llmBundle.config.streaming ? "true" : "false", llmBundle.config.systemPrompt);
-
-    llmBundle.toolDispatcher = std::make_shared<va::llm::ToolDispatchProcessor>();
-    llmBundle.toolDispatcher->registerTool(WeatherTool{});
-    llmBundle.toolDispatcher->registerTool(TimeTool{});
-
-    bool useLocalLLM = false;
 #ifdef VASDK_HAS_LLAMACPP
-    std::string resolvedModelPath = llmModelPath;
-#ifdef VASDK_LLAMACPP_DEFAULT_MODEL
-    if (resolvedModelPath.empty() && !modelsPath.empty()) {
-        resolvedModelPath = modelsPath + "/" + VASDK_LLAMACPP_DEFAULT_MODEL;
-        spdlog::info("[LLM] Using default GGUF model: {}", resolvedModelPath);
-    }
-#endif
-    if (!resolvedModelPath.empty() &&
-        std::filesystem::exists(resolvedModelPath) &&
-        useLocalLLM) {
-        spdlog::info("LLM integration enabled with llama.cpp local transport (model: {})", resolvedModelPath);
-        va::llm::LLMConfig localCfg;
-        localCfg.model             = resolvedModelPath;
-        localCfg.temperature       = llmBundle.config.temperature;
-        localCfg.maxTokens         = llmBundle.config.maxTokens;
-        localCfg.nCtx              = 16000;
-        localCfg.topK              = 50;
-        localCfg.repetitionPenalty = 1.05f;
-        // LlamaCppTransport reads directly from _conversationHistory, so tool descriptions
-        // must be embedded in the system prompt - the PromptTemplate resolver is never called.
-        localCfg.systemPrompt = llmBundle.config.systemPrompt + "\n\n"
-            + llmBundle.toolDispatcher->renderToolDescriptions(va::llm::ChatFormat::LFM2);
-        llmBundle.transport = std::make_shared<va::transport::LlamaCppTransport>(localCfg);
-        llmBundle.transport->setResponseFormatInstruction(formatInstruction);
-        std::reinterpret_pointer_cast<va::transport::LlamaCppTransport>(llmBundle.transport)
-            ->setChunker(std::make_shared<va::transport::NoChunkingChunker>());
-    }
-    else
-#endif
-    {
-        spdlog::info("LLM integration enabled with OpenAI-compatible transport ({})", llmBundle.config.endpoint);
-        spdlog::info("LLM streaming mode: {}", llmBundle.config.streaming ? "enabled" : "disabled");
-        llmBundle.transport = std::make_shared<va::llm::OpenAITransport>(llmBundle.config);
-        llmBundle.transport->setResponseFormatInstruction(formatInstruction);
-
-        auto sysTemplate = va::llm::PromptTemplate::create(llmBundle.transport->getPromptChatFormat());
-        sysTemplate->addSystem(llmBundle.config.systemPrompt + "\n\n{tool_descriptions}");
-        llmBundle.transport->setPromptTemplate(std::move(sysTemplate));
-        llmBundle.transport->registerTemplateVar("tool_descriptions",
-            [td = llmBundle.toolDispatcher](va::llm::ChatFormat fmt) {
-                return td->renderToolDescriptions(fmt);
-            });
-    }
-
-    llmBundle.transport->onConnected = []() { spdlog::info("LLM Transport connected"); };
-    llmBundle.transport->onError = [](int code, const std::string& msg) {
-        spdlog::error("LLM Error [{}]: {}", code, msg);
-    };
-
-    llmBundle.processor = std::make_shared<va::llm::LLMProcessor>(llmBundle.transport);
-    llmBundle.processor->setHistoryEnabled(true);
-    llmBundle.processor->setMaxHistoryLength(10);
-    llmBundle.processor->setProcessPartialTranscriptions(false);
-    llmBundle.processor->setConfidenceThreshold(0.07f);
-    llmBundle.processor->setFirePolicy(std::make_shared<va::llm::FinalOnlyFirePolicy>());
-    llmBundle.processor->setStreamSpeech(true);  // speak each sentence as the LLM streams it
-    llmBundle.processor->setToolDispatcher(llmBundle.toolDispatcher);
-
-    return llmBundle;
+// A GGUF model run in-process by llama.cpp, instead of the OpenAI-compatible endpoint.
+std::shared_ptr<va::llm::LLMTransport> createLocalLlm(const std::string& modelPath, const std::string& systemPrompt) {
+    va::llm::LLMConfig config;
+    config.model             = modelPath;
+    config.temperature       = 0.1f;
+    config.maxTokens         = 8000;
+    config.nCtx              = 16000;
+    config.topK              = 50;
+    config.repetitionPenalty = 1.05f;
+    // LlamaCppTransport reads its history directly, so the tool descriptions must be in the
+    // system prompt: the PromptTemplate resolver is never called.
+    va::llm::ToolDispatchProcessor tools;
+    tools.registerTool(WeatherTool{});
+    tools.registerTool(TimeTool{});
+    config.systemPrompt = systemPrompt + "\n\n" + tools.renderToolDescriptions(va::llm::ChatFormat::LFM2);
+    auto transport = std::make_shared<va::transport::LlamaCppTransport>(config);
+    transport->setChunker(std::make_shared<va::transport::NoChunkingChunker>());
+    spdlog::info("LLM: llama.cpp local model {}", modelPath);
+    return transport;
 }
+#endif
 
-std::optional<TransportBundle> setupTransport(const AudioBundle& audio, const MetricsBundle& metrics,
-                                              const CliArgs& args) {
-    TransportBundle b;
-    b.sharedRingBuffer = std::make_shared<va::AudioRingBuffer>(
-        (long)audio.inputConfig.sampleRate * 90, audio.inputConfig.getSampleSizeInBytes());
-    b.cleanRingBuffer = std::make_shared<va::AudioRingBuffer>(
-        (long)audio.inputConfig.sampleRate * 90, audio.inputConfig.getSampleSizeInBytes());
+// Mic and speaker, or a browser over WebRTC (--webrtc-port).
+struct AudioIO {
+    std::shared_ptr<va::transport::AudioTransport> transport;
+    // Local speaker only: called with each block of audio as it is played.
+    std::function<void(std::function<void(const char*, size_t)>)> setPlaybackCallback;
+#ifdef VASDK_HAS_LIBDATACHANNEL_WEBRTC
+    std::shared_ptr<va::webrtc::LibDataChannelWebRtcProvider> webrtcPeer;
+#endif
+};
 
+AudioIO createAudioIO([[maybe_unused]] const CliArgs& args, const va::audio::AudioConfig& inputConfig) {
+    AudioIO io;
 #ifdef VASDK_HAS_LIBDATACHANNEL_WEBRTC
     if (args.webrtcPort != 0) {
-        b.webrtcPeer = std::make_shared<va::webrtc::LibDataChannelWebRtcProvider>();
-        auto webrtc = std::make_shared<va::transport::WebRtcTransport>(b.webrtcPeer);
-        webrtc->setInputAudioConfig(audio.inputConfig);
-        webrtc->setOutputAudioConfig(audio.outputConfig);
-        webrtc->setFrameSize(audio.frameSize);
-        webrtc->setRingBuffer(b.sharedRingBuffer);
-        webrtc->setMetricsConfig(metrics.config.transport);
+        io.webrtcPeer = std::make_shared<va::webrtc::LibDataChannelWebRtcProvider>();
+        auto webrtc = std::make_shared<va::transport::WebRtcTransport>(io.webrtcPeer);
 #ifdef VASDK_HAS_VIZANIM
         // The VizAnim processors analyse mic and TTS audio at the input rate.
         webrtc->setEventEncoder(va::transport::FrameType::AUDIO_FEATURES,
-                                va::thirdparty::audioFeaturesEventEncoder(audio.inputConfig.sampleRate));
+                                va::thirdparty::audioFeaturesEventEncoder(inputConfig.sampleRate));
 #endif
-        if (!webrtc->initialize() || !webrtc->start()) {
-            spdlog::error("Failed to start WebRtcTransport");
-            return std::nullopt;
-        }
-        if (!b.webrtcPeer->startSignalingServer(args.webrtcPort, "127.0.0.1", args.webrtcPage)) return std::nullopt;
-        spdlog::info("WebRtcTransport ready - open http://127.0.0.1:{} to talk", args.webrtcPort);
-        b.flushOutput = [webrtc] { webrtc->flushOutputAudio(); };
-        b.holdOutput = [webrtc](va::transport::PendingPlaybackMode mode, bool held, float duckGainDecibels) {
-            webrtc->holdOutputAudio(mode, held, duckGainDecibels);
-        };
-        b.outputFilter.reset();
-        b.transport = webrtc;
-        metrics.reporter->addTransport(b.transport);
-        return b;
+        io.transport = webrtc;
+        return io;
     }
 #endif
-
-    auto local = std::make_shared<va::transport::LocalTransport>(audio.audioSource, audio.audioSink);
-    local->setInputAudioConfig(audio.inputConfig);
-    local->setOutputAudioConfig(audio.outputConfig);
-    local->setFrameSize(audio.frameSize);
-    local->setRingBuffer(b.sharedRingBuffer);
-    local->setMetricsConfig(metrics.config.transport);
-
-    if (!local->initialize()) {
-        spdlog::error("Failed to initialize LocalTransport");
-        return std::nullopt;
-    }
-    if (!local->start()) {
-        spdlog::error("Failed to start LocalTransport");
-        return std::nullopt;
-    }
-    spdlog::info("LocalTransport started successfully");
-
-    b.flushOutput = [local] { local->flushOutputAudio(); };
-    b.holdOutput = [local](va::transport::PendingPlaybackMode mode, bool held, float duckGainDecibels) {
-        local->holdOutputAudio(mode, held, duckGainDecibels);
-    };
-    b.transport = local;
-    metrics.reporter->addTransport(b.transport);
-    return b;
+#ifdef VASDK_HAS_MINIAUDIO
+    auto sink   = std::make_shared<va::miniaudio::MiniAudioSink>();
+    auto source = std::make_shared<va::miniaudio::MiniAudioSource>(
+        inputConfig.sampleRate * inputConfig.channels * inputConfig.getSampleSizeInBytes() * 30);
+#elif defined(VASDK_HAS_SDL)
+    auto sink   = std::make_shared<SDLAudioSink>();
+    auto source = std::make_shared<SDLAudioSource>();
+#else
+#error "No audio I/O backend available. Enable VASDK_BUILD_MINIAUDIO or VASDK_BUILD_SDL."
+#endif
+    io.setPlaybackCallback = [sink](auto callback) { sink->setPlaybackCallback(std::move(callback)); };
+    io.transport = std::make_shared<va::transport::LocalTransport>(source, sink);
+    return io;
 }
 
-std::optional<ProcessorBundle> setupProcessors(
-    const std::string&     modelsPath,
-    const AudioBundle&     audio,
-    const TransportBundle& transport,
-    const LLMBundle&       llm,
-    const std::string&     sessionOutputDir,
-    const va::pipeline::BackchannelConfig& backchannelConfig)
-{
-    ProcessorBundle b;
+// What the app adds around the engine's pipeline: logging, recording, visualisers, the TUI.
+struct AppProcessors {
+#ifdef VASDK_HAS_JSON
+    std::shared_ptr<va::pipeline::SessionWriter> sessionWriter;
+#endif
+#ifdef VASDK_HAS_FTXUI
+    std::shared_ptr<vasdk_app::AudioFeaturesObserver> tuiObserver;
+#endif
+};
 
-    b.transportInput = std::make_shared<va::pipeline::TransportInputProcessor>();
-    b.transportInput->addTransport(transport.transport);
+AppProcessors addAppProcessors(va::VAEngine& engine, const CliArgs& args, const AudioIO& io,
+                               [[maybe_unused]] const std::string& modelsPath,
+                               const va::audio::AudioConfig& inputConfig,
+                               [[maybe_unused]] const va::audio::AudioConfig& outputConfig) {
+    using Slot = va::VAEngine::Slot;
+    AppProcessors app;
+    const auto micAudio = engine.inputRingBuffer();
 
-    b.transportOutput = std::make_shared<va::pipeline::TransportOutputProcessor>();
-    b.transportOutput->addTransport(transport.transport, transport.outputFilter);
-
-    //  RNNoise noise-suppression (optional, compile-time) 
-    // Set useRNNoise=true at runtime to enable noise suppression without recompiling.
-#ifdef VASDK_HAS_RNNOISE
-    bool useRNNoise = false;
-    if (useRNNoise) {
-        auto rnnoiseProvider = std::make_shared<RNNoiseDSPProvider>();
-        rnnoiseProvider->setVADThreshold(0.3f);
-        rnnoiseProvider->setNormalizeOutput(false);
-        rnnoiseProvider->setNormalizationMultiplier(0.3f);
-        if (!rnnoiseProvider->initialize(audio.inputConfig)) {
-            spdlog::warn("RNNoise initialization failed - noise suppression disabled");
-        }
-        else {
-            b.dspProcessor = std::make_shared<va::pipeline::AudioDSPProcessor>(rnnoiseProvider);
-            b.dspProcessor->setRawAudioRingBuffer(transport.sharedRingBuffer);
-            b.dspProcessor->setCleanAudioRingBuffer(transport.cleanRingBuffer);
-            spdlog::info("RNNoise noise suppression enabled");
-        }
+#ifdef VASDK_HAS_JSON
+    if (!args.sessionOutputDir.empty()) {
+        app.sessionWriter = std::make_shared<va::pipeline::SessionWriter>(args.sessionOutputDir);
+        auto audioRecorder = std::make_shared<va::pipeline::SessionRecorder>(app.sessionWriter, "AudioRecorder");
+        audioRecorder->setRingBuffer(micAudio);
+        engine.addProcessor(Slot::AfterInput, audioRecorder);
+        engine.addProcessor(Slot::BeforeSynthesis,
+                            std::make_shared<va::pipeline::SessionRecorder>(app.sessionWriter, "SemanticRecorder"));
+        spdlog::info("Session recording enabled → {}", app.sessionWriter->getSessionDir());
     }
 #endif
-
-    auto audioRingBufferForVAD = b.dspProcessor ? transport.cleanRingBuffer : transport.sharedRingBuffer;
-
-    float vadLoopBackFrameMultiplier = 3.0f;
-    b.vadProcessor = std::make_shared<va::pipeline::VADFrameProcessor>(audio.vadProvider, vadLoopBackFrameMultiplier);
-    b.vadProcessor->setMinFrameSize(audio.frameSize);
-
-    va::pipeline::VADConfig vadConfig;
-    vadConfig.vadThresholdMs           = 250;
-    vadConfig.minSpeechDurationMs      = 250;
-    vadConfig.maxSpeechPauseDurationMs = 500;
-    vadConfig.maxSpeechEndDurationMs   = 250;
-    b.vadProcessor->setConfig(vadConfig);
-    b.vadProcessor->setRingBuffer(audioRingBufferForVAD);
-
-#ifdef VASDK_HAS_SMART_TURN_V3
-    auto smartTurnProvider = std::make_shared<va::thirdparty::SmartTurnV3Provider>(
-        modelsPath + "/smart_turn_v3.onnx", 0.5f, 8.0f, 3);
-    smartTurnProvider->setEvaluateOnPause(true);  // end the turn at the pause when it's clearly over
-    if (!smartTurnProvider->initialize(audio.inputConfig, transport.sharedRingBuffer)) {
-        spdlog::error("Failed to initialize SmartTurnV3Provider - turn detection disabled");
-        return std::nullopt;
-    }
-    b.turnDetection = std::make_shared<va::pipeline::TurnDetectionProcessor>(smartTurnProvider);
-#else
-    b.turnDetection = std::make_shared<va::pipeline::TurnDetectionProcessor>();
-#endif
+    engine.addProcessor(Slot::AfterInput, std::make_shared<va::thirdparty::AudioInputVizAnimFrameProcessor>(
+        micAudio, inputConfig, inputConfig.sampleRate * 10));
 
 #ifdef VASDK_HAS_PYANNOTE_SPEAKER
+    // After STT: embedding the whole utterance takes ~70 ms per second of speech.
     auto speakerProvider = std::make_shared<va::thirdparty::PyannoteEmbeddingProvider>(
         modelsPath + "/pyannote_embedding.onnx");
-    if (speakerProvider->initialize(audio.inputConfig)) {
-        b.speakerId = std::make_shared<va::pipeline::SpeakerIdentificationProcessor>(speakerProvider);
-        b.speakerId->setRingBuffer(audioRingBufferForVAD);
+    if (speakerProvider->initialize(inputConfig)) {
+        auto speakerId = std::make_shared<va::pipeline::SpeakerIdentificationProcessor>(speakerProvider);
+        speakerId->setRingBuffer(micAudio);
+        engine.addProcessor(Slot::AfterTranscription, speakerId);
     } else {
         spdlog::error("Failed to initialize PyannoteEmbeddingProvider - speaker tracking disabled");
     }
 #endif
 
-    b.agentState = std::make_shared<va::pipeline::AgentStateProcessor>();
-    b.agentState->setAlwaysOn(true);
-    b.agentState->setBackchannelConfig(backchannelConfig);
-
-    b.transcription = std::make_shared<va::pipeline::TranscriptionFrameProcessor>(audio.transcriptionProvider);
-    b.transcription->configSilenceBehavior(false, false, 1000);
-    b.transcription->setStreamingMode(false);
-    b.transcription->setRingBuffer(audioRingBufferForVAD);
-
-    b.sttDebug       = std::make_shared<STTDebugProcessor>();
-    b.bargeinHandler = std::make_shared<BargeInHandler>(audio.transcriptionProvider, backchannelConfig.enabled);
-
-    b.tts = std::make_shared<va::pipeline::TTSFrameProcessor>(audio.ttsProvider);
-    b.tts->setPlaybackFlush(transport.flushOutput);
-    b.tts->setPlaybackHold(transport.holdOutput);
-    b.tts->setPendingPlayback(backchannelConfig.pendingPlaybackMode, backchannelConfig.duckGainDecibels,
-                             backchannelConfig.duckDurationMs);
-    b.agentState->setPlaybackRemainingMsProvider([tts = std::weak_ptr<va::pipeline::TTSFrameProcessor>(b.tts)] {
-        auto ttsProcessor = tts.lock();
-        return ttsProcessor ? ttsProcessor->getRemainingReplyPlaybackMs() : -1;
-    });
-
-    b.llmProcessor   = llm.processor;
-    b.toolDispatcher = llm.toolDispatcher;
-
-#ifdef VASDK_HAS_JSON
-    if (!sessionOutputDir.empty()) {
-        b.sessionWriter = std::make_shared<va::pipeline::SessionWriter>(sessionOutputDir);
-        b.audioRec = std::make_shared<va::pipeline::SessionRecorder>(b.sessionWriter, "AudioRecorder");
-        b.audioRec->setRingBuffer(audioRingBufferForVAD);
-        b.semRec = std::make_shared<va::pipeline::SessionRecorder>(b.sessionWriter, "SemanticRecorder");
-        spdlog::info("Session recording enabled → {}", b.sessionWriter->getSessionDir());
-    }
-#endif
-
-    b.micAnimProcessor = std::make_shared<va::thirdparty::AudioInputVizAnimFrameProcessor>(
-        audioRingBufferForVAD, audio.inputConfig, audio.inputConfig.sampleRate * 10);
-    b.animProcessor = std::make_shared<va::thirdparty::OutputAudioVizAnimFrameProcessor>(
-        audio.inputConfig, audio.inputConfig.sampleRate * 10);
-
+    engine.addProcessor(Slot::BeforeOutput, std::make_shared<va::thirdparty::OutputAudioVizAnimFrameProcessor>(
+        inputConfig, inputConfig.sampleRate * 10));
 #ifdef VASDK_HAS_FTXUI
-    b.tuiObserver = std::make_shared<vasdk_app::AudioFeaturesObserver>();
-    b.tuiObserver->setSynthAudioConfig(audio.outputConfig);
-    if (audio.setPlaybackCallback) {
-        audio.setPlaybackCallback(
-            [obs = std::weak_ptr<vasdk_app::AudioFeaturesObserver>(b.tuiObserver)](
-                    const char* data, size_t bytes) {
-                if (auto o = obs.lock()) o->onSynthPlayback(data, bytes);
-            });
+    app.tuiObserver = std::make_shared<vasdk_app::AudioFeaturesObserver>();
+    app.tuiObserver->setSynthAudioConfig(outputConfig);
+    if (io.setPlaybackCallback) {
+        io.setPlaybackCallback([observer = std::weak_ptr<vasdk_app::AudioFeaturesObserver>(app.tuiObserver)](
+                                   const char* data, size_t bytes) {
+            if (auto tuiObserver = observer.lock()) tuiObserver->onSynthPlayback(data, bytes);
+        });
     }
+    engine.addProcessor(Slot::BeforeOutput, app.tuiObserver);
+#else
+    (void)io;
 #endif
-
-    return b;
+    return app;
 }
 
-std::shared_ptr<va::pipeline::Pipeline> buildAndStartPipeline(
-    const ProcessorBundle& procs,
-    const MetricsBundle&   metrics)
-{
-    auto pipeline = std::make_shared<va::pipeline::Pipeline>();
-    auto& chain   = pipeline->addProcessor(procs.transportInput);
-#ifdef VASDK_HAS_RNNOISE
-    if (procs.dspProcessor) chain.addProcessor(procs.dspProcessor);
-#endif
-#ifdef VASDK_HAS_JSON
-    if (procs.audioRec) chain.addProcessor(procs.audioRec);
-#endif
-    chain
-        .addProcessor(procs.vadProcessor)
-        .addProcessor(procs.turnDetection)
-        .addProcessor(procs.micAnimProcessor)
-        .addProcessor(procs.transcription);
-#ifdef VASDK_HAS_PYANNOTE_SPEAKER
-    // After STT: embedding the whole utterance takes ~70 ms per second of speech.
-    if (procs.speakerId) chain.addProcessor(procs.speakerId);
-#endif
-    chain
-        .addProcessor(procs.sttDebug)
-        .addProcessor(procs.agentState)
-        .addProcessor(procs.bargeinHandler);
-    if (procs.llmProcessor)   chain.addProcessor(procs.llmProcessor);
-    if (procs.toolDispatcher) chain.addProcessor(procs.toolDispatcher);
-#ifdef VASDK_HAS_JSON
-    if (procs.semRec) chain.addProcessor(procs.semRec);
-#endif
-    chain
-        .addProcessor(procs.tts)
-        .addProcessor(procs.animProcessor)
-#ifdef VASDK_HAS_FTXUI
-        .addProcessor(procs.tuiObserver)
-#endif
-        .addProcessor(procs.transportOutput);
-
-    spdlog::info("Building pipeline with {} processors...", chain.getProcessors().size());
-
-    // Metrics wiring - after processors added, before build()
-    va::metrics::MetricsBinder::bind(*pipeline, metrics.config, metrics.reporter);
-
-    if (!pipeline->build()) {
-        spdlog::error("Failed to build pipeline");
-        return nullptr;
-    }
-    spdlog::info("Pipeline built successfully");
-
-    spdlog::info("Starting pipeline...");
-    if (!pipeline->start()) {
-        spdlog::error("Failed to start pipeline");
-        return nullptr;
-    }
-    return pipeline;
-}
-
-void runMainLoop(
-    const MetricsBundle&   metrics,
-    const LLMBundle&       llm,
-    const ProcessorBundle& procs)
-{
+void runMainLoop(const MetricsBundle& metrics, const va::VAEngine& engine, const std::string& llmModel,
+                 [[maybe_unused]] const AppProcessors& app) {
     // Start reporter after pipeline is running so all metrics are registered
     // and the first periodic tick has real data (default interval: 10s).
     if (metrics.config.collector.enabled) {
         metrics.reporter->start();
-        spdlog::info("Metrics active - reporting every {}s",
-            metrics.config.reporter.intervalSeconds);
+        spdlog::info("Metrics active - reporting every {}s", metrics.config.reporter.intervalSeconds);
     }
     else {
         spdlog::info("Metrics disabled");
@@ -1187,27 +637,20 @@ void runMainLoop(
 
     spdlog::info("Pipeline started - speak into microphone...");
     spdlog::info("Press Ctrl+C to stop");
-
-    if (llm.processor) {
-        spdlog::info("LLM Mode: Your speech will be sent to {} for intelligent responses",
-            llm.config.model);
-    }
-    else {
-        spdlog::info("Echo Mode: Transcriptions will be played back via TTS (no LLM)");
-    }
+    if (engine.hasLLM()) spdlog::info("LLM Mode: Your speech will be sent to {} for intelligent responses", llmModel);
 
 #ifdef VASDK_HAS_FTXUI
     {
         // Redirect spdlog so it doesn't corrupt the TUI - append to the TUI log panel
         auto tuiSink = std::make_shared<spdlog::sinks::callback_sink_mt>(
-            [&procs](const spdlog::details::log_msg& msg) {
+            [&app](const spdlog::details::log_msg& msg) {
                 std::string text(msg.payload.begin(), msg.payload.end());
-                procs.tuiObserver->appendLog(
+                app.tuiObserver->appendLog(
                     "[" + std::string(spdlog::level::to_string_view(msg.level).data()) + "] " + text);
             });
         spdlog::default_logger()->sinks().push_back(tuiSink);
 
-        vasdk_app::PipelineTUI tui(procs.tuiObserver);
+        vasdk_app::PipelineTUI tui(app.tuiObserver);
         tui.run(running);
     }
 #else
@@ -1217,12 +660,8 @@ void runMainLoop(
 #endif
 }
 
-void shutdown(
-    std::shared_ptr<va::pipeline::Pipeline> pipeline,
-    const MetricsBundle&                    metrics,
-    const ProcessorBundle&                  procs,
-    const AudioBundle&                      audio)
-{
+void shutdown(va::VAEngine& engine, const MetricsBundle& metrics, [[maybe_unused]] const AppProcessors& app,
+              [[maybe_unused]] const va::audio::AudioConfig& inputConfig) {
     spdlog::info("Stopping pipeline...");
     if (metrics.config.collector.enabled) {
         metrics.reporter->printNow();
@@ -1241,11 +680,11 @@ void shutdown(
         std::strftime(_buf, sizeof(_buf), "ctrack_%Y%m%d_%H%M%S.txt", std::localtime(&_t));
         VASDK_CTRACK_PRINT_AND_SAVE(_buf);
     }
-    pipeline->stop();
+    engine.stop();
 #ifdef VASDK_HAS_JSON
-    if (procs.sessionWriter) {
-        procs.sessionWriter->finalize(audio.inputConfig);
-        spdlog::info("Session saved to: {}", procs.sessionWriter->getSessionDir());
+    if (app.sessionWriter) {
+        app.sessionWriter->finalize(inputConfig);
+        spdlog::info("Session saved to: {}", app.sessionWriter->getSessionDir());
     }
 #endif
     spdlog::info("Pipeline stopped");
@@ -1261,10 +700,23 @@ int main(int argc, char* argv[]) {
     CliArgs       args    = parseCliArgs(argc, argv);
     loadDotenvFile(args.envFile.empty() ? ".env" : args.envFile);
 
-    // Resolve all LLM config once after the env file is loaded.
-    args.llmEndpoint = resolveLlmEndpoint(args.llmEndpoint);
-    args.llmApiKey   = resolveLlmApiKey(args.llmApiKey);
-    args.llmModel    = resolveLlmModel(args.llmModel);
+    // After the env file, so ${VARS} in the config can come from it.
+    vasdk::engine::EngineConfig engineConfig;
+    if (!args.engineConfigPath.empty()) {
+        std::string error;
+        if (!va::engine::loadEngineConfig(args.engineConfigPath, engineConfig, &error)) {
+            spdlog::error("Engine config: {}", error);
+            return -1;
+        }
+        spdlog::info("Engine config: {}", args.engineConfigPath);
+    }
+
+    // Resolve all LLM config once: command line, then engine config, then environment.
+    auto orConfig = [](const std::string& cli, const std::string& configured) { return cli.empty() ? configured : cli; };
+    args.llmEndpoint = resolveLlmEndpoint(orConfig(args.llmEndpoint, engineConfig.llm().endpoint()));
+    args.llmApiKey   = resolveLlmApiKey(orConfig(args.llmApiKey, engineConfig.llm().api_key()));
+    args.llmModel    = resolveLlmModel(orConfig(args.llmModel, engineConfig.llm().model()));
+    const bool localLlm = !args.llmModelPath.empty();
 
     args.metricsEnabled = false;
     MetricsBundle metrics = setupMetrics(args);
@@ -1275,15 +727,27 @@ int main(int argc, char* argv[]) {
     spdlog::set_level(spdlog::level::info);
 #endif
     spdlog::info("VASDK Voice Assistant - Pipeline Mode");
-    spdlog::info("  LLM endpoint:{}", args.llmEndpoint);
-    spdlog::info("  LLM model:   {}", args.llmModel.empty() ? "(not set)" : args.llmModel);
-    if (args.llmApiKey.empty()) {
-        spdlog::error("No LLM API key found. Set LLM_API_KEY, OPENROUTER_API_KEY, or OPENAI_API_KEY "
-            "(in the .env file or shell environment), or pass --llm-api-key <key>");
-        return -1;
+    // An agent with no LLM model named runs on its own: what its pages don't understand gets
+    // "Sorry, I can't help with that here." rather than an LLM call.
+    const bool agentOnly = !args.agentPath.empty() && !localLlm && args.llmModel.empty();
+    if (agentOnly) {
+        spdlog::info("  LLM:         none (the agent answers alone; --llm-model adds one for what it doesn't understand)");
+        engineConfig.clear_llm();
+    } else if (!localLlm) {
+        spdlog::info("  LLM endpoint:{}", args.llmEndpoint);
+        spdlog::info("  LLM model:   {}", args.llmModel.empty() ? "(not set)" : args.llmModel);
+        if (args.llmApiKey.empty()) {
+            spdlog::error("No LLM API key found. Set LLM_API_KEY, OPENROUTER_API_KEY, or OPENAI_API_KEY "
+                "(in the .env file or shell environment), or pass --llm-api-key <key>");
+            return -1;
+        }
+        spdlog::info("  API key:     {}...{}", args.llmApiKey.substr(0, std::min<size_t>(8, args.llmApiKey.size())),
+            args.llmApiKey.size() > 8 ? args.llmApiKey.substr(args.llmApiKey.size() - 4) : "");
+        auto* llm = engineConfig.mutable_llm();
+        llm->set_endpoint(args.llmEndpoint);
+        llm->set_api_key(args.llmApiKey);
+        llm->set_model(args.llmModel);
     }
-    spdlog::info("  API key:     {}...{}", args.llmApiKey.substr(0, std::min<size_t>(8, args.llmApiKey.size())),
-        args.llmApiKey.size() > 8 ? args.llmApiKey.substr(args.llmApiKey.size() - 4) : "");
     std::signal(SIGINT, signalHandler);
 
     std::string modelsPath = findModelsDirectory(argv);
@@ -1292,43 +756,83 @@ int main(int argc, char* argv[]) {
         return -1;
     }
 
-    int frameSize = 16000 / 10;  // 100 ms at 16 kHz: VAD/turn decisions land on this grid
-    auto audioOpt = setupAudioProviders(modelsPath, frameSize);
-    if (!audioOpt) return -1;
-
-    const std::string systemPrompt = loadOrFallback(args.systemPromptFile,
+    va::VAEngine::Options options;
+    options.modelsDir = modelsPath;
+    options.systemPrompt = loadOrFallback(args.systemPromptFile,
         "You are a helpful voice assistant. Keep responses brief and conversational for "
         "text-to-speech. Avoid markdown, bullet points, and emojis. Respond in the user's "
         "language. When you need current data such as weather or time, call the appropriate tool.");
-    const std::string formatInstruction = loadOrFallback(args.formatInstructionFile,
-        kResponseFormatInstruction);
-
-    LLMBundle llm = setupLLMStack(modelsPath, args.llmModelPath,
-                                  args.llmEndpoint, args.llmApiKey, args.llmModel,
-                                  systemPrompt, formatInstruction);
-
-    auto transportOpt = setupTransport(*audioOpt, metrics, args);
-    if (!transportOpt) return -1;
-
-    auto procsOpt = setupProcessors(modelsPath, *audioOpt, *transportOpt, llm, args.sessionOutputDir,
-                                    args.backchannelConfig);
-    if (!procsOpt) return -1;
-
-    auto pipeline = buildAndStartPipeline(*procsOpt, metrics);
-    if (!pipeline) return -1;
-
+    options.responseFormatInstruction = loadOrFallback(args.formatInstructionFile, kResponseFormatInstruction);
+    options.backchannel = args.backchannelConfig;
+    options.metricsReporter = metrics.reporter;
+    options.metricsConfig = metrics.config;
+    {
+        std::string audioError;   // the devices open in the config's formats, as the engine will use them
+        if (!va::engine::applyAudioConfig(engineConfig.audio(), options.inputAudio, options.outputAudio,
+                                          options.frameSize, &audioError)) {
+            spdlog::error("{}: {}", args.engineConfigPath, audioError);
+            return -1;
+        }
+    }
+    AudioIO io = createAudioIO(args, options.inputAudio);
+    options.transport = io.transport;
+    if (!args.agentPath.empty()) {
+        std::string agentError;
+        // The example agent's steps and envelopes written in C++; other agents may use the built-in ones only.
+        auto extensions = std::make_shared<va::flow::FlowRegistry>();
+        garage::registerExtensions(*extensions);
+        options.agent = va::flow::CompiledAgent::load(args.agentPath, &agentError, nullptr, extensions);
+        if (!options.agent) {
+            spdlog::error("{}: {}", args.agentPath, agentError);
+            return -1;
+        }
+    }
 #ifdef VASDK_HAS_LIBDATACHANNEL_WEBRTC
-    // The page lists the processors and their providers from GET /pipeline.
-    if (transportOpt->webrtcPeer)
-        transportOpt->webrtcPeer->setPipelineDescription(
-            [weakPipeline = std::weak_ptr<va::pipeline::Pipeline>(pipeline)] {
-                auto pipeline = weakPipeline.lock();
-                return pipeline ? pipeline->describeAsJson() : std::string("{\"processors\":[]}");
-            });
+    options.sendAllFramesToTransport = io.webrtcPeer != nullptr;   // the page shows the agent's state
+#endif
+#ifdef VASDK_HAS_LLAMACPP
+    if (localLlm) options.llmTransport = createLocalLlm(args.llmModelPath, options.systemPrompt);
+    if (!args.agentLlmModelPath.empty()) {
+        va::llm::LLMConfig agentLlm;
+        agentLlm.model = args.agentLlmModelPath;
+        agentLlm.maxTokens = 400;
+        agentLlm.nCtx = 4096;
+        auto completion = std::make_shared<va::transport::LlamaCppCompletion>(agentLlm);
+        if (!completion->loaded()) return -1;
+        options.llmCompletion = completion;
+        spdlog::info("  Agent LLM:   llama.cpp local model {}", args.agentLlmModelPath);
+    }
 #endif
 
-    runMainLoop(metrics, llm, *procsOpt);
+    va::engine::ProviderRegistry registry;
+    va::thirdparty::registerAllProviders(registry);
+    std::string error;
+    auto engine = va::VAEngine::create(engineConfig, registry, options, &error);
+    if (!engine) {
+        spdlog::error("{}", error);
+        return -1;
+    }
+    engine->registerTool(WeatherTool{});
+    engine->registerTool(TimeTool{});
+    AppProcessors app = addAppProcessors(*engine, args, io, modelsPath, options.inputAudio, options.outputAudio);
+    addConsoleListener(*engine);
+    if (!args.recordTurnsPath.empty()) addTurnRecorder(*engine, args.recordTurnsPath);
+    if (!engine->start(&error)) return -1;
 
-    shutdown(pipeline, metrics, *procsOpt, *audioOpt);
+#ifdef VASDK_HAS_LIBDATACHANNEL_WEBRTC
+    if (io.webrtcPeer) {
+        if (!io.webrtcPeer->startSignalingServer(args.webrtcPort, "127.0.0.1", args.webrtcPage)) return -1;
+        spdlog::info("WebRtcTransport ready - open http://127.0.0.1:{} to talk", args.webrtcPort);
+        // The page lists the processors and their providers from GET /pipeline.
+        io.webrtcPeer->setPipelineDescription([pipeline = std::weak_ptr<va::pipeline::Pipeline>(engine->pipeline())] {
+            auto current = pipeline.lock();
+            return current ? current->describeAsJson() : std::string("{\"processors\":[]}");
+        });
+    }
+#endif
+
+    runMainLoop(metrics, *engine, args.llmModel, app);
+
+    shutdown(*engine, metrics, app, options.inputAudio);
     return 0;
 }

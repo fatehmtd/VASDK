@@ -1,0 +1,152 @@
+# proto-file: vasdk/flow/agent.proto
+# proto-message: vasdk.flow.Agent
+#
+# The Acme call center: schedule a service callback, check an account, or reach a person.
+# Runs with no LLM; with one (VASDK_CallCenter --llm-endpoint ...), it also understands what the
+# examples below miss and reads answers the forms can't.
+#   callcenter_agentc chat VASDK_CALLCENTER_APP/agents/callcenter/agent.txtpb --session caller=555-1234
+#   callcenter_agentc test VASDK_CALLCENTER_APP/agents/callcenter/agent.txtpb VASDK_CALLCENTER_APP/agents/callcenter/tests/*.txtpb
+# Its tools, lookup_account and schedule_callback, are written in C++ (../../crm/), where a real
+# CRM plugs in.
+schema_version: 1
+name: "acme-callcenter"
+locale: "en-US"
+start_flow: "main"
+
+session_params { name: "caller"   type: STRING sensitive: true }   # the caller's number (ANI), set by the app
+session_params { name: "account"  type: STRUCT }   # what lookup_account found
+session_params { name: "callback" type: STRUCT }   # what schedule_callback returned
+
+goal_files: ["goals/schedule_callback.txtpb", "goals/account_inquiry.txtpb"]
+
+intents { name: "schedule" examples: ["schedule", "callback", "call back", "call me back", "appointment",
+                                      "book", "service", "repair", "maintenance", "installation", "install"] }
+intents { name: "account"  examples: ["account", "my account", "balance", "account status", "bill", "billing"] }
+intents { name: "person"   examples: ["person", "human", "agent", "representative", "operator", "someone"] }
+intents { name: "help"     examples: ["help", "what can you do", "options"] }
+intents { name: "goodbye"  examples: ["bye", "goodbye", "that's all", "nothing else"] }
+intents { name: "yes"      examples: ["yes", "yeah", "yep", "sure"] }
+intents { name: "no"       examples: ["no", "nope", "nothing"] }
+
+# The vehicle for a repair, as one value with its parts: $form.vehicle.value.make, .model, .year;
+# said back as the caller said it ("2019 toyota camry"). The model is any one word after the make.
+entity_types { name: "vehicle_make" list {
+  values { value: "toyota" }  values { value: "honda" }   values { value: "ford" }
+  values { value: "chevrolet" synonyms: ["chevy"] }       values { value: "nissan" }
+  values { value: "hyundai" } values { value: "kia" }     values { value: "subaru" }
+  values { value: "mazda" }   values { value: "volkswagen" synonyms: ["vw"] }
+  values { value: "bmw" }     values { value: "mercedes" synonyms: ["mercedes benz", "benz"] }
+  values { value: "audi" }    values { value: "jeep" }    values { value: "dodge" }
+  values { value: "ram" }     values { value: "gmc" }     values { value: "tesla" }
+  values { value: "lexus" }   values { value: "volvo" } } }
+entity_types { name: "vehicle_year" derived { base: "@sys.integer" min: 1980 max: 2035 } }
+entity_types { name: "vehicle_model" pattern { regex: "[a-z][a-z0-9-]*" } }
+entity_types { name: "vehicle" composite { templates: [
+  "@vehicle_year:year @vehicle_make:make @vehicle_model:model",
+  "@vehicle_make:make @vehicle_model:model @vehicle_year:year",
+  "@vehicle_make:make @vehicle_model:model",
+  "@vehicle_year:year @vehicle_make:make"] } }
+
+# Every page: a person, goodbye, silence and repeated misunderstandings.
+envelopes: ["standard"]
+envelope_defs {
+  name: "standard"
+  routes { intent: "person" target: "flow:handoff" }
+  routes { intent: "goodbye" steps { say { text: "Thanks for calling Acme. Goodbye!" follow_up_listen_ms: 0 } } target: "END_SESSION" }
+  handlers { event: "no-input" steps { say { text: ["Are you still there?", "Hello?"] } } }
+  handlers { event: "max-reprompts" steps { say { text: "Let me get someone to help you." } } target: "flow:handoff" }
+  handlers { event: "tool-error" steps { say { text: "Our system isn't answering right now." } } target: "flow:handoff" }
+  settings { no_input_ms: 8000 max_reprompts: 2 }
+}
+
+flows {
+  name: "main"
+  start_page: "welcome"
+
+  # The routing page: the caller is looked up by their number, greeted, and asked what they need.
+  pages {
+    name: "welcome"
+    on_enter { branch { if: "exists($session.caller)"
+                        then { call_tool { name: "lookup_account" args { key: "identifier" value: "$session.caller" } into: "$session.account" } } } }
+    on_enter { branch { if: "$session.account.found"
+                        then { say { text: "Hi $session.account.name, thanks for calling Acme." } }
+                        else { say { text: "Thanks for calling Acme." } } } }
+    on_enter { ask { say { text: "I can schedule a service callback or help with your account. What do you need?" }
+                     choices { label: "Schedule a callback" value: "schedule" }
+                     choices { label: "My account" value: "account" }
+                     choices { label: "Talk to a person" value: "person" } } }
+    routes { intent: "schedule" target: "schedule" }   # "schedule a repair": the form gets the service on the way in
+    routes { intent: "account" target: "account" }
+    routes { intent: "help" steps { say { text: "I can schedule a repair, maintenance or installation callback, look up your account, or put you through to a person." } } }
+  }
+
+  # What the CRM knows is filled in first; the rest is asked, read back, and scheduled on a yes.
+  pages {
+    name: "schedule"
+    form { goal: "schedule_callback" }
+    on_enter { branch { if: "$session.account.found"
+                        then { set { key: "$form.customer_name" value: "$session.account.name" } }
+                        then { set { key: "$form.phone_number" value: "$session.account.phone" } } } }
+    routes {
+      condition: "$form.confirmed"
+      steps { call_tool {
+        name: "schedule_callback"
+        args { key: "customer_name" value: "$form.customer_name" }
+        args { key: "phone_number" value: "$form.phone_number" }
+        args { key: "service_type" value: "$form.service_type" }
+        args { key: "vehicle" value: "$form.vehicle" }
+        args { key: "appointment_date" value: "$form.appointment_date" }
+        into: "$session.callback"
+        filler: "One moment while I schedule that."
+      } }
+      target: "scheduled"
+    }
+    routes { condition: "$form.failed" steps { say { text: "Let me get someone to help you with that." } } target: "flow:handoff" }
+    # A caller who hung up here and calls back: what they gave is kept, the rest is asked (VASDK_CallCenter --persist-dir).
+    handlers { event: "resumed" steps { say { text: "Welcome back. Let's finish scheduling your callback." } } }
+  }
+
+  pages {
+    name: "scheduled"
+    on_enter { say { text: "You're all set. Your reference is $session.callback.reference." } }
+    on_enter { ask { say { text: "Is there anything else I can help with?" } } }
+    routes { intent: "no" steps { say { text: "Thanks for calling Acme. Goodbye!" } } target: "END_SESSION" }
+    routes { intent: "yes" target: "welcome" }
+  }
+
+  # An account: the caller's own when their number is known, else the one they name.
+  pages {
+    name: "account"
+    form { goal: "account_inquiry" }
+    on_enter { branch { if: "$session.account.found"
+                        then { set { key: "$form.account_id" value: "$session.account.account_id" } } } }
+    routes {
+      condition: "$form.complete"
+      steps { call_tool { name: "lookup_account" args { key: "identifier" value: "$form.account_id" } into: "$session.account" } }
+      target: "account_status"
+    }
+  }
+
+  pages {
+    name: "account_status"
+    on_enter { branch {
+      if: "$session.account.found"
+      then { say { text: "Account $session.account.account_id, for $session.account.name, is a $session.account.tier account in good standing, with nothing due." } }
+      else { say { text: "I couldn't find that account." } } } }
+    on_enter { branch { if: "NOT $session.account.found" then { goto { target: "flow:handoff" } } } }
+    on_enter { ask { say { text: "Is there anything else I can help with?" } } }
+    routes { intent: "no" steps { say { text: "Thanks for calling Acme. Goodbye!" } } target: "END_SESSION" }
+    routes { intent: "yes" target: "welcome" }
+  }
+}
+
+# A person takes over: the call ends here, and the app transfers it.
+flows {
+  name: "handoff"
+  start_page: "transfer"
+  pages {
+    name: "transfer"
+    on_enter { say { text: "Connecting you to an agent now." } }
+    on_enter { end {} }
+  }
+}

@@ -1,0 +1,540 @@
+// LLM assist: an LLM understands what the rules can't, answers on generative pages and in `llm`
+// steps, and reads form answers the slots can't. It may only name the agent's intents, move to
+// allowed targets and fill slots with values their entity reads; sensitive answers never reach
+// it; turns the rules are sure of never ask it. Without an LLM the same agent answers as before.
+
+#include <VASDK/flow/CompiledAgent.h>
+#include <VASDK/flow/FlowRuntime.h>
+#include <VASDK/flow/FlowTestRunner.h>
+#include <VASDK/llm/Completion.h>
+#include <VASDK/network/HttpInterface.h>
+#include <VASDK/nlu/LlmNluProvider.h>
+
+#include <google/protobuf/text_format.h>
+#include <nlohmann/json.hpp>
+
+#include <cstdio>
+#include <functional>
+#include <string>
+
+using namespace va;
+using namespace va::flow;
+
+namespace {
+
+int failures = 0;
+void check(bool ok, const std::string& what) {
+    if (!ok) { ++failures; std::fprintf(stderr, "FAIL %s\n", what.c_str()); }
+}
+
+// An LLM that answers from a script, and remembers what it was asked.
+struct ScriptedLlm : llm::Completion {
+    std::function<std::string(const std::vector<llm::ConversationMessage>&)> answer;
+    mutable int calls = 0;
+    mutable std::vector<llm::ConversationMessage> lastMessages;
+    mutable int lastTimeLimitMs = -1;   // completeWithin's; -1: asked by complete
+    std::optional<std::string> completeWithin(const std::vector<llm::ConversationMessage>& messages, int timeLimitMs) const override {
+        auto reply = complete(messages);
+        lastTimeLimitMs = timeLimitMs;
+        return reply;
+    }
+    std::optional<std::string> complete(const std::vector<llm::ConversationMessage>& messages) const override {
+        ++calls;
+        lastTimeLimitMs = -1;
+        lastMessages = messages;
+        if (!answer) return std::nullopt;
+        return answer(messages);
+    }
+};
+bool asksForIntent(const std::vector<llm::ConversationMessage>& messages) {
+    return messages.front().content.find("The intents") != std::string::npos;
+}
+std::string lastUserWords(const std::vector<llm::ConversationMessage>& messages) {
+    for (auto message = messages.rbegin(); message != messages.rend(); ++message)
+        if (message->role == llm::MessageRole::USER) return message->content;
+    return {};
+}
+
+struct FakeHttp : network::HttpInterface {
+    int status = 200;
+    int sentTimeoutMs = 0;
+    std::string body, sentUrl, sentBody;
+    std::map<std::string, std::string> sentHeaders;
+    network::HttpResponse post(const std::string& url, const std::map<std::string, std::string>& headers,
+                               const std::string& request, int timeoutMs, std::function<void(const std::string&)>) override {
+        sentTimeoutMs = timeoutMs;
+        sentUrl = url;
+        sentHeaders = headers;
+        sentBody = request;
+        network::HttpResponse response;
+        response.statusCode = status;
+        response.body = body;
+        return response;
+    }
+    network::HttpResponse get(const std::string&, const std::map<std::string, std::string>&, int) override { return {}; }
+    bool sendText(const std::string&, const std::map<std::string, std::string>&, const std::string&, int) override { return false; }
+    bool sendBytes(const std::string&, const std::map<std::string, std::string>&, const std::vector<uint8_t>&, int) override {
+        return false;
+    }
+};
+
+const char* kAgent = R"agent(
+name: "Acme Garage"
+start_flow: "main"
+intents { name: "book" examples: ["book", "book a service", "make an appointment"] }
+intents { name: "hours" examples: ["opening hours", "when are you open"] }
+intents { name: "chat" examples: ["let's chat", "car advice"] }
+entity_types { name: "service" list { values { value: "oil_change" spoken: "an oil change" synonyms: ["oil change"] }
+                                      values { value: "tires" spoken: "tire repair" synonyms: ["tire repair", "tires"] } } }
+goals {
+  name: "booking"
+  slots { name: "service" entity: "@service" prompt: "Which service do you need?" }
+  slots { name: "phone" type: PHONE sensitive: true prompt: "What's your number?" }
+}
+flows { name: "main" start_page: "welcome"
+  pages { name: "welcome"
+    on_enter { ask { say { text: "Hi, how can I help?" } } }
+    routes { intent: "book" target: "booking" }
+    routes { intent: "hours" steps { say { text: "We're open 8 to 6." } } }
+    routes { intent: "chat" target: "advice" } }
+  pages { name: "booking" form { goal: "booking" } routes { condition: "$form.complete" target: "done" } }
+  pages { name: "done" on_enter { say { text: "Booked." } } on_enter { end {} } }
+  pages { name: "advice" type: "generative"
+    params { [type.googleapis.com/vasdk.flow.GenerativeParams] {
+      instructions: "Answer briefly about car care, then offer to book." allowed_targets: ["booking"] } }
+    on_enter { ask { say { text: "Ask me anything about your car." } } }
+    routes { intent: "hours" steps { say { text: "We're open 8 to 6." } } }
+    handlers { event: "no-match" steps { say { text: "I can help you book or tell you our hours." } } } }
+  pages { name: "step"
+    on_enter { llm { instructions: "Greet the user." offline { say { text: "Hello there." } } } } } }
+)agent";
+
+std::shared_ptr<const CompiledAgent> compile(const vasdk::flow::Agent& definition) {
+    std::string error;
+    auto agent = CompiledAgent::compile(definition, &error);
+    check(agent != nullptr, "the agent compiles: " + error);
+    return agent;
+}
+vasdk::flow::Agent parse() {
+    vasdk::flow::Agent definition;
+    if (!google::protobuf::TextFormat::ParseFromString(kAgent, &definition)) check(false, "parse");
+    return definition;
+}
+
+// The rules first, then the LLM.
+void assist(FlowRuntime& conversation, const std::shared_ptr<const CompiledAgent>& agent,
+            const std::shared_ptr<const ScriptedLlm>& llm) {
+    conversation.setNlu(std::make_shared<nlu::CascadeNluProvider>(std::vector<std::shared_ptr<const nlu::NluProvider>>{
+        agent->rules(), std::make_shared<nlu::LlmNluProvider>(llm, agent->definition().intents())}));
+    conversation.setLlm(llm);
+}
+
+} // namespace
+
+int main() {
+    // The reply's JSON, wherever it is in the words.
+    check(llm::jsonObjectIn("Sure! ```json\n{\"a\": \"}{\", \"b\": {\"c\": 1}}\n``` done") == "{\"a\": \"}{\", \"b\": {\"c\": 1}}",
+          "the first balanced object, braces in strings ignored");
+    check(llm::jsonObjectIn("no json here").empty(), "none: empty");
+
+    // An OpenAI-compatible endpoint: the request, and the reply's text.
+    {
+        auto http = std::make_shared<FakeHttp>();
+        http->body = R"({"choices": [{"message": {"content": "{\"intent\": \"book\"}"}}]})";
+        llm::LLMConfig config;
+        config.endpoint = "https://llm.example/v1/chat/completions";
+        config.model = "small";
+        config.apiKey = "test-key";
+        llm::OpenAICompletion completion(config, http);
+        const auto reply = completion.complete({{llm::MessageRole::SYSTEM, "classify", 0}, {llm::MessageRole::USER, "hi", 0}});
+        check(reply && *reply == "{\"intent\": \"book\"}", "the reply's content");
+        const auto sent = nlohmann::json::parse(http->sentBody);
+        check(sent["model"] == "small" && sent["messages"].size() == 2 && sent["messages"][0]["role"] == "system" &&
+                  sent["messages"][1]["content"] == "hi",
+              "the model and messages are sent");
+        check(http->sentHeaders["Authorization"] == "Bearer test-key" && http->sentUrl == config.endpoint, "to the endpoint, with the key");
+        check(http->sentTimeoutMs == config.timeoutMs, "complete: the client's own timeout");
+        completion.completeWithin({{llm::MessageRole::USER, "hi", 0}}, 1500);
+        check(http->sentTimeoutMs == 1500, "completeWithin: its time limit, when shorter");
+        completion.completeWithin({{llm::MessageRole::USER, "hi", 0}}, config.timeoutMs + 1000);
+        check(http->sentTimeoutMs == config.timeoutMs, "and never longer than the client's own");
+        http->status = 500;
+        check(!completion.complete({{llm::MessageRole::USER, "hi", 0}}), "an error status: no reply");
+    }
+
+    // Claude through the Messages API: the request, and the reply's text blocks.
+    {
+        auto http = std::make_shared<FakeHttp>();
+        http->body = R"({"content": [{"type": "thinking", "thinking": ""}, {"type": "text", "text": "{\"intent\": "},
+                                     {"type": "text", "text": "\"book\"}"}], "stop_reason": "end_turn"})";
+        llm::LLMConfig config;
+        config.apiKey = "claude-key";
+        config.maxTokens = 400;
+        config.temperature = 0.0f;
+        llm::AnthropicCompletion claude(config, http);
+        const auto reply = claude.complete({{llm::MessageRole::SYSTEM, "classify", 0},
+                                            {llm::MessageRole::ASSISTANT, "Hi, how can I help?", 0},
+                                            {llm::MessageRole::USER, "book", 0},
+                                            {llm::MessageRole::USER, "a service", 0}});
+        check(reply && *reply == "{\"intent\": \"book\"}", "Claude: its text blocks, thinking left out");
+        check(http->sentUrl == "https://api.anthropic.com/v1/messages" && http->sentHeaders["x-api-key"] == "claude-key" &&
+                  http->sentHeaders["anthropic-version"] == "2026-10-21" &&
+                  http->sentHeaders["anthropic-beta"] == "server-side-fallback-2026-07-01",
+              "Claude: the endpoint, key, API version and fallback beta");
+        const auto sent = nlohmann::json::parse(http->sentBody);
+        check(sent["model"] == "claude-opus-5-5" && !sent.contains("temperature") && sent["max_tokens"] == 1024 &&
+                  sent["output_config"]["effort"] == "low" && sent["fallbacks"] == "default",
+              "Claude: the default model, no sampling, room to think, low effort, fallbacks: " + http->sentBody);
+        check(sent["system"] == "classify\n\nYou said first: Hi, how can I help?" && sent["messages"].size() == 1 &&
+                  sent["messages"][0]["role"] == "user" && sent["messages"][0]["content"] == "book\na service",
+              "Claude: system and leading assistant words as the system prompt, one user turn: " + http->sentBody);
+        const auto alone = nlohmann::json::parse(claude.requestBody({{llm::MessageRole::SYSTEM, "Greet the user.", 0}}));
+        check(alone["messages"].size() == 1 && alone["messages"][0]["role"] == "user", "Claude: a user turn closes the conversation");
+        config.model = "claude-haiku-4-5";
+        config.reasoningEffort = "";
+        const auto older = nlohmann::json::parse(llm::AnthropicCompletion(config, http).requestBody({{llm::MessageRole::USER, "hi", 0}}));
+        check(!older.contains("output_config") && !older.contains("fallbacks"), "Claude: no effort or fallbacks on an older model");
+        http->body = R"({"content": [], "stop_reason": "refusal", "stop_details": {"type": "refusal", "category": "cyber"}})";
+        check(!claude.complete({{llm::MessageRole::USER, "hi", 0}}), "Claude: a refusal is no reply");
+        http->status = 429;
+        check(!claude.complete({{llm::MessageRole::USER, "hi", 0}}), "Claude: an error status is no reply");
+        claude.completeWithin({{llm::MessageRole::USER, "hi", 0}}, 1500);
+        check(http->sentTimeoutMs == 1500, "Claude: within its time limit");
+    }
+
+    auto agent = compile(parse());
+    if (!agent) return 1;
+
+    // Understanding: only the agent's intents; anything else, or words it can't read, is none.
+    {
+        auto llm = std::make_shared<ScriptedLlm>();
+        nlu::LlmNluProvider provider(llm, agent->definition().intents());
+        nlu::NluRequest request;
+        request.text = "my brakes squeal";
+        llm->answer = [](const auto&) { return std::string(R"({"intent": "book", "confidence": 0.8})"); };
+        auto understood = provider.understand(request);
+        check(understood.intents.size() == 1 && understood.intents[0].intent == "book" && understood.stage == "llm",
+              "an intent of the agent");
+        check(llm->lastMessages.front().content.find("make an appointment") != std::string::npos, "shown with its examples");
+        check(provider.timeLimitMs() == 1500 && llm->lastTimeLimitMs == 1500, "asked within 1.5 s by default");
+        nlu::LlmNluProvider patient(llm, agent->definition().intents(), 0);
+        patient.understand(request);
+        check(llm->lastTimeLimitMs == 0, "or with no limit of its own");
+        llm->answer = [](const auto&) { return std::string(R"({"intent": "fly_to_mars", "confidence": 0.99})"); };
+        check(provider.understand(request).intents.empty(), "an intent the agent doesn't have: none");
+        llm->answer = [](const auto&) { return std::string("I think they want to book"); };
+        check(provider.understand(request).intents.empty(), "words it can't read: none");
+        request.sensitive = true;
+        const int calls = llm->calls;
+        provider.understand(request);
+        check(llm->calls == calls, "sensitive words aren't sent");
+    }
+
+    // Without an LLM, what the rules don't know isn't understood; with one, it's asked, and only then.
+    {
+        FlowRuntime offline(agent);
+        offline.start();
+        check(!offline.handleText("my brakes are squealing").matched, "offline: not understood");
+
+        auto llm = std::make_shared<ScriptedLlm>();
+        llm->answer = [](const auto& messages) {
+            return std::string(asksForIntent(messages) ? R"({"intent": "book", "confidence": 0.8})" : "{}");
+        };
+        FlowRuntime online(agent);
+        assist(online, agent, llm);
+        online.start();
+        online.handleText("book");
+        check(online.pageName() == "booking" && llm->calls == 0, "words the rules are sure of: the LLM isn't asked");
+        FlowRuntime again(agent);
+        assist(again, agent, llm);
+        again.start();
+        const auto reply = again.handleText("my brakes are squealing");
+        check(again.pageName() == "booking" && reply.intent == "book" && llm->calls == 1,
+              "the LLM understood it: " + again.pageName() + " " + reply.intent + " " + std::to_string(llm->calls));
+        check(toText(again.lookup({"nlu", "stage"})) == "llm", "$nlu.stage is llm");
+    }
+
+    // Mid-chat with the LLM: an answer doesn't bring the page's question back.
+    {
+        FlowRuntime menu(agent);
+        menu.start();
+        const auto asked = menu.handleText("opening hours");
+        check(asked.text == "We're open 8 to 6. Hi, how can I help?", "on its own: the answer, then the question again: " + asked.text);
+        FlowRuntime chatting(agent);
+        chatting.start();
+        chatting.setLlmHasConversation(true);
+        const auto answered = chatting.handleText("opening hours");
+        check(answered.text == "We're open 8 to 6." && answered.expectsReply, "mid-chat: the answer alone: " + answered.text);
+    }
+
+    // Mid-chat, an entity route takes the turn only when its entity is most of the words.
+    {
+        auto definition = parse();
+        auto* route = definition.mutable_flows(0)->mutable_pages(0)->add_routes();
+        route->set_entity("@service");
+        route->set_target("booking");
+        auto withEntityRoute = compile(definition);
+        if (!withEntityRoute) return 1;
+        const std::string story = "my uncle had a tire repair last year and now he drives everywhere with a spare in the back";
+        FlowRuntime menu(withEntityRoute);
+        menu.start();
+        menu.handleText(story);
+        check(menu.pageName() == "booking", "on its own: the service named anywhere takes the route");
+        FlowRuntime chatting(withEntityRoute);
+        chatting.start();
+        chatting.setLlmHasConversation(true);
+        chatting.handleText(story);
+        check(chatting.pageName() == "welcome", "mid-chat: a service named in a story doesn't: " + chatting.pageName());
+        chatting.handleText("a tire repair please");
+        check(chatting.pageName() == "booking" && toText(chatting.lookup({"form", "service"})) == "tires",
+              "the service as the answer does, and fills the form: " + chatting.pageName());
+    }
+
+    // A keyword in a long question isn't sure: the LLM is asked, and its "none" wins over the keyword.
+    {
+        const std::string question = "tell me a long story about a book you read in japan and france last year";
+        FlowRuntime offline(agent);
+        offline.start();
+        offline.handleText(question);
+        check(offline.pageName() == "booking", "offline: the keyword still decides");
+
+        auto llm = std::make_shared<ScriptedLlm>();
+        llm->answer = [](const auto& messages) {
+            return std::string(asksForIntent(messages) ? R"({"intent": "none"})" : "{}");
+        };
+        FlowRuntime online(agent);
+        assist(online, agent, llm);
+        online.start();
+        const auto reply = online.handleText(question);
+        check(llm->calls >= 1 && !reply.matched && online.pageName() == "welcome",
+              "with an LLM: asked, and none of the intents: " + online.pageName());
+        llm->answer = nullptr;   // unreachable
+        FlowRuntime unreachable(agent);
+        assist(unreachable, agent, llm);
+        unreachable.start();
+        unreachable.handleText(question);
+        check(unreachable.pageName() == "booking", "the LLM unreachable: the keyword decides");
+    }
+
+    // Forms: the LLM reads an answer the slot can't, but only values the slot's entity takes are kept.
+    {
+        auto llm = std::make_shared<ScriptedLlm>();
+        std::string slotWords = "oil change";
+        llm->answer = [&slotWords](const auto& messages) {
+            if (asksForIntent(messages)) return std::string(R"({"intent": "none"})");
+            return nlohmann::json{{"slots", {{"service", slotWords}}}}.dump();
+        };
+        FlowRuntime conversation(agent);
+        assist(conversation, agent, llm);
+        conversation.start();
+        conversation.handleText("book");
+        auto reply = conversation.handleText("the black slippery stuff in the engine needs replacing");
+        check(toText(conversation.lookup({"form", "service"})) == "oil_change", "the LLM's words, read as the entity");
+        check(reply.text == "What's your number?", "then the next slot: " + reply.text);
+        check(llm->lastMessages.front().content.find("an oil change") != std::string::npos, "the slot's values are shown to it");
+
+        // A sensitive slot: its answer never reaches the LLM.
+        const int calls = llm->calls;
+        reply = conversation.handleText("it's the one I always use");
+        check(llm->calls == calls, "a sensitive answer isn't sent: " + reply.text);
+        conversation.handleText("555 123 4567");
+        check(conversation.ended(), "booked");
+
+        FlowRuntime invent(agent);
+        assist(invent, agent, llm);
+        invent.start();
+        invent.handleText("book");
+        slotWords = "teleportation";
+        reply = invent.handleText("beam my car to the moon");
+        check(toText(invent.lookup({"form", "service"})).empty(), "a value the entity doesn't have isn't kept");
+        check(reply.text.find("Which service") != std::string::npos, "and the slot is asked again: " + reply.text);
+    }
+
+    // On a generative page the page's LLM has the conversation: the words are its own unless a rule
+    // explains enough of them. The intent check isn't asked, so its guess can't take them ("Paris" in a
+    // quiz isn't a booking), and a rule matching a small part of them doesn't either.
+    {
+        auto llm = std::make_shared<ScriptedLlm>();
+        int intentChecks = 0;
+        llm->answer = [&intentChecks](const auto& messages) {
+            if (asksForIntent(messages)) {
+                ++intentChecks;
+                return std::string(R"({"intent": "book"})");
+            }
+            return std::string(R"({"say": "Paris it is: right!"})");
+        };
+        FlowRuntime conversation(agent);
+        assist(conversation, agent, llm);
+        conversation.start();
+        conversation.handleText("let's chat");
+        intentChecks = 0;
+        auto reply = conversation.handleText("Paris");
+        check(conversation.pageName() == "advice" && reply.text == "Paris it is: right!" && intentChecks == 0,
+              "the page's LLM answers, not the intent check's guess: " + reply.text);
+        reply = conversation.handleText("I read that the hours of a day on Venus are longer than its year");
+        check(conversation.pageName() == "advice" && reply.text == "Paris it is: right!",
+              "nor a rule for a small part of the words (hours): " + reply.text);
+        reply = conversation.handleText("when are you open");
+        check(reply.text.rfind("We're open 8 to 6.", 0) == 0, "a rule that explains them still answers: " + reply.text);
+    }
+
+    // A generative page: its routes first, then the LLM; it moves only to allowed targets.
+    {
+        auto llm = std::make_shared<ScriptedLlm>();
+        nlohmann::json answer = {{"say", "Change the oil every 5000 miles. Want to book one?"}};
+        llm->answer = [&answer](const auto& messages) {
+            return asksForIntent(messages) ? std::string(R"({"intent": "none"})") : answer.dump();
+        };
+        FlowRuntime conversation(agent);
+        assist(conversation, agent, llm);
+        conversation.start();
+        conversation.handleText("let's chat");
+        check(conversation.pageName() == "advice", "on the generative page");
+        auto reply = conversation.handleText("when are you open");
+        check(reply.text.rfind("We're open 8 to 6.", 0) == 0, "its routes first: " + reply.text);
+        reply = conversation.handleText("how often should I change my oil");
+        check(reply.text == "Change the oil every 5000 miles. Want to book one?" && reply.expectsReply,
+              "the LLM answers the rest: " + reply.text);
+        check(llm->lastMessages.front().content.find("car care") != std::string::npos &&
+                  llm->lastMessages.front().content.find("booking") != std::string::npos,
+              "it's given the instructions and the allowed targets");
+        check(lastUserWords(llm->lastMessages) == "how often should I change my oil" && llm->lastMessages.size() > 3,
+              "and the conversation so far");
+        answer = {{"say", "Let's go."}, {"goto", "done"}};
+        conversation.handleText("just end it");
+        check(conversation.pageName() == "advice", "a target it isn't allowed: ignored");
+        answer = {{"say", "Sure."}, {"goto", "booking"}};
+        conversation.handleText("yes book me in");
+        check(conversation.pageName() == "booking", "an allowed target: moved");
+
+        FlowRuntime offline(agent);
+        offline.start();
+        offline.handleText("let's chat");
+        reply = offline.handleText("how often should I change my oil");
+        check(reply.text.rfind("I can help you book or tell you our hours.", 0) == 0,
+              "offline: the page's no-match handler: " + reply.text);
+    }
+
+    // An llm step: the LLM's words, or its offline steps without an LLM or when it fails.
+    {
+        auto definition = parse();
+        definition.mutable_flows(0)->set_start_page("step");
+        auto steps = compile(definition);
+        if (!steps) return 1;
+        FlowRuntime offline(steps);
+        check(offline.start().text == "Hello there.", "offline steps without an LLM");
+        auto llm = std::make_shared<ScriptedLlm>();
+        llm->answer = [](const auto&) { return std::string(R"({"say": "Good morning!"})"); };
+        FlowRuntime online(steps);
+        online.setLlm(llm);
+        check(online.start().text == "Good morning!", "the LLM's words with one");
+        llm->answer = nullptr;   // it fails
+        FlowRuntime failing(steps);
+        failing.setLlm(llm);
+        check(failing.start().text == "Hello there.", "and the offline steps when it fails");
+    }
+
+    // allowed_targets are checked when the agent loads.
+    {
+        auto definition = parse();
+        definition.mutable_flows(0)->mutable_pages(4)->mutable_on_enter(0)->mutable_llm()->add_allowed_targets("nowhere");
+        std::string error;
+        check(!CompiledAgent::compile(definition, &error) && error.find("nowhere") != std::string::npos,
+              "an unknown allowed target fails to load: " + error);
+    }
+
+    // The same test case passes with and without an LLM: what the rules are sure of doesn't change.
+    {
+        vasdk::flow::FlowTestCase testCase;
+        google::protobuf::TextFormat::ParseFromString(R"(
+            name: "book by the rules"
+            turns { expect { page: "welcome" } }
+            turns { user: "when are you open" expect { said_contains: "8 to 6" } }
+            turns { user: "book a service" expect { page: "booking" said: "Which service do you need?" } }
+            turns { user: "tire repair" expect { said: "What's your number?" } }
+            turns { user: "555 123 4567" expect { said: "Booked." } })", &testCase);
+        check(runFlowTest(agent, testCase).passed(), "without an LLM");
+        auto llm = std::make_shared<ScriptedLlm>();
+        llm->answer = [](const auto&) { return std::string(R"({"intent": "chat", "confidence": 1, "say": "Off topic!"})"); };
+        const auto result = runFlowTest(agent, testCase, [&](FlowRuntime& conversation) { assist(conversation, agent, llm); });
+        for (const auto& failure : result.failures) std::fprintf(stderr, "    %s\n", failure.c_str());
+        check(result.passed() && llm->calls == 0, "with one: passes, and it's never asked");
+    }
+
+    // Sensitive values are masked in what the LLM reads.
+    {
+        auto llm = std::make_shared<ScriptedLlm>();
+        llm->answer = [](const auto& messages) {
+            return asksForIntent(messages) ? std::string(R"({"intent": "none"})") : std::string(R"({"say": "Noted."})");
+        };
+        auto definition = parse();
+        auto* booking = definition.mutable_flows(0)->mutable_pages(1);
+        booking->clear_routes();
+        booking->set_type("generative");
+        vasdk::flow::GenerativeParams params;
+        params.set_instructions("Help with the booking.");
+        booking->mutable_params()->PackFrom(params);
+        auto generative = compile(definition);
+        if (!generative) return 1;
+        FlowRuntime conversation(generative);
+        assist(conversation, generative, llm);
+        conversation.start();
+        conversation.handleText("book");
+        conversation.handleText("tire repair");
+        conversation.handleText("555 123 4567");
+        conversation.handleText("is that all you need");
+        std::string sent;
+        for (const auto& message : llm->lastMessages) sent += message.content + "\n";
+        check(llm->calls > 0 && sent.find("555 123 4567") == std::string::npos && sent.find("5551234567") == std::string::npos,
+              "the phone number is masked: " + sent);
+    }
+
+    // LLM profiles: an llm step or a generative page that names one asks it, the rest ask the default;
+    // an unknown name, the default. A route that hands its turn on says which profile answers it.
+    {
+        vasdk::flow::Agent definition;
+        const bool parsed = google::protobuf::TextFormat::ParseFromString(R"(
+          start_flow: "main"
+          intents { name: "story" examples: ["tell me a story"] }
+          intents { name: "hello" examples: ["hello"] }
+          intents { name: "odd" examples: ["something odd"] }
+          intents { name: "chat" examples: ["let's chat"] }
+          intents { name: "trivia" examples: ["trivia"] }
+          flows { name: "main" start_page: "welcome"
+            pages { name: "welcome"
+              routes { intent: "story" steps { llm { instructions: "Tell a story." profile: "smart" } } }
+              routes { intent: "hello" steps { llm { instructions: "Say hello." } } }
+              routes { intent: "odd" steps { llm { instructions: "Say hello." profile: "nope" } } }
+              routes { intent: "trivia" target: "LLM" llm_profile: "smart" }
+              routes { intent: "chat" target: "advice" } }
+            pages { name: "advice" type: "generative"
+              params { [type.googleapis.com/vasdk.flow.GenerativeParams] { instructions: "Advise." profile: "smart" } } } }
+        )", &definition);
+        check(parsed, "the profiles agent parses");
+        auto agent = compile(definition);
+        auto fast = std::make_shared<ScriptedLlm>();
+        auto smart = std::make_shared<ScriptedLlm>();
+        fast->answer = [](const auto&) { return std::string(R"({"say": "Fast."})"); };
+        smart->answer = [](const auto&) { return std::string(R"({"say": "Smart."})"); };
+        FlowRuntime conversation(agent);
+        conversation.setLlm(fast);
+        conversation.setLlmProfiles({{"smart", smart}});
+        conversation.setLlmFillerAfterMs(60000);
+        conversation.start();
+        check(conversation.handleText("tell me a story").text == "Smart.", "an llm step's profile answers it");
+        check(conversation.handleText("hello").text == "Fast.", "a step that names none: the default");
+        check(conversation.handleText("something odd").text == "Fast.", "an unknown profile: the default");
+        const auto handed = conversation.handleText("trivia");
+        check(handed.toLlm && handed.llmProfile == "smart", "a route that hands its turn on names its profile");
+        conversation.handleText("let's chat");
+        check(conversation.handleText("how often should I change my oil").text == "Smart.", "a generative page's profile answers on it");
+
+        definition.mutable_flows(0)->mutable_pages(0)->mutable_routes(1)->set_llm_profile("smart");
+        std::string error;
+        check(!CompiledAgent::compile(definition, &error) && error.find("without target LLM") != std::string::npos,
+              "llm_profile on a route that doesn't hand its turn on fails the load: " + error);
+    }
+
+    if (failures == 0) std::printf("llm_assist_test: all passed\n");
+    return failures == 0 ? 0 : 1;
+}

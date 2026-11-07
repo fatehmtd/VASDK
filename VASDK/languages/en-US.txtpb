@@ -1,0 +1,249 @@
+# proto-file: vasdk/proto/vasdk/nlu/language.proto
+# proto-message: vasdk.nlu.Language
+#
+# English, as VASDK reads and says it. An agent that names no language uses this one (it is built
+# into the library). To change a word, copy this file next to your agent, edit it and list it in
+# language_files; to add a language, start from a copy with its own code. See
+# docs/reference/languages.md.
+
+code: "en-US"
+name: "English"
+
+numbers {
+  words { key: "zero" value: 0 }
+  words { key: "one" value: 1 }
+  words { key: "two" value: 2 }
+  words { key: "three" value: 3 }
+  words { key: "four" value: 4 }
+  words { key: "five" value: 5 }
+  words { key: "six" value: 6 }
+  words { key: "seven" value: 7 }
+  words { key: "eight" value: 8 }
+  words { key: "nine" value: 9 }
+  words { key: "ten" value: 10 }
+  words { key: "eleven" value: 11 }
+  words { key: "twelve" value: 12 }
+  words { key: "thirteen" value: 13 }
+  words { key: "fourteen" value: 14 }
+  words { key: "fifteen" value: 15 }
+  words { key: "sixteen" value: 16 }
+  words { key: "seventeen" value: 17 }
+  words { key: "eighteen" value: 18 }
+  words { key: "nineteen" value: 19 }
+  words { key: "twenty" value: 20 }
+  words { key: "thirty" value: 30 }
+  words { key: "forty" value: 40 }
+  words { key: "fifty" value: 50 }
+  words { key: "sixty" value: 60 }
+  words { key: "seventy" value: 70 }
+  words { key: "eighty" value: 80 }
+  words { key: "ninety" value: 90 }
+  scales { key: "hundred" value: 100 }
+  scales { key: "thousand" value: 1000 }
+  scales { key: "million" value: 1000000 }
+  connectors: "and"
+  ones: "a"
+  decimal_points: "point"
+  digit_aliases { key: "oh" value: 0 }
+  repeats { key: "double" value: 2 }
+  repeats { key: "triple" value: 3 }
+  ordinals { key: "first" value: 1 }
+  ordinals { key: "second" value: 2 }
+  ordinals { key: "third" value: 3 }
+  ordinals { key: "fourth" value: 4 }
+  ordinals { key: "fifth" value: 5 }
+  ordinals { key: "sixth" value: 6 }
+  ordinals { key: "seventh" value: 7 }
+  ordinals { key: "eighth" value: 8 }
+  ordinals { key: "ninth" value: 9 }
+  ordinals { key: "tenth" value: 10 }
+  ordinals { key: "eleventh" value: 11 }
+  ordinals { key: "twelfth" value: 12 }
+  ordinals { key: "thirteenth" value: 13 }
+  ordinals { key: "fourteenth" value: 14 }
+  ordinals { key: "fifteenth" value: 15 }
+  ordinals { key: "sixteenth" value: 16 }
+  ordinals { key: "seventeenth" value: 17 }
+  ordinals { key: "eighteenth" value: 18 }
+  ordinals { key: "nineteenth" value: 19 }
+  ordinals { key: "twentieth" value: 20 }
+  ordinals { key: "thirtieth" value: 30 }
+  ordinal_suffix: "st|nd|rd|th"
+  ordinal_leads: ["number", "option"]
+  ordinal_trailers: "one"
+}
+
+calendar {
+  weekdays { phrases: "Monday" }
+  weekdays { phrases: "Tuesday" }
+  weekdays { phrases: "Wednesday" }
+  weekdays { phrases: "Thursday" }
+  weekdays { phrases: "Friday" }
+  weekdays { phrases: "Saturday" }
+  weekdays { phrases: "Sunday" }
+  months { phrases: ["January", "jan"] }
+  months { phrases: ["February", "feb"] }
+  months { phrases: ["March", "mar"] }
+  months { phrases: ["April", "apr"] }
+  months { phrases: "May" }
+  months { phrases: ["June", "jun"] }
+  months { phrases: ["July", "jul"] }
+  months { phrases: ["August", "aug"] }
+  months { phrases: ["September", "sept", "sep"] }
+  months { phrases: ["October", "oct"] }
+  months { phrases: ["November", "nov"] }
+  months { phrases: ["December", "dec"] }
+  relative_days { key: "today" value: 0 }
+  relative_days { key: "tonight" value: 0 }
+  relative_days { key: "tomorrow" value: 1 }
+  relative_days { key: "day after tomorrow" value: 2 }
+  relative_days { key: "yesterday" value: -1 }
+  relative_days { key: "next week" value: 7 }
+  from_today: "in"
+  day_units: ["day", "days"]
+  week_units: ["week", "weeks"]
+  next: "next"
+  coming: ["this", "on"]
+  day_of_month: "of"
+}
+
+clock {
+  noon: ["noon", "midday"]
+  midnight: "midnight"
+  am: ["am", "a m", "in the morning"]
+  pm: ["pm", "p m", "in the afternoon", "in the evening", "at night", "tonight"]
+  at: "at"
+  hour_words: ["o'clock", "oclock"]
+  fractions { key: "half" value: 30 }
+  fractions { key: "quarter" value: 15 }
+  past: "past"
+  to: "to"
+  zero: "oh"
+}
+
+durations {
+  units { key: "second" value: 1 }
+  units { key: "seconds" value: 1 }
+  units { key: "sec" value: 1 }
+  units { key: "secs" value: 1 }
+  units { key: "minute" value: 60 }
+  units { key: "minutes" value: 60 }
+  units { key: "min" value: 60 }
+  units { key: "mins" value: 60 }
+  units { key: "hour" value: 3600 }
+  units { key: "hours" value: 3600 }
+  units { key: "hr" value: 3600 }
+  units { key: "hrs" value: 3600 }
+  units { key: "day" value: 86400 }
+  units { key: "days" value: 86400 }
+  units { key: "week" value: 604800 }
+  units { key: "weeks" value: 604800 }
+  amounts { key: "a" value: 1 }
+  amounts { key: "an" value: 1 }
+  amounts { key: "half an" value: 0.5 }
+  amounts { key: "half a" value: 0.5 }
+  amounts { key: "a quarter of an" value: 0.25 }
+  amounts { key: "a quarter of a" value: 0.25 }
+  and_a_half: "and a half"
+  joiners: "and"
+}
+
+emails {
+  at: "at"
+  symbols { key: "dot" value: "." }
+  symbols { key: "underscore" value: "_" }
+  symbols { key: "dash" value: "-" }
+  symbols { key: "hyphen" value: "-" }
+}
+
+yes: ["yes", "yeah", "yep", "yup", "sure", "correct", "right", "ok", "okay", "absolutely", "definitely", "true"]
+no: ["no", "nope", "nah", "not", "wrong", "incorrect", "don't", "false"]
+
+intents {
+  key: "sys.yes"
+  value { phrases: ["yes", "yeah", "yep", "yup", "sure", "correct", "right", "ok", "okay", "that's right", "sounds good", "go ahead", "please do"] }
+}
+intents { key: "sys.no" value { phrases: ["no", "nope", "nah", "no thanks", "not really", "wrong"] } }
+intents { key: "sys.cancel" value { phrases: ["cancel", "never mind", "nevermind", "forget it", "stop"] } }
+intents {
+  key: "sys.repeat"
+  value { phrases: ["repeat", "say that again", "come again", "what did you say", "pardon", "one more time"] }
+}
+intents { key: "sys.help" value { phrases: ["help", "what can i say", "what can you do", "i'm confused", "options"] } }
+intents { key: "sys.skip" value { phrases: ["skip", "i don't know", "not sure", "no idea", "pass", "next question"] } }
+
+negations: ["not", "never", "no", "don't", "dont", "doesn't", "didn't", "won't", "wont", "can't", "cant", "cannot",
+            "isn't", "wouldn't", "shouldn't"]
+articles: "the"
+stop_words: ["a", "an", "the", "do", "does", "you", "your", "i", "is", "are", "can", "to", "of", "on", "in", "my", "me",
+             "it", "we", "what", "how", "please"]
+
+spelling_alphabet { key: "alpha" value: "a" }
+spelling_alphabet { key: "alfa" value: "a" }
+spelling_alphabet { key: "bravo" value: "b" }
+spelling_alphabet { key: "charlie" value: "c" }
+spelling_alphabet { key: "delta" value: "d" }
+spelling_alphabet { key: "echo" value: "e" }
+spelling_alphabet { key: "foxtrot" value: "f" }
+spelling_alphabet { key: "golf" value: "g" }
+spelling_alphabet { key: "hotel" value: "h" }
+spelling_alphabet { key: "india" value: "i" }
+spelling_alphabet { key: "juliet" value: "j" }
+spelling_alphabet { key: "juliett" value: "j" }
+spelling_alphabet { key: "kilo" value: "k" }
+spelling_alphabet { key: "lima" value: "l" }
+spelling_alphabet { key: "mike" value: "m" }
+spelling_alphabet { key: "november" value: "n" }
+spelling_alphabet { key: "oscar" value: "o" }
+spelling_alphabet { key: "papa" value: "p" }
+spelling_alphabet { key: "quebec" value: "q" }
+spelling_alphabet { key: "romeo" value: "r" }
+spelling_alphabet { key: "sierra" value: "s" }
+spelling_alphabet { key: "tango" value: "t" }
+spelling_alphabet { key: "uniform" value: "u" }
+spelling_alphabet { key: "victor" value: "v" }
+spelling_alphabet { key: "whiskey" value: "w" }
+spelling_alphabet { key: "xray" value: "x" }
+spelling_alphabet { key: "yankee" value: "y" }
+spelling_alphabet { key: "zulu" value: "z" }
+
+turn_taking {
+  backchannels: ["yeah", "yep", "yes", "yup", "mm-hmm", "mm hmm", "m hmm", "mm hm", "m hm", "mhmm", "mmhmm", "mm-hm",
+                 "mhm-hmm", "mhm", "mm", "hmm", "uh-huh", "uh huh", "un huh", "uh hu", "un hu", "uhhuh", "uh-hu", "okay",
+                 "ok", "right", "all right", "alright", "sure", "i see", "got it", "cool", "nice", "wow", "ah", "oh"]
+  interruptions: ["stop", "wait", "no", "hold", "hang", "actually", "but", "sorry", "excuse", "what", "pardon"]
+}
+
+replies {
+  not_understood: "Sorry, I can't help with that here."
+  tool_failed: "Sorry, I can't do that right now."
+  did_not_get_that: "Sorry, I didn't get that."
+  say_yes_or_no: "Please say yes or no."
+  what_to_change: "What would you like to change?"
+  declined: "Okay."
+  ask_slot: "What's the {slot}?"
+  too_few_digits: ["I only got {count} digit.", "I only got {count} digits."]
+}
+
+speaking {
+  date: "{weekday}, {month} {day_ordinal}"
+  twelve_hour: true
+  time: "{hour}:{minute} {period}"
+  whole_hour: "{hour} {period}"
+  am: "AM"
+  pm: "PM"
+  date_time: "{date} at {time}"
+  ordinal_suffixes { condition: "$n % 100 >= 11 and $n % 100 <= 13" suffix: "th" }
+  ordinal_suffixes { condition: "$n % 10 = 1" suffix: "st" }
+  ordinal_suffixes { condition: "$n % 10 = 2" suffix: "nd" }
+  ordinal_suffixes { condition: "$n % 10 = 3" suffix: "rd" }
+  ordinal_suffixes { condition: "true" suffix: "th" }
+  plural_rules: "$n = 1"
+  units { key: "day" value { phrases: ["day", "days"] } }
+  units { key: "hour" value { phrases: ["hour", "hours"] } }
+  units { key: "minute" value { phrases: ["minute", "minutes"] } }
+  units { key: "second" value { phrases: ["second", "seconds"] } }
+  list_separator: ", "
+  list_last: " and "
+  digits: ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"]
+}

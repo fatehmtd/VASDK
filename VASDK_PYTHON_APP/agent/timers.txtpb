@@ -1,0 +1,60 @@
+# proto-file: vasdk/flow/agent.proto
+# proto-message: vasdk.flow.Agent
+#
+# Kitchen timers. The "timers" tool is Python (kitchen/timers.py): it runs each timer on a thread
+# of its own and, when one ends, fires this agent's "timer-done" trigger, which cuts in on whatever
+# is being said. Part of kitchen.txtpb (include_files).
+envelopes: ["timers"]
+goal_files: ["goals/timer.txtpb"]
+
+session_params { name: "timer" type: STRUCT }   # what the timers tool last returned
+
+intents { name: "set_timer" examples: ["set a timer for @sys.duration", "timer for @sys.duration", "@sys.duration timer",
+                                       "set a @sys.duration timer", "start a timer for @sys.duration", "remind me in @sys.duration",
+                                       "set a timer", "start a timer", "i need a timer"] }
+intents { name: "timers_left" examples: ["how long left", "how much time is left", "how long is left on the timer", "check the timer",
+                                         "how are my timers", "what timers are running", "how long on the timer"] }
+intents { name: "cancel_timer" examples: ["cancel the timer", "stop the timer", "cancel all timers", "turn off the timer",
+                                          "cancel the timers", "never mind the timer"] }
+
+envelope_defs {
+  name: "timers"
+  routes { intent: "set_timer" target: "flow:timer" }
+  routes {
+    intent: "timers_left"
+    steps { call_tool { name: "timers" args { key: "action" value: "'status'" } into: "$session.timer" } }
+    steps { say { text: "${session.timer.summary}" } }
+  }
+  routes {
+    intent: "cancel_timer"
+    steps { call_tool { name: "timers" args { key: "action" value: "'cancel'" } into: "$session.timer" } }
+    steps { say { text: "${session.timer.summary}" } }
+  }
+}
+
+# How long: said on the way in ("set a timer for 10 minutes"), or asked.
+flows {
+  name: "timer"
+  start_page: "how_long"
+  pages {
+    name: "how_long"
+    form { goal: "timer" }
+    routes {
+      condition: "$form.complete"
+      steps { call_tool { name: "timers" args { key: "action" value: "'start'" } args { key: "duration" value: "$form.duration" }
+                          args { key: "label" value: "'kitchen'" } into: "$session.timer" } }
+      steps { say { text: "Timer set for ${session.timer.duration_text}." } }
+      target: "END_FLOW"
+    }
+    routes { condition: "$form.failed" steps { say { text: "Sorry, I didn't catch how long." } } target: "END_FLOW" }
+    routes { intent: "sys.cancel" steps { say { text: "Okay, no timer." } } target: "END_FLOW" }
+  }
+}
+
+# A timer ended (Timers fires "timer-done" with its label): said now, over anything else.
+triggers {
+  name: "timer_done"
+  source { app_event { name: "timer-done" } }
+  action { say { text: ["Ding! The ${trigger.payload.label} timer is done.", "Time's up for the ${trigger.payload.label}!"] } }
+  delivery { interrupt: IMMEDIATE priority: HIGH }
+}

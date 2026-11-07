@@ -68,6 +68,10 @@ namespace va {
             std::shared_ptr<audio::TurnDetectionProvider> _provider;
             std::atomic<bool> _agentIsSpeaking{ false };
             bool _userSpeechOpen{ false };  // VAD between STARTING and ENDED
+            bool _patient{ false };         // the question's answer has pauses (TurnPolicyFrame): only the VAD's end ends it
+            // A turn end at a pause held back because the agent was speaking: the VAD's end ends the turn
+            // (the provider, having called it, won't again).
+            bool _pauseEndHeld{ false };
             // A user turn START is held while the VAD is only STARTING and sent once speech is
             // confirmed (ONGOING): a noise blip (STARTING -> QUIET) must not barge in on the agent.
             transport::VADState _vadState{ transport::VADState::QUIET };

@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 #include <chrono>
@@ -33,7 +34,8 @@ namespace va {
             TOOL_CALL,        // LLM-requested tool invocation
             TOOL_RESULT,      // Result returned by a tool handler
             SPEAKER_ENROLLMENT,     // Speaker enrollment request / outcome
-            SPEAKER_IDENTIFICATION  // Which enrolled speaker produced an utterance
+            SPEAKER_IDENTIFICATION, // Which enrolled speaker produced an utterance
+            USER_TURN               // One complete user turn, assembled by TurnAssemblerProcessor
         };
 
         inline std::string toString(FrameType type) {
@@ -56,6 +58,7 @@ namespace va {
             case FrameType::TOOL_RESULT:      return "TOOL_RESULT";
             case FrameType::SPEAKER_ENROLLMENT:     return "SPEAKER_ENROLLMENT";
             case FrameType::SPEAKER_IDENTIFICATION: return "SPEAKER_IDENTIFICATION";
+            case FrameType::USER_TURN:        return "USER_TURN";
             }
             return "UNKNOWN";
         }
@@ -190,9 +193,10 @@ namespace va {
             public:
             FrameType getType() const override { return FrameType::TEXT; }
 
-            /// A selectable choice presented to the user in a UI (populated by the LLM payload).
+            /// A selectable choice presented to the user in a UI (from the LLM payload or an agent's ask).
             struct Choice {
                 std::string text;
+                std::string value;   // what selecting it sends back as the user's words; empty: text
             };
 
             std::shared_ptr<Frame> clone() const override {
@@ -206,16 +210,59 @@ namespace va {
                 cloned->isFinal = isFinal;
                 cloned->isExpecting = isExpecting;
                 cloned->choices = choices;
+                cloned->ssml = ssml;
+                cloned->interruptible = interruptible;
+                cloned->voice = voice;
+                cloned->speed = speed;
+                cloned->uiJson = uiJson;
+                cloned->expectBytes = expectBytes;
+                cloned->sensitiveValues = sensitiveValues;
+                cloned->turnId = turnId;
                 return cloned;
             }
 
             std::string text;                  // Text content
-            std::string language;              // Language code (e.g., "en-US")
+            std::string language;              // the text's language ("en-US", "fr-FR"); empty: unknown
             bool isFinal = true;               // false = mid-stream chunk; true = last chunk of a response
             bool isExpecting = false;          // true = LLM expects a user response (set on final chunk only)
             std::vector<Choice> choices;       // UI choices presented to the user (non-empty when LLM restricts valid responses)
+            std::string ssml;                  // spoken instead of text by a provider that supportsSsml()
+            bool interruptible = true;         // false: the user can't talk over this frame's audio
+            std::string voice;                 // another of the voice provider's voices for this text; empty: its own
+            float speed = 0;                   // 0: the voice's usual pace; 1.2 faster, 0.8 slower
+            std::string uiJson;                // app UI for the reply, a JSON object (set on the final chunk only)
+            std::string expectBytes;           // what the user is expected to say, a serialized vasdk.flow.Expectation (an agent's final chunk only)
+            std::vector<std::string> sensitiveValues;   // values to mask wherever the text is shown or logged (an agent's replies)
+            uint64_t turnId = 0;               // the UserTurnFrame::turnId this answers; 0: not a reply (a greeting, a trigger)
+        };
 
-            TextFrame() : language("en-US") {}
+        /**
+         * @brief Sent upstream with each reply of an agent, for AgentStateProcessor: how long the
+         *        mic stays open after that reply, instead of its setFollowUpListenMs() value.
+         */
+        class VASDK_EXPORT FollowUpListenFrame : public Frame {
+            public:
+            FrameType getType() const override { return FrameType::CONTROL; }
+            std::shared_ptr<Frame> clone() const override { return std::make_shared<FollowUpListenFrame>(*this); }
+
+            std::optional<int> listenMs;   // unset: setFollowUpListenMs()'s value
+            int atLeastMs = 0;             // open at least this long: an answer is awaited (-1 still never closes)
+        };
+
+        /**
+         * @brief How to listen for the user's next turn, sent upstream with an agent's question:
+         *        VADFrameProcessor and TurnDetectionProcessor adjust when the turn ends, and
+         *        TranscriptionFrameProcessor gives the recognizer the words to expect.
+         */
+        class VASDK_EXPORT TurnPolicyFrame : public Frame {
+            public:
+            enum class TurnEnd { Normal, Patient, Snappy };
+            FrameType getType() const override { return FrameType::CONTROL; }
+            std::shared_ptr<Frame> clone() const override { return std::make_shared<TurnPolicyFrame>(*this); }
+
+            TurnEnd turnEnd = TurnEnd::Normal;   // Patient: pauses don't end it (a phone number); Snappy: a quick yes
+            std::vector<std::string> hints;      // words the answer may hold
+            bool privateAnswer = false;          // the answer to a private question (a card number): masked in every log
         };
 
         /**
@@ -393,16 +440,65 @@ namespace va {
                 cloned->transcriptionResult = transcriptionResult;
                 cloned->isFinal = isFinal;
                 cloned->isBackchannel = isBackchannel;
+                cloned->sensitive = sensitive;
                 cloned->isFollowUp = isFollowUp;
                 return cloned;
             }
 
             bool isFinal;              // Whether this is a final transcription result
             bool isBackchannel = false; // Final of a dismissed back-channel ("mm-hmm"); recorded in history, never answered
+            bool sensitive = false;     // answers a private question (a card number): masked wherever shown or logged
             bool isFollowUp = false;    // Interrupted turn + its continuation, as one message: the text the LLM received
             va::audio::TranscriptionResult transcriptionResult; // Full result with word-level data, alternatives, and timing
 
             TranscriptionFrame() = default;
+        };
+
+        /**
+         * @brief One complete user turn: what to answer, emitted once the turn has ended.
+         *
+         * TurnAssemblerProcessor builds it from final transcriptions and turn-end signals;
+         * VAEngine::injectUserText sends one directly. Dialog processors (the LLM) answer
+         * these rather than raw transcriptions.
+         */
+        class VASDK_EXPORT UserTurnFrame : public Frame {
+            public:
+            FrameType getType() const override { return FrameType::USER_TURN; }
+
+            std::shared_ptr<Frame> clone() const override {
+                auto cloned = std::make_shared<UserTurnFrame>();
+                cloned->timestamp = timestamp;
+                cloned->sequenceId = sequenceId;
+                cloned->frameId = frameId;
+                cloned->sourceId = sourceId;
+                cloned->text = text;
+                cloned->confidence = confidence;
+                cloned->replacesPrevious = replacesPrevious;
+                cloned->turnId = turnId;
+                cloned->llmProfile = llmProfile;
+                return cloned;
+            }
+
+            std::string text;               // includes any earlier words the user resumed (merged)
+            float confidence = 0.0f;
+            bool replacesPrevious = false;  // the user resumed the previous turn: `text` starts with it,
+                                            // so the previous exchange must be undone before answering
+            uint64_t turnId = 0;            // increases with every turn
+            std::string llmProfile;         // the engine config's llm_profiles entry to answer it; "": llm
+        };
+
+        /**
+         * @brief Sent by TurnAssemblerProcessor just before a turn that replaces turn `turnId` (the
+         *        user resumed it): the reply to that turn is void wherever it is. DialogProcessor
+         *        neither says it nor passes the turn on, LLMProcessor cancels it and its exchange,
+         *        TTSFrameProcessor drops its TextFrames (queued, playing, or still to come).
+         */
+        class VASDK_EXPORT TurnReplacedFrame : public Frame {
+            public:
+            FrameType getType() const override { return FrameType::CONTROL; }
+            std::shared_ptr<Frame> clone() const override { return std::make_shared<TurnReplacedFrame>(*this); }
+
+            uint64_t turnId = 0;
         };
 
         /**
@@ -438,7 +534,8 @@ namespace va {
             WAKE_WORD,
             BUTTON_PRESS,
             APP_COMMAND,
-            SCHEDULED
+            SCHEDULED,
+            PUSH_TO_TALK    // triggerData "down" while the button is held, "up" when released
         };
 
         class VASDK_EXPORT TriggerFrame : public Frame {
@@ -652,7 +749,9 @@ namespace va {
             USER_SPOKE_WHILE_THINKING,
             INTERRUPT_RESOLVED,
             BARGE_IN_PENDING,   // SPEAKING -> SPEAKING: user speech over the agent, not yet classified
-            BACKCHANNEL         // SPEAKING -> SPEAKING: that speech was a back-channel; playback resumes
+            BACKCHANNEL,        // SPEAKING -> SPEAKING: that speech was a back-channel; playback resumes
+            PUSH_TO_TALK,       // IDLE -> LISTENING on the button going down; LISTENING -> IDLE on release
+            FOLLOW_UP_WINDOW_CLOSED  // nobody spoke in the follow-up window: IDLE, or LISTENING when always on
         };
 
         /// What agent playback does while a barge-in is pending classification.
@@ -688,6 +787,8 @@ namespace va {
             case AgentStateTransition::INTERRUPT_RESOLVED:        return "INTERRUPT_RESOLVED";
             case AgentStateTransition::BARGE_IN_PENDING:          return "BARGE_IN_PENDING";
             case AgentStateTransition::BACKCHANNEL:               return "BACKCHANNEL";
+            case AgentStateTransition::PUSH_TO_TALK:              return "PUSH_TO_TALK";
+            case AgentStateTransition::FOLLOW_UP_WINDOW_CLOSED:   return "FOLLOW_UP_WINDOW_CLOSED";
             }
             return "UNKNOWN";
         }
@@ -706,6 +807,7 @@ namespace va {
                 cloned->previousState     = previousState;
                 cloned->transition        = transition;
                 cloned->triggerConfidence = triggerConfidence;
+                cloned->listenWindowMs    = listenWindowMs;
                 return cloned;
             }
 
@@ -715,6 +817,9 @@ namespace va {
             /// Confidence of the event that triggered this transition (0–1).
             /// For USER_STOPPED_SPEAKING this is the turn-detection model probability.
             float                triggerConfidence{ 0.0f };
+            /// Set when a reply ends: the follow-up window that opened, in ms (-1: until further notice).
+            /// 0: no window opened.
+            int                  listenWindowMs{ 0 };
         };
 
         /**

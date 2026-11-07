@@ -1,0 +1,34 @@
+# proto-file: vasdk/goal/goal.proto
+# proto-message: vasdk.goal.GoalDefinition
+#
+# What the booking page's form collects.
+name: "booking"
+objective: "Book a garage service."
+require_confirmation: true
+confirm: "So that's $form.service on $form.day at $form.time, for $form.service.price dollars, and we'll call you at $form.phone. Shall I book it?"
+slots {
+  name: "service"
+  entity: "@service"
+  prompt: "Sure. Is it for an oil change or a tire repair?"
+  reprompt: "We do oil changes and tire repairs. Which one do you need?"
+}
+slots {
+  name: "day"
+  type: ENUM
+  values: ["tomorrow", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]
+  prompt: "Which day works for you?"
+  reprompt: "Sorry, which day? We're open Monday to Saturday."
+}
+slots {
+  name: "time"
+  entity: "@available_time"
+  prompt: "We have $entities.available_time free. Which time suits you?"
+  reprompt: "Sorry, that time isn't free. We have $entities.available_time."
+}
+slots {
+  name: "phone"
+  type: PHONE
+  sensitive: true   # masked in events and logs; the app may hide what's typed
+  prompt: "And what's the best number to reach you?"
+  reprompt: "Sorry, I need a ten-digit phone number. What's the best number to reach you?"
+}

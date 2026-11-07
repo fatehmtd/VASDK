@@ -668,11 +668,10 @@ void ParakeetTranscriptionProvider::inferenceLoop()
                         if (!words.empty() && !_cachedPartialWords.empty()
                             && words.front().text != _cachedPartialWords.front().text
                             && _cachedPartialWords.front().confidence > words.front().confidence) {
+                            // Not the words: an answer may be private (VASDK masks it in its own logs).
                             spdlog::info("[Parakeet] Boundary word substituted: "
-                                         "final='{}' (conf={:.1f}%) → partial='{}' (conf={:.1f}%)",
-                                         words.front().text,
+                                         "final's (conf={:.1f}%) → partial's (conf={:.1f}%)",
                                          words.front().confidence * 100.0f,
-                                         _cachedPartialWords.front().text,
                                          _cachedPartialWords.front().confidence * 100.0f);
                             words.front().text       = _cachedPartialWords.front().text;
                             words.front().confidence = _cachedPartialWords.front().confidence;

@@ -1,13 +1,22 @@
 package com.vasdk.android
 
+import vasdk.engine.Events.Event
+import vasdk.flow.StepOutcomeOuterClass.StepOutcome
 import android.content.Context
 import android.content.ContextWrapper
+import android.net.ConnectivityManager
+import android.net.Network
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import androidx.annotation.Keep
+import com.vasdk.android.services.TriggerBridge
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import org.json.JSONObject
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import java.io.FileOutputStream
 
 /** Download URL, GGUF filename, and chat format for one local LLM preset. */
@@ -165,6 +174,61 @@ class VasdkEngine private constructor(
     private var listener: Listener? = null
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    //  The agent (vasdk/flow/agent.proto): answers what it understands before the LLM
+
+    /** An agent in the app's assets ("agents/phone/agent.txtpb", with its files beside it); null: none. Before init(). */
+    var agentAsset: String? = null
+    private val agentTools = ConcurrentHashMap<String, (String) -> String>()
+    private val agentSteps = ConcurrentHashMap<String, (ByteArray, AgentTurn) -> StepOutcome>()
+
+    /**
+     * A tool for the agent's call_tool steps, written in Kotlin: gets the step's args as a JSON
+     * object and returns its result as JSON ({"error": "..."} fails it). Runs on a native thread
+     * and may block. Before init().
+     */
+    fun registerAgentTool(name: String, tool: (argsJson: String) -> String) { agentTools[name] = tool }
+
+    /** Where a step written in Kotlin runs: what the user said, and the agent's flow and page. */
+    data class AgentTurn(val text: String, val flow: String, val page: String)
+
+    /**
+     * A step for the agent's `custom { [type.googleapis.com/<paramsType>] { ... } }` steps, written in
+     * Kotlin: gets its params serialized (parse them with the type's class: `Points.parseFrom(params)`)
+     * and the turn, and returns a vasdk.flow.StepOutcome: `stepOutcome { say += "Noted."; goto = "done" }`.
+     * Before init().
+     */
+    fun registerAgentStep(paramsType: String, step: (params: ByteArray, turn: AgentTurn) -> StepOutcome) {
+        agentSteps[paramsType] = step
+    }
+
+    /**
+     * Replaces a dynamic entity's values for the conversation, e.g. the phone book as @contact
+     * (ContactsEntity.values): a JSON array of {"value", "spoken", "synonyms"}. After start().
+     */
+    fun setEntityValues(name: String, valuesJson: String): Boolean = synchronized(VasdkEngine::class.java) {
+        isNativeStarted && nativeSetEntityValues(name, valuesJson)
+    }
+
+    private val eventFlow = MutableSharedFlow<Event>(extraBufferCapacity = 256)
+    /** Everything the engine reports, each a vasdk.engine.Event (vasdk/engine/events.proto): `event.kindCase`, `event.agentReply.text`. */
+    val events: SharedFlow<Event> = eventFlow.asSharedFlow()
+
+    // The agent asset and the files beside it, copied where native code can read them.
+    private fun extractAgent(asset: String): String? = try {
+        val folder = asset.substringBeforeLast('/', "")
+        val target = File(contextWrapper.filesDir, folder.ifEmpty { "agent" })
+        target.mkdirs()
+        for (name in contextWrapper.assets.list(folder).orEmpty()) {
+            val source = if (folder.isEmpty()) name else "$folder/$name"
+            if (contextWrapper.assets.list(source).orEmpty().isNotEmpty()) continue   // a folder (tests): skipped
+            contextWrapper.assets.open(source).use { input -> File(target, name).outputStream().use { input.copyTo(it) } }
+        }
+        File(target, asset.substringAfterLast('/')).absolutePath
+    } catch (e: Exception) {
+        Log.e(TAG, "Could not extract the agent $asset", e)
+        null
+    }
+
     fun setListener(l: Listener?) {
         listener = l
     }
@@ -202,7 +266,7 @@ class VasdkEngine private constructor(
             )
         }
         if (ttsProvider == TtsProvider.PHONON) {
-            // phonon-31m-en: the public (non-gated) English checkpoint, CC BY-NC 4.0.
+            // phonon-31m-en: the public (non-gated) English checkpoint, Apache 2.0.
             modelRequests.add(
                 ModelDownloadRequest(
                     targetDir = File(contextWrapper.cacheDir, "phonon_tts"),
@@ -362,46 +426,163 @@ class VasdkEngine private constructor(
                 Log.e(TAG, "Failed to extract system CA bundle; cloud TLS connections will fail")
             }
 
-            isNativeInitialized = nativeInit(
+            val engineConfig = engineConfigText(
+                modelsDir = contextWrapper.cacheDir.absolutePath,
                 vadModelPath = modelMap[R.raw.silero_vad]!!,
-                turnDetectionModelPath = modelMap[R.raw.smart_turn_v3]!!,
-                speakerModelPath = if (speakerModelFile.exists()) speakerModelFile.absolutePath else "",
-                nativeLibDir = contextWrapper.applicationInfo.nativeLibraryDir,
-                sttProvider = sttProvider.id,
-                sttStreaming = sttStreaming,
+                turnModelPath = modelMap[R.raw.smart_turn_v3]!!,
                 sttModelDir = sttModelDir.absolutePath,
-                llmModelPath = if(useLocalLLM) {llmModelFile.absolutePath} else { "" },
-                llmChatFormat = llmModelMeta.format,
-                ttsProvider = ttsProvider.id,
                 ttsModelDir = ttsModelDir.absolutePath,
-                ttsStylePath = "",
+                caBundlePath = caBundlePath
+            )
+            val agentPath = agentAsset?.let { extractAgent(it) } ?: ""
+            isNativeInitialized = nativeInit(
+                engineConfig = engineConfig,
+                agentPath = agentPath,
+                nativeLibDir = contextWrapper.applicationInfo.nativeLibraryDir,
+                speakerModelPath = if (speakerModelFile.exists()) speakerModelFile.absolutePath else "",
                 useLocalLLM = useLocalLLM,
-                llmApiKey = BuildConfig.LLM_API_KEY,
-                llmEndpoint = BuildConfig.LLM_ENDPOINT,
-                llmModel = BuildConfig.LLM_MODEL,
+                llmModelPath = if (useLocalLLM) llmModelFile.absolutePath else "",
+                llmChatFormat = llmModelMeta.format,
                 systemPrompt = contextWrapper.getString(R.string.default_system_prompt),
                 formatInstruction = contextWrapper.getString(R.string.response_format_instruction),
                 toolCallExceptionClause = contextWrapper.getString(R.string.tool_call_exception_clause),
-                sonioxApiKey = BuildConfig.SONIOX_API_KEY,
-                deepgramApiKey = BuildConfig.DEEPGRAM_API_KEY,
-                gladiaApiKey = BuildConfig.GLADIA_API_KEY,
-                cartesiaApiKey = BuildConfig.CARTESIA_API_KEY,
-                cartesiaVoiceId = BuildConfig.CARTESIA_VOICE_ID,
-                fishaudioApiKey = BuildConfig.FISHAUDIO_API_KEY,
-                fishaudioVoiceId = BuildConfig.FISHAUDIO_VOICE_ID,
-                gradiumApiKey = BuildConfig.GRADIUM_API_KEY,
-                gradiumVoiceId = BuildConfig.GRADIUM_VOICE_ID,
-                caBundlePath = caBundlePath
+                agentTools = agentTools.keys.toTypedArray(),
+                agentSteps = agentSteps.keys.toTypedArray()
             )
             return isNativeInitialized
         }
+    }
+
+    /**
+     * The engine config (vasdk/engine/engine_config.proto, text proto) for the current settings:
+     * which providers, their keys and model folders, audio formats, always-on listening and
+     * turn-taking, and the cloud LLM. Keys come from BuildConfig, never from a file.
+     */
+    private fun engineConfigText(modelsDir: String, vadModelPath: String, turnModelPath: String,
+                                 sttModelDir: String, ttsModelDir: String, caBundlePath: String): String {
+        fun quoted(value: String) = "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+        fun options(type: String, fields: String) = "options { [type.googleapis.com/vasdk.providers.$type] { $fields } }"
+        fun cloud(apiKey: String, voiceId: String = "") = options("CloudOptions",
+            "api_key: ${quoted(apiKey)} voice_id: ${quoted(voiceId)} ca_bundle_path: ${quoted(caBundlePath)}")
+        val stt = when (sttProvider) {
+            SttProvider.PARAKEET -> options("LocalSttOptions", "model_dir: ${quoted(sttModelDir)} idle_timeout_ms: 550 partial_interval_ms: 150")
+            SttProvider.WHISTLE -> options("LocalSttOptions", "model_dir: ${quoted(sttModelDir)} idle_timeout_ms: 550 partial_interval_ms: 250")
+            SttProvider.VOZ -> ""
+            SttProvider.SONIOX -> cloud(BuildConfig.SONIOX_API_KEY)
+            SttProvider.DEEPGRAM -> cloud(BuildConfig.DEEPGRAM_API_KEY)
+            SttProvider.GLADIA -> cloud(BuildConfig.GLADIA_API_KEY)
+            SttProvider.CARTESIA -> cloud(BuildConfig.CARTESIA_API_KEY)
+            SttProvider.FISHAUDIO -> cloud(BuildConfig.FISHAUDIO_API_KEY)
+            SttProvider.GRADIUM -> cloud(BuildConfig.GRADIUM_API_KEY)
+        }
+        val tts = when (ttsProvider) {
+            TtsProvider.POCKET -> options("LocalTtsOptions", "model_dir: ${quoted(ttsModelDir)} voice: \"jean\" steps: 4 prebuffer_ms: 500")
+            TtsProvider.PHONON -> options("LocalTtsOptions", "model_dir: ${quoted(ttsModelDir)} voice: \"default\"")
+            TtsProvider.MOSS -> options("LocalTtsOptions", "model_dir: ${quoted(ttsModelDir)} prebuffer_ms: 400")
+            TtsProvider.SONIOX -> cloud(BuildConfig.SONIOX_API_KEY)
+            TtsProvider.DEEPGRAM -> cloud(BuildConfig.DEEPGRAM_API_KEY)
+            TtsProvider.CARTESIA -> cloud(BuildConfig.CARTESIA_API_KEY, BuildConfig.CARTESIA_VOICE_ID)
+            TtsProvider.FISHAUDIO -> cloud(BuildConfig.FISHAUDIO_API_KEY, BuildConfig.FISHAUDIO_VOICE_ID)
+            TtsProvider.GRADIUM -> cloud(BuildConfig.GRADIUM_API_KEY, BuildConfig.GRADIUM_VOICE_ID)
+        }
+        // Gladia only streams: its live API has no whole-segment call.
+        val streaming = sttStreaming || sttProvider == SttProvider.GLADIA
+        val llm = if (useLocalLLM) "llm { history: 40 }" else
+            "llm { endpoint: ${quoted(BuildConfig.LLM_ENDPOINT)} model: ${quoted(BuildConfig.LLM_MODEL)} " +
+                "api_key: ${quoted(BuildConfig.LLM_API_KEY)} effort: ${quoted(BuildConfig.LLM_REASONING_EFFORT)} history: 100 }"
+        return """
+            models_dir: ${quoted(modelsDir)}
+            audio { input { sample_rate: 16000 } output { sample_rate: 24000 } frame_ms: 125 }
+            activation { mode: ALWAYS_ON }
+            providers {
+              vad { id: "silero" ${options("SileroOptions", "model_path: ${quoted(vadModelPath)}")} }
+              turn { id: "smartturn-v3" ${options("SmartTurnOptions", "model_path: ${quoted(turnModelPath)}")} }
+              stt { id: ${quoted(sttProvider.id)} $stt fallback: ["parakeet"]
+                    fallback_options { key: "parakeet" value { [type.googleapis.com/vasdk.providers.LocalSttOptions] {
+                      model_dir: ${quoted(File(modelsDir, "parakeet").absolutePath)} idle_timeout_ms: 550 partial_interval_ms: 150 } } } }
+              tts { id: ${quoted(ttsProvider.id)} $tts fallback: ["pocket"]
+                    fallback_options { key: "pocket" value { [type.googleapis.com/vasdk.providers.LocalTtsOptions] {
+                      model_dir: ${quoted(File(modelsDir, "pocket_tts").absolutePath)} voice: "jean" steps: 4 prebuffer_ms: 500 } } } }
+            }
+            turn_taking {
+              streaming_transcription: $streaming
+              voice_activity { start_ms: 250 min_speech_ms: 250 pause_ms: 500 end_silence_ms: 250 lookback_factor: 5 }
+            }
+            $llm
+        """.trimIndent()
     }
 
     fun start(): Boolean {
         synchronized(VasdkEngine::class.java) {
             if (isNativeStarted) return true
             isNativeStarted = nativeStart()
+            if (isNativeStarted) {
+                watchNetwork(true)
+                // Schedule triggers: picked up where the last run left them (one due meanwhile is
+                // said at the first check), and kept each minute for the alarm (TriggerBridge).
+                nativeRestoreTriggerState(TriggerBridge.savedState(contextWrapper))
+                keepTriggers.postDelayed(keepTriggersTick, KEEP_TRIGGERS_MS)
+            }
             return isNativeStarted
+        }
+    }
+
+    /**
+     * Whether the network is up. Down: speech is recognized and spoken by the on-device models
+     * (Parakeet, Pocket, when downloaded) and the cloud LLM isn't asked; up: back to the chosen
+     * providers. Called by the engine itself from the system's connectivity changes while started.
+     */
+    fun setNetworkAvailable(available: Boolean) {
+        synchronized(VasdkEngine::class.java) {
+            if (isNativeStarted) nativeSetNetworkAvailable(available)
+        }
+    }
+
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) = setNetworkAvailable(true)
+        override fun onLost(network: Network) = setNetworkAvailable(false)
+    }
+    private var watchingNetwork = false
+
+    private fun watchNetwork(watch: Boolean) {
+        val connectivity = contextWrapper.getSystemService(ConnectivityManager::class.java) ?: return
+        if (watch == watchingNetwork) return
+        watchingNetwork = watch
+        if (watch) connectivity.registerDefaultNetworkCallback(networkCallback)
+        else connectivity.unregisterNetworkCallback(networkCallback)
+    }
+
+    /**
+     * Fires one of the agent's triggers by its app event name (or its own), with a JSON object
+     * for `$trigger.payload`: `fireTrigger("car-ready", """{"car": "Golf"}""")`. The agent's
+     * delivery rules decide when it's said.
+     */
+    fun fireTrigger(name: String, payloadJson: String = "{}") {
+        synchronized(VasdkEngine::class.java) {
+            if (isNativeStarted) nativeFireTrigger(name, payloadJson)
+        }
+    }
+
+    /** Keeps the schedule triggers' state and sets the alarm for the next one (TriggerBridge). */
+    private fun keepTriggerState() {
+        keepTriggers.removeCallbacks(keepTriggersTick)
+        TriggerBridge.keep(contextWrapper, nativeTriggerState(), nativeNextScheduledTriggerMs())
+    }
+    private val keepTriggers = Handler(Looper.getMainLooper())
+    private val keepTriggersTick = object : Runnable {
+        override fun run() {
+            synchronized(VasdkEngine::class.java) {
+                if (!isNativeStarted) return
+                TriggerBridge.keep(contextWrapper, nativeTriggerState(), nativeNextScheduledTriggerMs())
+            }
+            keepTriggers.postDelayed(this, KEEP_TRIGGERS_MS)
+        }
+    }
+
+    /** A user turn as if spoken: typed input, or a test on an emulator without a microphone. */
+    fun injectText(text: String) {
+        synchronized(VasdkEngine::class.java) {
+            if (isNativeStarted) nativeInjectText(text)
         }
     }
 
@@ -513,6 +694,8 @@ class VasdkEngine private constructor(
     fun stop() {
         synchronized(VasdkEngine::class.java) {
             if (isNativeStarted) {
+                watchNetwork(false)
+                keepTriggerState()
                 nativeStop()
                 isNativeStarted = false
             }
@@ -522,6 +705,7 @@ class VasdkEngine private constructor(
     fun release() {
         synchronized(VasdkEngine::class.java) {
             if (isNativeInitialized) {
+                watchNetwork(false)
                 nativeRelease()
                 VozRecognizer.close()
                 isNativeInitialized = false
@@ -691,10 +875,16 @@ class VasdkEngine private constructor(
                         var bytesRead: Int
                         var currentSize = resumeFrom
                         var lastLoggedProgress = 0L
+                        // A read is a few KB: reporting each one queued tens of thousands of
+                        // notification updates on the main thread (Android sheds them at ~5 a
+                        // second), and the download's end waited behind them for hours.
+                        var lastReportedAt = 0L
                         while (input.read(buffer).also { bytesRead = it } != -1) {
                             output.write(buffer, 0, bytesRead)
                             currentSize += bytesRead
-                            if (totalSize > 0) {
+                            val now = android.os.SystemClock.elapsedRealtime()
+                            if (totalSize > 0 && (now - lastReportedAt >= 250 || currentSize >= totalSize)) {
+                                lastReportedAt = now
                                 onProgress(currentSize.toFloat() / totalSize)
                                 if (currentSize - lastLoggedProgress > 5 * 1024 * 1024) {
                                     Log.v(TAG, "Progress for ${destination.name}: $currentSize / $totalSize")
@@ -760,42 +950,57 @@ class VasdkEngine private constructor(
         return listener?.onToolCall(toolName, argsJson) ?: "{\"error\":\"no listener\"}"
     }
 
+    // The agent's Kotlin tools and steps, called synchronously from a native thread.
+    @Keep
+    fun onAgentTool(name: String, argsJson: String): String = try {
+        agentTools[name]?.invoke(argsJson) ?: JSONObject().put("error", "no tool $name").toString()
+    } catch (e: Exception) {
+        JSONObject().put("error", e.message ?: "failed").toString()
+    }
+
+    @Keep
+    fun onAgentStep(paramsType: String, params: ByteArray, text: String, flow: String, page: String): ByteArray = try {
+        (agentSteps[paramsType]?.invoke(params, AgentTurn(text, flow, page)) ?: StepOutcome.getDefaultInstance()).toByteArray()
+    } catch (e: Exception) {
+        Log.e(TAG, "Agent step $paramsType failed", e)
+        StepOutcome.getDefaultInstance().toByteArray()
+    }
+
+    @Keep
+    fun onEngineEvent(event: ByteArray) {
+        try {
+            eventFlow.tryEmit(Event.parseFrom(event))
+        } catch (e: Exception) {
+            Log.e(TAG, "Not an engine event", e)
+        }
+    }
+
     //  Native declarations 
 
-    private external fun nativeInit(vadModelPath: String,
-                                    turnDetectionModelPath: String,
-                                    speakerModelPath: String,
+    private external fun nativeInit(engineConfig: String,
+                                    agentPath: String,
                                     nativeLibDir: String,
-                                    sttProvider: String,
-                                    sttStreaming: Boolean,
-                                    sttModelDir: String,
+                                    speakerModelPath: String,
+                                    useLocalLLM: Boolean,
                                     llmModelPath: String,
                                     llmChatFormat: String,
-                                    ttsProvider: String,
-                                    ttsModelDir: String,
-                                    ttsStylePath: String,
-                                    useLocalLLM: Boolean,
-                                    llmApiKey: String,
-                                    llmEndpoint: String,
-                                    llmModel: String,
                                     systemPrompt: String,
                                     formatInstruction: String,
                                     toolCallExceptionClause: String,
-                                    sonioxApiKey: String,
-                                    deepgramApiKey: String,
-                                    gladiaApiKey: String,
-                                    cartesiaApiKey: String,
-                                    cartesiaVoiceId: String,
-                                    fishaudioApiKey: String,
-                                    fishaudioVoiceId: String,
-                                    gradiumApiKey: String,
-                                    gradiumVoiceId: String,
-                                    caBundlePath: String): Boolean
+                                    agentTools: Array<String>,
+                                    agentSteps: Array<String>): Boolean
     private external fun nativeStart(): Boolean
     private external fun nativeStop()
     private external fun nativeRelease()
     private external fun nativeTrigger()
     private external fun nativeResetConversation()
+    private external fun nativeFireTrigger(name: String, payloadJson: String)
+    private external fun nativeInjectText(text: String)
+    private external fun nativeNextScheduledTriggerMs(): Long
+    private external fun nativeTriggerState(): String
+    private external fun nativeRestoreTriggerState(state: String)
+    private external fun nativeSetNetworkAvailable(available: Boolean)
+    private external fun nativeSetEntityValues(name: String, valuesJson: String): Boolean
     private external fun nativeSetBackchannelConfig(enabled: Boolean, pendingPlaybackMode: Int,
                                                     historyMode: Int, tailOverlapMode: Int,
                                                     duckGainDecibels: Float, duckDurationMs: Int)
@@ -804,6 +1009,7 @@ class VasdkEngine private constructor(
     companion object {
         val TAG = VasdkEngine::class.java.name
         private const val SPEAKER_MODEL_FILE = "wespeaker_en_voxceleb_resnet34_LM.onnx"
+        private const val KEEP_TRIGGERS_MS = 60_000L
         private var instance: VasdkEngine? = null
         // Written from the init/download worker threads, read from the main thread
         @Volatile private var isNativeInitialized = false

@@ -56,6 +56,8 @@ public:
 
     void setAudioConfiguration(const va::audio::AudioConfig& config) override;
     va::audio::AudioConfig getAudioConfiguration() const override;
+    /// The words the next answer may hold (an agent's question): favoured with the config's keywords.
+    void setContextHints(const std::vector<std::string>& phrases) override;
 
     /**
      * @brief InferenceConfig
@@ -105,4 +107,5 @@ private:
     size_t _lastInferSamples = 0;
 
     InferenceConfig _inferenceConfig;
+    std::vector<std::string> _hints;   // under _mtx: from setContextHints
 };

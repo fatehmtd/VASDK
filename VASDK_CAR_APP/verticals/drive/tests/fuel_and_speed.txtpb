@@ -1,0 +1,9 @@
+# proto-file: vasdk/flow/test_case.proto
+# proto-message: vasdk.flow.FlowTestCase
+name: "drive: fuel and speed, read from the car"
+context { fields { key: "car" value { struct_value { fields { key: "drive" value { struct_value {
+  fields { key: "fuel_percent" value { number_value: 40 } } fields { key: "range_km" value { number_value: 260 } }
+  fields { key: "speed_kmh" value { number_value: 88 } } fields { key: "moving" value { bool_value: true } } } } } } } } }
+turns { user: "how far can I go" expect { said: "Fuel is at 40 percent: about 260 kilometers." } }
+turns { user: "thank you" expect { matched: true follow_up_listen_ms: 0 } }   # "thank" isn't "tank"
+turns { user: "how fast am I going" expect { said: "88 kilometers an hour." } }

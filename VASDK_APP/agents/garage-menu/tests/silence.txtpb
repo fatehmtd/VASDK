@@ -1,0 +1,7 @@
+# proto-file: vasdk/flow/test_case.proto
+# proto-message: vasdk.flow.FlowTestCase
+name: "silence asks again, then a person takes over after too many misses"
+turns { expect { page: "welcome" } }
+turns { no_input: true expect { event: "no-input" said_contains: ["Are you still there?", "Would you like to book a service"] } }
+turns { user: "my windshield is cracked" expect { event: "no-match" said_contains: "can't help with that here" } }
+turns { no_input: true expect { event: "max-reprompts" flow: "handoff" said: "Let me get someone to help you. Connecting you to a person now." ends_session: true } }

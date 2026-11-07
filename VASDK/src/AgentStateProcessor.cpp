@@ -11,14 +11,15 @@ namespace va {
     namespace pipeline {
 
         namespace {
-            // Lowercase, punctuation to spaces (keeping word-internal hyphens), common spellings unified.
-            std::vector<std::string> normalizedWords(const std::string& text) {
+            // Lowercase, punctuation to spaces (keeping word-internal hyphens).
+            std::vector<std::string> normalizedWords(const std::string& said) {
+                const std::string text = nlu::foldedText(said);
                 std::string cleaned;
                 cleaned.reserve(text.size());
                 for (size_t index = 0; index < text.size(); ++index) {
                     const unsigned char character = static_cast<unsigned char>(text[index]);
                     if (std::isalnum(character) || character >= 0x80) {
-                        cleaned += static_cast<char>(std::tolower(character));
+                        cleaned += static_cast<char>(character);
                     } else if (character == '\'') {
                         // "that's" -> "thats"
                     } else if (character == '-' && !cleaned.empty() && cleaned.back() != ' ' &&
@@ -31,18 +32,7 @@ namespace va {
                 std::vector<std::string> words;
                 std::istringstream stream(cleaned);
                 for (std::string word; stream >> word;) words.push_back(word);
-
-                std::vector<std::string> unified;
-                for (size_t index = 0; index < words.size(); ++index) {
-                    const std::string& word = words[index];
-                    const std::string next = index + 1 < words.size() ? words[index + 1] : std::string();
-                    if ((word == "uh" || word == "un") && (next == "huh" || next == "hu")) { unified.push_back("uh-huh"); ++index; }
-                    else if ((word == "mm" || word == "m") && (next == "hmm" || next == "hm")) { unified.push_back("mm-hmm"); ++index; }
-                    else if (word == "uhhuh" || word == "uh-hu") unified.push_back("uh-huh");
-                    else if (word == "mhmm" || word == "mmhmm" || word == "mm-hm" || word == "mhm-hmm") unified.push_back("mm-hmm");
-                    else unified.push_back(word);
-                }
-                return unified;
+                return words;   // spellings ("uh huh", "uhhuh") are each a phrase of the language
             }
         } // namespace
 
@@ -88,7 +78,38 @@ namespace va {
             return isFinal ? BackchannelVerdict::Backchannel : BackchannelVerdict::Undecided;
         }
 
-        AgentStateProcessor::AgentStateProcessor() = default;
+        bool isEcho(const std::string& heard, const std::string& spoken, const BackchannelConfig& backchannelConfig)
+        {
+            const auto words = normalizedWords(heard);
+            if (words.size() < 2) return false;
+            std::vector<std::string> interruptWords;
+            for (const auto& interruptWord : backchannelConfig.interruptWords)
+                for (auto& word : normalizedWords(interruptWord)) interruptWords.push_back(std::move(word));
+            const auto said = normalizedWords(spoken);
+            size_t own = 0;
+            for (const auto& word : words) {
+                if (std::find(interruptWords.begin(), interruptWords.end(), word) != interruptWords.end()) return false;
+                if (std::find(said.begin(), said.end(), word) != said.end()) ++own;
+            }
+            return static_cast<float>(own) >= backchannelConfig.echoMinShare * static_cast<float>(words.size());
+        }
+
+        bool AgentStateProcessor::echoes(const std::string& heard) const
+        {
+            if (!_backchannelConfig.rejectEcho || !_spokenTextProvider || heard.empty()) return false;
+            const bool echo = isEcho(heard, _spokenTextProvider(), _backchannelConfig);
+            if (echo) spdlog::info("[AgentStateProcessor] \"{}\" is the reply's own words (echo): not an interruption", heard);
+            return echo;
+        }
+
+        void useLanguageWords(BackchannelConfig& config, const nlu::Languages& languages) {
+            if (config.backchannelPhrases.empty()) config.backchannelPhrases = languages.backchannels();
+            if (config.interruptWords.empty()) config.interruptWords = languages.interruptions();
+        }
+
+        AgentStateProcessor::AgentStateProcessor() {
+            useLanguageWords(_backchannelConfig, _languages);
+        }
 
         AgentStateProcessor::~AgentStateProcessor() {
             stop();
@@ -128,6 +149,12 @@ namespace va {
                 _interruptPending = false;
             }
             _interruptTimeoutThread = std::thread(&AgentStateProcessor::interruptTimeoutLoop, this);
+            {
+                std::lock_guard<std::mutex> lock(_followUpMutex);
+                _followUpStop = false;
+                _followUpArmed = false;
+            }
+            _followUpThread = std::thread(&AgentStateProcessor::followUpLoop, this);
 
             if (_alwaysOn) {
                 transitionTo(transport::AgentState::LISTENING,
@@ -144,6 +171,12 @@ namespace va {
             }
             _interruptCv.notify_all();
             if (_interruptTimeoutThread.joinable()) _interruptTimeoutThread.join();
+            {
+                std::lock_guard<std::mutex> lock(_followUpMutex);
+                _followUpStop = true;
+            }
+            _followUpCv.notify_all();
+            if (_followUpThread.joinable()) _followUpThread.join();
             FrameProcessor::stop();
         }
 
@@ -158,6 +191,8 @@ namespace va {
             case transport::FrameType::SYNTHESIS_STATE:
             case transport::FrameType::AUDIO:
             return true;
+            case transport::FrameType::CONTROL:
+            return dynamic_cast<const transport::FollowUpListenFrame*>(frame.get()) != nullptr;
             default:
             return false;
             }
@@ -169,10 +204,21 @@ namespace va {
             std::shared_ptr<transport::Frame> frame, FlowDirection direction)
         {
             VASDK_CTRACK_NAME("Agent::processFrame");
+            {
+                std::lock_guard<std::mutex> lock(_pendingBackchannelMutex);
+                if (_pendingBackchannel) {
+                    _backchannelConfig = std::move(*_pendingBackchannel);
+                    _pendingBackchannel.reset();
+                }
+            }
             if (direction == FlowDirection::UPSTREAM) {
                 if (frame->getType() == transport::FrameType::SYNTHESIS_STATE) {
                     handleSynthesisStateFrame(
                         std::dynamic_pointer_cast<transport::SynthesisStateFrame>(frame));
+                } else if (auto window = std::dynamic_pointer_cast<transport::FollowUpListenFrame>(frame)) {
+                    std::lock_guard<std::mutex> lock(_followUpMutex);
+                    _nextReplyWindow = *window;
+                    return;   // for this stage only
                 }
                 pushUpstream(frame);
                 return;
@@ -245,10 +291,16 @@ namespace va {
 
         void AgentStateProcessor::handleUserTurnStarted(std::shared_ptr<transport::TurnStateFrame> frame)
         {
+            _userSpeaking = true;
             switch (_currentState.load()) {
             case transport::AgentState::SPEAKING: {
                 if (frame->type != transport::TurnStateFrame::TurnType::INTERRUPT) break;
-                if (!_backchannelConfig.enabled) {
+                const bool replyProtected = playbackProtected();
+                if (!_backchannelConfig.enabled && !replyProtected) {
+                    {
+                        std::lock_guard<std::mutex> lock(_backchannelMutex);
+                        clearOverlapLocked();   // speech held over a part that couldn't be interrupted
+                    }
                     transitionTo(transport::AgentState::INTERRUPTED,
                         transport::AgentStateTransition::BARGE_IN_INTERRUPT);
                     startInterruptTimeout();
@@ -266,7 +318,8 @@ namespace va {
                 const int playbackRemainingMs = _playbackRemainingMsProvider ? _playbackRemainingMsProvider() : -1;
                 const bool nearReplyEnd = _backchannelConfig.tailOverlapMode == TailOverlapMode::TreatAsTurn &&
                     playbackRemainingMs >= 0 && static_cast<uint32_t>(playbackRemainingMs) < _backchannelConfig.tailOverlapMs;
-                beginOverlap(nearReplyEnd ? OverlapKind::TailTurn : OverlapKind::PendingBargeIn);
+                if (replyProtected) spdlog::info("[AgentStateProcessor] User spoke over a part that can't be interrupted");
+                beginOverlap(nearReplyEnd || replyProtected ? OverlapKind::TailTurn : OverlapKind::PendingBargeIn);
                 break;
             }
             case transport::AgentState::THINKING:
@@ -275,12 +328,15 @@ namespace va {
                 startInterruptTimeout();
                 break;
             case transport::AgentState::LISTENING: {
+                cancelFollowUpWindow();
                 {
                     std::lock_guard<std::mutex> lock(_backchannelMutex);
                     _finalAfterSpeakingMode = FinalAfterSpeakingMode::None;  // a new turn supersedes it
                 }
+                // Reported although the state is unchanged: the turn assembler keeps the words of a
+                // paused sentence for its next turn, and the LLM drops its speculative request.
                 transitionTo(transport::AgentState::LISTENING,
-                    transport::AgentStateTransition::USER_STARTED_SPEAKING);
+                    transport::AgentStateTransition::USER_STARTED_SPEAKING, 0.0f, true);
                 break;
             }
             default:
@@ -291,6 +347,7 @@ namespace va {
 
         void AgentStateProcessor::handleUserTurnEnded(std::shared_ptr<transport::TurnStateFrame> frame)
         {
+            _userSpeaking = false;
             if (_currentState.load() == transport::AgentState::SPEAKING) {
                 handleOverlapUserTurnEnded();
                 return;
@@ -316,7 +373,13 @@ namespace va {
 
         void AgentStateProcessor::handleSystemTurnStarted(std::shared_ptr<transport::TurnStateFrame> frame)
         {
-            if (_currentState.load() == transport::AgentState::THINKING) {
+            const auto state = _currentState.load();
+            // From LISTENING too: speech nobody asked for (an agent's greeting, say()) is spoken
+            // like a reply, so the user can cut it and its echo isn't taken for a turn. From IDLE:
+            // the assistant speaks first (a trigger), and the follow-up window opens after it.
+            if (state == transport::AgentState::THINKING || state == transport::AgentState::IDLE ||
+                (state == transport::AgentState::LISTENING && !_userSpeaking)) {
+                cancelFollowUpWindow();
                 transitionTo(transport::AgentState::SPEAKING,
                     transport::AgentStateTransition::SYNTHESIS_STARTED);
             }
@@ -330,8 +393,7 @@ namespace va {
                 break;
             case transport::AgentState::INTERRUPTED: {
                 cancelInterruptTimeout();
-                resolveInterrupt(_alwaysOn ? transport::AgentState::LISTENING
-                                           : transport::AgentState::IDLE);
+                resolveInterrupt();
                 break;
             }
             default:
@@ -421,6 +483,12 @@ namespace va {
             case transport::TriggerType::BUTTON_PRESS:
                 handleButtonPressTrigger(frame);
                 break;
+            case transport::TriggerType::SCHEDULED:   // a reminder or app event wants the user's attention
+                handleWakeWordTrigger(frame);
+                break;
+            case transport::TriggerType::PUSH_TO_TALK:
+                handlePushToTalkTrigger(frame);
+                break;
             default:
                 break;
             }
@@ -481,6 +549,30 @@ namespace va {
             }
         }
 
+        void AgentStateProcessor::handlePushToTalkTrigger(std::shared_ptr<transport::TriggerFrame> frame)
+        {
+            if (frame->triggerData == "down") {
+                _pushToTalkHeld = true;
+                cancelFollowUpWindow();
+                switch (_currentState.load()) {
+                case transport::AgentState::IDLE:
+                    transitionTo(transport::AgentState::LISTENING, transport::AgentStateTransition::PUSH_TO_TALK);
+                    break;
+                case transport::AgentState::SPEAKING:
+                case transport::AgentState::THINKING:
+                    handleButtonPressTrigger(frame);   // talking over the reply cuts it, like the cancel button
+                    break;
+                default:
+                    break;
+                }
+                return;
+            }
+            _pushToTalkHeld = false;
+            // Released mid-sentence: the turn ends on its own and gets its answer.
+            if (!_alwaysOn && !_userSpeaking && _currentState.load() == transport::AgentState::LISTENING)
+                transitionTo(transport::AgentState::IDLE, transport::AgentStateTransition::PUSH_TO_TALK);
+        }
+
         void AgentStateProcessor::handleSynthesisStateFrame(
             std::shared_ptr<transport::SynthesisStateFrame> frame)
         {
@@ -493,7 +585,7 @@ namespace va {
 
         void AgentStateProcessor::transitionTo(
             transport::AgentState next, transport::AgentStateTransition reason,
-            float confidence, bool emitWhenUnchanged)
+            float confidence, bool emitWhenUnchanged, int listenWindowMs)
         {
             auto prev = _currentState.exchange(next);
             if (prev == next && !emitWhenUnchanged) return;  // no-op if state unchanged
@@ -530,16 +622,17 @@ namespace va {
                 }
             }
 
-            emitAgentStateFrame(next, prev, reason, confidence);
+            emitAgentStateFrame(next, prev, reason, confidence, listenWindowMs);
         }
 
         void AgentStateProcessor::emitAgentStateFrame(
             transport::AgentState current,
             transport::AgentState previous,
             transport::AgentStateTransition reason,
-            float confidence)
+            float confidence, int listenWindowMs)
         {
             auto f = std::make_shared<transport::AgentStateFrame>();
+            f->listenWindowMs = listenWindowMs;
             f->currentState = current;
             f->previousState = previous;
             f->transition = reason;
@@ -583,11 +676,8 @@ namespace va {
                 if (fired && _interruptPending) {
                     _interruptPending = false;
                     lock.unlock();
-                    auto next = _alwaysOn ? transport::AgentState::LISTENING
-                                          : transport::AgentState::IDLE;
-                    spdlog::warn("[AgentStateProcessor] Interrupt timeout - forcing {}",
-                        transport::toString(next));
-                    resolveInterrupt(next);
+                    spdlog::warn("[AgentStateProcessor] Interrupt timeout - resolving it");
+                    resolveInterrupt();
                 }
             }
         }
@@ -618,16 +708,25 @@ namespace va {
             const uint32_t durationMs = static_cast<uint32_t>(
                 static_cast<uint64_t>(audioFrame.numSamples) * 1000 / audioFrame.sampleRate);
             bool commitNow = false, decideNow = false;
+            std::string heardSoFar;
+            uint32_t pendingMs = 0;
             {
                 std::lock_guard<std::mutex> lock(_backchannelMutex);
                 if (_overlapKind != OverlapKind::PendingBargeIn) return;
                 if (!_userSpeechEnded) {
                     _pendingSpeechDurationMs += durationMs;
                     commitNow = _pendingSpeechDurationMs > _backchannelConfig.commitAfterPendingMs;
+                    heardSoFar = overlapTextLocked();
+                    pendingMs = _pendingSpeechDurationMs;
                 } else {
                     _audioDurationSinceSpeechEndMs += durationMs;
                     decideNow = _audioDurationSinceSpeechEndMs > _backchannelConfig.finalTranscriptionWaitMs;
                 }
+            }
+            if (commitNow && _backchannelConfig.rejectEcho && _spokenTextProvider) {
+                // Long speech over the agent may be its own voice from the speakers: decide by the words.
+                if (heardSoFar.empty()) commitNow = pendingMs > _backchannelConfig.commitAfterPendingMs + _backchannelConfig.echoWordsWaitMs;
+                else if (echoes(heardSoFar)) commitNow = false;
             }
             if (commitNow) commitBargeIn(false, "speech too long for a back-channel");
             else if (decideNow) decideOverlap();
@@ -671,7 +770,7 @@ namespace va {
                 decideOverlap();
                 return;
             }
-            if (classifyBackchannel(overlapText, false, _backchannelConfig) == BackchannelVerdict::Interrupt)
+            if (classifyBackchannel(overlapText, false, _backchannelConfig) == BackchannelVerdict::Interrupt && !echoes(overlapText))
                 commitBargeIn(userSpeechEnded, "words");
         }
 
@@ -688,7 +787,8 @@ namespace va {
                 // Deciding on a partial (no final arrived): no STT confidence to go on.
                 confidence = _overlapFinalText.empty() ? 1.0f : _overlapFinalConfidence;
             }
-            if (classifyBackchannel(overlapText, true, _backchannelConfig, confidence) == BackchannelVerdict::Backchannel)
+            if (classifyBackchannel(overlapText, true, _backchannelConfig, confidence) == BackchannelVerdict::Backchannel ||
+                echoes(overlapText))
                 dismissBackchannel();
             else
                 commitBargeIn(userSpeechEnded, "words after the user stopped");
@@ -697,6 +797,17 @@ namespace va {
         void AgentStateProcessor::commitBargeIn(bool userSpeechEnded, const char* reason)
         {
             std::shared_ptr<transport::TranscriptionFrame> forwardNow;
+            if (playbackProtected()) {
+                {
+                    // Pending since before the part began: it's now answered after the reply instead.
+                    std::lock_guard<std::mutex> lock(_backchannelMutex);
+                    if (_overlapKind != OverlapKind::PendingBargeIn) return;
+                    _overlapKind = OverlapKind::TailTurn;
+                }
+                spdlog::info("[AgentStateProcessor] Barge-in held ({}): this part can't be interrupted", reason);
+                transitionTo(transport::AgentState::SPEAKING, transport::AgentStateTransition::BACKCHANNEL, 0.0f, true);
+                return;
+            }
             {
                 std::lock_guard<std::mutex> lock(_backchannelMutex);
                 if (_overlapKind != OverlapKind::PendingBargeIn) return;
@@ -756,21 +867,86 @@ namespace va {
                         _finalAfterSpeakingMode = _overlapKind == OverlapKind::TailTurn
                             ? FinalAfterSpeakingMode::ReplayAsTurn : FinalAfterSpeakingMode::ClassifyThenReplay;
                     } else if (_overlapKind == OverlapKind::TailTurn ||
-                               classifyBackchannel(overlapTextLocked(), true, _backchannelConfig) != BackchannelVerdict::Backchannel) {
-                        replay = takeOverlapTranscriptionLocked(true);
+                               (classifyBackchannel(overlapTextLocked(), true, _backchannelConfig) != BackchannelVerdict::Backchannel &&
+                                !(_backchannelConfig.rejectEcho && _spokenTextProvider &&
+                                  isEcho(overlapTextLocked(), _spokenTextProvider(), _backchannelConfig)))) {
+                        replay = takeOverlapTranscriptionLocked(true);   // the reply's own echo isn't the user's turn
                     }
                     clearOverlapLocked();
                 }
             }
-            transitionTo(_alwaysOn ? transport::AgentState::LISTENING : transport::AgentState::IDLE,
-                transport::AgentStateTransition::SYNTHESIS_COMPLETED);
+            finishReply(transport::AgentStateTransition::SYNTHESIS_COMPLETED);
             if (forwardNow) pushDownstream(forwardNow);
             if (replay && _currentState.load() == transport::AgentState::LISTENING) replayHeldTurn(replay);
         }
 
-        void AgentStateProcessor::resolveInterrupt(transport::AgentState next)
+        void AgentStateProcessor::finishReply(transport::AgentStateTransition reason)
         {
-            transitionTo(next, transport::AgentStateTransition::INTERRUPT_RESOLVED);
+            transport::FollowUpListenFrame reply;
+            {
+                std::lock_guard<std::mutex> lock(_followUpMutex);
+                std::swap(reply, _nextReplyWindow);   // this reply's own window, used once
+            }
+            int windowMs = reply.listenMs.value_or(_followUpListenMs.load());
+            if (windowMs >= 0) windowMs = std::max(windowMs, reply.atLeastMs);
+            // Push-to-talk held through the reply: the user is answering now.
+            if (_pushToTalkHeld) windowMs = -1;
+            if (windowMs == 0) {
+                transitionTo(_alwaysOn ? transport::AgentState::LISTENING : transport::AgentState::IDLE, reason);
+                return;
+            }
+            transitionTo(transport::AgentState::LISTENING, reason, 0.0f, false, windowMs);
+            {
+                std::lock_guard<std::mutex> lock(_followUpMutex);
+                _followUpOpen = true;
+            }
+            if (windowMs > 0) armFollowUpWindow(windowMs);
+        }
+
+        void AgentStateProcessor::armFollowUpWindow(int ms)
+        {
+            {
+                std::lock_guard<std::mutex> lock(_followUpMutex);
+                _followUpArmed = true;
+                _followUpDeadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);
+            }
+            _followUpCv.notify_one();
+        }
+
+        void AgentStateProcessor::cancelFollowUpWindow()
+        {
+            {
+                std::lock_guard<std::mutex> lock(_followUpMutex);
+                _followUpOpen = _followUpArmed = false;
+            }
+            _followUpCv.notify_one();
+        }
+
+        void AgentStateProcessor::followUpLoop()
+        {
+            std::unique_lock<std::mutex> lock(_followUpMutex);
+            while (true) {
+                _followUpCv.wait(lock, [this] { return _followUpArmed || _followUpStop; });
+                if (_followUpStop) return;
+                const auto deadline = _followUpDeadline;
+                if (_followUpCv.wait_until(lock, deadline, [this, deadline] {
+                        return _followUpStop || !_followUpArmed || _followUpDeadline != deadline; }))
+                    continue;   // stopped, cancelled, or re-armed by a newer reply
+                _followUpArmed = _followUpOpen = false;
+                lock.unlock();
+                // Nobody spoke: back to waiting for the wake word or button.
+                if (_currentState.load() == transport::AgentState::LISTENING && !_userSpeaking) {
+                    transitionTo(_alwaysOn ? transport::AgentState::LISTENING : transport::AgentState::IDLE,
+                                 transport::AgentStateTransition::FOLLOW_UP_WINDOW_CLOSED, 0.0f, true);
+                }
+                lock.lock();
+            }
+        }
+
+        void AgentStateProcessor::resolveInterrupt()
+        {
+            finishReply(transport::AgentStateTransition::INTERRUPT_RESOLVED);
+            const auto next = _currentState.load();
             std::shared_ptr<transport::TranscriptionFrame> replay;
             {
                 std::lock_guard<std::mutex> lock(_backchannelMutex);

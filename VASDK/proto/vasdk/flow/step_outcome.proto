@@ -1,0 +1,15 @@
+// What a step written outside C++ (the C API, Kotlin, a remote client) asks the conversation to
+// do, applied with TurnContext::apply. Keys are checked: only $session.<declared param>,
+// $page.locals.<name> and, on a form page, $form.<slot> can be written; anything else is refused.
+syntax = "proto3";
+
+package vasdk.flow;
+
+import "google/protobuf/struct.proto";
+
+message StepOutcome {
+  map<string, google.protobuf.Value> set = 1;   // key → value
+  repeated string unset = 2;                    // keys to empty
+  repeated string say = 3;                      // added to the reply, as they are
+  string goto = 4;                              // as a goto step's target; empty: carry on
+}

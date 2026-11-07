@@ -29,6 +29,8 @@ public:
     va::audio::AudioConfig getAudioConfiguration() const override;
 
     bool synthesizeSpeech(const std::string& text) override;
+    /// Another voice id from the account, and a speed (Cartesia takes 0.6 to 1.5).
+    bool synthesizeStyledSpeech(const std::string& text, const va::audio::SpeechStyle& style) override;
     void cancelSynthesis() override;
 
     bool startVoiceSynthesisProvider() override;

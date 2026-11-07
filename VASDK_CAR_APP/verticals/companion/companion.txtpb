@@ -1,0 +1,38 @@
+# proto-file: vasdk/flow/agent.proto
+# proto-message: vasdk.flow.Agent
+#
+# Company on the road: stories, trivia, riddles, jokes. The agent only decides that these words
+# are the LLM's to answer (routes with target LLM); the session's LLM tells and plays them, with
+# the car's tools, its state and the whole conversation (prompt.txt says how). So:
+#   - "let's play trivia" isn't media's "play", and "what happens next" or "next question" isn't
+#     the radio's "next": this file is included before media, and its examples are longer.
+#   - Nothing is a mode to get stuck in. "Make it warmer" or "next song" mid-story are the car's,
+#     and anything the rules don't know goes to the same LLM, which can do it or go on with the story.
+#   - Offline, each route's steps are the answer.
+#   - Stories and games are answered by the config's "smart" LLM profile; a joke by the default.
+# A vertical with no code. Part of ../../agents/car/agent.txtpb (include_files).
+
+envelopes: ["companion"]
+
+intents { name: "story" examples: ["tell me a story", "tell us a story", "tell a story", "a story about", "make up a story",
+                                   "bedtime story", "story time", "another story"] }
+intents { name: "game"  examples: ["play a game", "let's play a game", "a quiz", "play trivia", "trivia", "quiz me", "give me a quiz",
+                                   "a riddle", "riddles", "twenty questions", "20 questions", "word game", "i'm bored"] }
+intents { name: "joke"  examples: ["tell me a joke", "a joke", "another joke", "something funny", "make me laugh", "cheer me up"] }
+# Going on with a story or a game. Never a bare "next": that's the radio's.
+intents { name: "go_on" examples: ["what happens next", "what happened next", "go on", "keep going", "carry on", "and then what",
+                                   "then what", "tell me more", "continue the story", "finish the story", "next question",
+                                   "another question", "ask me another", "one more question", "give me a hint"] }
+
+envelope_defs {
+  name: "companion"
+  routes { intent: "story" steps { say { text: "I need the internet to make up a story. I can still play your music." } }
+           target: "LLM" llm_profile: "smart" }
+  routes { intent: "game"  steps { say { text: "I need the internet for games. I can still play your music." } }
+           target: "LLM" llm_profile: "smart" }
+  routes { intent: "joke"
+           steps { say { text: ["Why did the car get a flat? There was a fork in the road.", "What do you call a car that tells jokes? A cartoon."] } }
+           target: "LLM" }
+  routes { intent: "go_on" steps { say { text: "I've lost the connection, so that will have to wait." } }
+           target: "LLM" llm_profile: "smart" }   # the story's own teller
+}

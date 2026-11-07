@@ -79,15 +79,16 @@ flowchart TB
     Turn["TurnDetectionProcessor<br/><i>VAD_STATE → TURN_STATE</i>"]
     STT["TranscriptionFrameProcessor<br/><i>VAD_STATE + ring buffer → TRANSCRIPTION</i>"]
     Agent["AgentStateProcessor<br/><i>TURN_STATE / TRANSCRIPTION / TRIGGER → AGENT_STATE</i>"]
-    LLM["LLMProcessor<br/><i>TRANSCRIPTION + AGENT_STATE → TEXT / TOOL_CALL</i>"]
+    Assembler["TurnAssemblerProcessor<br/><i>TRANSCRIPTION + TURN_STATE + AGENT_STATE → USER_TURN</i>"]
+    LLM["LLMProcessor<br/><i>USER_TURN + AGENT_STATE → TEXT / TOOL_CALL</i>"]
     Tools["ToolDispatchProcessor<br/><i>TOOL_CALL → TOOL_RESULT</i>"]
     TTS["TTSFrameProcessor<br/><i>TEXT → SYNTHESIS (+ SYNTHESIS_STATE upstream)</i>"]
     TOut["TransportOutputProcessor<br/><i>fan-out to transports</i>"]
 
-    TIn --> DSP --> VAD --> Turn --> STT --> Agent --> LLM --> Tools --> TTS --> TOut
+    TIn --> DSP --> VAD --> Turn --> STT --> Agent --> Assembler --> LLM --> Tools --> TTS --> TOut
 ```
 
-This order matters in a few places: `AgentStateProcessor` must sit between transcription and the LLM (it gates stale transcriptions), and `TurnDetectionProcessor` must see `VADStateFrame`s before transcription consumes the turn - and sit directly after the VAD, since it sends early end-of-turn requests upstream to it. Optional stages that read the whole utterance (speaker ID) belong after transcription so they don't delay the transcript. Beyond those constraints, the chain is yours to rearrange - that's the point of the architecture.
+This order matters in a few places: `AgentStateProcessor` must sit between transcription and the LLM (it gates stale transcriptions), `TurnAssemblerProcessor` must sit after it and before the LLM, and `TurnDetectionProcessor` must see `VADStateFrame`s before transcription consumes the turn - and sit directly after the VAD, since it sends early end-of-turn requests upstream to it. Optional stages that read the whole utterance (speaker ID) belong after transcription so they don't delay the transcript. Beyond those constraints, the chain is yours to rearrange - that's the point of the architecture.
 
 ## Built-in processors, one by one
 
@@ -97,7 +98,7 @@ The pipeline's endpoints ([`TransportInputProcessor.h`](../../VASDK/include/VASD
 
 ### AudioDSPProcessor
 
-([`AudioDSPProcessor.h`](../../VASDK/include/VASDK/AudioDSPProcessor.h)) Reads each `AudioFrame`'s range from the **raw** ring buffer, runs it through a `GenericAudioDSPProvider` (e.g. RNNoise), writes the result to a separate **clean** ring buffer advanced in lock-step, and forwards the frame unchanged - the same offsets are valid in both buffers, so downstream processors just point at whichever buffer they want. Both buffers must have identical capacity and sample size. Optional: omit the processor entirely and point VAD/STT at the raw buffer. Full design discussion: [root README, "The audio ring buffer"](../../README.md#the-audio-ring-buffer).
+([`AudioDSPProcessor.h`](../../VASDK/include/VASDK/AudioDSPProcessor.h)) Reads each `AudioFrame`'s range from the **raw** ring buffer, runs it through a `GenericAudioDSPProvider` (e.g. RNNoise), writes the result to a separate **clean** ring buffer advanced in lock-step, and forwards the frame unchanged - the same offsets are valid in both buffers, so downstream processors just point at whichever buffer they want. Both buffers must have identical capacity and sample size. Optional: omit the processor entirely and point VAD/STT at the raw buffer. Full design discussion: [Frames, "The audio ring buffer"](frames.md#the-audio-ring-buffer).
 
 ### VADFrameProcessor
 
@@ -108,7 +109,7 @@ stateDiagram-v2
     [*] --> QUIET
     QUIET --> STARTING: voice detected
     STARTING --> ONGOING: sustained ≥ minSpeechDurationMs
-    STARTING --> QUIET: too short (noise burst)
+    STARTING --> QUIET: too short (noise burst),<br/>or two quiet frames at the decision
     ONGOING --> PAUSED: silence (hesitation)
     PAUSED --> RESUMING: voice again
     PAUSED --> ENDING: silent ≥ maxSpeechPauseDurationMs
@@ -120,7 +121,7 @@ stateDiagram-v2
     ENDED --> QUIET
 ```
 
-Tunables live in `VADConfig` (defaults: `vadThresholdMs` 200, `minSpeechDurationMs` 250, `maxSpeechPauseDurationMs` 500, `maxSpeechEndDurationMs` 1000, `resumingSilenceFramesToPause` 3). The constructor's `lookbackMultiplier` (default 4.0 × frame size) backdates `speechStartOffset` so the first syllable isn't clipped - the audio is already sitting in the ring buffer, so pre-roll is free; `minSpeechDurationMs` is counted from when STARTING began, not from that backdated offset. A `TurnStateFrame(USER, END)` arriving **upstream** while `PAUSED` or `ENDING` ends the segment immediately instead of waiting out the pause/end timers (see below). Needs `setRingBuffer()`.
+Tunables live in `VADConfig` (defaults: `vadThresholdMs` 200, `minSpeechDurationMs` 250, `maxSpeechPauseDurationMs` 500, `maxSpeechEndDurationMs` 1000, `resumingSilenceFramesToPause` 3). The constructor's `lookbackMultiplier` (default 4.0 × frame size) backdates `speechStartOffset` so the first syllable isn't clipped - the audio is already sitting in the ring buffer, so pre-roll is free; `minSpeechDurationMs` is counted from when STARTING began, not from that backdated offset. At that point one quiet frame right after voice is tolerated (the decision waits a frame), so a dip in steady speech isn't thrown away; two quiet frames in a row, or a lone blip, still go back to `QUIET`. `bargeInMinSpeechDurationMs` replaces `minSpeechDurationMs` while the assistant speaks (`setAgentSpeaking(callback)`): echo cancellation turns the user's voice down during the overlap, so waiting the full time loses interruptions. Sessions use 150 ms. A `TurnStateFrame(USER, END)` arriving **upstream** while `PAUSED` or `ENDING` ends the segment immediately instead of waiting out the pause/end timers (see below). Needs `setRingBuffer()`.
 
 ### TurnDetectionProcessor
 
@@ -128,12 +129,33 @@ Tunables live in `VADConfig` (defaults: `vadThresholdMs` 200, `minSpeechDuration
 
 Two behaviors sit on top of either path:
 
-- **User turn starts wait for confirmed speech.** A user `START` produced while the VAD is only `STARTING` is held and emitted on the first `ONGOING`; if the VAD falls back to `QUIET` it is dropped. A noise or echo blip therefore can't barge in on the agent or cancel the LLM - the cost is that a real barge-in takes `minSpeechDurationMs` (250 ms in the apps) to land.
-- **Early end of turn.** When the provider returns `TURN_END` for the user while the VAD segment is still open (e.g. SmartTurn scoring a pause with `setEvaluateOnPause(true)`), the processor emits the turn `END` and also sends a `TurnStateFrame(USER, END)` upstream so the VAD closes the segment and transcription runs right away. In the showcase apps this takes the gap from the pause to the final transcript from ~1 s to ~0.1 s when the model is confident. Ending at a pause needs the provider's `pauseThreshold()` (default 0.85, `setPauseThreshold()`), higher than its regular threshold: a pause is often just a breath, and an uncertain turn still ends once the VAD confirms silence. If the user resumes after the turn did end, `LLMProcessor` merges both utterances into one message ([follow-ups](llm.md#follow-ups)).
+- **User turn starts wait for confirmed speech.** A user `START` produced while the VAD is only `STARTING` is held and emitted on the first `ONGOING`; if the VAD falls back to `QUIET` it is dropped. A noise or echo blip therefore can't barge in on the agent or cancel the LLM - the cost is that a real barge-in takes `bargeInMinSpeechDurationMs` (150 ms in sessions) or else `minSpeechDurationMs` to land.
+- **Early end of turn.** When the provider returns `TURN_END` for the user while the VAD segment is still open (e.g. SmartTurn scoring a pause with `setEvaluateOnPause(true)`), the processor emits the turn `END` and also sends a `TurnStateFrame(USER, END)` upstream so the VAD closes the segment and transcription runs right away. The transcript then goes out at the pause instead of after the silence timers. Ending at a pause needs the provider's `pauseThreshold()` (default 0.85, `setPauseThreshold()`), higher than its regular threshold: a pause is often just a breath, and an uncertain turn still ends once the VAD confirms silence. If the user resumes after the turn did end, `LLMProcessor` merges both utterances into one message ([follow-ups](llm.md#follow-ups)). Not while the agent speaks: there the provider judges a fragment heard over the agent's voice ("yeah" before "wait, stop"), and a fragment split off at a pause is dismissed as a back-channel. That pause's call is held back, and the turn ends when the VAD's timers end the speech.
+
+The whole end-of-turn decision, with follow-ups:
+
+```mermaid
+flowchart TD
+    Pause["User pauses"] --> Score{"Turn detector, during the pause:<br/>probability ≥ 0.85?"}
+    Pause -->|"user resumes before<br/>the turn ends"| Same["Same turn continues"]
+    Score -->|yes| Early["Turn ends at the pause<br/>transcript sent to the LLM"]
+    Score -->|no| Silence{"After confirmed silence (~0.75 s):<br/>probability ≥ 0.5?"}
+    Silence -->|yes| Sent["Turn ends<br/>transcript sent to the LLM"]
+    Silence -->|no| Staged["Transcript held<br/>(sent after 2 s if the user stays quiet)"]
+    Early --> Again{"User speaks again while the agent thinks,<br/>or within 3 s of the send?"}
+    Sent --> Again
+    Staged -->|user resumes| Merge
+    Again -->|yes| Merge["Request cancelled and rolled back:<br/>next message = earlier words + new words"]
+    Again -->|no| Normal["Ordinary barge-in or new turn"]
+```
+
+On the [WebRTC demo page](transports.md#webrtctransport), the merged turn replaces the separate bubbles: the first utterance is struck through, and the `+` line is exactly what the LLM received. From a real call; the speech recognizer heard "Toulouse" as "Taluz", and the model still worked it out:
+
+![WebRTC demo page: a follow-up merged into one message](../../assets/screenshots/webrtc-follow-up.png)
 
 ### SpeakerIdentificationProcessor
 
-([`SpeakerIdentificationProcessor.h`](../../VASDK/include/VASDK/SpeakerIdentificationProcessor.h)) Enrolls users by voice and tags each utterance with who said it. On VAD `ENDED` it reads the utterance from the ring buffer and embeds it with a [`SpeakerEmbeddingProvider`](providers.md#speakerembeddingprovider). It tracks the current speaker's voice print: an utterance scoring below `threshold` against it is a new speaker and replaces it, otherwise it is averaged into it (logged as SAME/NEW speaker, and carried in the frame as `isNewSpeaker` / `trackedSimilarity`). If an enrollment is pending (`requestEnrollment(id)` or a `SpeakerEnrollmentFrame` with `REQUESTED`), the voice print is stored and a `SpeakerEnrollmentFrame` (`ENROLLED`/`FAILED`) is emitted; otherwise it emits a `SpeakerIdentificationFrame` with the tracking result and the best enrolled cosine match above `threshold` (default 0.3, pyannote 3.1's clustering threshold). Utterances shorter than `minSpeechSec` (default 1 s) are skipped. `getSpeakers()` / `addSpeaker()` save and restore voice prints. Place it after VAD; the showcase apps put it after transcription, since embedding the whole utterance (~70 ms per second of speech) would otherwise delay the transcript. Needs `setRingBuffer()`.
+([`SpeakerIdentificationProcessor.h`](../../VASDK/include/VASDK/SpeakerIdentificationProcessor.h)) Enrolls users by voice and tags each utterance with who said it. On VAD `ENDED` it reads the utterance from the ring buffer and embeds it with a [`SpeakerEmbeddingProvider`](providers.md#speakerembeddingprovider). It tracks the current speaker's voice print: an utterance scoring below `threshold` against it is a new speaker and replaces it, otherwise it is averaged into it (logged as SAME/NEW speaker, and carried in the frame as `isNewSpeaker` / `trackedSimilarity`). If an enrollment is pending (`requestEnrollment(id)` or a `SpeakerEnrollmentFrame` with `REQUESTED`), the voice print is stored and a `SpeakerEnrollmentFrame` (`ENROLLED`/`FAILED`) is emitted; otherwise it emits a `SpeakerIdentificationFrame` with the tracking result and the best enrolled cosine match above `threshold` (default 0.3, pyannote 3.1's clustering threshold). Utterances shorter than `minSpeechSec` (default 1 s) are skipped. `getSpeakers()` / `addSpeaker()` save and restore voice prints. Place it after VAD; the showcase apps put it after transcription, since embedding the whole utterance would otherwise delay the transcript. Needs `setRingBuffer()`.
 
 ### TranscriptionFrameProcessor
 
@@ -149,6 +171,7 @@ stateDiagram-v2
     IDLE --> LISTENING: always-on start(), wake word,<br/>or app command trigger
     LISTENING --> THINKING: user turn ended, or<br/>final transcription ready
     THINKING --> SPEAKING: TTS starts<br/>(system turn started)
+    LISTENING --> SPEAKING: unprompted speech starts<br/>(an agent's greeting, say()), user silent
     THINKING --> INTERRUPTED: user speaks<br/>while thinking
     SPEAKING --> SPEAKING: speech over the agent pending,<br/>then back-channel dismissed
     SPEAKING --> INTERRUPTED: barge-in committed<br/>or cancel-speech command
@@ -156,14 +179,14 @@ stateDiagram-v2
     INTERRUPTED --> LISTENING: SynthesisStateFrame INTERRUPTED,<br/>or interruptTimeoutMs fallback (500 ms)
 ```
 
-Key behaviors: `TranscriptionFrame`s arriving outside `LISTENING` are **dropped** (they're stale - e.g. echo of the assistant's own voice); `setAlwaysOn(false)` switches to wake-word mode, where the agent stays `IDLE` until a `TriggerFrame` arrives *and* returns to `IDLE` instead of `LISTENING` after synthesis completes or an interrupt resolves; an `APP_COMMAND` trigger with data `"deactivate"` forces `IDLE` from any state; and the `INTERRUPTED` state has a timeout fallback (`setInterruptTimeoutMs`, default 500 ms) in case TTS never confirms the cancellation.
+Key behaviors: `TranscriptionFrame`s arriving outside `LISTENING` are **dropped** (they're stale - e.g. echo of the assistant's own voice); `setAlwaysOn(false)` switches to wake-word mode, where the agent stays `IDLE` until a `TriggerFrame` arrives *and* returns to `IDLE` once the follow-up window after a reply closes (`setFollowUpListenMs`; 0, the processor default, closes it as soon as the reply ends or an interrupt resolves); an `APP_COMMAND` trigger with data `"deactivate"` forces `IDLE` from any state; and the `INTERRUPTED` state has a timeout fallback (`setInterruptTimeoutMs`, default 500 ms) in case TTS never confirms the cancellation.
 
 #### Back-channels: speech over the agent that isn't an interruption
 
 People say "mm-hmm", "yeah" and "right" while someone talks, and expect them to keep going. With `setBackchannelConfig()` (on by default), a user turn start while `SPEAKING` doesn't interrupt at once. It opens a **pending barge-in**: the agent stays `SPEAKING` and an `AgentStateFrame` with transition `BARGE_IN_PENDING` goes out. TTS then ducks or pauses playback through `setPlaybackHold()`. The speech is then classified by `classifyBackchannel()`:
 
 - **Commit** (a real interruption, the usual `BARGE_IN_INTERRUPT`), as soon as one of these holds:
-  - a word from `interruptWords` is heard ("stop", "wait", "no", "actually", "but"…);
+  - a word from `interruptWords` is heard ("stop", "wait", "no", "actually", "but", "what", "pardon"…);
   - two words that aren't back-channel phrases are heard, or a final has one;
   - more than `maxBackchannelWords` (4) are heard;
   - the speech runs past `commitAfterPendingMs` (600 ms after the pending start, about 850 ms of speech).
@@ -191,11 +214,15 @@ The policy is chosen when building the pipeline:
 | `historyMode` | `Drop`, or `AppendToHistory`: the dismissed final is forwarded with `TranscriptionFrame::isBackchannel`. LLMProcessor puts it in front of the user's next message, e.g. `(While you were speaking I said "mm-hmm".) What about Tuesday?`, so history keeps strict user/assistant alternation. |
 | `tailOverlapMode` | `TreatAsTurn`, `Classify` |
 
-`enabled = false` restores the plain hard barge-in. Back-channels while `THINKING` aren't covered: any speech then still cancels the reply. The phrase and interrupt-word lists are English by default; set your own for other languages.
+`enabled = false` restores the plain hard barge-in. Back-channels while `THINKING` aren't covered: any speech then still cancels the reply. Empty phrase and interrupt-word lists are the languages' (`setLanguages`; a Session gives it the agent's, else VASDK's built-in en-US); set your own to replace them.
+
+### TurnAssemblerProcessor
+
+([`TurnAssemblerProcessor.h`](../../VASDK/include/VASDK/TurnAssemblerProcessor.h)) Decides when the user's turn is complete and emits one `UserTurnFrame` for it. A turn needs both the turn end (`AgentStateFrame{USER_STOPPED_SPEAKING}` or `TurnStateFrame{USER, END}`) and its final transcription, in either order. If the final never arrives, a watchdog (default 2000 ms, `setFinalWatchdogTimeoutMs`) sends what it has. A pluggable [fire policy](llm.md#fire-policies---when-does-the-llm-fire) (`setFirePolicy`, default `EagerFirePolicy`) decides whether a partial may stand in for a late or empty final. It also merges a resumed turn into the one before it ([follow-ups](llm.md#follow-ups), `setResumeMergeMs`), and sends a `TurnReplacedFrame` naming the replaced turn just before the merged one. Every frame passes through unchanged. Anything that answers the user, such as `LLMProcessor`, answers `UserTurnFrame`s, so turn-taking behaves the same whatever does the answering.
 
 ### LLMProcessor
 
-([`llm/LLMProcessor.h`](../../VASDK/include/VASDK/llm/LLMProcessor.h)) Bridges the pipeline to an [`LLMTransport`](llm.md#llmtransport). Listens for transcriptions and agent-state transitions, decides *when* to fire a request (pluggable [`LLMFirePolicy`](llm.md#fire-policies--when-does-the-llm-fire), default `EagerFirePolicy`: fire on the cached partial as soon as the turn ends), parses the model's structured response into speech text + tool calls, and coordinates the tool round-trip with `ToolDispatchProcessor` (bounded at 5 nested tool batches, with self-imitation-loop detection). A watchdog (default 2000 ms, `setFinalWatchdogTimeoutMs`) fires the request from the best available partial if the final transcript never arrives. Details of parsing, reasoning tags, and streaming: [llm.md](llm.md).
+([`llm/LLMProcessor.h`](../../VASDK/include/VASDK/llm/LLMProcessor.h)) Bridges the pipeline to an [`LLMTransport`](llm.md#llmtransport). Answers each `UserTurnFrame` from the `TurnAssemblerProcessor` before it, parses the model's structured response into speech text + tool calls, and coordinates the tool round-trip with `ToolDispatchProcessor` (bounded at 5 nested tool batches, with self-imitation-loop detection). Agent-state transitions cancel replies in flight. A turn can name the LLM profile that answers it (`UserTurnFrame::llmProfile`, set by an agent route), and a failed request is answered with a failure reply. Details of parsing, reasoning tags, speculative firing, streaming, profiles and failure replies: [llm.md](llm.md#llmprocessor).
 
 ### ToolDispatchProcessor
 
@@ -203,7 +230,7 @@ The policy is chosen when building the pipeline:
 
 ### TTSFrameProcessor
 
-([`TTSFrameProcessor.h`](../../VASDK/include/VASDK/TTSFrameProcessor.h)) Sends final `TextFrame`s to a `GenericVoiceSynthesisProvider`, wraps the returned audio in `SynthesisFrame`s, and - critically - emits `SynthesisStateFrame`s **upstream** (`STARTED`/`COMPLETED`/`INTERRUPTED`/`ERROR`) so agent state and turn detection track TTS activity without bespoke wiring. Handles barge-in cancellation when an `AgentStateFrame{INTERRUPTED}` arrives, and runs a drain-wait timer so `COMPLETED` means "playback actually finished", padded by `setHardwareBufferMarginMs` (default 150 ms) for hardware buffer latency. `setPlaybackFlush()` hooks the transport's fade-and-flush for click-free interruption. `setPlaybackHold()` hooks the transport's `holdOutputAudio()`: it ducks or pauses playback on `BARGE_IN_PENDING` and releases it on `BACKCHANNEL`, `INTERRUPT_RESOLVED` or `SYNTHESIS_COMPLETED`, with the mode, duck level and minimum duck duration set by `setPendingPlayback()`; after a back-channel the duck is released once `duckDurationMs` has passed since it began. While paused, the drain timer stops, so `COMPLETED` still means the audio played. `getRemainingReplyPlaybackMs()` reports how much of a fully received reply is left to play.
+([`TTSFrameProcessor.h`](../../VASDK/include/VASDK/TTSFrameProcessor.h)) Sends final `TextFrame`s to a `GenericVoiceSynthesisProvider`, wraps the returned audio in `SynthesisFrame`s, and - critically - emits `SynthesisStateFrame`s **upstream** (`STARTED`/`COMPLETED`/`INTERRUPTED`/`ERROR`) so agent state and turn detection track TTS activity without bespoke wiring. Handles barge-in cancellation when an `AgentStateFrame{INTERRUPTED}` arrives, and runs a drain-wait timer so `COMPLETED` means "playback actually finished", padded by `setHardwareBufferMarginMs` (default 150 ms) for hardware buffer latency. `setPlaybackFlush()` hooks the transport's fade-and-flush for click-free interruption. `setPlaybackHold()` hooks the transport's `holdOutputAudio()`: it ducks or pauses playback on `BARGE_IN_PENDING` and releases it on `BACKCHANNEL`, `INTERRUPT_RESOLVED` or `SYNTHESIS_COMPLETED`, with the mode, duck level and minimum duck duration set by `setPendingPlayback()`; after a back-channel the duck is released once `duckDurationMs` has passed since it began. While paused, the drain timer stops, so `COMPLETED` still means the audio played. `getRemainingReplyPlaybackMs()` reports how much of a fully received reply is left to play. A `TurnReplacedFrame` drops that turn's text (`TextFrame::turnId`): what's queued, what's playing (the turn then completes, it isn't `INTERRUPTED`), and what arrives later.
 
 ### RecoveryProcessor
 

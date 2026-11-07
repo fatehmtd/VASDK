@@ -1,0 +1,11 @@
+# proto-file: vasdk/flow/test_case.proto
+# proto-message: vasdk.flow.FlowTestCase
+name: "call mom: the contact from the phone book, confirmed, then called"
+entities { name: "contact" values { value: "+15551234567" spoken: "Mom" synonyms: ["mom", "mum", "mother"] }
+                           values { value: "+15559876543" spoken: "Alex Kim" synonyms: ["alex kim", "alex"] } }
+turns { expect { page: "idle" } }
+turns { user: "call mom" expect { page: "confirm" said: "Call Mom?" } }
+turns { user: "yes" tool_results { key: "place_call" value: "{\"calling\": true}" } expect { said: "Calling." page: "idle" tools_called: "place_call" } }
+turns { user: "phone alex" expect { said: "Call Alex Kim?" } }
+turns { user: "no" expect { said: "Okay, I won't call." page: "idle" } }
+turns { user: "call bob" expect { matched: false } }

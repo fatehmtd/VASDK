@@ -10,10 +10,11 @@ Think of it as the plumbing between a microphone and a speaker, with interchange
 
 ## What you can build with it
 
-- **In-vehicle voice assistants** - the original motivation. VASDK provides the cross-platform plumbing so you can focus on the user-experience instead.
-- **Call center or Goal oriented agents** - the `goal/` layer turns the assistant from a chatbot into a task-completer: it classifies why someone is calling, collects the required information field by field (with validation), confirms before acting, escalates to a human when stuck, and resumes an interrupted call where it left off. The [VASDK_CallCenter app](../VASDK_CALLCENTER_APP/README.md) is a working demonstration.
-- **On-device mobile assistants** - the [Android app](../VASDK_ANDROID/README.md) runs the full stack on a phone, including a local language model, and gives the assistant real device capabilities: placing calls, sending texts, reading the calendar, taking photos, with spoken confirmation before anything sensitive.
-- **Desktop / kiosk assistants** - the [VASDK_Pipeline app](../VASDK_APP/README.md) is the general-purpose reference: full voice loop with barge-in (you can talk over it), tool calling, and live metrics.
+- **In-vehicle voice assistants** - the original motivation. The [VASDK_Car app](apps/car.md) is a working one: climate, music, calls, texts, navigation and driver profiles answered instantly on the device, the car speaking first when a call comes in or fuel runs low, and a language model, when there is one, for questions, stories and requests nobody scripted.
+- **Call center or goal-oriented agents** - an [agent file](reference/flows.md) turns the assistant from a chatbot into a task-completer: it finds out why someone is calling, collects the required information field by field (with validation), confirms before acting, and hands off to a person when stuck, with or without an LLM. The [VASDK_CallCenter app](apps/callcenter.md) is a working demonstration. The LLM-driven `goal/` layer is the other way to build one.
+- **On-device mobile assistants** - the [Android app](apps/android.md) runs the full stack on a phone, including a local language model, and gives the assistant real device capabilities: placing calls, sending texts, reading the calendar, taking photos, with spoken confirmation before anything sensitive.
+- **Assistants written in Python** - the [VASDK_PYTHON_APP](apps/python.md) is a kitchen assistant in Python: the same on-device speech, agents and language models, with its actions written in Python.
+- **Desktop / kiosk assistants** - the [VASDK_Pipeline app](apps/pipeline.md) is the general-purpose reference: full voice loop with barge-in (you can talk over it), tool calling, and live metrics.
 
 ## Key concepts
 
@@ -22,6 +23,14 @@ Think of it as the plumbing between a microphone and a speaker, with interchange
 **Offline is a first-class option, not a fallback.** Every stage has at least one implementation that runs locally on open models. That matters for privacy (audio never leaves the device), for connectivity (works in a tunnel), and for unit economics (no per-minute API fees).
 
 **It's a pipeline.** Audio flows through a chain of stages - noise cleanup, "is someone speaking?", "what did they say?", "what should I answer?", "say it out loud" - each on its own thread, each replaceable. Urgent events (the user interrupting, an error) travel backwards through the same chain and take priority.
+
+**Rules where they work, a language model where it helps.** The assistant's own commands ("I'm cold", "call Sam", "take me home") are written as rules in an agent file: instant, offline, predictable and testable. What the rules don't cover goes to a language model, which can use the same actions. The agent decides which words are the model's ("tell me a story"), so a command in the middle of a story still works, and a story never takes over the controls.
+
+**The right model for each task.** Picking which command was meant needs a small, fast model; a story or a question about the world deserves a capable one; most turns need none. The engine config names several models, and each part of the assistant says which one it uses. Changing a model is a configuration change, not a code change.
+
+**Any language, written by you.** The engine has no English built into its code. The words it understands (numbers, dates, "yes", "cancel") and the way it says things ("Tuesday, November 10th") come from a language file. English ships with it; another language, or a regional variant, is a file you write, with no change to the software. One assistant can understand several languages at once. See [Languages](reference/languages.md).
+
+**Built from parts.** A large assistant is split into self-contained features, each with its own conversation, code and tests. Adding or removing a feature doesn't touch the others.
 
 **Multiplatform from the get go.** You can build your pipeline and logic once and run it everywhere. Integration and End to End testing can be implemented without having to run on the target hardware.
 
@@ -33,11 +42,11 @@ flowchart LR
 
 ## What's mature and what's moving
 
-An overview based on [root README](../README.md):
-
 | Area | Status |
 | --- | --- |
-| Core pipeline (audio → VAD → STT → LLM → TTS) | Stable in daily use across three showcase apps |
+| Core pipeline (audio → VAD → STT → LLM → TTS) | Stable in daily use across five showcase apps |
+| Python binding (agents, and spoken sessions) | Working; tested in `ctest`, no wheel published yet |
+| Agents (rules, forms, triggers, handing turns to an LLM, a model per task) | Working and tested in every app; new features land often |
 | Local/offline providers (Silero, Parakeet, llama.cpp, …) | Working; models and parameters still being tuned. Whisper.cpp is WIP |
 | Cloud providers (Gladia, Soniox, Deepgram, Cartesia, Fish Audio, Gradium, OpenAI, Anthropic) | Working; APIs evolve, pin a commit. Gladia is WIP |
 | Goal-oriented call center layer (`goal/`) | Newest, most ambitious, fastest-moving |
@@ -52,6 +61,8 @@ VASDK's own code is **Apache 2.0** - permissive, commercial-friendly. The AI mod
 ## Where to go next
 
 - **SWE starting point** → the [documentation index](README.md), then the root [README quick start](../README.md#quick-start).
-- **Call center example with Goal and task completion tracking** → [VASDK_CallCenter guide](../VASDK_CALLCENTER_APP/README.md).
-- **Full Android Example** → [Android guide](../VASDK_ANDROID/README.md).
+- **Call center example: a call flow in agent files** → [VASDK_CallCenter guide](apps/callcenter.md).
+- **All the example apps, and which to start from** → [Example apps](apps/README.md).
+- **In-car example: features in parts, triggers from the car's sensors, rules and a language model together** → [VASDK_Car guide](apps/car.md).
+- **Full Android Example** → [Android guide](apps/android.md).
 - **Third party notices** → [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).

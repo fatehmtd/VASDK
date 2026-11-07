@@ -146,7 +146,13 @@ if(VASDK_ENABLE_HTTP_TRANSPORT)
     endif()
 endif()
 
-#  VASDK core library 
+#  Tests: -DVASDK_BUILD_TESTS=ON builds core's and 3P's test executables for the ABI, to run on a
+#  device or emulator over adb (see README, "Tests on a device")
+if(VASDK_BUILD_TESTS)
+    enable_testing()
+endif()
+
+#  VASDK core library
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../VASDK vasdk_core)
 
 #  VASDK 3rd party implementation
@@ -172,11 +178,9 @@ add_library(vasdk_android SHARED
     app/src/main/cpp/audio_source/AAudioSource.cpp
     app/src/main/cpp/audio_sink/AAudioSink.cpp
     app/src/main/cpp/JniUtils.cpp
-    app/src/main/cpp/SttProviderFactory.cpp
-    app/src/main/cpp/TtsProviderFactory.cpp
     app/src/main/cpp/ToolRegistration.cpp
-    app/src/main/cpp/VasdkBridgeProcessor.cpp
     app/src/main/cpp/VizAnimSupport.cpp
+    app/src/main/cpp/VozProvider.cpp
     app/src/main/cpp/vasdk_jni.cpp
 )
 
@@ -186,138 +190,19 @@ target_include_directories(vasdk_android
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../VASDK_3P_IMPL
 )
 
-# nlohmann_json is linked PRIVATE inside VASDK core, so its include path doesn't
-# propagate to consumers that include VASDK public headers (e.g. Tool.h).
-# Link it directly here so vasdk_jni.cpp can resolve <nlohmann/json.hpp>.
+# Providers are created by id from the engine config Kotlin builds (vasdk_provider_catalog).
 target_link_libraries(vasdk_android
     PRIVATE VASDK
-    PRIVATE nlohmann_json::nlohmann_json
+    PRIVATE vasdk_provider_catalog
     PRIVATE android
     PRIVATE log
     PRIVATE aaudio
 )
 
-# Link the Silero VAD provider if it was built
-if(VASDK_BUILD_SILERO_VAD AND TARGET vasdk_silero_vad)
-    target_link_libraries(vasdk_android PRIVATE vasdk_silero_vad)
-    target_compile_definitions(vasdk_android PRIVATE VASDK_HAS_SILERO_VAD)
-    message(STATUS "[vasdk_android] Silero VAD enabled")
-endif()
-
-# Link the SmartTurn v3 provider if it was built
-if(VASDK_BUILD_SMART_TURN_V3 AND TARGET vasdk_smartturn_v3)
-    target_link_libraries(vasdk_android PRIVATE vasdk_smartturn_v3)
-    target_compile_definitions(vasdk_android PRIVATE VASDK_HAS_SMART_TURN_V3)
-    message(STATUS "[vasdk_android] SmartTurn v3 turn detection enabled")
-endif()
-
-if(VASDK_BUILD_PARAKEET AND TARGET vasdk_parakeet)
-    target_link_libraries(vasdk_android PRIVATE vasdk_parakeet)
-    target_compile_definitions(vasdk_android PRIVATE VASDK_HAS_PARAKEET)
-    message(STATUS "[vasdk_android] Parakeet transcription enabled")
-endif()
-
-if(VASDK_BUILD_SONIOXPP_STT AND TARGET vasdk_sonioxpp_stt)
-    target_link_libraries(vasdk_android PRIVATE vasdk_sonioxpp_stt)
-    target_compile_definitions(vasdk_android PRIVATE VASDK_HAS_SONIOXPP_STT)
-    message(STATUS "[vasdk_android] Soniox STT provider enabled")
-endif()
-
-if(VASDK_BUILD_SONIOXPP_TTS AND TARGET vasdk_sonioxpp_tts)
-    target_link_libraries(vasdk_android PRIVATE vasdk_sonioxpp_tts)
-    target_compile_definitions(vasdk_android PRIVATE VASDK_HAS_SONIOXPP_TTS)
-    message(STATUS "[vasdk_android] Soniox TTS provider enabled")
-endif()
-
-if(VASDK_BUILD_DEEPGRAMPP_STT AND TARGET vasdk_deepgrampp_stt)
-    target_link_libraries(vasdk_android PRIVATE vasdk_deepgrampp_stt)
-    target_compile_definitions(vasdk_android PRIVATE VASDK_HAS_DEEPGRAMPP_STT)
-    message(STATUS "[vasdk_android] Deepgram STT provider enabled")
-endif()
-
-if(VASDK_BUILD_DEEPGRAMPP_TTS AND TARGET vasdk_deepgrampp_tts)
-    target_link_libraries(vasdk_android PRIVATE vasdk_deepgrampp_tts)
-    target_compile_definitions(vasdk_android PRIVATE VASDK_HAS_DEEPGRAMPP_TTS)
-    message(STATUS "[vasdk_android] Deepgram TTS provider enabled")
-endif()
-
-if(VASDK_BUILD_CARTESIAPP_STT AND TARGET vasdk_cartesiapp_stt)
-    target_link_libraries(vasdk_android PRIVATE vasdk_cartesiapp_stt)
-    target_compile_definitions(vasdk_android PRIVATE VASDK_HAS_CARTESIAPP_STT)
-    message(STATUS "[vasdk_android] Cartesia STT provider enabled")
-endif()
-
-if(VASDK_BUILD_CARTESIAPP_TTS AND TARGET vasdk_cartesiapp_tts)
-    target_link_libraries(vasdk_android PRIVATE vasdk_cartesiapp_tts)
-    target_compile_definitions(vasdk_android PRIVATE VASDK_HAS_CARTESIAPP_TTS)
-    message(STATUS "[vasdk_android] Cartesia TTS provider enabled")
-endif()
-
-if(VASDK_BUILD_FISHAUDIOPP_STT AND TARGET vasdk_fishaudiopp_stt)
-    target_link_libraries(vasdk_android PRIVATE vasdk_fishaudiopp_stt)
-    target_compile_definitions(vasdk_android PRIVATE VASDK_HAS_FISHAUDIOPP_STT)
-    message(STATUS "[vasdk_android] Fish Audio STT provider enabled")
-endif()
-
-if(VASDK_BUILD_FISHAUDIOPP_TTS AND TARGET vasdk_fishaudiopp_tts)
-    target_link_libraries(vasdk_android PRIVATE vasdk_fishaudiopp_tts)
-    target_compile_definitions(vasdk_android PRIVATE VASDK_HAS_FISHAUDIOPP_TTS)
-    message(STATUS "[vasdk_android] Fish Audio TTS provider enabled")
-endif()
-
-if(VASDK_BUILD_GRADIUMPP_STT AND TARGET vasdk_gradiumpp_stt)
-    target_link_libraries(vasdk_android PRIVATE vasdk_gradiumpp_stt)
-    target_compile_definitions(vasdk_android PRIVATE VASDK_HAS_GRADIUMPP_STT)
-    message(STATUS "[vasdk_android] Gradium STT provider enabled")
-endif()
-
-if(VASDK_BUILD_GRADIUMPP_TTS AND TARGET vasdk_gradiumpp_tts)
-    target_link_libraries(vasdk_android PRIVATE vasdk_gradiumpp_tts)
-    target_compile_definitions(vasdk_android PRIVATE VASDK_HAS_GRADIUMPP_TTS)
-    message(STATUS "[vasdk_android] Gradium TTS provider enabled")
-endif()
-
-if(VASDK_BUILD_GLADIAPP AND TARGET vasdk_gladiapp_transcription)
-    target_link_libraries(vasdk_android PRIVATE vasdk_gladiapp_transcription)
-    target_compile_definitions(vasdk_android PRIVATE VASDK_HAS_GLADIAPP)
-    message(STATUS "[vasdk_android] Gladia STT provider enabled")
-endif()
-
 if(VASDK_BUILD_LLAMACPP AND TARGET vasdk_llamacpp)
     target_link_libraries(vasdk_android PRIVATE vasdk_llamacpp)
     target_compile_definitions(vasdk_android PRIVATE VASDK_HAS_LLAMACPP)
     message(STATUS "[vasdk_android] llama.cpp local LLM provider enabled")
-endif()
-
-if(VASDK_BUILD_SUPERTONIC_TTS AND TARGET vasdk_supertonic_tts)
-    target_link_libraries(vasdk_android PRIVATE vasdk_supertonic_tts)
-    target_compile_definitions(vasdk_android PRIVATE VASDK_HAS_SUPERTONIC_TTS)
-    message(STATUS "[vasdk_android] Supertonic TTS enabled")
-endif()
-
-if(VASDK_BUILD_POCKET_TTS AND TARGET vasdk_pocket_tts)
-    target_link_libraries(vasdk_android PRIVATE vasdk_pocket_tts)
-    target_compile_definitions(vasdk_android PRIVATE VASDK_HAS_POCKET_TTS)
-    message(STATUS "[vasdk_android] Pocket TTS enabled")
-endif()
-
-if(VASDK_BUILD_PHONON_TTS AND TARGET vasdk_phonon_tts)
-    target_link_libraries(vasdk_android PRIVATE vasdk_phonon_tts)
-    target_compile_definitions(vasdk_android PRIVATE VASDK_HAS_PHONON_TTS)
-    message(STATUS "[vasdk_android] Phonon TTS enabled")
-endif()
-
-if(VASDK_BUILD_MOSS_TTS AND TARGET vasdk_moss_tts)
-    target_link_libraries(vasdk_android PRIVATE vasdk_moss_tts)
-    target_compile_definitions(vasdk_android PRIVATE VASDK_HAS_MOSS_TTS)
-    message(STATUS "[vasdk_android] MOSS-TTS-Nano enabled")
-endif()
-
-# The needle engine ships as a static lib for arm64/armv7 only (none for the x86_64 emulator).
-if(VASDK_BUILD_WHISTLE_STT AND TARGET vasdk_whistle_stt AND WHISTLE_ENGINE_STATIC)
-    target_link_libraries(vasdk_android PRIVATE vasdk_whistle_stt)
-    target_compile_definitions(vasdk_android PRIVATE VASDK_HAS_WHISTLE_STT)
-    message(STATUS "[vasdk_android] Whistle STT enabled")
 endif()
 
 # Voz runs inside the Kotlin SDK (ai.desertant:voz); the native provider calls it over JNI.

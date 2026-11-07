@@ -1,0 +1,6 @@
+# proto-file: vasdk/flow/test_case.proto
+# proto-message: vasdk.flow.FlowTestCase
+name: "a text to a contact named on the way in, read back, then sent"
+turns { user: "text mom" expect { flow: "compose" said: "What's the message?" form { key: "contact" value: "mom" } } }
+turns { user: "on my way" expect { said: "To Mom: on my way. Send it?" } }
+turns { user: "yes" expect { said: "Sent to Mom." flow: "drive" tools_called: ["messages"] } }

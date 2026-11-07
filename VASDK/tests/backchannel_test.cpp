@@ -2,7 +2,7 @@
 // a pending barge-in, then dismissed as a back-channel ("mm-hmm": the agent keeps talking, the LLM
 // never answers it) or committed as a real interruption (BARGE_IN_INTERRUPT, and a turn that ended
 // unseen is replayed to the LLM once the interrupt resolves). Speech over the end of a reply is the
-// user's turn. Also covers the classifier and PlaybackHoldEnvelope (duck / pause ramps).
+// user's turn, and so is speech over a part of the reply that can't be interrupted. Also covers the classifier and PlaybackHoldEnvelope (duck / pause ramps).
 
 #include <VASDK/AgentStateProcessor.h>
 #include <VASDK/PlaybackHoldEnvelope.h>
@@ -71,12 +71,14 @@ struct Rig {
     std::shared_ptr<pipeline::AgentStateProcessor> agentState = std::make_shared<pipeline::AgentStateProcessor>();
     std::shared_ptr<Recorder> recorder = std::make_shared<Recorder>();
     int playbackRemainingMs = -1;
+    int protectedMs = 0;   // a part that can't be interrupted is playing
     size_t mark = 0;
 
     explicit Rig(pipeline::BackchannelConfig backchannelConfig = {}) {
         agentState->setBackchannelConfig(backchannelConfig);
         agentState->setInterruptTimeoutMs(150);
         agentState->setPlaybackRemainingMsProvider([this] { return playbackRemainingMs; });
+        agentState->setProtectedPlaybackMsProvider([this] { return protectedMs; });
         agentState->setDownstream(recorder);
         recorder->initialize();
         recorder->start();
@@ -138,8 +140,15 @@ bool sameTransitions(const std::vector<Transition>& actual, const std::vector<Tr
     return true;
 }
 
+// The defaults, with VASDK's built-in en-US back-channels and interruptions.
+pipeline::BackchannelConfig englishConfig() {
+    pipeline::BackchannelConfig config;
+    pipeline::useLanguageWords(config, nlu::Languages({nlu::Language::builtIn()}));
+    return config;
+}
+
 void classifierTable() {
-    const pipeline::BackchannelConfig config;
+    const pipeline::BackchannelConfig config = englishConfig();
     struct Case { const char* text; bool isFinal; pipeline::BackchannelVerdict expected; };
     const Case cases[] = {
         {"Mm-hmm.", true, pipeline::BackchannelVerdict::Backchannel},
@@ -381,6 +390,54 @@ void disabledIsAHardBargeIn() {
     check(sameTransitions(rig.transitions(), {Transition::BARGE_IN_INTERRUPT}), scenario, "today's barge-in");
 }
 
+void protectedPartHoldsSpeech() {
+    const char* scenario = "R1 can't be interrupted";
+    Rig rig;
+    rig.protectedMs = 2000;
+    rig.userStarts();
+    rig.audio(1200);
+    rig.transcript("wait", false);
+    rig.userStops();
+    rig.transcript("Wait, actually Wednesday.", true);
+    check(sameTransitions(rig.transitions(), {}), scenario, "no barge-in: the part plays to its end");
+    rig.protectedMs = 0;
+    rig.replyEnds();
+    check(sameTransitions(rig.transitions(), {Transition::SYNTHESIS_COMPLETED, Transition::USER_STOPPED_SPEAKING}),
+          scenario, "answered after the reply");
+    const auto finals = rig.recorder->finals();
+    check(finals.size() == 1 && finals.back().text == "Wait, actually Wednesday.", scenario, "the final is the user's turn");
+}
+
+void protectedPartAfterPending() {
+    const char* scenario = "R2 pending when the part begins";
+    Rig rig;
+    rig.userStarts();
+    rig.audio(100);
+    rig.protectedMs = 2000;
+    rig.transcript("wait", false);
+    check(sameTransitions(rig.transitions(), {Transition::BARGE_IN_PENDING, Transition::BACKCHANNEL}), scenario,
+          "the commit is held and the duck released");
+    rig.protectedMs = 0;
+    rig.userStops();
+    rig.transcript("Wait.", true);
+    rig.replyEnds();
+    check(rig.recorder->finals().size() == 1, scenario, "answered after the reply");
+}
+
+void protectedPartWithHardBargeIn() {
+    const char* scenario = "R3 can't be interrupted, back-channel off";
+    pipeline::BackchannelConfig config;
+    config.enabled = false;
+    Rig rig(config);
+    rig.protectedMs = 2000;
+    rig.userStarts();
+    check(sameTransitions(rig.transitions(), {}), scenario, "no barge-in while the part plays");
+    rig.protectedMs = 0;
+    rig.userStops();
+    rig.userStarts();
+    check(sameTransitions(rig.transitions(), {Transition::BARGE_IN_INTERRUPT}), scenario, "after it, speech interrupts");
+}
+
 void envelopeRamps() {
     const char* scenario = "envelope";
     audio::PlaybackHoldEnvelope envelope;
@@ -428,8 +485,60 @@ void envelopeRamps() {
 
 } // namespace
 
+// Echo from open speakers: the agent's own words heard back don't interrupt it.
+void echoIsNotAnInterruption() {
+    const char* scenario = "E echo";
+    const pipeline::BackchannelConfig defaults = englishConfig();
+    const std::string reply = "Your car will be ready at five, and the total is ninety dollars.";
+    check(pipeline::isEcho("your car will be ready", reply, defaults), scenario, "its own words are echo");
+    check(pipeline::isEcho("car will be ready at fire", reply, defaults), scenario, "a word misheard still is (5 of 6)");
+    check(!pipeline::isEcho("can you make it six instead", reply, defaults), scenario, "other words aren't");
+    check(!pipeline::isEcho("wait ready at five", reply, defaults), scenario, "an interrupt word always interrupts");
+    check(!pipeline::isEcho("ready", reply, defaults), scenario, "one word isn't enough to tell");
+    pipeline::BackchannelConfig off;
+    off.rejectEcho = true;
+    check(!pipeline::isEcho("your car", "", off), scenario, "nothing being said: no echo");
+
+    {
+        Rig rig;
+        rig.agentState->setSpokenTextProvider([&reply] { return reply; });
+        rig.userStarts();
+        rig.transcript("your car will be ready", false);
+        rig.audio(800);
+        check(sameTransitions(rig.transitions(), {Transition::BARGE_IN_PENDING}), scenario,
+              "long speech that is the reply's words: still pending");
+        rig.userStops();
+        rig.transcript("Your car will be ready at five.", true);
+        rig.audio(400);
+        check(sameTransitions(rig.transitions(), {Transition::BARGE_IN_PENDING, Transition::BACKCHANNEL}), scenario,
+              "dismissed as echo: the agent keeps speaking");
+        check(rig.recorder->finals().empty(), scenario, "and it isn't a user turn");
+    }
+    {
+        Rig rig;
+        rig.agentState->setSpokenTextProvider([&reply] { return reply; });
+        rig.userStarts();
+        rig.transcript("can you make it six", false);
+        check(sameTransitions(rig.transitions(), {Transition::BARGE_IN_PENDING, Transition::BARGE_IN_INTERRUPT}), scenario,
+              "the user's own words interrupt");
+    }
+    {
+        pipeline::BackchannelConfig waiting;
+        waiting.echoWordsWaitMs = 600;
+        Rig rig(waiting);
+        rig.agentState->setSpokenTextProvider([&reply] { return reply; });
+        rig.userStarts();
+        rig.audio(700);
+        check(sameTransitions(rig.transitions(), {Transition::BARGE_IN_PENDING}), scenario, "no words yet: it waits for them");
+        rig.audio(600);
+        check(sameTransitions(rig.transitions(), {Transition::BARGE_IN_PENDING, Transition::BARGE_IN_INTERRUPT}), scenario,
+              "and interrupts once echoWordsWaitMs has passed without any");
+    }
+}
+
 int main() {
     classifierTable();
+    echoIsNotAnInterruption();
     backchannelDismissed();
     backchannelAppendedToHistory();
     interruptWordCommits();
@@ -442,6 +551,9 @@ int main() {
     twoBackchannels();
     silentOverlapDismissed();
     disabledIsAHardBargeIn();
+    protectedPartHoldsSpeech();
+    protectedPartAfterPending();
+    protectedPartWithHardBargeIn();
     envelopeRamps();
     std::printf("backchannel checks done, %d failure(s)\n", failures);
     return failures == 0 ? 0 : 1;

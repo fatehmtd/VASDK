@@ -33,7 +33,7 @@ namespace transport {
  * Audio format: mono 16-bit PCM in both directions. The provider must support the configured
  * sample rates (WebRtcInterface::open() fails otherwise).
  */
-class VASDK_EXPORT WebRtcTransport : public BaseTransport {
+class VASDK_EXPORT WebRtcTransport : public AudioTransport {
 public:
     explicit WebRtcTransport(std::shared_ptr<va::network::WebRtcInterface> peer);
     ~WebRtcTransport() override;
@@ -50,23 +50,23 @@ public:
     bool sendFrame(std::shared_ptr<Frame> frame) override;
 
     /// Capture-side format (what VAD/STT see). Set before initialize(). Default 16 kHz mono s16.
-    void setInputAudioConfig(const audio::AudioConfig& config) { _inputAudioConfig = config; }
+    void setInputAudioConfig(const audio::AudioConfig& config) override { _inputAudioConfig = config; }
     /// Playback-side format (what TTS produces). Set before initialize(). Default 16 kHz mono s16.
-    void setOutputAudioConfig(const audio::AudioConfig& config) { _outputAudioConfig = config; }
+    void setOutputAudioConfig(const audio::AudioConfig& config) override { _outputAudioConfig = config; }
     /// Samples per emitted AudioFrame (default 2000 = 125 ms at 16 kHz).
-    void setFrameSize(size_t samples) { _frameSizeInSamples = samples; }
+    void setFrameSize(size_t samples) override { _frameSizeInSamples = samples; }
     /// Shared ring buffer that VAD/STT read; without it frames carry offsets into nothing.
-    void setRingBuffer(std::shared_ptr<AudioRingBuffer> ringBuffer) { _ringBuffer = ringBuffer; }
+    void setRingBuffer(std::shared_ptr<AudioRingBuffer> ringBuffer) override { _ringBuffer = ringBuffer; }
     std::shared_ptr<AudioRingBuffer> getRingBuffer() const { return _ringBuffer; }
 
     /// Bytes of TTS audio queued but not yet sent to the peer.
     int getPendingOutputAudioBytes() const;
 
     /// Fade out (~50 ms) and discard queued output audio (barge-in / interrupt).
-    void flushOutputAudio();
+    void flushOutputAudio() override;
 
     /// Duck or pause queued output audio while a barge-in is pending; held = false releases.
-    void holdOutputAudio(PendingPlaybackMode pendingPlaybackMode, bool held, float duckGainDecibels);
+    void holdOutputAudio(PendingPlaybackMode pendingPlaybackMode, bool held, float duckGainDecibels) override;
 
     /// Turns a frame into a JSON-object event for the peer ("" = skip it).
     using EventEncoder = std::function<std::string(const Frame&)>;

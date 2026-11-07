@@ -177,6 +177,13 @@ namespace va
             virtual void commitEndOfSpeech() {}
 
             /**
+             * Words the next answer may hold (an agent question's choices, slot values, intents),
+             * for a recognizer that can be biased toward them; from the next utterance or session
+             * on. Default: ignored. Called on the pipeline thread.
+             */
+            virtual void setContextHints(const std::vector<std::string>& phrases) { (void)phrases; }
+
+            /**
              * @brief clearAudioBuffer
              * Discards all in-progress audio accumulated so far for the current segment.
              * Call this on barge-in to discard audio captured while TTS was playing

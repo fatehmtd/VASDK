@@ -1,0 +1,19 @@
+# proto-file: vasdk/flow/agent.proto
+# proto-message: vasdk.flow.Agent
+#
+# The owner's manual: questions answered on any page, offline, when no command understands the
+# words. With a sentence encoder in the engine config they're matched by meaning, else by their
+# words. A vertical with no code: only this file. Part of ../../agents/car/agent.txtpb (include_files).
+
+knowledge { questions: ["how do i pair my phone", "connect my phone", "pair bluetooth", "bluetooth pairing"]
+            answer: "Open Settings, then Bluetooth, and choose Pair new device. Keep your phone's Bluetooth on and pick this car from its list." }
+knowledge { questions: ["what does the orange engine light mean", "check engine light", "engine warning light", "orange light on the dashboard"]
+            answer: "An orange engine light means the car found a fault. It's safe to keep driving gently, but have it checked soon. If it flashes, stop when it's safe." }
+knowledge { questions: ["what should my tire pressure be", "tire pressure", "tyre pressure", "how much air in the tires"]
+            answer: "The front tires take 2.4 bar and the rear 2.3, when they're cold. It's also on a sticker inside the driver's door." }
+knowledge { questions: ["how do i open the fuel door", "open the gas cap", "fuel flap", "where is the fuel door"]
+            answer: "Press the fuel door when the car is unlocked: it springs open. It's on the passenger side." }
+knowledge { questions: ["how often should i service the car", "when is the next service", "service interval", "oil change interval"]
+            answer: "Every 15,000 kilometers or once a year, whichever comes first." }
+knowledge { questions: ["how do i turn on cruise control", "cruise control", "adaptive cruise"]
+            answer: "Press the cruise button on the left of the steering wheel, then SET at the speed you want. Brake, or press it again, to turn it off." }

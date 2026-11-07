@@ -1,0 +1,19 @@
+# proto-file: vasdk/flow/agent.proto
+# proto-message: vasdk.flow.Agent
+#
+# What every part of the car's agent shares: help, thanks, "never mind", and what happens when
+# nothing understood the words or a tool failed. Included last by agent.txtpb.
+intents { name: "help"   examples: ["help", "what can you do", "what can i say", "what do you do", "options"] }
+intents { name: "thanks" examples: ["thanks", "thank you", "cheers", "perfect", "great thanks"] }
+
+# Applied to every page, after every vertical's commands: a vertical's "stop navigation" wins over "stop".
+envelopes: ["standard"]
+envelope_defs {
+  name: "standard"
+  routes { intent: "help" steps { say { text: "I can do the climate and seat heating, play music, make calls and send texts, navigate, answer questions about the car, tell you a story or play a game. Try \"I'm cold\", \"play some jazz\" or \"take me home\"." } } }
+  routes { intent: "thanks" steps { say { text: ["You're welcome.", "Anytime."] follow_up_listen_ms: 0 } } }
+  routes { intent: "sys.cancel" steps { say { text: "Okay." follow_up_listen_ms: 0 } } }
+  handlers { event: "no-match" steps { say { text: ["Sorry, I can't do that in the car.", "Sorry, I didn't get that."] } } }
+  handlers { event: "tool-error" steps { say { text: "I can't do that right now." } } }
+}
+

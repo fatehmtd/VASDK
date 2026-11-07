@@ -2,7 +2,9 @@
 // VAD pauses. The VAD must close the segment at once (one ENDED, one user turn END) instead of
 // waiting out maxSpeechPauseDurationMs + maxSpeechEndDurationMs; without that call it still does.
 // A one-frame noise blip before the speech (VAD STARTING -> QUIET) must not produce a user turn
-// START, since that is what barges in on the agent.
+// START, since that is what barges in on the agent. Confirming speech in STARTING tolerates one
+// quiet frame after voice (not two, not a blip), and is quicker while the agent speaks. Over the
+// agent a turn-end call at a pause is held back: there it judges fragments, and the VAD's end ends the turn.
 
 #include <VASDK/Pipeline.h>
 #include <VASDK/TurnDetectionProcessor.h>
@@ -13,6 +15,7 @@
 #include <chrono>
 #include <cstdio>
 #include <mutex>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -88,7 +91,7 @@ public:
 };
 
 /// Feeds 1 s of speech then silence; returns how many silent frames it took to see ENDED.
-int run(bool early, Sink*& sinkOut, std::shared_ptr<pipeline::Pipeline>& keep) {
+int run(bool early, Sink*& sinkOut, std::shared_ptr<pipeline::Pipeline>& keep, bool agentSpeaking = false) {
     audio::AudioConfig cfg{16000, audio::AudioFormat::SHORT, 1};
     auto ring = std::make_shared<AudioRingBuffer>(16000 * 10, 2);
     auto vadProvider = std::make_shared<FakeVad>();
@@ -102,9 +105,11 @@ int run(bool early, Sink*& sinkOut, std::shared_ptr<pipeline::Pipeline>& keep) {
     vad->setRingBuffer(ring);
     auto source = std::make_shared<Source>();
     auto sink = std::make_shared<Sink>();
+    auto turn = std::make_shared<pipeline::TurnDetectionProcessor>(std::make_shared<FakeTurn>(early));
+    turn->setAgentSpeaking(agentSpeaking);
     keep = std::make_shared<pipeline::Pipeline>();
     keep->addProcessor(source).addProcessor(vad)
-        .addProcessor(std::make_shared<pipeline::TurnDetectionProcessor>(std::make_shared<FakeTurn>(early)))
+        .addProcessor(turn)
         .addProcessor(sink);
     if (!keep->build() || !keep->start()) { check(false, "pipeline starts"); return -1; }
     sinkOut = sink.get();
@@ -127,9 +132,57 @@ int run(bool early, Sink*& sinkOut, std::shared_ptr<pipeline::Pipeline>& keep) {
     return 99;
 }
 
+/// Feeds `pattern` ('V' voice, '.' quiet) to a VAD alone; returns the 1-based frame at which it
+/// reached ONGOING, or 0 if it never did.
+int framesToOngoing(const std::string& pattern, bool agentSpeaking) {
+    audio::AudioConfig cfg{16000, audio::AudioFormat::SHORT, 1};
+    auto ring = std::make_shared<AudioRingBuffer>(16000 * 10, 2);
+    auto vadProvider = std::make_shared<FakeVad>();
+    vadProvider->initialize(cfg, kFrame);
+    auto vad = std::make_shared<pipeline::VADFrameProcessor>(vadProvider);
+    pipeline::VADConfig vc;
+    vc.minSpeechDurationMs = 250;
+    vc.bargeInMinSpeechDurationMs = 150;
+    vad->setConfig(vc);
+    vad->setRingBuffer(ring);
+    vad->setAgentSpeaking([agentSpeaking] { return agentSpeaking; });
+    auto source = std::make_shared<Source>();
+    struct States : pipeline::FrameProcessor {
+        std::string getName() const override { return "States"; }
+        void processFrame(std::shared_ptr<transport::Frame> f, pipeline::FlowDirection) override {
+            if (auto v = std::dynamic_pointer_cast<transport::VADStateFrame>(f); v && v->state == VADState::ONGOING) ongoing = true;
+        }
+        std::atomic<bool> ongoing{false};
+    };
+    auto states = std::make_shared<States>();
+    pipeline::Pipeline pipeline;
+    pipeline.addProcessor(source).addProcessor(vad).addProcessor(states);
+    if (!pipeline.build() || !pipeline.start()) return -1;
+    uint64_t abs = 0, seq = 0;
+    std::vector<int16_t> speech(kFrame, 1000), silence(kFrame, 0);
+    int reached = 0;
+    for (size_t i = 0; i < pattern.size() && !reached; ++i) {
+        const auto& pcm = pattern[i] == 'V' ? speech : silence;
+        source->send(transport::detail::writeAudioFrame(ring.get(), reinterpret_cast<const char*>(pcm.data()),
+                                                        kFrame, cfg, abs, seq++, "test"));
+        std::this_thread::sleep_for(30ms);
+        if (states->ongoing) reached = static_cast<int>(i + 1);
+    }
+    pipeline.stop();
+    return reached;
+}
+
 } // namespace
 
 int main() {
+    // Confirming speech: decided 250 ms in (the 4th 100 ms frame), or 150 ms in while the agent speaks.
+    check(framesToOngoing("VVVVV", false) == 4, "steady speech confirmed on the 4th frame");
+    check(framesToOngoing("VVV.VV", false) == 5, "one quiet frame at the decision is tolerated");
+    check(framesToOngoing("VVV..VV", false) == 0, "two quiet frames in a row are not");
+    check(framesToOngoing("V.....", false) == 0, "a lone blip is not speech");
+    check(framesToOngoing("VVVVV", true) == 3, "a barge-in is confirmed sooner while the agent speaks");
+    check(framesToOngoing("VV.VV", true) == 4, "with the same one-frame tolerance");
+
     {
         Sink* sink = nullptr;
         std::shared_ptr<pipeline::Pipeline> p;
@@ -151,6 +204,20 @@ int main() {
         int n = run(false, sink, p);
         check(n >= 7 && n < 99, "without a turn-end call the pause/end timers still apply");
         std::printf("timers: ENDED after %d silent frame(s)\n", n);
+        p->stop();
+    }
+    {
+        // Over the agent the turn-end call is ignored: a short gap between words doesn't split the speech.
+        Sink* sink = nullptr;
+        std::shared_ptr<pipeline::Pipeline> p;
+        int n = run(true, sink, p, true);
+        check(n >= 7 && n < 99, "over the agent the pause/end timers apply even with a turn-end call");
+        std::this_thread::sleep_for(200ms);
+        {
+            std::lock_guard<std::mutex> l(sink->m);
+            check(sink->ended == 1 && sink->userEnds == 1, "over the agent the turn still ends, once, at the VAD's end");
+        }
+        std::printf("over the agent: ENDED after %d silent frame(s)\n", n);
         p->stop();
     }
     std::printf("vad turn end checks done, %d failure(s)\n", failures);

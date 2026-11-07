@@ -7,6 +7,57 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include(GNUInstallDirs)
 
+# The garage agent's steps and envelopes written in C++, and garage_agentc: vasdk_agentc with them
+# registered, which runs the agent's scripted conversations. Needs no audio, so before the checks below.
+if(VASDK_ENABLE_ENGINE_CONFIG AND TARGET VASDK)
+    set(GARAGE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/agents/garage-menu)
+    add_library(garage_extensions STATIC ${GARAGE_DIR}/extensions/GarageExtensions.cpp ${GARAGE_DIR}/garage.proto)
+    protobuf_generate(TARGET garage_extensions
+        IMPORT_DIRS ${GARAGE_DIR}
+        PROTOC_OUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/garage_proto)
+    target_include_directories(garage_extensions PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/garage_proto>
+        $<BUILD_INTERFACE:${GARAGE_DIR}/extensions>)
+    target_link_libraries(garage_extensions PUBLIC VASDK)
+
+    add_executable(garage_agentc ${GARAGE_DIR}/extensions/garage_agentc.cpp)
+    target_link_libraries(garage_agentc PRIVATE garage_extensions)
+    if(TARGET vasdk_provider_catalog)   # --engine-config's sentence_encoder and entity_model (minilm, gliner)
+        target_link_libraries(garage_agentc PRIVATE vasdk_provider_catalog)
+        target_compile_definitions(garage_agentc PRIVATE VASDK_HAS_PROVIDER_CATALOG)
+    endif()
+    if(WIN32 AND TARGET VASDK)   # a VASDK.dll beside it is loaded first: keep it the current one
+        get_target_property(_vasdk_type VASDK TYPE)
+        if(_vasdk_type STREQUAL "SHARED_LIBRARY")
+            add_custom_command(TARGET garage_agentc POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:VASDK> $<TARGET_FILE_DIR:garage_agentc>)
+        endif()
+    endif()
+
+    if(VASDK_BUILD_TESTS)
+        file(GLOB GARAGE_MENU_TESTS ${GARAGE_DIR}/tests/*.txtpb)
+        add_test(NAME vasdk_agent_garage_menu COMMAND garage_agentc test ${GARAGE_DIR}/agent.txtpb ${GARAGE_MENU_TESTS})
+        # Intent accuracy and entity F1 on what callers say, misspellings included
+        # The same suite from Python, its C++ step, envelope and tool written in Python (the C API)
+        find_package(Python3 COMPONENTS Interpreter QUIET)
+        get_target_property(VASDK_LIBRARY_TYPE VASDK TYPE)
+        if(Python3_Interpreter_FOUND AND VASDK_LIBRARY_TYPE STREQUAL "SHARED_LIBRARY")
+            add_test(NAME vasdk_python_garage
+                     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/bindings/python/tests/test_garage.py ${GARAGE_DIR})
+            set_tests_properties(vasdk_python_garage PROPERTIES ENVIRONMENT "VASDK_LIBRARY=$<TARGET_FILE:VASDK>")
+            # A page type and an entity extractor written in Python
+            add_test(NAME vasdk_python_extensions
+                     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/bindings/python/tests/test_extensions.py)
+            set_tests_properties(vasdk_python_extensions PROPERTIES ENVIRONMENT "VASDK_LIBRARY=$<TARGET_FILE:VASDK>")
+        endif()
+        add_test(NAME vasdk_agent_garage_menu_nlu
+                 COMMAND garage_agentc eval ${GARAGE_DIR}/agent.txtpb ${GARAGE_DIR}/nlu_eval.txtpb --min-accuracy 0.9)
+        # The same set as Whistle heard it, said by three of Phonon's voices (vasdk_spoken_eval).
+        add_test(NAME vasdk_agent_garage_menu_nlu_spoken
+                 COMMAND garage_agentc eval ${GARAGE_DIR}/agent.txtpb ${GARAGE_DIR}/nlu_eval.spoken.txtpb --min-accuracy 0.9)
+    endif()
+endif()
+
 # Check if required modules are enabled for VASDK_Pipeline
 set(VASDK_PIPELINE_REQUIRED_MODULES_ENABLED TRUE)
 set(VASDK_PIPELINE_MISSING_MODULES "")
@@ -14,6 +65,11 @@ set(VASDK_PIPELINE_MISSING_MODULES "")
 if(NOT VASDK_BUILD_SDL AND NOT VASDK_BUILD_MINIAUDIO)
     set(VASDK_PIPELINE_REQUIRED_MODULES_ENABLED FALSE)
     list(APPEND VASDK_PIPELINE_MISSING_MODULES "SDL or MINIAUDIO")
+endif()
+
+if(NOT VASDK_ENABLE_ENGINE_CONFIG)
+    set(VASDK_PIPELINE_REQUIRED_MODULES_ENABLED FALSE)
+    list(APPEND VASDK_PIPELINE_MISSING_MODULES "ENGINE_CONFIG (VASDK_ENABLE_ENGINE_CONFIG)")
 endif()
 
 if(NOT VASDK_BUILD_SILERO_VAD)
@@ -71,136 +127,15 @@ if(VASDK_BUILD_LIBDATACHANNEL_WEBRTC AND TARGET vasdk_libdatachannel_webrtc)
         VASDK_WEBRTC_DEMO_PAGE="${CMAKE_SOURCE_DIR}/assets/webrtc/index.html")
 endif()
 
-if(VASDK_BUILD_SILERO_VAD AND TARGET vasdk_silero_vad)
-    target_link_libraries(VASDK_Pipeline PRIVATE vasdk_silero_vad)
-    target_compile_definitions(VASDK_Pipeline PRIVATE VASDK_HAS_SILERO_VAD)
-endif()
+# VAD, STT and TTS providers: every one built in this tree, picked by id from --config
+target_link_libraries(VASDK_Pipeline PRIVATE vasdk_provider_catalog)
 
-if(VASDK_BUILD_ENERGY_ZCR_VAD AND TARGET vasdk_energy_zcr_vad)
-    target_link_libraries(VASDK_Pipeline PRIVATE vasdk_energy_zcr_vad)
-    target_compile_definitions(VASDK_Pipeline PRIVATE VASDK_HAS_ENERGY_ZCR_VAD)
-endif()
-
-if(VASDK_BUILD_GLADIAPP AND TARGET vasdk_gladiapp_transcription)
-    target_link_libraries(VASDK_Pipeline PRIVATE vasdk_gladiapp_transcription)
-    target_compile_definitions(VASDK_Pipeline PRIVATE VASDK_HAS_GLADIAPP)
-endif()
-
-if(VASDK_BUILD_SONIOXPP_STT AND TARGET vasdk_sonioxpp_stt)
-    target_link_libraries(VASDK_Pipeline PRIVATE vasdk_sonioxpp_stt)
-    target_compile_definitions(VASDK_Pipeline PRIVATE VASDK_HAS_SONIOXPP_STT)
-    message(STATUS "[VASDK_Pipeline] Soniox STT provider enabled")
-endif()
-
-if(VASDK_BUILD_DEEPGRAMPP_STT AND TARGET vasdk_deepgrampp_stt)
-    target_link_libraries(VASDK_Pipeline PRIVATE vasdk_deepgrampp_stt)
-    target_compile_definitions(VASDK_Pipeline PRIVATE VASDK_HAS_DEEPGRAMPP_STT)
-    message(STATUS "[VASDK_Pipeline] Deepgram STT provider enabled")
-endif()
-
-if(VASDK_BUILD_CARTESIAPP_STT AND TARGET vasdk_cartesiapp_stt)
-    target_link_libraries(VASDK_Pipeline PRIVATE vasdk_cartesiapp_stt)
-    target_compile_definitions(VASDK_Pipeline PRIVATE VASDK_HAS_CARTESIAPP_STT)
-    message(STATUS "[VASDK_Pipeline] Cartesia STT provider enabled")
-endif()
-
-if(VASDK_BUILD_FISHAUDIOPP_STT AND TARGET vasdk_fishaudiopp_stt)
-    target_link_libraries(VASDK_Pipeline PRIVATE vasdk_fishaudiopp_stt)
-    target_compile_definitions(VASDK_Pipeline PRIVATE VASDK_HAS_FISHAUDIOPP_STT)
-    message(STATUS "[VASDK_Pipeline] Fish Audio STT provider enabled")
-endif()
-
-if(VASDK_BUILD_GRADIUMPP_STT AND TARGET vasdk_gradiumpp_stt)
-    target_link_libraries(VASDK_Pipeline PRIVATE vasdk_gradiumpp_stt)
-    target_compile_definitions(VASDK_Pipeline PRIVATE VASDK_HAS_GRADIUMPP_STT)
-    message(STATUS "[VASDK_Pipeline] Gradium STT provider enabled")
-endif()
-
-if(VASDK_BUILD_PARAKEET AND TARGET vasdk_parakeet)
-    target_link_libraries(VASDK_Pipeline PRIVATE vasdk_parakeet)
-    target_compile_definitions(VASDK_Pipeline PRIVATE VASDK_HAS_PARAKEET)
-endif()
-
-if(VASDK_BUILD_WHISPERCPP AND TARGET vasdk_whispercpp)
-    target_link_libraries(VASDK_Pipeline PRIVATE vasdk_whispercpp)
-    target_compile_definitions(VASDK_Pipeline PRIVATE VASDK_HAS_WHISPERCPP)
-endif()
-
-if(VASDK_BUILD_MOONSHINE_STT AND TARGET vasdk_moonshine_stt)
-    target_link_libraries(VASDK_Pipeline PRIVATE vasdk_moonshine_stt)
-    target_compile_definitions(VASDK_Pipeline PRIVATE VASDK_HAS_MOONSHINE_STT)
-    message(STATUS "[VASDK_Pipeline] Moonshine STT provider enabled")
-endif()
-
-if(VASDK_BUILD_WHISTLE_STT AND TARGET vasdk_whistle_stt)
-    target_link_libraries(VASDK_Pipeline PRIVATE vasdk_whistle_stt)
-    target_compile_definitions(VASDK_Pipeline PRIVATE VASDK_HAS_WHISTLE_STT)
-    message(STATUS "[VASDK_Pipeline] Whistle STT provider enabled")
-endif()
-
-if(VASDK_BUILD_DEEPGRAMPP_TTS AND TARGET vasdk_deepgrampp_tts)
-    target_link_libraries(VASDK_Pipeline PRIVATE vasdk_deepgrampp_tts)
-    target_compile_definitions(VASDK_Pipeline PRIVATE VASDK_HAS_DEEPGRAMPP_TTS)
-    message(STATUS "[VASDK_Pipeline] Deepgram TTS provider enabled")
-endif()
-
-if(VASDK_BUILD_CARTESIAPP_TTS AND TARGET vasdk_cartesiapp_tts)
-    target_link_libraries(VASDK_Pipeline PRIVATE vasdk_cartesiapp_tts)
-    target_compile_definitions(VASDK_Pipeline PRIVATE VASDK_HAS_CARTESIAPP_TTS)
-    message(STATUS "[VASDK_Pipeline] Cartesia TTS provider enabled")
-endif()
-
-if(VASDK_BUILD_FISHAUDIOPP_TTS AND TARGET vasdk_fishaudiopp_tts)
-    target_link_libraries(VASDK_Pipeline PRIVATE vasdk_fishaudiopp_tts)
-    target_compile_definitions(VASDK_Pipeline PRIVATE VASDK_HAS_FISHAUDIOPP_TTS)
-    message(STATUS "[VASDK_Pipeline] Fish Audio TTS provider enabled")
-endif()
-
-if(VASDK_BUILD_GRADIUMPP_TTS AND TARGET vasdk_gradiumpp_tts)
-    target_link_libraries(VASDK_Pipeline PRIVATE vasdk_gradiumpp_tts)
-    target_compile_definitions(VASDK_Pipeline PRIVATE VASDK_HAS_GRADIUMPP_TTS)
-    message(STATUS "[VASDK_Pipeline] Gradium TTS provider enabled")
-endif()
-
-if(VASDK_BUILD_SONIOXPP_TTS AND TARGET vasdk_sonioxpp_tts)
-    target_link_libraries(VASDK_Pipeline PRIVATE vasdk_sonioxpp_tts)
-    target_compile_definitions(VASDK_Pipeline PRIVATE VASDK_HAS_SONIOXPP_TTS)
-    message(STATUS "[VASDK_Pipeline] Soniox TTS provider enabled")
-endif()
-
-if(VASDK_BUILD_SUPERTONIC_TTS AND TARGET vasdk_supertonic_tts)
-    target_link_libraries(VASDK_Pipeline PRIVATE vasdk_supertonic_tts)
-    target_compile_definitions(VASDK_Pipeline PRIVATE VASDK_HAS_SUPERTONIC_TTS)
-endif()
-
-if(VASDK_BUILD_POCKET_TTS AND TARGET vasdk_pocket_tts)
-    target_link_libraries(VASDK_Pipeline PRIVATE vasdk_pocket_tts)
-    target_compile_definitions(VASDK_Pipeline PRIVATE VASDK_HAS_POCKET_TTS)
-    message(STATUS "[VASDK_Pipeline] PocketTTS provider enabled")
-endif()
-
-if(VASDK_BUILD_PHONON_TTS AND TARGET vasdk_phonon_tts)
-    target_link_libraries(VASDK_Pipeline PRIVATE vasdk_phonon_tts)
-    target_compile_definitions(VASDK_Pipeline PRIVATE VASDK_HAS_PHONON_TTS)
-    message(STATUS "[VASDK_Pipeline] Phonon TTS provider enabled")
-endif()
-
-if(VASDK_BUILD_MOSS_TTS AND TARGET vasdk_moss_tts)
-    target_link_libraries(VASDK_Pipeline PRIVATE vasdk_moss_tts)
-    target_compile_definitions(VASDK_Pipeline PRIVATE VASDK_HAS_MOSS_TTS)
-    message(STATUS "[VASDK_Pipeline] MOSS-TTS-Nano provider enabled")
-endif()
+# The example agent's steps and envelopes written in C++ (registered in main_pipeline.cpp)
+target_link_libraries(VASDK_Pipeline PRIVATE garage_extensions)
 
 if(VASDK_BUILD_FFMPEG_AUDIO AND TARGET vasdk_ffmpeg_audio)
     target_link_libraries(VASDK_Pipeline PRIVATE vasdk_ffmpeg_audio)
     target_compile_definitions(VASDK_Pipeline PRIVATE VASDK_HAS_FFMPEG_AUDIO)
-endif()
-
-# Link the RNNoise DSP provider if it was built
-if(VASDK_BUILD_RNNOISE AND TARGET vasdk_rnnoise)
-    target_link_libraries(VASDK_Pipeline PRIVATE vasdk_rnnoise)
-    target_compile_definitions(VASDK_Pipeline PRIVATE VASDK_HAS_RNNOISE)
-    message(STATUS "[VASDK_Pipeline] RNNoise noise-suppression enabled")
 endif()
 
 # Link the VizAnim provider if it was built
@@ -208,13 +143,6 @@ if(VASDK_BUILD_VIZANIM AND TARGET vasdk_vizanim)
     target_link_libraries(VASDK_Pipeline PRIVATE vasdk_vizanim)
     target_compile_definitions(VASDK_Pipeline PRIVATE VASDK_HAS_VIZANIM)
     message(STATUS "[VASDK_Pipeline] VizAnim audio feature extraction enabled")
-endif()
-
-# Link the SmartTurn v3 provider if it was built
-if(VASDK_BUILD_SMART_TURN_V3 AND TARGET vasdk_smartturn_v3)
-    target_link_libraries(VASDK_Pipeline PRIVATE vasdk_smartturn_v3)
-    target_compile_definitions(VASDK_Pipeline PRIVATE VASDK_HAS_SMART_TURN_V3)
-    message(STATUS "[VASDK_Pipeline] SmartTurn v3 turn detection enabled")
 endif()
 
 # Link the pyannote speaker embedding provider if it was built
@@ -234,11 +162,6 @@ endif()
 if(VASDK_BUILD_LLAMACPP AND TARGET vasdk_llamacpp)
     target_link_libraries(VASDK_Pipeline PRIVATE vasdk_llamacpp)
     target_compile_definitions(VASDK_Pipeline PRIVATE VASDK_HAS_LLAMACPP)
-    if(DEFINED VASDK_LLAMACPP_MODEL_FILENAME AND NOT VASDK_LLAMACPP_MODEL_FILENAME STREQUAL "")
-        target_compile_definitions(VASDK_Pipeline PRIVATE
-            VASDK_LLAMACPP_DEFAULT_MODEL="${VASDK_LLAMACPP_MODEL_FILENAME}")
-        message(STATUS "[VASDK_Pipeline] llama.cpp default model: ${VASDK_LLAMACPP_MODEL_FILENAME}")
-    endif()
     message(STATUS "[VASDK_Pipeline] llama.cpp local LLM provider enabled")
 endif()
 

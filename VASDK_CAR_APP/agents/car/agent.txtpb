@@ -1,0 +1,40 @@
+# proto-file: vasdk/flow/agent.proto
+# proto-message: vasdk.flow.Agent
+#
+# A car's voice assistant. This file holds the start page; shared.txtpb, what every part shares
+# (help, thanks, "never mind", what happens when nothing understood the words). Each vertical is a file of its
+# own, next to its code in ../../verticals/<name>/, with its intents, entities, commands (an
+# envelope applied to every page), flows and triggers; they're merged in below. Remove a line to
+# drop a vertical (and its line in core/Verticals.cpp).
+#   car_agentc chat VASDK_CAR_APP/agents/car/agent.txtpb
+#   car_agentc test VASDK_CAR_APP/agents/car/agent.txtpb VASDK_CAR_APP/verticals/*/tests/*.txtpb
+#   VASDK_Car     (the dashboard on http://127.0.0.1:8090)
+# With an LLM, what no part understands goes to the LLM, which calls the same tools.
+schema_version: 1
+name: "car"
+locale: "en-US"
+start_flow: "drive"
+
+include_files: [
+  "../../verticals/drive/drive.txtpb",
+  "../../verticals/climate/climate.txtpb",
+  "../../verticals/companion/companion.txtpb",     # before media: "let's play a game" isn't media's "play"
+  "../../verticals/media/media.txtpb",
+  "../../verticals/phone/phone.txtpb",
+  "../../verticals/messages/messages.txtpb",       # needs phone's @contact
+  "../../verticals/navigation/navigation.txtpb",
+  "../../verticals/profiles/profiles.txtpb",       # applies profiles with climate's and media's tools
+  "../../verticals/manual/manual.txtpb",
+  "../../verticals/general/general.txtpb",         # after every vertical: general knowledge, what's outside them all
+  "shared.txtpb"                                   # last: help, thanks, never mind, and what nothing understood
+]
+
+flows {
+  name: "drive"
+  start_page: "ready"
+  # Nothing is asked here: after a command the assistant says what it did and waits.
+  pages {
+    name: "ready"
+    on_enter { say { text: ["Hi! I can handle the climate, music, calls and directions.", "Hi! What can I do for you?"] } }
+  }
+}

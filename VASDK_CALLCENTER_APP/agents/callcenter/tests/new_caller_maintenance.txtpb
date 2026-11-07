@@ -1,0 +1,10 @@
+# proto-file: vasdk/flow/test_case.proto
+# proto-message: vasdk.flow.FlowTestCase
+name: "a new caller schedules maintenance: no vehicle asked, everything else is"
+start_time: "2026-11-02T09:00:00"
+turns { expect { page: "welcome" said_contains: "Thanks for calling Acme." } }
+turns { user: "can you call me back about maintenance" expect { page: "schedule" said: "Can I have your full name, please?" } }
+turns { user: "Carol Diaz" expect { said: "What's the best number to call you back on?" } }
+turns { user: "five five five, two two two, three three three three" expect { said: "What day should we call you?" } }
+turns { user: "friday" expect { said_contains: "maintenance callback for Carol Diaz" } }
+turns { user: "yes" expect { page: "scheduled" tools_called: "schedule_callback" } }

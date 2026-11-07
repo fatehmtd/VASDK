@@ -1,0 +1,367 @@
+// An agent: what the assistant says and how the conversation moves between pages, with no LLM.
+// Written in text proto (agent.txtpb); JSON and binary load too. Start a file with
+//   # proto-file: vasdk/flow/agent.proto
+//   # proto-message: vasdk.flow.Agent
+syntax = "proto3";
+
+package vasdk.flow;
+
+import "google/protobuf/any.proto";
+import "google/protobuf/struct.proto";
+import "vasdk/flow/expectation.proto";
+import "vasdk/flow/trigger.proto";
+import "vasdk/goal/goal.proto";
+import "vasdk/nlu/entity.proto";
+import "vasdk/nlu/language.proto";
+
+message Agent {
+  int32 schema_version = 1;
+  string name = 2;
+  // The language the agent's texts are in, and its replies: how values are said ("Tuesday,
+  // November 10th"), the replies the engine says itself. Empty: the first of `languages`, else
+  // "en-US". Always understood too.
+  string locale = 3;
+  string start_flow = 4;   // the flow a conversation starts in, at its start_page
+
+  repeated Intent intents = 10;
+  repeated Flow flows = 11;
+  repeated SessionParam session_params = 12;   // $session.<name>: kept for the whole conversation
+  repeated vasdk.goal.GoalDefinition goals = 13;   // what forms collect (Page.form)
+  repeated string goal_files = 14;             // more goals, one per file, relative to this file
+  repeated vasdk.nlu.EntityType entity_types = 15;   // @<name>: kinds of value recognised in what the user says
+  repeated Envelope envelope_defs = 16;        // shared behaviour, applied by name below, to flows and to pages
+  repeated string envelopes = 17;              // apply to every page; also those written in C++ (FlowRegistry::addEnvelope)
+  repeated PageType page_types = 18;           // kinds of page, used with Page.type
+  // .proto files whose messages type the params of pages and custom steps, relative to this
+  // file: no code generation needed. Types compiled into the app are found without them.
+  repeated string proto_imports = 19;
+  repeated Tool tools = 20;                    // HTTP services call_tool may reach; tools in C++ come from FlowRegistry::addTool
+  repeated Trigger triggers = 21;              // what may start or interrupt a conversation (trigger.proto)
+  ProactivePolicy proactive_policy = 22;       // quiet hours and a limit for what's said unprompted
+  repeated Knowledge knowledge = 23;           // questions answered on any page when no route understands the words
+  // Entity packs: files of entity types (vasdk.nlu.EntityPack) shared between agents, relative to
+  // this file, e.g. VASDK's own entities/country.txtpb. A type the agent declares itself wins.
+  repeated string entity_files = 24;
+  // More of this agent, from files of their own (each a vasdk.flow.Agent), relative to this file:
+  // an app's verticals (climate, media, navigation), each with its intents, entities, envelopes,
+  // flows, triggers, knowledge and goals. They are merged in, in order, after this file's own;
+  // their goal_files, entity_files and include_files are relative to them. Only the main file
+  // sets schema_version, name, locale, languages, start_flow, proactive_policy and proto_imports.
+  repeated string include_files = 25;
+  // The languages the agent's users may speak, besides locale ("en-US", "fr-CA"): values ("demain",
+  // "tomorrow"), yes and no, the built-in intents and back-channels are understood in any of them.
+  // Each needs a pack: from language_files or language_defs, else one the app added
+  // (FlowRegistry::addLanguage); en-US is built in. A code finds a pack of the same language too
+  // ("fr-CA" uses "fr" or "fr-FR" when there's no "fr-CA").
+  repeated string languages = 26;
+  // Language packs (vasdk.nlu.Language), relative to this file: see VASDK's languages/en-US.txtpb
+  // and docs/reference/languages.md. A pack here replaces a built-in or registered one of the same code.
+  repeated string language_files = 27;
+  repeated vasdk.nlu.Language language_defs = 28;   // the same, written in the agent
+}
+
+// An answer to questions people ask: when no route understands the words and they ask one of
+// these (by meaning, with a sentence encoder; else by their words), the answer is said and the
+// page's question asked again.
+//   knowledge { questions: ["do you do bodywork", "can you fix dents"] answer: "We don't do bodywork." }
+message Knowledge {
+  repeated string questions = 1;
+  repeated string answer = 2;          // one of them, in turn; references work
+}
+
+// A tool reached over HTTP. The engine config's security.http_allow must list its URL, or the
+// call fails. Secrets never go in agent files: a header reads one with $secrets.<name>, from the
+// engine config's security.secrets.
+//   tools { name: "create_booking" http { url: "https://api.acme.example/bookings"
+//           headers { key: "Authorization" value: "Bearer $secrets.acme_api" } } }
+message Tool {
+  string name = 1;
+  string description = 2;
+  HttpCall http = 3;   // unset: the app provides it (FlowRegistry::addTool, the C API, Kotlin), so tests and lint know its name
+}
+
+// The call's args go as a JSON object: the body of a POST, the query of a GET. The reply's body,
+// JSON or text, is the tool's result.
+message HttpCall {
+  string url = 1;
+  string method = 2;                   // "POST" (default) or "GET"
+  map<string, string> headers = 3;
+}
+
+// A kind of page, written once and used by many: a page with `type: "<name>"` runs its steps
+// and routes along with its own, and reads its params as $params.<field>.
+//   page_types { name: "info" params_type: "acme.InfoParams" on_enter { say { text: "$params.text" } } }
+//   pages { name: "hours" type: "info" params { [type.googleapis.com/acme.InfoParams] { text: "Open 8 to 6." } } }
+// Page types written in C++ (FlowRegistry::addPageType) are used the same way; menu, yes_no and
+// end are built in. One declared here replaces a C++ one of the same name.
+message PageType {
+  string name = 1;
+  string params_type = 2;          // the full name of the params message; empty: no params
+  repeated Step on_enter = 3;      // before the page's own
+  repeated Route routes = 4;       // after the page's own
+  repeated Handler handlers = 5;   // after the page's own
+}
+
+// Behaviour shared by many pages: global commands ("hours", "talk to a person"), what to do
+// when nothing matches or the user is silent, and settings. Applied by name with `envelopes`
+// on the agent, a flow or a page. A turn tries the page's own routes first, then its envelopes,
+// the flow's, and the agent's, in the order listed; handlers and settings are found the same way.
+//
+// Around each turn of its pages, outermost envelope first (the agent's, the flow's, then the
+// page's): its guards, then what is written in C++ (FlowRegistry::addEnvelope), then its before
+// steps. Once the reply is ready, its after steps, innermost envelope first.
+message Envelope {
+  string name = 1;
+  string extends = 2;              // another envelope whose routes, handlers and settings come after these
+  repeated Route routes = 3;       // targets: "flow:<name>", END_FLOW, END_SESSION, CURRENT_PAGE or none
+  repeated Handler handlers = 4;
+  Settings settings = 5;
+  // What its pages need. Moving into one of them, or taking a turn there, the first guard whose
+  // condition doesn't hold runs its steps instead, then moves to its target ("Please sign in
+  // first." → flow:sign_in; END_FLOW there comes back to where the user was). It doesn't apply in
+  // its target flow.
+  repeated Guard guards = 6;
+  // Before the page's routes: extract a value said at any point, count the turns. A step that
+  // moves (goto, end) answers the turn; anything said comes before the reply.
+  repeated Step before = 7;
+  // Once the reply is ready: add to it, keep values. These steps don't move (no goto, end or ask).
+  repeated Step after = 8;
+}
+
+message Guard {
+  string condition = 1;            // what must hold: "$session.verified"
+  repeated Step steps = 2;
+  string target = 3;               // "flow:<name>", END_FLOW, END_SESSION; empty: stay, and ask the page's question again
+}
+
+// What happens on an event instead of the built-in behaviour:
+//   no-match       no route understood the user ("Sorry, I can't help with that here.")
+//   no-input       the user said nothing for no_input_ms after a question (built in: the question again)
+//   tool-error     a call_tool failed: unknown, refused, timed out, or the service said no
+//   clarify        the words fit two intents equally well: "Did you mean $nlu.alternatives?"
+//                  (without a handler, the first route wins)
+//   max-reprompts  more than max_reprompts no-match or no-input in a row on a page (built in:
+//                  the no-match or no-input behaviour again)
+//   resumed        the conversation picked up where an earlier one left it (FlowRuntime::resume):
+//                  its steps run before the page is entered ("Welcome back."); its target is not used
+// The steps run, then the conversation moves to target; staying on the page with nothing asked,
+// the page's question is asked again.
+message Handler {
+  string event = 1;
+  repeated Step steps = 2;
+  string target = 3;
+}
+
+message Settings {
+  optional int32 no_input_ms = 1;    // silence after a question before no-input; unset: 8000 with a no-input handler, else never
+  optional int32 max_reprompts = 2;  // misses in a row before max-reprompts; unset: 2. Forms use their goal's first.
+  // How long the mic stays open after each reply, instead of the engine's activation.follow_up
+  // (0: close at once, -1: never). A question's expect and a say's own value come first.
+  optional int32 follow_up_listen_ms = 3;
+}
+
+// A value the conversation keeps: set by `set` steps, by the app (Session::setSessionParam),
+// or by a test case; read in conditions and replies as $session.<name>.
+message SessionParam {
+  enum Type {
+    STRING = 0;
+    NUMBER = 1;
+    BOOL = 2;
+    LIST = 3;
+    STRUCT = 4;    // fields, read as $session.<name>.<field>: a tool's result
+  }
+  string name = 1;
+  Type type = 2;
+  google.protobuf.Value default = 3;   // unset: null
+  bool sensitive = 4;                  // masked in events and logs, never given to an LLM
+}
+
+// What the user wants, recognised by its examples: the intent matches when the user's words
+// contain one of them, in order. The longest example found wins between intents.
+//  - Misspelled words still match, as speech recognition makes them: "tyres", "apointment".
+//  - An example may name entities: "book an @service for @sys.date".
+//  - Negated it doesn't match: "I don't want to book" isn't book.
+// Built in, without declaring them: sys.yes, sys.no, sys.cancel, sys.repeat, sys.help, sys.skip
+// (declaring one of those names replaces its examples).
+message Intent {
+  string name = 1;
+  repeated string examples = 2;            // "book", "oil change", "book an @service"
+  repeated string negative_examples = 3;   // in the words, the intent doesn't match: "don't cancel"
+}
+
+// Entered with "flow:<name>": the conversation remembers where it was, and END_FLOW goes back
+// there and asks that page's question again (a digression). Up to 8 flows deep.
+message Flow {
+  string name = 1;
+  string start_page = 2;
+  repeated Page pages = 3;
+  repeated string envelopes = 4;   // apply to every page of this flow
+}
+
+message Page {
+  string name = 1;
+  repeated Step on_enter = 2;   // run each time the conversation enters the page
+  repeated Route routes = 3;    // tried against each user turn while on the page
+  Form form = 4;                // collect a goal's values on this page
+  repeated Handler handlers = 5;
+  repeated string envelopes = 6;
+  string type = 7;                 // a page type: declared in page_types, written in C++, or menu, yes_no, end
+  google.protobuf.Any params = 8;  // the page type's params, of its params_type
+}
+
+// Asks for the goal's slots one by one, then confirms them (require_confirmation). Each answer
+// is tried as the current slot first, and any slot with `values` named in it is filled too; an
+// answer that fits nothing goes to the routes, and is asked again when no route matches.
+// Condition routes are tried once the form is complete (and confirmed) or has failed:
+//   routes { condition: "$form.confirmed" target: "booked" }
+// $form.<slot>, $form.complete, $form.confirmed and $form.failed read it. The values are kept
+// while the conversation stays on the page (CURRENT_PAGE too) and start empty on arrival.
+message Form {
+  string goal = 1;
+}
+
+// Matches when its intent does (the longest example wins between routes), its entity is in the
+// user's words, and its condition holds. When no intent route matches, the routes with an entity
+// and no intent are tried in order, then those with only a condition.
+message Route {
+  string intent = 1;
+  string entity = 5;         // "@service": the user named one; $entity reads it in the condition and steps
+  string condition = 4;      // an expression: "$session.tier = 'gold'"
+  repeated Step steps = 2;   // run first, then the conversation moves to target
+  // A page of this flow, "flow:<name>" (its start page, remembering where it came from),
+  // "END_FLOW" (back to where this flow was entered from; ends the conversation in the start
+  // flow), "CURRENT_PAGE" (enter this page again) or "END_SESSION". Empty: stay on the page
+  // without entering it again. "LLM": the session's LLM conversation answers the turn; the
+  // steps are the answer without one, and the conversation stays on the page.
+  string target = 3;
+  // With target LLM: the engine config's llm_profiles entry that answers this turn ("smart" for a
+  // story, the default for chat). Unset: the config's `llm`.
+  string llm_profile = 6;
+}
+
+message Step {
+  oneof kind {
+    Say say = 1;
+    Ask ask = 2;
+    Extract extract = 6;
+    ClearSlot clear_slot = 10;
+    Set set = 11;
+    Branch branch = 12;
+    Switch switch = 13;
+    Goto goto = 14;
+    End end = 17;
+    CallTool call_tool = 20;
+    Llm llm = 22;
+    // A step written in C++ (FlowRegistry::addStep), chosen by its params' type:
+    //   custom { [type.googleapis.com/acme.LoyaltyPoints] { into: "$page.locals.points" } }
+    google.protobuf.Any custom = 100;
+  }
+}
+
+// Speaks one of the texts, in turn each time the step runs. Texts may hold references:
+// "Welcome back, $session.name." ($$ is a dollar sign; a missing value is empty).
+message Say {
+  repeated string text = 1;
+  // SSML, for a voice provider that reads it; others speak `text`, or this with its tags removed.
+  // References work here too.
+  string ssml = 2;
+  optional bool interruptible = 3;   // false: the user can't talk over this part; it plays to its end
+  google.protobuf.Struct ui = 6;     // given to the app with the reply: a card, a map, a picture
+  optional int32 follow_up_listen_ms = 7;   // how long the mic stays open after this reply; before any other setting
+  // How this part is said: another of the voice provider's own voices ("cosette", "Ava"), and how
+  // fast (0.8 slower, 1.2 faster; 0.5 to 2). A provider that can't is heard as usual.
+  string voice = 8;
+  optional float speed = 9;
+}
+
+// A question: the user is expected to answer, and it is repeated when the answer isn't understood.
+message Ask {
+  Say say = 1;
+  repeated Choice choices = 2;       // answers the app can show as buttons
+  Expectation expect = 3;            // what the answer is: CHOICE with choices, else OPEN; set fields replace those
+}
+
+// An answer offered with a question. Saying the label, the value or a synonym, as the whole
+// answer, is the same as saying the value; a button sends the value.
+message Choice {
+  string label = 1;
+  string value = 2;                  // empty: the label
+  repeated string synonyms = 3;
+}
+
+// Stores a value: key is "$session.<name>" (declared in session_params), "$page.locals.<name>"
+// (kept until the conversation leaves the page) or "$form.<slot>" (on a form page, checked like
+// an answer); value is an expression ("'gold'", "$input.text").
+message Set {
+  string key = 1;
+  string value = 2;
+}
+
+// Runs `then` when the condition holds, else `else`.
+message Branch {
+  string if = 1;
+  repeated Step then = 2;
+  repeated Step else = 3;
+}
+
+// Runs the steps of the first case whose value equals the expression `on`, else `default`.
+message Switch {
+  string on = 1;
+  repeated SwitchCase cases = 2;
+  repeated Step default = 3;
+}
+
+message SwitchCase {
+  string value = 1;
+  repeated Step steps = 2;
+}
+
+// Moves to `target` (as Route.target) at once; the steps after it don't run.
+message Goto {
+  string target = 1;
+}
+
+// Ends the conversation once the reply has played; the next one starts at start_flow.
+message End {}
+
+// Stores the entity found in the user's words this turn, if any: into is a `set` key.
+//   extract { entity: "@license_plate" into: "$session.plate" }
+message Extract {
+  string entity = 1;
+  string into = 2;
+}
+
+// Calls a tool, written in C++ (FlowRegistry::addTool) or declared in `tools`, and stores its
+// result. While it runs the filler is said, so the user isn't left in silence. A tool that fails
+// raises tool-error: its handler runs, else "Sorry, I can't do that right now." and the page's
+// question again; the steps after it don't run.
+//   call_tool { name: "create_booking" args { key: "day" value: "$form.day" } into: "$session.booking" filler: "One moment." }
+message CallTool {
+  string name = 1;
+  map<string, string> args = 2;        // arg name → an expression for its value
+  string into = 3;                     // a `set` key for the result; empty: not kept
+  repeated string filler = 4;          // said, in turn, before the call
+  // Say the filler only when the call takes longer than this: "One moment." for a slow lookup,
+  // nothing for a quick one. The call still runs to its end, or to the tools' timeout_ms.
+  optional int32 filler_after_ms = 5;
+}
+
+// Lets an LLM answer the turn: it reads the instructions, the conversation so far and the
+// user's words, and says the reply. It may move only to one of allowed_targets, and fill the
+// page's form slots only with values their entity reads in the words it gives (it can't make up
+// a service the agent doesn't offer). Sensitive values never reach it. Without an LLM, or when
+// it fails, the `offline` steps run instead; none: "Sorry, I can't help with that here."
+//   llm { instructions: "Answer briefly about car care, then offer to book." allowed_targets: ["booking"] }
+// While it thinks, the conversation can go on: a turn the user resumes gives up waiting for it.
+message Llm {
+  string instructions = 1;
+  repeated string allowed_targets = 2;   // as Route.target
+  repeated Step offline = 3;
+  repeated string filler = 4;          // said, in turn, when the LLM takes more than a second ("Let me think.")
+  string profile = 5;                  // the engine config's llm_profiles entry; unset: understanding.llm_profile, else `llm`
+}
+
+// Empties one of the page's form slots, so the form asks for it again (and confirms again).
+message ClearSlot {
+  string slot = 1;
+}

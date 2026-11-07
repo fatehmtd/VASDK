@@ -1,0 +1,85 @@
+// Entities: kinds of value the assistant recognises in what the user says, named @<name> in an
+// agent. Declared in the agent's entity_types; see docs/reference/flows.md#entities.
+syntax = "proto3";
+
+package vasdk.nlu;
+
+import "google/protobuf/struct.proto";
+
+// Entity types shared between agents, in a file of their own (Agent.entity_files).
+message EntityPack {
+  string name = 1;
+  string description = 2;
+  repeated EntityType entity_types = 3;
+}
+
+message EntityType {
+  string name = 1;               // @name
+  string description = 2;
+  oneof kind {
+    ListEntity list = 10;        // a fixed set of values, each with synonyms
+    PatternEntity pattern = 11;  // a regular expression
+    DerivedEntity derived = 12;  // another entity, narrowed
+    CompositeEntity composite = 13;   // built from other entities: "a white Toyota from 2019"
+    CodeEntity code = 14;        // found by the app's code: a database, the phone's contacts
+  }
+  // List only: the app may replace the values for one conversation (Session::setEntityValues),
+  // e.g. the appointment times still free today. The declared values are the defaults.
+  bool dynamic = 20;
+  Matching matching = 21;
+}
+
+// How a list entity's values are found in the words. With an entity model in the engine config
+// (providers.entity_model), fuzzy and phonetic matches count only inside the words the model
+// marks as this entity; exact values and synonyms count anywhere.
+message Matching {
+  optional bool fuzzy = 1;            // misspelled words still match ("tyres" for "tires"); unset: true
+  optional float min_similarity = 2;  // how alike a word must be, 0 to 1; unset: 0.8
+  bool phonetic = 3;                  // words that sound alike match too: names ("Catherine" for "Katherine")
+  // What an entity model is told this entity is, a short noun phrase ("car repair"); unset: the
+  // name, with spaces for underscores ("available time"). Zero-shot models (gliner) depend on it.
+  string label = 4;
+}
+
+// Values built from other entities, each template in order: "@color:color @car_make:make" names
+// the parts and the fields they fill. Words between the parts must be said as they are; the
+// longest template found wins. The value has a field per part: {color: "white", make: "toyota"}.
+message CompositeEntity {
+  repeated string templates = 1;      // "@car_make:make @car_model:model from @sys.integer:year"
+}
+
+// Values the app's code finds in the words, for what can't be declared (a database, the phone's
+// contacts): FlowRegistry::addEntityExtractor(extractor, ...) registers it.
+//   entity_types { name: "plate_on_file" code { extractor: "plates_db" } }
+message CodeEntity {
+  string extractor = 1;
+}
+
+// One value of a list entity. `value` is what conditions compare and what's stored; `spoken` is
+// how replies say it; any of `synonyms`, `spoken` or `value` heard in the user's words matches.
+message EntityValue {
+  string value = 1;                          // "oil_change"
+  repeated string synonyms = 2;              // "oil change", "lube"
+  string spoken = 3;                         // "an oil change"; unset: the value
+  google.protobuf.Struct attributes = 4;     // price, duration...: $form.service.price
+}
+
+message ListEntity {
+  repeated EntityValue values = 1;
+}
+
+// Matched against the user's words joined (with spaces, or none with strip_spaces), whole.
+message PatternEntity {
+  string regex = 1;              // ECMAScript syntax, case-insensitive: "[a-z]{2}[0-9]{3}[a-z]{2}"
+  bool strip_spaces = 2;         // "ab 123 cd" matches as "ab123cd"
+  bool spelled = 3;              // spelled out: "alpha bravo one two three" → "ab123"; implies strip_spaces
+  bool uppercase = 4;            // the value is stored in upper case
+}
+
+// The values of `base` that also meet these constraints.
+message DerivedEntity {
+  string base = 1;               // "@sys.integer", "@sys.number", or a list or pattern entity
+  optional double min = 2;       // numbers
+  optional double max = 3;
+  string condition = 4;          // an expression on $value: "$value != 'tire_repair'"
+}

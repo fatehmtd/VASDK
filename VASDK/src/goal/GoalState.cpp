@@ -49,7 +49,7 @@ bool GoalState::isRequired(const GoalSlot& slot) const {
 
 bool GoalState::allRequiredSubSlotsCollected(const GoalSlot& slot) const {
     for (const auto& sub : slot.subSlots) {
-        if (sub.required && !sub.value.has_value()) return false;
+        if (isRequired(sub) && !sub.value.has_value()) return false;
     }
     return true;
 }
@@ -78,8 +78,7 @@ std::string stripNonDigits(const std::string& s) {
     return out;
 }
 
-std::string todayISO() {
-    auto now = std::chrono::system_clock::now();
+std::string todayISO(std::chrono::system_clock::time_point now) {
     std::time_t tt = std::chrono::system_clock::to_time_t(now);
     std::tm tm{};
 #ifdef _WIN32
@@ -153,7 +152,7 @@ SlotValidationResult GoalState::validateAndNormalize(const GoalSlot& slot,
     case SlotType::DATE: {
         if (!isValidISODate(raw))
             return {false, {}, "date must be in ISO 8601 format YYYY-MM-DD (got '" + raw + "')"};
-        if (slot.constraints.mustBeFuture && raw <= todayISO())
+        if (slot.constraints.mustBeFuture && raw <= todayISO(_now.value_or(std::chrono::system_clock::now())))
             return {false, {}, "date must be in the future (got '" + raw + "')"};
         return {true, nlohmann::json(raw), ""};
     }
@@ -173,7 +172,7 @@ SlotValidationResult GoalState::validateAndNormalize(const GoalSlot& slot,
             return {false, {}, "datetime must be a valid ISO 8601 datetime"};
         if (slot.constraints.mustBeFuture) {
             std::string datePrefix = raw.size() >= 10 ? raw.substr(0, 10) : raw;
-            if (datePrefix <= todayISO())
+            if (datePrefix <= todayISO(_now.value_or(std::chrono::system_clock::now())))
                 return {false, {}, "datetime must be in the future (got '" + raw + "')"};
         }
         return {true, nlohmann::json(raw), ""};
@@ -282,6 +281,7 @@ SlotValidationResult GoalState::updateSlot(const std::string& dotPath, const std
     if (result.valid) {
         slot->value = result.normalizedValue;
         _summaryCacheDirty = true;
+        _confirmed = false;
         spdlog::info("[GoalState] Slot '{}' set to: {}", dotPath, result.normalizedValue.dump());
     }
     return result;
@@ -300,6 +300,7 @@ SlotValidationResult GoalState::updateObjectSlot(const std::string& name, const 
     if (result.valid) {
         slot->value = obj;
         _summaryCacheDirty = true;
+        _confirmed = false;
         spdlog::info("[GoalState] Object slot '{}' set to: {}", name, obj.dump());
     }
     return result;
@@ -314,11 +315,41 @@ bool GoalState::prefillSlot(const std::string& dotPath, const nlohmann::json& va
     }
     slot->value = value;
     _summaryCacheDirty = true;
+    _confirmed = false;
     spdlog::info("[GoalState] Slot '{}' pre-filled: {}", dotPath, value.dump());
     return true;
 }
 
+bool GoalState::clearSlot(const std::string& dotPath) {
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
+    GoalSlot* slot = findSlot(dotPath);
+    if (!slot) return false;
+    slot->value.reset();
+    for (auto& sub : slot->subSlots) sub.value.reset();
+    _summaryCacheDirty = true;
+    _confirmed = false;
+    return true;
+}
+
 //  Completion checks 
+
+std::vector<std::string> GoalState::missingSlots() const {
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
+    std::vector<std::string> missing;
+    for (const auto& slot : _slots)
+        if (isRequired(slot) && !isCollected(slot)) missing.push_back(slot.name);
+    return missing;
+}
+
+bool GoalState::isConfirmed() const {
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
+    return _confirmed;
+}
+
+void GoalState::setConfirmed(bool confirmed) {
+    std::lock_guard<std::recursive_mutex> lock(_mutex);
+    _confirmed = confirmed;
+}
 
 bool GoalState::isComplete() const {
     std::lock_guard<std::recursive_mutex> lock(_mutex);
@@ -450,7 +481,7 @@ std::string GoalState::describeMissingSlot(const GoalSlot& slot) const {
         std::vector<std::string> done, missing;
         for (const auto& sub : slot.subSlots) {
             if (sub.value.has_value()) done.push_back(sub.name + "=" + sub.value->dump());
-            else if (sub.required)     missing.push_back(sub.name);
+            else if (isRequired(sub))  missing.push_back(sub.name);
         }
         line += " (COMPOSITE - use update_slot with dot path";
         if (!done.empty()) {

@@ -66,6 +66,7 @@ namespace va {
             switch (frame->getType()) {
             case transport::FrameType::AUDIO:
             case transport::FrameType::VAD_STATE:
+            case transport::FrameType::CONTROL:   // TurnPolicyFrame, going up
             return true;
             default:
             return false;
@@ -265,7 +266,16 @@ namespace va {
 
         void TranscriptionFrameProcessor::processFrame(std::shared_ptr<transport::Frame> frame, FlowDirection direction) {
             VASDK_CTRACK_NAME("STT::processFrame");
+            if (direction == FlowDirection::UPSTREAM) {   // words the next answer may hold
+                if (auto policy = std::dynamic_pointer_cast<transport::TurnPolicyFrame>(frame)) {
+                    _privateAnswer.store(policy->privateAnswer);
+                    if (_transcriptionProvider) _transcriptionProvider->setContextHints(policy->hints);
+                }
+                pushUpstream(frame);
+                return;
+            }
             if (direction == FlowDirection::DOWNSTREAM) {
+                if (!_collectingAudio) applyReplacement();
                 switch (frame->getType()) {
                 case transport::FrameType::AUDIO: {
                     if (_collectingAudio) {
@@ -295,6 +305,38 @@ namespace va {
 
         void TranscriptionFrameProcessor::onTranscriptionError(const std::string& error) {
             spdlog::error("[TranscriptionFrameProcessor] Transcription error: {}", error);
+            if (_onProviderError) _onProviderError(error);
+        }
+
+        void TranscriptionFrameProcessor::replaceProvider(std::shared_ptr<audio::GenericTranscriptionProvider> provider) {
+            std::lock_guard<std::mutex> lock(_providerMutex);
+            _replacement = provider == _transcriptionProvider ? nullptr : std::move(provider);
+        }
+
+        // On the pipeline thread, between turns.
+        void TranscriptionFrameProcessor::applyReplacement() {
+            std::shared_ptr<audio::GenericTranscriptionProvider> next, previous;
+            {
+                std::lock_guard<std::mutex> lock(_providerMutex);
+                if (!_replacement) return;
+                next = std::move(_replacement);
+                _replacement.reset();
+                previous = _transcriptionProvider;
+            }
+            if (previous) previous->stopTranscriptionProvider();
+            next->setTranscriptionResultListener(this);
+            if (_metrics.config.enabled && _collector) next->setTimingObserver(this);
+            if (!next->initializeTranscriptionProvider() || !next->startTranscriptionProvider()) {
+                spdlog::error("[TranscriptionFrameProcessor] {} failed to start; keeping {}", next->getName(),
+                              previous ? previous->getName() : std::string("none"));
+                if (previous) previous->startTranscriptionProvider();
+                return;
+            }
+            {
+                std::lock_guard<std::mutex> lock(_providerMutex);
+                _transcriptionProvider = next;
+            }
+            spdlog::info("[TranscriptionFrameProcessor] now transcribing with {}", next->getName());
         }
 
         void TranscriptionFrameProcessor::onPartialTranscription(const audio::TranscriptionResult& result) {
@@ -307,6 +349,7 @@ namespace va {
             }
             auto transcriptionFrame = std::make_shared<transport::TranscriptionFrame>();
             transcriptionFrame->isFinal = false;
+            transcriptionFrame->sensitive = _privateAnswer.load();
             transcriptionFrame->transcriptionResult = result;
             transcriptionFrame->timestamp = transport::Frame::getCurrentTimestamp();
             transcriptionFrame->sourceId = getName();
@@ -326,6 +369,7 @@ namespace va {
 
             auto transcriptionFrame = std::make_shared<transport::TranscriptionFrame>();
             transcriptionFrame->isFinal = true;
+            transcriptionFrame->sensitive = _privateAnswer.load();
             transcriptionFrame->transcriptionResult = result;
             transcriptionFrame->timestamp = transport::Frame::getCurrentTimestamp();
             transcriptionFrame->sourceId = getName();

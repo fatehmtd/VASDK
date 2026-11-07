@@ -1,0 +1,87 @@
+# proto-file: vasdk/flow/agent.proto
+# proto-message: vasdk.flow.Agent
+#
+# The phone: a call that cuts in, answered or declined; calls placed to a contact; hanging up from
+# any page. Its tool, `phone`, and the @contact extractor are Phone.cpp.
+# Part of ../../agents/car/agent.txtpb (include_files).
+envelopes: ["phone"]
+
+session_params { name: "phone"   type: STRUCT }   # what the phone tool last returned
+
+# The phone's contacts, found by its code (Phone.cpp, "contacts"): "Sam", "doctor Patel", "my mom".
+# $entity.number is the number. Messages uses them too.
+entity_types { name: "contact" description: "Someone in the phone's contacts" code { extractor: "contacts" } }
+
+intents { name: "call_contact" examples: ["call @contact", "phone @contact", "ring @contact", "dial @contact", "give @contact a call",
+                                          "make a call", "call someone", "place a call", "call"] }   # "call": someone not in the contacts
+intents { name: "answer"  examples: ["answer", "answer it", "pick up", "take it", "take the call", "accept"] }
+intents { name: "decline" examples: ["decline", "reject", "ignore it", "don't answer", "send it to voicemail", "not now"] }
+intents { name: "hang_up" examples: ["hang up", "end the call", "end call", "hang up the phone", "drop the call"] }
+
+envelope_defs {
+  name: "phone"
+  routes {
+    intent: "call_contact"
+    entity: "@contact"
+    steps { call_tool { name: "phone" args { key: "action" value: "'call'" } args { key: "value" value: "$entity" } into: "$session.phone" } }
+    steps { say { text: "Calling ${session.phone.caller}." } }
+  }
+  routes { intent: "call_contact" steps { say { text: "Who should I call? Say, for example, \"call Sam\"." } } }
+  # The phone, wherever the conversation is
+  routes {
+    intent: "hang_up"
+    steps { call_tool { name: "phone" args { key: "action" value: "'hang_up'" } into: "$session.phone" } }
+    steps { branch { if: "$session.phone.changed" then { say { text: "Call ended." } }
+                     else { say { text: "You're not on a call." } } } }
+  }
+  # Ringing, but the conversation was elsewhere (the ringing page answers them first). With nothing
+  # ringing they're not commands: "the answer is a whale" in a game goes on to the game, or the LLM.
+  routes { intent: "answer" condition: "$context.car.phone.state = 'ringing'"
+           steps { call_tool { name: "phone" args { key: "action" value: "'answer'" } into: "$session.phone" } }
+           steps { say { text: "You're connected to ${session.phone.caller}." } } }
+  routes { intent: "decline" condition: "$context.car.phone.state = 'ringing'"
+           steps { call_tool { name: "phone" args { key: "action" value: "'decline'" } into: "$session.phone" } }
+           steps { say { text: "Declined." } } }
+}
+
+# The phone rings (Phone::simulate) and fires this: it cuts in on whatever is being said.
+triggers {
+  name: "incoming_call"
+  source { app_event { name: "incoming-call" } }
+  action { start_flow: "phone" }
+  delivery { interrupt: IMMEDIATE priority: CRITICAL }
+}
+
+# A call rings: answer or decline. The music stops while it rings and comes back after.
+flows {
+  name: "phone"
+  start_page: "ringing"
+  pages {
+    name: "ringing"
+    on_enter { call_tool { name: "phone" args { key: "action" value: "'status'" } into: "$session.phone" } }
+    on_enter { set { key: "$page.locals.caller" value: "$session.phone.caller" } }
+    on_enter { branch { if: "empty($page.locals.caller)" then { set { key: "$page.locals.caller" value: "'Someone'" } } } }
+    on_enter { ask { say { text: "${page.locals.caller} is calling. Answer it?" }
+                     choices { label: "Answer" value: "answer" }
+                     choices { label: "Decline" value: "decline" }
+                     expect { intents: ["answer", "decline", "sys.yes", "sys.no"] no_input_ms: 15000 max_reprompts: 1 } } }
+    routes { intent: "answer"
+             steps { call_tool { name: "phone" args { key: "action" value: "'answer'" } into: "$session.phone" } }
+             steps { say { text: "You're connected to ${page.locals.caller}." } } target: "END_FLOW" }
+    routes { intent: "sys.yes"
+             steps { call_tool { name: "phone" args { key: "action" value: "'answer'" } into: "$session.phone" } }
+             steps { say { text: "You're connected to ${page.locals.caller}." } } target: "END_FLOW" }
+    routes { intent: "decline"
+             steps { call_tool { name: "phone" args { key: "action" value: "'decline'" } into: "$session.phone" } }
+             steps { say { text: "Declined." } } target: "END_FLOW" }
+    routes { intent: "sys.no"
+             steps { call_tool { name: "phone" args { key: "action" value: "'decline'" } into: "$session.phone" } }
+             steps { say { text: "Declined." } } target: "END_FLOW" }
+    handlers { event: "no-input"
+               steps { call_tool { name: "phone" args { key: "action" value: "'decline'" } into: "$session.phone" } }
+               steps { say { text: "I sent it to voicemail." } } target: "END_FLOW" }
+    handlers { event: "max-reprompts"
+               steps { call_tool { name: "phone" args { key: "action" value: "'decline'" } into: "$session.phone" } }
+               steps { say { text: "I sent it to voicemail." } } target: "END_FLOW" }
+  }
+}

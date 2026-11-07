@@ -1,0 +1,7 @@
+# proto-file: vasdk/flow/test_case.proto
+# proto-message: vasdk.flow.FlowTestCase
+name: "an unknown number asks about an account by its id"
+turns { expect { page: "welcome" } }
+turns { user: "what's my account balance" expect { page: "account" said: "What's your account number, or the phone number on the account?" } }
+turns { user: "it's ACC 002" expect { page: "account_status" said_contains: "for Bob Smith, is a standard account" } }
+turns { user: "no" expect { ends_session: true } }

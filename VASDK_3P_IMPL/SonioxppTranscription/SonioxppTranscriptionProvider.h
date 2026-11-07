@@ -30,6 +30,8 @@ public:
     size_t writeAudioData(const uint8_t* data, size_t size) override;
     va::audio::TranscriptionResult writeFullAudioData(const uint8_t* data, size_t size) override;
     void commitEndOfSpeech() override;
+    /** Sent as the realtime session's context terms from the next session on. */
+    void setContextHints(const std::vector<std::string>& phrases) override;
 
     void setTranscriptionResultListener(va::audio::TranscriptionResultListener* listener) override;
     va::audio::TranscriptionResultListener* getTranscriptionResultListener() const override;
@@ -57,6 +59,9 @@ private:
     std::atomic<bool> _isRunning{ false };
     std::atomic<bool> _stopNotified{ false };
     std::atomic<bool> _sessionStarted{ false };
+    std::mutex _hintsMutex;
+    std::vector<std::string> _hints;
+    std::string contextJson();
     mutable std::mutex _clientMutex;
 };
 

@@ -1,0 +1,46 @@
+# proto-file: vasdk/engine/engine_config.proto
+# proto-message: vasdk.engine.EngineConfig
+#
+# The in-car assistant's engine: on-device speech both ways, so the car works with no signal, and
+# an LLM when there is one (LLM_ENDPOINT, LLM_MODEL, LLM_API_KEY in .env; unset: the agent alone).
+providers {
+  vad { id: "silero" }
+  stt { id: "whistle" fallback: ["parakeet", "moonshine"] }
+  tts { id: "phonon" fallback: ["pocket"] }
+}
+turn_taking {
+  preset: SNAPPY                      # short commands: answer as soon as the driver stops
+  backchannel { pending_playback: DUCK commit_after_ms: 300 }
+}
+activation {
+  mode: ALWAYS_ON                     # a car would use WAKE_WORD or the steering wheel button (PUSH_TO_TALK)
+  follow_up { listen_ms: 6000 }
+}
+llm {
+  endpoint: "${LLM_ENDPOINT:-}"
+  model: "${LLM_MODEL:-}"
+  api_key: "${LLM_API_KEY:-}"
+  effort: "${LLM_REASONING_EFFORT:-}"
+  history: 12
+  offline_replies: ["I can't reach the internet right now, but I can still do the climate and the music."]
+}
+# The right LLM for each task. A car command is a rule and asks none. Unset variables: llm's value,
+# so with none of them set, `llm` answers everything.
+#   fast:    which command the driver meant, when the rules aren't sure: a small model, at once
+#   (llm):   chat, and requests no vertical understands ("set things up for a night drive"), with the tools
+#   smart:   stories, games and questions about the world (routes with llm_profile: "smart")
+llm_profiles {
+  name: "fast"
+  endpoint: "${LLM_FAST_ENDPOINT:-}"
+  model: "${LLM_FAST_MODEL:-}"
+  api_key: "${LLM_FAST_API_KEY:-}"
+  effort: "${LLM_FAST_REASONING_EFFORT:-}"
+}
+llm_profiles {
+  name: "smart"
+  endpoint: "${LLM_SMART_ENDPOINT:-}"
+  model: "${LLM_SMART_MODEL:-}"
+  api_key: "${LLM_SMART_API_KEY:-}"
+  effort: "${LLM_SMART_REASONING_EFFORT:-}"
+}
+understanding { llm_profile: "fast" }

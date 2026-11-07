@@ -1,0 +1,114 @@
+{
+  "recipes": [
+    {
+      "id": "aglio_olio",
+      "name": "spaghetti aglio e olio",
+      "aliases": ["aglio e olio", "garlic pasta", "spaghetti", "pasta"],
+      "servings": 2,
+      "minutes": 20,
+      "ingredients": [
+        {"item": "spaghetti", "amount": "200 grams"},
+        {"item": "garlic", "amount": "4 cloves"},
+        {"item": "olive oil", "amount": "6 tablespoons"},
+        {"item": "chili flakes", "amount": "half a teaspoon"},
+        {"item": "parsley", "amount": "a small bunch"},
+        {"item": "salt", "amount": "to taste"}
+      ],
+      "steps": [
+        {"text": "Bring a large pot of well salted water to a boil."},
+        {"text": "Slice the garlic thinly and chop the parsley while the water heats."},
+        {"text": "Add the spaghetti to the boiling water and cook it for 9 minutes.", "timer_minutes": 9, "timer_label": "pasta"},
+        {"text": "Meanwhile, warm the olive oil in a large pan over low heat, and add the garlic and chili flakes. Let the garlic turn just golden, about 2 minutes.", "timer_minutes": 2, "timer_label": "garlic"},
+        {"text": "Save a cup of the pasta water, then drain the spaghetti and toss it in the pan with a splash of that water."},
+        {"text": "Stir in the parsley, season with salt, and serve right away."}
+      ]
+    },
+    {
+      "id": "pancakes",
+      "name": "pancakes",
+      "aliases": ["pancake", "fluffy pancakes", "breakfast pancakes"],
+      "servings": 4,
+      "minutes": 25,
+      "ingredients": [
+        {"item": "flour", "amount": "250 grams"},
+        {"item": "milk", "amount": "300 milliliters"},
+        {"item": "eggs", "amount": "2"},
+        {"item": "sugar", "amount": "2 tablespoons"},
+        {"item": "baking powder", "amount": "2 teaspoons"},
+        {"item": "butter", "amount": "a little"}
+      ],
+      "steps": [
+        {"text": "Whisk the flour, sugar and baking powder together in a bowl."},
+        {"text": "Beat in the eggs and milk until the batter is smooth."},
+        {"text": "Let the batter rest for 5 minutes.", "timer_minutes": 5, "timer_label": "batter"},
+        {"text": "Melt a little butter in a pan over medium heat and pour in a ladle of batter."},
+        {"text": "Flip the pancake when bubbles appear on top, and cook the other side for about a minute."},
+        {"text": "Keep going with the rest of the batter, and serve them warm."}
+      ]
+    },
+    {
+      "id": "scrambled_eggs",
+      "name": "scrambled eggs",
+      "aliases": ["eggs", "scrambled egg", "soft scrambled eggs"],
+      "servings": 1,
+      "minutes": 5,
+      "ingredients": [
+        {"item": "eggs", "amount": "3"},
+        {"item": "butter", "amount": "a knob"},
+        {"item": "salt", "amount": "a pinch"},
+        {"item": "chives", "amount": "a few"}
+      ],
+      "steps": [
+        {"text": "Crack the eggs into a bowl with a pinch of salt and beat them well."},
+        {"text": "Melt the butter in a pan over low heat."},
+        {"text": "Pour in the eggs and stir slowly with a spatula, pushing them from the edges to the middle."},
+        {"text": "Take the pan off the heat while they still look a little wet, sprinkle the chives, and serve."}
+      ]
+    },
+    {
+      "id": "tomato_soup",
+      "name": "tomato soup",
+      "aliases": ["soup", "tomato", "roasted tomato soup"],
+      "servings": 4,
+      "minutes": 40,
+      "ingredients": [
+        {"item": "tomatoes", "amount": "1 kilogram"},
+        {"item": "onion", "amount": "1"},
+        {"item": "garlic", "amount": "2 cloves"},
+        {"item": "olive oil", "amount": "2 tablespoons"},
+        {"item": "vegetable stock", "amount": "500 milliliters"},
+        {"item": "basil", "amount": "a handful"}
+      ],
+      "steps": [
+        {"text": "Chop the onion and garlic, and quarter the tomatoes."},
+        {"text": "Soften the onion and garlic in the olive oil over medium heat for 5 minutes.", "timer_minutes": 5, "timer_label": "onions"},
+        {"text": "Add the tomatoes and the stock, bring it to a boil, then simmer for 20 minutes.", "timer_minutes": 20, "timer_label": "soup"},
+        {"text": "Add the basil and blend the soup until smooth."},
+        {"text": "Taste, season with salt and pepper, and serve hot."}
+      ]
+    },
+    {
+      "id": "guacamole",
+      "name": "guacamole",
+      "aliases": ["guac", "avocado dip"],
+      "servings": 4,
+      "minutes": 10,
+      "ingredients": [
+        {"item": "avocados", "amount": "3"},
+        {"item": "lime", "amount": "1"},
+        {"item": "onion", "amount": "half a small"},
+        {"item": "tomato", "amount": "1"},
+        {"item": "cilantro", "amount": "a handful"},
+        {"item": "salt", "amount": "a pinch"}
+      ],
+      "steps": [
+        {"text": "Halve the avocados, scoop them into a bowl, and mash them with a fork."},
+        {"text": "Squeeze in the lime juice and add a pinch of salt."},
+        {"text": "Finely chop the onion, tomato and cilantro, and stir them in."},
+        {"text": "Taste, add more lime or salt if it needs it, and serve."}
+      ]
+    }
+  ],
+  "pantry": ["salt", "pepper", "sugar", "flour", "olive oil", "butter", "milk", "eggs", "bread", "rice", "coffee",
+             "cheese", "apples", "bananas", "yogurt", "chicken", "pasta", "lemons", "carrots", "potatoes"]
+}

@@ -1,0 +1,6 @@
+# proto-file: vasdk/goal/goal.proto
+# proto-message: vasdk.goal.GoalDefinition
+#
+# A timer's length: "ten minutes", "an hour and a half" (@sys.duration, as PT10M).
+name: "timer"
+slots { name: "duration" entity: "@sys.duration" prompt: "For how long?" reprompt: "How long? For example, ten minutes." }

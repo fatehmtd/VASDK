@@ -1,0 +1,8 @@
+# proto-file: vasdk/flow/test_case.proto
+# proto-message: vasdk.flow.FlowTestCase
+name: "hours and prices in the middle of a booking go back to it"
+turns { user: "book a tire repair" expect { page: "booking" said: "Which day works for you?" } }
+turns { user: "what are your hours" expect { page: "booking" said: "We're open 8 to 6, Monday to Saturday. Which day works for you?" } }
+turns { user: "how much does an oil change cost"
+        expect { page: "booking" said: "an oil change costs 49 dollars. Which day works for you?" form { key: "service" value: "tire_repair" } } }
+turns { user: "tuesday" expect { said_contains: "Which time suits you?" form { key: "day" value: "tuesday" } } }

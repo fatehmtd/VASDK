@@ -1,0 +1,12 @@
+# proto-file: vasdk/flow/test_case.proto
+# proto-message: vasdk.flow.FlowTestCase
+name: "a call cuts in: a command while it rings, answered, then hung up"
+turns { expect { page: "ready" } }
+turns { fire_trigger: "incoming-call" tool_results { key: "phone" value: "{\"state\": \"ringing\", \"caller\": \"Mom\"}" }
+        expect { trigger_decision: STARTED flow: "phone" page: "ringing" said: "Mom is calling. Answer it?" choices: ["Answer", "Decline"] } }
+turns { user: "volume to 5" expect { said: "Volume 5. Mom is calling. Answer it?" page: "ringing" } }   # done, then asked again
+turns { user: "pick up" tool_results { key: "phone" value: "{\"state\": \"active\", \"caller\": \"Mom\"}" }
+        expect { said: "You're connected to Mom." flow: "drive" page: "ready" } }
+turns { user: "hang up" tool_results { key: "phone" value: "{\"state\": \"idle\", \"changed\": true}" } expect { said: "Call ended." } }
+turns { user: "hang up" tool_results { key: "phone" value: "{\"state\": \"idle\", \"changed\": false}" } expect { said: "You're not on a call." } }
+turns { user: "answer it" expect { event: "no-match" } }   # nothing rings: not a command, so the LLM's, when there is one

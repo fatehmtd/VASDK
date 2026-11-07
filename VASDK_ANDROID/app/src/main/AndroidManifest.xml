@@ -26,6 +26,8 @@
 
     <!-- Notification tools: send_notification -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Schedule triggers: the alarm is set again after a reboot (TriggerBridge) -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <!-- Notification tools: set_alarm_or_timer. Without this, the Clock app's
          HandleSetApiCalls activity resolves fine (see <queries> below) but
@@ -119,6 +121,22 @@
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
+
+        <!-- Testing without a microphone: a user turn as if spoken, from adb only (its shell holds
+             DUMP). The command is in TestInputReceiver.kt. -->
+        <receiver
+            android:name=".services.TestInputReceiver"
+            android:exported="true"
+            android:permission="android.permission.DUMP" />
+
+        <!-- Schedule triggers while the app is closed: the alarm TriggerBridge sets, set again after a reboot -->
+        <receiver
+            android:name=".services.TriggerBridge$AlarmReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
 
     </application>
 

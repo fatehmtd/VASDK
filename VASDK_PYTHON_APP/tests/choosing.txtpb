@@ -1,0 +1,14 @@
+# proto-file: vasdk/flow/test_case.proto
+# proto-message: vasdk.flow.FlowTestCase
+name: "which recipe: asked when none is named, by ingredient, and to the end of one"
+turns { expect { page: "ready" } }
+turns { user: "next" expect { said_contains: "Which one?" page: "which" } }
+turns { user: "something I don't know" expect { said_contains: "I don't have that one" page: "which" } }
+turns { user: "scrambled eggs" expect { said_contains: "Let's make scrambled eggs" page: "ready" } }
+turns { user: "next" expect { said_contains: "Step 1 of 4" } }
+turns { user: "next" expect { said_contains: "Step 2 of 4" } }
+turns { user: "next" expect { said_contains: "Step 3 of 4" } }
+turns { user: "next" expect { said_contains: "Step 4 of 4" } }
+turns { user: "next" expect { said: "That's everything. Your scrambled eggs is ready. Enjoy!" } }
+turns { user: "what can I make with tomatoes" expect { said: "With tomatoes you could make tomato soup and guacamole." } }
+turns { user: "what can I make with chocolate" expect { matched: true } }

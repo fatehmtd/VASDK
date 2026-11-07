@@ -1,5 +1,7 @@
 #include "CartesiappVoiceSynthesisProvider.h"
 
+#include <algorithm>
+
 #include <spdlog/spdlog.h>
 
 namespace va {
@@ -34,6 +36,10 @@ va::audio::AudioConfig CartesiappVoiceSynthesisProvider::getAudioConfiguration()
 }
 
 bool CartesiappVoiceSynthesisProvider::synthesizeSpeech(const std::string& text) {
+    return synthesizeStyledSpeech(text, {});
+}
+
+bool CartesiappVoiceSynthesisProvider::synthesizeStyledSpeech(const std::string& text, const va::audio::SpeechStyle& style) {
     if (text.empty()) {
         return false;
     }
@@ -50,7 +56,12 @@ bool CartesiappVoiceSynthesisProvider::synthesizeSpeech(const std::string& text)
     cartesiapp::TtsGenerationRequest request;
     request.model_id = _model.empty() ? cartesiapp::tts::models::SONIC_3_5 : _model;
     request.transcript = text;
-    request.voice.id = _voiceId;
+    request.voice.id = style.voice.empty() ? _voiceId : style.voice;
+    if (style.speed > 0) {
+        cartesiapp::GenerationConfig config;
+        config.speed = std::clamp(style.speed, 0.6f, 1.5f);
+        request.generation_config = config;
+    }
     request.output_format = resolveOutputFormat();
     if (!_language.empty()) {
         request.language = _language;
