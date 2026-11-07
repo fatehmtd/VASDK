@@ -4,8 +4,7 @@
 #include <chrono>
 #include <cstring>
 
-namespace va {
-namespace android {
+namespace va::thirdparty::audio {
 
 AAudioSource::AAudioSource() {
     _fifo.resize(kFifoCapacity);
@@ -209,5 +208,4 @@ void AAudioSource::onCapture(const void* audioData, int32_t numFrames) {
     _dataReady.notify_one();
 }
 
-} // namespace android
-} // namespace va
+} // namespace va::thirdparty::audio

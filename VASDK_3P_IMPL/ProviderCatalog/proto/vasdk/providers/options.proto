@@ -59,3 +59,22 @@ message LibDataChannelWebRtcOptions {
   string host = 3;                  // unset: 127.0.0.1. There's no authentication: keep loopback unless the network is trusted
   string page = 4;                  // the HTML served at GET /; unset: VASDK_WEBRTC_PAGE, then VASDK's demo page (assets/webrtc/index.html)
 }
+
+// LLM on the device: llamacpp (providers.llm). Unset sampling fields: va::llm::LLMConfig's defaults.
+message LlamaCppOptions {
+  string model_path = 1;                   // the GGUF file; unset: LLAMACPP_MODEL, then <models_dir>/LFM2.5-1.2B-Instruct-Q4_K_M.gguf
+  string chat_format = 2;                  // the GGUF's: chatml, llama3, llama2, mistral, gemma, phi3, lfm2, lfm2.5; unset: LLAMACPP_CHAT_FORMAT, then the transport's
+  optional int32 context_tokens = 3;       // the context window
+  optional int32 max_tokens = 4;           // the longest reply
+  optional float temperature = 5;
+  optional float top_p = 6;
+  optional int32 top_k = 7;
+  optional float min_p = 8;
+  optional float repetition_penalty = 9;
+  optional int32 threads = 10;             // unset: llama.cpp's choice
+  optional int32 gpu_layers = 11;          // layers offloaded to the GPU
+  string native_library_dir = 12;          // Android: the app's nativeLibraryDir, where ggml's backends are
+  // Also answer the agent's one-shot asks (understanding, llm steps, generative pages). It loads
+  // the model a second time: twice the memory. Unset: false, those steps run their offline steps.
+  bool answer_agent = 13;
+}

@@ -21,6 +21,8 @@ class TurnDetectionProvider;
 class WakeWordProvider;
 }
 namespace nlu { class SentenceEncoder; class EntityExtractor; }
+namespace llm { class Completion; class LLMTransport; }
+namespace transport { class AudioTransport; }
 
 namespace engine {
 
@@ -100,6 +102,21 @@ public:
     size_t activeSessions() const;
     /** Provider sets loaded and waiting for a session. */
     size_t idleProviderSets() const;
+
+    /**
+     * The transport the config names, when it names one: a webrtc peer (`sendAllFrames` true: the
+     * page shows the session's state), else the audio_input and audio_output devices. nullptr with
+     * `error` empty when it names none (the app brings the audio); nullptr with `error` set when
+     * one fails to start.
+     */
+    std::shared_ptr<transport::AudioTransport> configTransport(bool* sendAllFrames, std::string* error) const;
+    /** One session's LLM from the config's providers.llm. */
+    struct LlmProvider {
+        std::shared_ptr<llm::LLMTransport> transport;      ///< the conversation's
+        std::shared_ptr<const llm::Completion> completion; ///< the agent's; null when the provider has none
+    };
+    /** Empty, with `error` empty, when the config names none; empty with `error` set when it fails. */
+    LlmProvider createLlm(std::string* error) const;
 
     /**
      * Loads the set's STT and TTS fallbacks, if not yet: the config's `fallback` providers after

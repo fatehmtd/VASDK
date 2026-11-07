@@ -14,6 +14,8 @@ message ConversationInput {
     bool no_input = 3;                // the user said nothing
     int32 select_choice = 4;          // the last reply's choice, from 0
     TriggerInput fire_trigger = 5;    // an app_event trigger
+    bool check_triggers = 6;          // schedule and context_change triggers whose moment came (call it now and then)
+    bool deliver_queued = 7;          // a queued trigger whose moment came, between turns
   }
 }
 

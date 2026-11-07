@@ -12,6 +12,7 @@ include(GNUInstallDirs)
 if(VASDK_ENABLE_ENGINE_CONFIG AND TARGET VASDK)
     set(GARAGE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/agents/garage-menu)
     add_library(garage_extensions STATIC ${GARAGE_DIR}/extensions/GarageExtensions.cpp ${GARAGE_DIR}/garage.proto)
+    file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/garage_proto)   # protoc doesn't create its output folder
     protobuf_generate(TARGET garage_extensions
         IMPORT_DIRS ${GARAGE_DIR}
         PROTOC_OUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/garage_proto)
@@ -40,8 +41,7 @@ if(VASDK_ENABLE_ENGINE_CONFIG AND TARGET VASDK)
         # Intent accuracy and entity F1 on what callers say, misspellings included
         # The same suite from Python, its C++ step, envelope and tool written in Python (the C API)
         find_package(Python3 COMPONENTS Interpreter QUIET)
-        get_target_property(VASDK_LIBRARY_TYPE VASDK TYPE)
-        if(Python3_Interpreter_FOUND AND VASDK_LIBRARY_TYPE STREQUAL "SHARED_LIBRARY")
+        if(VASDK_BUILD_PYTHON_BINDING AND Python3_Interpreter_FOUND)
             add_test(NAME vasdk_python_garage
                      COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/bindings/python/tests/test_garage.py ${GARAGE_DIR})
             set_tests_properties(vasdk_python_garage PROPERTIES ENVIRONMENT "VASDK_LIBRARY=$<TARGET_FILE:VASDK>")
@@ -49,6 +49,10 @@ if(VASDK_ENABLE_ENGINE_CONFIG AND TARGET VASDK)
             add_test(NAME vasdk_python_extensions
                      COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/bindings/python/tests/test_extensions.py)
             set_tests_properties(vasdk_python_extensions PROPERTIES ENVIRONMENT "VASDK_LIBRARY=$<TARGET_FILE:VASDK>")
+            # Providers, processors, a runtime, and the conversation's controls, written in Python
+            add_test(NAME vasdk_python_providers
+                     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/bindings/python/tests/test_providers.py)
+            set_tests_properties(vasdk_python_providers PROPERTIES ENVIRONMENT "VASDK_LIBRARY=$<TARGET_FILE:VASDK>" TIMEOUT 120)
         endif()
         add_test(NAME vasdk_agent_garage_menu_nlu
                  COMMAND garage_agentc eval ${GARAGE_DIR}/agent.txtpb ${GARAGE_DIR}/nlu_eval.txtpb --min-accuracy 0.9)

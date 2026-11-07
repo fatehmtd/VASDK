@@ -47,9 +47,11 @@ import sys
 import threading
 from pathlib import Path
 
-__all__ = ["Registry", "Turn", "Agent", "Conversation", "Providers", "Session", "run_test_file", "words", "version",
-           "set_log_level", "VasdkError", "Event", "Command", "ConversationInput", "ConversationReply", "StepOutcome",
-           "SessionOptions", "ToolDeclaration", "ToolParameter", "TriggerDecision", "Language", "builtin_language"]
+__all__ = ["Registry", "Turn", "Agent", "Conversation", "Providers", "Session", "Runtime", "Sink", "run_test_file", "run_test",
+           "words", "version", "set_log_level", "VasdkError", "Event", "Command", "ConversationInput", "ConversationReply",
+           "StepOutcome", "SessionOptions", "ToolDeclaration", "ToolParameter", "TriggerDecision", "Language",
+           "builtin_language", "ConversationSnapshot", "FlowTestCase", "EntityValue", "EntityValuesCommand", "Backchannel",
+           "AFTER_INPUT", "AFTER_TRANSCRIPTION", "BEFORE_SYNTHESIS", "BEFORE_OUTPUT"]
 
 
 class VasdkError(RuntimeError):
@@ -82,9 +84,9 @@ def _find_messages():
 
 _find_messages()
 
-from .engine import events_pb2, session_pb2  # noqa: E402
-from .flow import conversation_pb2, snapshot_pb2, step_outcome_pb2, trigger_pb2  # noqa: E402
-from .nlu import language_pb2  # noqa: E402
+from .engine import engine_config_pb2, events_pb2, session_pb2  # noqa: E402
+from .flow import conversation_pb2, snapshot_pb2, step_outcome_pb2, test_case_pb2, trigger_pb2  # noqa: E402
+from .nlu import entity_pb2, language_pb2  # noqa: E402
 
 Event = events_pb2.Event
 Command = events_pb2.Command
@@ -97,6 +99,13 @@ ToolParameter = session_pb2.ToolParameter
 TriggerDecision = trigger_pb2.TriggerDecision   # TriggerFired.decision, ConversationReply.Trigger.decision
 ConversationSnapshot = snapshot_pb2.ConversationSnapshot   # Session.snapshot(), start(resume=...)
 Language = language_pb2.Language   # a language pack: Registry.add_language(), builtin_language()
+FlowTestCase = test_case_pb2.FlowTestCase   # run_test()
+EntityValue = entity_pb2.EntityValue   # a dynamic entity's value: set_entity_values()
+EntityValuesCommand = events_pb2.EntityValuesCommand
+Backchannel = engine_config_pb2.Backchannel   # Session.set_backchannel()
+
+# Where Session.add_processor puts a processor (vasdk_slot)
+AFTER_INPUT, AFTER_TRANSCRIPTION, BEFORE_SYNTHESIS, BEFORE_OUTPUT = 0, 1, 2, 3
 
 
 def _find_library():
@@ -162,6 +171,20 @@ _PAGE_TURN_MESSAGE = ctypes.CFUNCTYPE(_i, _p, _n, _p, _p)
 _EXTRACTOR = ctypes.CFUNCTYPE(None, _s, _p, _p)
 _MESSAGE = ctypes.CFUNCTYPE(None, _p, _n, _p)
 _AUDIO = ctypes.CFUNCTYPE(None, ctypes.POINTER(ctypes.c_short), _n, _p)
+_f, _ll, _pcm = ctypes.c_float, ctypes.c_longlong, ctypes.POINTER(ctypes.c_short)
+_CONTEXT = ctypes.CFUNCTYPE(None, _p, _p)
+_AUDIO_PROCESSOR = ctypes.CFUNCTYPE(None, _pcm, _n, _i, _p)
+_TEXT_PROCESSOR = ctypes.CFUNCTYPE(None, _s, _p, _p)
+_CREATE = ctypes.CFUNCTYPE(_p, _p, _i, _p)
+_DESTROY = ctypes.CFUNCTYPE(None, _p)
+_VAD = ctypes.CFUNCTYPE(_f, _p, _pcm, _n)
+_STT_EVENT = ctypes.CFUNCTYPE(None, _p)
+_STT_WRITE = ctypes.CFUNCTYPE(None, _p, _pcm, _n)
+_TTS_SYNTHESIZE = ctypes.CFUNCTYPE(_i, _p, _s)
+_INSTANCE = ctypes.CFUNCTYPE(None, _p)   # cancel
+_TURN = ctypes.CFUNCTYPE(_f, _p, _pcm, _n)
+_WAKE_WORD = ctypes.CFUNCTYPE(_f, _p, _pcm, _n, _p)
+_INSTANCE_TEXT = ctypes.CFUNCTYPE(None, _p, _s, _p)   # encode, extract, complete
 _FORMATS = {"text": 0, "json": 1, "binary": 2}
 _BINARY = _FORMATS["binary"]
 
@@ -223,6 +246,47 @@ _session_set_network = _declare("vasdk_session_set_network_available", None, _p,
 _session_snapshot = _declare("vasdk_session_snapshot_message", _p, _p, _i, _length)
 _session_add_tool = _declare("vasdk_session_add_tool_message", _i, _p, _s, _n, _i, _TOOL, _p, _error)
 _session_set_context = _declare("vasdk_session_set_context_message", _i, _p, _s, _n, _i, _error)
+_result_set_floats = _declare("vasdk_result_set_floats", None, _p, ctypes.POINTER(_f), _n)
+_turn_set_text = _declare("vasdk_turn_set_text", None, _p, _s)
+_turn_render = _declare("vasdk_turn_render", _p, _p, _s)
+_turn_reply_text = _declare("vasdk_turn_reply_text", _s, _p)
+_turn_flow = _declare("vasdk_turn_flow", _p, _p)
+_turn_page = _declare("vasdk_turn_page", _p, _p)
+_conversation_snapshot = _declare("vasdk_conversation_snapshot_message", _p, _p, _i, _length)
+_conversation_resume = _declare("vasdk_conversation_resume_message", _p, _p, _s, _n, _i, _length, ctypes.POINTER(_i), _error)
+_conversation_set_entity_values = _declare("vasdk_conversation_set_entity_values_message", _i, _p, _s, _n, _i, _error)
+_conversation_set_context = _declare("vasdk_conversation_set_context_message", _i, _p, _s, _n, _i, _error)
+_conversation_reply_interrupted = _declare("vasdk_conversation_reply_interrupted", None, _p)
+_conversation_no_input_ms = _declare("vasdk_conversation_no_input_ms", _i, _p)
+_conversation_next_trigger = _declare("vasdk_conversation_next_scheduled_trigger_ms", _ll, _p)
+_conversation_trigger_state = _declare("vasdk_conversation_trigger_state", _p, _p)
+_conversation_restore_triggers = _declare("vasdk_conversation_restore_trigger_state", _i, _p, _s)
+_run_test_message = _declare("vasdk_run_test_message", _i, _p, _s, _n, _i, _error)
+_session_on_context = _declare("vasdk_session_on_context", None, _p, _CONTEXT, _p)
+_session_describe = _declare("vasdk_session_describe", _p, _p)
+_session_using_fallbacks = _declare("vasdk_session_using_fallbacks", _i, _p)
+_session_next_trigger = _declare("vasdk_session_next_scheduled_trigger_ms", _ll, _p)
+_session_trigger_state = _declare("vasdk_session_trigger_state", _p, _p)
+_session_restore_triggers = _declare("vasdk_session_restore_trigger_state", None, _p, _s)
+_session_add_audio_processor = _declare("vasdk_session_add_audio_processor", _i, _p, _i, _AUDIO_PROCESSOR, _p)
+_session_add_text_processor = _declare("vasdk_session_add_text_processor", _i, _p, _i, _TEXT_PROCESSOR, _p)
+_runtime_create = _declare("vasdk_runtime_create", _p, _s, _p, _s, _i, _error)
+_runtime_free = _declare("vasdk_runtime_free", None, _p)
+_runtime_session_create = _declare("vasdk_runtime_session_create", _p, _p, _p, _s, _n, _i, _error)
+_runtime_active_sessions = _declare("vasdk_runtime_active_sessions", _n, _p)
+_runtime_idle_provider_sets = _declare("vasdk_runtime_idle_provider_sets", _n, _p)
+_sink_text = _declare("vasdk_sink_text", None, _p, _s, _i)
+_sink_audio = _declare("vasdk_sink_audio", None, _p, _p, _n)
+_sink_done = _declare("vasdk_sink_done", None, _p)
+_sink_error = _declare("vasdk_sink_error", None, _p, _s)
+_add_vad = _declare("vasdk_providers_add_vad", _i, _p, _s, _CREATE, _DESTROY, _VAD, _p)
+_add_stt = _declare("vasdk_providers_add_stt", _i, _p, _s, _CREATE, _DESTROY, _STT_EVENT, _STT_WRITE, _STT_EVENT, _STT_EVENT, _p)
+_add_tts = _declare("vasdk_providers_add_tts", _i, _p, _s, _CREATE, _DESTROY, _TTS_SYNTHESIZE, _INSTANCE, _p)
+_add_turn = _declare("vasdk_providers_add_turn", _i, _p, _s, _CREATE, _DESTROY, _TURN, _p)
+_add_wake_word = _declare("vasdk_providers_add_wake_word", _i, _p, _s, _CREATE, _DESTROY, _WAKE_WORD, _p)
+_add_sentence_encoder = _declare("vasdk_providers_add_sentence_encoder", _i, _p, _s, _CREATE, _DESTROY, _INSTANCE_TEXT, _p)
+_add_entity_model = _declare("vasdk_providers_add_entity_model", _i, _p, _s, _CREATE, _DESTROY, _INSTANCE_TEXT, _p)
+_add_llm = _declare("vasdk_providers_add_llm", _i, _p, _s, _CREATE, _DESTROY, _INSTANCE_TEXT, _INSTANCE, _p)
 _providers_lib = None   # vasdk_providers, loaded by the first Providers()
 _set_log_level = _declare("vasdk_set_log_level", _i, _s)
 _log_level = None   # set_log_level's, for the providers library when it loads
@@ -373,6 +437,38 @@ class Turn:
 
     def goto(self, target):
         _turn_goto(self._handle, _encode(target))
+
+    def set_text(self, text):
+        """Changes what the rest of the turn reads as the user's words (an envelope's before: redact them)."""
+        _turn_set_text(self._handle, _encode(text))
+
+    def render(self, text):
+        """A template with its references filled in ("Welcome back, $session.name."), as a say does."""
+        return _take(_turn_render(self._handle, _encode(text))) or ""
+
+    @property
+    def reply_text(self):
+        """What the reply says so far."""
+        return (_turn_reply_text(self._handle) or b"").decode("utf-8")
+
+    @property
+    def flow(self):
+        return _take(_turn_flow(self._handle)) or ""
+
+    @property
+    def page(self):
+        return _take(_turn_page(self._handle)) or ""
+
+    def ask(self, question, choices=None, expect=None):
+        """Asks a question, as an ask step: an answer is expected. choices: labels, or dicts
+        {"label", "value", "synonyms"}; expect: a dict of the vasdk.flow.Expectation's fields."""
+        outcome = StepOutcome()
+        outcome.ask.question = question
+        for choice in choices or []:
+            json_format.ParseDict({"label": choice} if isinstance(choice, str) else choice, outcome.ask.choices.add())
+        if expect:
+            json_format.ParseDict(expect, outcome.ask.expect)
+        self.apply(outcome)
 
     def apply(self, outcome):
         """A vasdk.StepOutcome, or the same as a dict: {"set": {"$session.x": 1}, "unset": [...], "say": [...], "goto": "page"}."""
@@ -638,6 +734,80 @@ class Conversation:
         return _python_value(_take_bytes(_conversation_lookup(self._handle, _encode(reference), _BINARY, ctypes.byref(length)),
                                          length))
 
+    def check_triggers(self):
+        """The schedule and context_change triggers whose moment came: call it now and then."""
+        return self.send(ConversationInput(check_triggers=True))
+
+    def deliver_queued(self):
+        """A queued trigger whose moment came, between turns."""
+        return self.send(ConversationInput(deliver_queued=True))
+
+    def snapshot(self):
+        """Where the conversation is, a vasdk.ConversationSnapshot, to resume() it later."""
+        length = ctypes.c_size_t()
+        return ConversationSnapshot.FromString(_take_bytes(_conversation_snapshot(self._handle, _BINARY, ctypes.byref(length)), length))
+
+    def resume(self, snapshot):
+        """Starts where a snapshot (a vasdk.ConversationSnapshot or its bytes) left it, instead of
+        start(): (reply, resumed); resumed is False when it didn't fit the agent and started over."""
+        data = snapshot if isinstance(snapshot, bytes) else snapshot.SerializeToString()
+        length, resumed, error = ctypes.c_size_t(), ctypes.c_int(), ctypes.c_void_p()
+        reply = _conversation_resume(self._handle, data, len(data), _BINARY, ctypes.byref(length), ctypes.byref(resumed),
+                                     ctypes.byref(error))
+        if not reply:
+            raise VasdkError(_take(error.value) or "failed")
+        return ConversationReply.FromString(_take_bytes(reply, length)), bool(resumed.value)
+
+    def set_entity_values(self, name, values):
+        """A dynamic entity's values for this conversation: vasdk.EntityValue messages, or dicts
+        {"value", "spoken", "synonyms"}."""
+        data = _entity_values(name, values).SerializeToString()
+        error = ctypes.c_void_p()
+        _check(_conversation_set_entity_values(self._handle, data, len(data), _BINARY, ctypes.byref(error)), error)
+
+    def set_context(self, context):
+        """The app's state, a dict (or a Struct): what $context.* reads. Each top-level key is replaced."""
+        data = _struct_message(context).SerializeToString()
+        error = ctypes.c_void_p()
+        _check(_conversation_set_context(self._handle, data, len(data), _BINARY, ctypes.byref(error)), error)
+
+    def reply_interrupted(self):
+        """The user cut the last reply off: a read-back cut off isn't confirmed by a plain "yes"."""
+        _conversation_reply_interrupted(self._handle)
+
+    def no_input_ms(self):
+        """How long to wait for an answer before no_input(); 0: never."""
+        return _conversation_no_input_ms(self._handle)
+
+    def next_scheduled_trigger(self):
+        """When the next schedule trigger is due, in milliseconds since the epoch; None for none."""
+        due = _conversation_next_trigger(self._handle)
+        return None if due < 0 else due
+
+    def trigger_state(self):
+        """What the triggers have seen, as JSON: keep it to restore_trigger_state() after a restart."""
+        return _take(_conversation_trigger_state(self._handle)) or ""
+
+    def restore_trigger_state(self, state):
+        return bool(_conversation_restore_triggers(self._handle, _encode(state)))
+
+
+def _entity_values(name, values):
+    command = EntityValuesCommand(name=name)
+    for value in values:
+        command.values.append(value if isinstance(value, EntityValue) else json_format.ParseDict(value, EntityValue()))
+    return command
+
+
+def run_test(agent, case):
+    """Plays a vasdk.FlowTestCase (or its dict) from memory: (passed, report), the report a line per difference."""
+    if not isinstance(case, FlowTestCase):
+        case = json_format.ParseDict(case, FlowTestCase())
+    data = case.SerializeToString()
+    report = ctypes.c_void_p()
+    passed = bool(_run_test_message(agent._handle, data, len(data), _BINARY, ctypes.byref(report)))
+    return passed, _take(report.value) or ""
+
 
 def run_test_file(agent, path):
     """Plays a FlowTestCase file: (passed, report), the report a line per difference."""
@@ -646,12 +816,74 @@ def run_test_file(agent, path):
     return passed, _take(report.value) or ""
 
 
-class Providers:
-    """The speech providers an engine config can name (VAD, STT, TTS, turn detection): every one
-    built into the vasdk_providers library."""
+def _pcm_bytes(pcm, samples):
+    return ctypes.string_at(pcm, samples * 2) if pcm and samples else b""
 
-    def __init__(self):
+
+def _report(where, error):
+    print(f"vasdk: {where} failed: {error!r}", file=sys.stderr)
+
+
+class Sink:
+    """How a provider written in Python gives back what it finds or makes, from any thread, for as
+    long as the provider lives: transcripts (STT), speech (TTS), errors."""
+
+    def __init__(self, handle):
+        self._handle = handle
+
+    def text(self, text, final=True):
+        """A transcript: final, or a partial (final=False)."""
+        _sink_text(self._handle, _encode(text), 1 if final else 0)
+
+    def audio(self, pcm):
+        """Speech, 16-bit mono PCM bytes at the session's output rate, in order."""
+        data = bytes(pcm)
+        if data:
+            _sink_audio(self._handle, ctypes.cast(ctypes.c_char_p(data), _p), len(data) // 2)
+
+    def done(self):
+        """The text given to synthesize() is all said."""
+        _sink_done(self._handle)
+
+    def error(self, message):
+        _sink_error(self._handle, _encode(message))
+
+
+class Providers:
+    """The providers an engine config can name by id: every one built into the vasdk_providers
+    library (built_in=True), and those written in Python with the decorators below.
+
+        providers = vasdk.Providers()
+
+        @providers.vad("loudness")
+        class Loudness:
+            def __init__(self, sink, sample_rate): ...
+            def detect(self, pcm): return 1.0 if max(...) > 1000 else 0.0
+
+    The engine config then names it: providers { vad { id: "loudness" } }. Each session gets its
+    own instance: cls(sink, sample_rate), sink a vasdk.Sink. Methods run on VASDK's threads; an
+    exception is printed and counts as no result. What each kind implements:
+      vad:              detect(pcm) -> chance of speech, 0 to 1
+      stt:              write(pcm); end_of_speech(); start(), stop() optional. Results with
+                        sink.text(); with streaming_transcription off (the default), write() gets the
+                        whole utterance and the final must be given before end_of_speech() returns
+      tts:              synthesize(text) -> True; speech with sink.audio(), then sink.done(); cancel() optional
+      turn:             evaluate(pcm) -> chance, 0 to 1, that the user is done (pcm since they began speaking)
+      wake_word:        process(pcm) -> (phrase, confidence) when it completes the phrase, else None
+      sentence_encoder: encode(sentence) -> list of floats, normalized; one instance for every session
+      entity_model:     extract(words, labels, sensitive) -> [{"entity", "start", "length", "score"}]; one instance
+      llm:              complete(messages) -> reply text, messages [{"role", "content"}]; cancel() optional
+    """
+
+    def __init__(self, built_in=True):
         global _providers_lib
+        self._handle = _providers_create()
+        self._callbacks = []
+        self._instances = {}   # instance id -> the Python object, while C holds it
+        self._next = 0
+        self._lock = threading.Lock()
+        if not built_in:
+            return
         if _providers_lib is None:
             library = _load(_find_providers_library(_library_path))
             library.vasdk_providers_add_all.restype = None
@@ -662,13 +894,194 @@ class Providers:
                 if _log_level:
                     library.vasdk_providers_set_log_level(_encode(_log_level))
             _providers_lib = library
-        self._handle = _providers_create()
         _providers_lib.vasdk_providers_add_all(self._handle)
 
     def __del__(self):
         if getattr(self, "_handle", None):
             _providers_free(self._handle)
             self._handle = None
+
+    def _keep(self, callback):
+        self._callbacks.append(callback)
+        return callback
+
+    def _of(self, instance):
+        with self._lock:
+            return self._instances.get(instance)
+
+    def _lifecycle(self, cls):
+        def create(sink, sample_rate, _user):
+            try:
+                made = cls(Sink(sink), sample_rate)
+            except Exception as error:
+                _report(f"{cls.__name__}()", error)
+                return None
+            with self._lock:
+                self._next += 1
+                self._instances[self._next] = made
+                return self._next
+
+        def destroy(instance):
+            with self._lock:
+                made = self._instances.pop(instance, None)
+            close = getattr(made, "close", None)
+            if close:
+                close()
+        return self._keep(_CREATE(create)), self._keep(_DESTROY(destroy))
+
+    def _call(self, instance, method, *arguments, default=None):
+        made = self._of(instance)
+        function = getattr(made, method, None) if made is not None else None
+        if function is None:
+            return default
+        try:
+            return function(*arguments)
+        except Exception as error:
+            _report(f"{type(made).__name__}.{method}", error)
+            return default
+
+    def _register(self, adder, name, *arguments):
+        if not adder(self._handle, _encode(name), *arguments, None):
+            raise VasdkError(f"provider {name!r} not added")
+
+    def vad(self, id):
+        def register(cls):
+            create, destroy = self._lifecycle(cls)
+            detect = self._keep(_VAD(lambda instance, pcm, samples:
+                                     float(self._call(instance, "detect", _pcm_bytes(pcm, samples), default=0.0) or 0.0)))
+            self._register(_add_vad, id, create, destroy, detect)
+            return cls
+        return register
+
+    def stt(self, id):
+        def register(cls):
+            create, destroy = self._lifecycle(cls)
+            event = lambda method: self._keep(_STT_EVENT(lambda instance: self._call(instance, method)))
+            write = self._keep(_STT_WRITE(lambda instance, pcm, samples: self._call(instance, "write", _pcm_bytes(pcm, samples))))
+            self._register(_add_stt, id, create, destroy, event("start"), write, event("end_of_speech"), event("stop"))
+            return cls
+        return register
+
+    def tts(self, id):
+        def register(cls):
+            create, destroy = self._lifecycle(cls)
+            synthesize = self._keep(_TTS_SYNTHESIZE(lambda instance, text:
+                                                    1 if self._call(instance, "synthesize", text.decode("utf-8")) else 0))
+            cancel = self._keep(_INSTANCE(lambda instance: self._call(instance, "cancel")))
+            self._register(_add_tts, id, create, destroy, synthesize, cancel)
+            return cls
+        return register
+
+    def turn(self, id):
+        def register(cls):
+            create, destroy = self._lifecycle(cls)
+            evaluate = self._keep(_TURN(lambda instance, pcm, samples:
+                                        float(self._call(instance, "evaluate", _pcm_bytes(pcm, samples), default=0.0) or 0.0)))
+            self._register(_add_turn, id, create, destroy, evaluate)
+            return cls
+        return register
+
+    def wake_word(self, id):
+        def register(cls):
+            create, destroy = self._lifecycle(cls)
+
+            def process(instance, pcm, samples, phrase):
+                found = self._call(instance, "process", _pcm_bytes(pcm, samples))
+                if not found:
+                    return 0.0
+                _result_set(phrase, _encode(found[0]))
+                return float(found[1])
+            self._register(_add_wake_word, id, create, destroy, self._keep(_WAKE_WORD(process)))
+            return cls
+        return register
+
+    def sentence_encoder(self, id):
+        def register(cls):
+            create, destroy = self._lifecycle(cls)
+
+            def encode(instance, sentence, vector):
+                values = self._call(instance, "encode", sentence.decode("utf-8"))
+                if values:
+                    array = (_f * len(values))(*values)
+                    _result_set_floats(vector, array, len(values))
+            self._register(_add_sentence_encoder, id, create, destroy, self._keep(_INSTANCE_TEXT(encode)))
+            return cls
+        return register
+
+    def entity_model(self, id):
+        def register(cls):
+            create, destroy = self._lifecycle(cls)
+
+            def extract(instance, request_json, spans):
+                request = json.loads(request_json.decode("utf-8"))
+                found = self._call(instance, "extract", request["words"], request["labels"], request["sensitive"], default=[])
+                _result_set(spans, _encode(json.dumps(found or [])))
+            self._register(_add_entity_model, id, create, destroy, self._keep(_INSTANCE_TEXT(extract)))
+            return cls
+        return register
+
+    def llm(self, id):
+        def register(cls):
+            create, destroy = self._lifecycle(cls)
+
+            def complete(instance, request_json, reply):
+                messages = json.loads(request_json.decode("utf-8"))["messages"]
+                made = self._of(instance)
+                try:
+                    _result_set(reply, _encode(made.complete(messages)))
+                except Exception as error:
+                    _result_fail(reply, _encode(str(error) or type(error).__name__))
+            cancel = self._keep(_INSTANCE(lambda instance: self._call(instance, "cancel")))
+            self._register(_add_llm, id, create, destroy, self._keep(_INSTANCE_TEXT(complete)), cancel)
+            return cls
+        return register
+
+
+class Runtime:
+    """What many sessions share: the engine config and its providers, loaded once per session
+    running at the same time (a call center's lines), not once per conversation.
+
+        runtime = vasdk.Runtime("engine.txtpb", vasdk.Providers(), max_sessions=4)
+        call = runtime.session(agent, id="call-1")
+
+    Free the sessions (close()) before the runtime."""
+
+    def __init__(self, config, providers, models_dir=None, max_sessions=0):
+        error = ctypes.c_void_p()
+        handle = _runtime_create(_encode(str(config)), providers._handle, _encode(str(models_dir)) if models_dir else None,
+                                 int(max_sessions), ctypes.byref(error))
+        if not handle:
+            raise VasdkError(_take(error.value))
+        self._handle, self._providers = handle, providers
+
+    def close(self):
+        if getattr(self, "_handle", None):
+            _runtime_free(self._handle)
+            self._handle = None
+
+    def __del__(self):
+        self.close()
+
+    def session(self, agent=None, id=None, system_prompt=None, format_instruction=None, options=None):
+        """A session over the runtime's providers, as Session() takes them."""
+        if options is None:
+            options = SessionOptions(id=id or "", system_prompt=system_prompt or "", format_instruction=format_instruction or "")
+        data = options.SerializeToString()
+        error = ctypes.c_void_p()
+        handle = _runtime_session_create(self._handle, agent._handle if agent else None, data, len(data), _BINARY,
+                                         ctypes.byref(error))
+        if not handle:
+            raise VasdkError(_take(error.value))
+        session = Session.__new__(Session)
+        session._adopt(handle, self, agent)
+        return session
+
+    def active_sessions(self):
+        return _runtime_active_sessions(self._handle)
+
+    def idle_provider_sets(self):
+        """Provider sets loaded and waiting for a session."""
+        return _runtime_idle_provider_sets(self._handle)
 
 
 class Session:
@@ -705,8 +1118,11 @@ class Session:
                                  _BINARY, ctypes.byref(error))
         if not handle:
             raise VasdkError(_take(error.value))
+        self._adopt(handle, providers, agent)
+
+    def _adopt(self, handle, owner, agent):
         self._handle = handle
-        self._providers, self._agent = providers, agent   # must outlive the session
+        self._providers, self._agent = owner, agent   # must outlive the session
         self._callbacks = []
         self._lock = threading.Lock()
 
@@ -795,7 +1211,8 @@ class Session:
 
     def send(self, command):
         """Does what a vasdk.Command asks: inject_text, select_choice, fire_trigger, say, interrupt,
-        set_session_param. The methods below are shortcuts."""
+        set_session_param, reset_conversation, push_to_talk, follow_up_listen_ms, set_entity_values,
+        set_backchannel. The methods below are shortcuts."""
         data = command.SerializeToString()
         error = ctypes.c_void_p()
         _check(_session_send(self._handle, data, len(data), _BINARY, ctypes.byref(error)), error)
@@ -839,6 +1256,88 @@ class Session:
 
     def set_network_available(self, available):
         _session_set_network(self._handle, 1 if available else 0)
+
+    def reset_conversation(self):
+        """Starts the conversation over: the LLM's history cleared, the agent at its start."""
+        self.send(Command(reset_conversation=True))
+
+    def push_to_talk(self, held):
+        """The talk button held (True) or let go (False): PUSH_TO_TALK and HYBRID activation."""
+        self.send(Command(push_to_talk=bool(held)))
+
+    def set_follow_up_listen_ms(self, ms):
+        """How long the assistant keeps listening after a reply; 0: not at all."""
+        self.send(Command(follow_up_listen_ms=int(ms)))
+
+    def set_entity_values(self, name, values):
+        """A dynamic entity's values (the phone's contacts): vasdk.EntityValue messages, or dicts {"value", "spoken", "synonyms"}."""
+        self.send(Command(set_entity_values=_entity_values(name, values)))
+
+    def set_backchannel(self, backchannel):
+        """Back-channel handling: a vasdk.Backchannel, or a dict of its fields; the fields given replace the session's."""
+        if not isinstance(backchannel, Backchannel):
+            backchannel = json_format.ParseDict(backchannel, Backchannel())
+        self.send(Command(set_backchannel=backchannel))
+
+    def on_context(self, function):
+        """fn() -> dict: the app's state, asked for each time the agent or the LLM reads it; its keys
+        win over set_context's. Before start(). Usable as a decorator."""
+        def callback(result, _user):
+            try:
+                _result_set(result, _encode(json.dumps(function() or {})))
+            except Exception as error:
+                _report("on_context", error)
+        _session_on_context(self._handle, self._keep(_CONTEXT(callback)), None)
+        return function
+
+    def add_processor(self, slot, function):
+        """A processor of the app's at a slot, before start():
+          AFTER_INPUT:         fn(pcm: bytes), the microphone's audio, to read
+          BEFORE_OUTPUT:       fn(pcm: bytes) -> bytes or None, the reply's audio; bytes of the same length replace it
+          AFTER_TRANSCRIPTION: fn(text) -> str or None, each final transcript
+          BEFORE_SYNTHESIS:    fn(text) -> str or None, each part of a reply
+        For text, None passes it on, a string replaces it, "" drops it."""
+        if slot in (AFTER_INPUT, BEFORE_OUTPUT):
+            def audio(pcm, samples, _rate, _user):
+                try:
+                    changed = function(_pcm_bytes(pcm, samples))
+                    if slot == BEFORE_OUTPUT and changed is not None and len(changed) == samples * 2:
+                        ctypes.memmove(pcm, bytes(changed), samples * 2)
+                except Exception as error:
+                    _report("audio processor", error)
+            added = _session_add_audio_processor(self._handle, slot, self._keep(_AUDIO_PROCESSOR(audio)), None)
+        else:
+            def text(words, result, _user):
+                try:
+                    changed = function(words.decode("utf-8"))
+                    if changed is not None:
+                        _result_set(result, _encode(changed))
+                except Exception as error:
+                    _report("text processor", error)
+            added = _session_add_text_processor(self._handle, slot, self._keep(_TEXT_PROCESSOR(text)), None)
+        if not added:
+            raise VasdkError(f"no processor added at slot {slot} (a slot of the other kind, or the session started)")
+        return function
+
+    def describe(self):
+        """What the session runs: its providers, its LLM, its stages."""
+        return _take(_session_describe(self._handle)) or ""
+
+    def using_fallbacks(self):
+        """True while the network is down and the local fallbacks speak and listen."""
+        return bool(_session_using_fallbacks(self._handle))
+
+    def next_scheduled_trigger(self):
+        """When the agent's next schedule trigger is due, in milliseconds since the epoch; None for none."""
+        due = _session_next_trigger(self._handle)
+        return None if due < 0 else due
+
+    def trigger_state(self):
+        """What the agent's triggers have seen, as JSON: keep it to restore_trigger_state() after a restart."""
+        return _take(_session_trigger_state(self._handle)) or ""
+
+    def restore_trigger_state(self, state):
+        _session_restore_triggers(self._handle, _encode(state))
 
     def snapshot(self):
         """Where the agent's conversation is, to start(resume=...) a later session there: a

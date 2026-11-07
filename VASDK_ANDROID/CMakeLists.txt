@@ -175,8 +175,6 @@ endif()
 
 #  Android JNI shared library
 add_library(vasdk_android SHARED
-    app/src/main/cpp/audio_source/AAudioSource.cpp
-    app/src/main/cpp/audio_sink/AAudioSink.cpp
     app/src/main/cpp/JniUtils.cpp
     app/src/main/cpp/ToolRegistration.cpp
     app/src/main/cpp/VizAnimSupport.cpp
@@ -194,9 +192,9 @@ target_include_directories(vasdk_android
 target_link_libraries(vasdk_android
     PRIVATE VASDK
     PRIVATE vasdk_provider_catalog
+    PRIVATE vasdk_aaudio
     PRIVATE android
     PRIVATE log
-    PRIVATE aaudio
 )
 
 if(VASDK_BUILD_LLAMACPP AND TARGET vasdk_llamacpp)

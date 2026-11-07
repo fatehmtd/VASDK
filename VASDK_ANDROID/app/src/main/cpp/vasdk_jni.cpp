@@ -371,8 +371,8 @@ Java_com_vasdk_android_VasdkEngine_nativeInit(JNIEnv *env, jobject thiz, jstring
 #endif
 
     //  The session: mic and speaker over AAudio
-    session->audioSource = std::make_shared<va::android::AAudioSource>();
-    session->audioSink = std::make_shared<va::android::AAudioSink>();
+    session->audioSource = std::make_shared<va::thirdparty::audio::AAudioSource>();
+    session->audioSink = std::make_shared<va::thirdparty::audio::AAudioSink>();
     va::engine::Session::Options options;
     options.transport = std::make_shared<va::transport::LocalTransport>(session->audioSource, session->audioSink);
     options.systemPrompt = systemPromptText;

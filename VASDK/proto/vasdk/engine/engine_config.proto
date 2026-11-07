@@ -42,6 +42,19 @@ message Providers {
   //                   LibDataChannelWebRtcOptions.port (VASDK_BUILD_LIBDATACHANNEL_WEBRTC)
   // Unset: the app brings the audio (its transport, or the C API's vasdk_session_push_audio).
   ProviderSpec webrtc = 9;
+  // The device's microphone and speaker, opened by the session itself (VAEngine, the C API's
+  // sessions, whose pushed audio and audio callback then go unused). Set both or neither.
+  //   miniaudio: macOS, Linux, Windows (VASDK_BUILD_MINIAUDIO)
+  //   aaudio:    Android (VASDK_BUILD_AAUDIO)
+  // Unset: the app brings the audio. webrtc, when set, wins over them.
+  ProviderSpec audio_input = 10;
+  ProviderSpec audio_output = 11;
+  // An LLM run by a provider instead of the llm endpoint: on the device (llamacpp, options
+  // LlamaCppOptions), or written by the app (the C API's vasdk_providers_add_llm). Each session
+  // gets its own. It answers the conversation; when the provider also answers one-shot asks, it
+  // answers the agent's too (understanding, llm steps, generative pages). llm's other settings
+  // (history, filler phrases, failure replies) still apply. Unset: the llm endpoint, if any.
+  ProviderSpec llm = 12;
 }
 
 message LlmConfig {

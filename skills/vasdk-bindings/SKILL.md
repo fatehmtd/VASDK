@@ -22,6 +22,8 @@ flowchart LR
 | Python | `bindings/python/vasdk/__init__.py` | `bindings/python/README.md`, [Python app](../../docs/apps/python.md) | `bindings/python/tests/` (`vasdk_python_garage`, `vasdk_python_extensions`), `VASDK_PYTHON_APP/tests/` (`vasdk_python_kitchen`, `vasdk_python_session`) |
 | Android | `VASDK_ANDROID/app/src/main/cpp/vasdk_jni.cpp`, `VASDK_ANDROID/app/src/main/kotlin/com/vasdk/android/VasdkEngine.kt` | [Android](../../docs/apps/android.md) | [tests on a device](../../docs/apps/android.md#tests-on-a-device) |
 
+The bindings are optional and off by default: configure with `-DVASDK_BUILD_PYTHON_BINDING=ON` (and `-DVASDK_BUILD_KOTLIN_BINDING=ON`) to run their tests. To find every gap at once rather than one feature's, use [vasdk-binding-parity](../vasdk-binding-parity/SKILL.md).
+
 ## Steps
 
 1. **C API:** add the function or callback to `vasdk.h` with a doc comment (who owns memory, which thread calls back, what errors return). Plain C types only; structured data crosses as protobuf bytes, as events and snapshots do. Never change an existing signature: add a new function. Implement it in `VASDK/src/c/`.

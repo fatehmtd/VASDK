@@ -22,5 +22,6 @@ Every skill is short: what the part does, where its contract lives, which existi
 | [vasdk-agent](vasdk-agent/SKILL.md) | write a scripted conversation: agent file, goals, entities, tests |
 | [vasdk-app](vasdk-app/SKILL.md) | put a use case in place: an agent, a car vertical or a new app, with its licenses |
 | [vasdk-bindings](vasdk-bindings/SKILL.md) | take a core feature to C, Python and Android |
+| [vasdk-binding-parity](vasdk-binding-parity/SKILL.md) | find every place C, Python or Kotlin lags the C++ API, and close it |
 
 `check_skills.py` checks every skill (its header, every path and link it names, every provider id) and runs in `ctest` as `vasdk_skills`, so a renamed header or id fails the tests instead of leaving a skill stale. Run it by hand with `python3 skills/check_skills.py`.

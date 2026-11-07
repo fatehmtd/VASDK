@@ -10,9 +10,23 @@
 #include <VASDK/VADProvider.h>
 #include <VASDK/nlu/EmbeddingNluProvider.h>
 
+#include <cctype>
 #include <cstdlib>
+#include <optional>
 #include <spdlog/spdlog.h>
 
+#ifdef VASDK_HAS_MINIAUDIO
+#include "MiniAudio/MiniAudioSink.h"
+#include "MiniAudio/MiniAudioSource.h"
+#endif
+#ifdef VASDK_HAS_AAUDIO
+#include "AAudio/AAudioSink.h"
+#include "AAudio/AAudioSource.h"
+#endif
+#ifdef VASDK_HAS_LLAMACPP
+#include "LlamaCpp/LlamaCppCompletion.h"
+#include "LlamaCpp/LlamaCppTransport.h"
+#endif
 #ifdef VASDK_HAS_SILERO_VAD
 #include "SileroVAD/SileroVAD.h"
 #endif
@@ -376,6 +390,75 @@ void registerWebRtc([[maybe_unused]] engine::ProviderRegistry& registry) {
 #endif
 }
 
+// The device's microphone and speaker, for a session that opens them itself (providers.audio_input/audio_output).
+void registerAudioDevices([[maybe_unused]] engine::ProviderRegistry& registry) {
+#ifdef VASDK_HAS_MINIAUDIO
+    registry.add<va::audio::GenericAudioSource>("miniaudio",
+        [](const ProviderContext&) -> std::shared_ptr<va::audio::GenericAudioSource> { return std::make_shared<audio::MiniAudioSource>(); });
+    registry.add<va::audio::GenericAudioSink>("miniaudio",
+        [](const ProviderContext&) -> std::shared_ptr<va::audio::GenericAudioSink> { return std::make_shared<audio::MiniAudioSink>(); });
+#endif
+#ifdef VASDK_HAS_AAUDIO
+    registry.add<va::audio::GenericAudioSource>("aaudio",
+        [](const ProviderContext&) -> std::shared_ptr<va::audio::GenericAudioSource> { return std::make_shared<audio::AAudioSource>(); });
+    registry.add<va::audio::GenericAudioSink>("aaudio",
+        [](const ProviderContext&) -> std::shared_ptr<va::audio::GenericAudioSink> { return std::make_shared<audio::AAudioSink>(); });
+#endif
+}
+
+#ifdef VASDK_HAS_LLAMACPP
+std::optional<va::llm::ChatFormat> chatFormatNamed(std::string name) {
+    std::transform(name.begin(), name.end(), name.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    using va::llm::ChatFormat;
+    constexpr std::pair<const char*, ChatFormat> kFormats[] = {
+        {"chatml", ChatFormat::CHATML}, {"llama3", ChatFormat::LLAMA3}, {"llama2", ChatFormat::LLAMA2},
+        {"mistral", ChatFormat::MISTRAL}, {"gemma", ChatFormat::GEMMA},  {"phi3", ChatFormat::PHI3},
+        {"lfm2", ChatFormat::LFM2},       {"lfm2.5", ChatFormat::LFM2_5}, {"lfm2_5", ChatFormat::LFM2_5}};
+    for (const auto& [known, format] : kFormats)
+        if (name == known) return format;
+    return std::nullopt;
+}
+
+va::llm::LLMConfig llamaConfig(const providers::LlamaCppOptions& options, const ProviderContext& context) {
+    va::llm::LLMConfig config;
+    config.model = orEnvironment(options.model_path(), "LLAMACPP_MODEL",
+                                 (context.modelsDir + "/LFM2.5-1.2B-Instruct-Q4_K_M.gguf").c_str());
+    if (options.has_context_tokens()) config.nCtx = options.context_tokens();
+    if (options.has_max_tokens()) config.maxTokens = options.max_tokens();
+    if (options.has_temperature()) config.temperature = options.temperature();
+    if (options.has_top_p()) config.topP = options.top_p();
+    if (options.has_top_k()) config.topK = options.top_k();
+    if (options.has_min_p()) config.minP = options.min_p();
+    if (options.has_repetition_penalty()) config.repetitionPenalty = options.repetition_penalty();
+    if (options.has_threads()) config.nThreads = options.threads();
+    if (options.has_gpu_layers()) config.nGpuLayers = options.gpu_layers();
+    config.nativeLibDir = options.native_library_dir();
+    return config;
+}
+#endif
+
+void registerLlm([[maybe_unused]] engine::ProviderRegistry& registry) {
+#ifdef VASDK_HAS_LLAMACPP
+    registry.add<va::llm::LLMTransport, providers::LlamaCppOptions>("llamacpp",
+        [](const providers::LlamaCppOptions& options, const ProviderContext& context) -> std::shared_ptr<va::llm::LLMTransport> {
+            auto transport = std::make_shared<llm::LlamaCppTransport>(llamaConfig(options, context));
+            // The GGUF's chat format renders the tools' descriptions and call syntax: a wrong one
+            // gives the model tokens it parrots back.
+            const std::string format = orEnvironment(options.chat_format(), "LLAMACPP_CHAT_FORMAT");
+            if (auto known = chatFormatNamed(format)) transport->setPromptChatFormat(*known);
+            else if (!format.empty()) spdlog::warn("[ProviderCatalog] llamacpp: unknown chat_format \"{}\": the transport's own", format);
+            if (!transport->initialize()) return nullptr;
+            return transport;
+        });
+    registry.add<va::llm::Completion, providers::LlamaCppOptions>("llamacpp",
+        [](const providers::LlamaCppOptions& options, const ProviderContext& context) -> std::shared_ptr<va::llm::Completion> {
+            if (!options.answer_agent()) return nullptr;
+            auto completion = std::make_shared<llm::LlamaCppCompletion>(llamaConfig(options, context));
+            return completion->loaded() ? completion : nullptr;
+        });
+#endif
+}
+
 } // namespace
 
 void registerAllProviders(engine::ProviderRegistry& registry) {
@@ -385,6 +468,8 @@ void registerAllProviders(engine::ProviderRegistry& registry) {
     registerTts(registry);
     registerTurn(registry);
     registerWebRtc(registry);
+    registerAudioDevices(registry);
+    registerLlm(registry);
 }
 
 } // namespace thirdparty

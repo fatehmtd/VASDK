@@ -23,7 +23,7 @@ description: The LLM in VASDK - configuring the llm block (OpenAI-compatible end
 | --- | --- | --- | --- |
 | OpenAI-compatible (OpenAI, OpenRouter, LM Studio, vLLM, Ollama, llama.cpp server) | core: `VASDK/include/VASDK/llm/OpenAITransport.h` | transport + `OpenAICompletion` | `llm { api: OPENAI_COMPATIBLE endpoint model api_key }` |
 | Anthropic Messages API | core: `VASDK/include/VASDK/llm/AnthropicTransport.h` | transport + `AnthropicCompletion` | `llm { api: ANTHROPIC api_key }` |
-| llama.cpp in-process (GGUF) | `VASDK_3P_IMPL/LlamaCpp/` (`-DVASDK_BUILD_LLAMACPP=ON`) | `LlamaCppTransport` + `LlamaCppCompletion` | `VASDK_Pipeline --llm-model-path`, `--agent-llm-model-path` |
+| llama.cpp in-process (GGUF) | `VASDK_3P_IMPL/LlamaCpp/` (`-DVASDK_BUILD_LLAMACPP=ON`); config id `llamacpp` | `LlamaCppTransport` + `LlamaCppCompletion` | `providers { llm { id: "llamacpp" } }` (options `LlamaCppOptions`; `answer_agent` for the agent's asks), or `VASDK_Pipeline --llm-model-path`, `--agent-llm-model-path` |
 
 ## Using it
 

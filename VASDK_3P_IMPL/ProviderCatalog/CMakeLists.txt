@@ -5,6 +5,7 @@ add_library(vasdk_provider_catalog STATIC
     ProviderCatalogC.cpp
     proto/vasdk/providers/options.proto
 )
+file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/proto)   # protoc doesn't create its output folder
 protobuf_generate(TARGET vasdk_provider_catalog
     IMPORT_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/proto
     PROTOC_OUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/proto)
@@ -40,6 +41,9 @@ set(_vasdk_catalog_providers
     vasdk_minilm_nlu      MINILM_NLU
     vasdk_gliner_ner      GLINER_NER
     vasdk_libdatachannel_webrtc LIBDATACHANNEL_WEBRTC
+    vasdk_miniaudio_audio MINIAUDIO
+    vasdk_aaudio          AAUDIO
+    vasdk_llamacpp        LLAMACPP
 )
 list(LENGTH _vasdk_catalog_providers _count)
 math(EXPR _last "${_count} - 1")

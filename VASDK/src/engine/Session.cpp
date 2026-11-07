@@ -242,6 +242,7 @@ struct Session::State {
     std::shared_ptr<FrameInjector> userInput;
     std::shared_ptr<flow::DialogProcessor> dialog;   // only with Options::agent
     std::shared_ptr<llm::LLMTransport> llmTransport;
+    bool llmFromProvider = false;   // providers.llm: it reads the system prompt from its config
     std::shared_ptr<llm::LLMProcessor> llm;
     std::shared_ptr<llm::ToolDispatchProcessor> tools = std::make_shared<llm::ToolDispatchProcessor>();
     std::shared_ptr<FrameInjector> speech;
@@ -481,8 +482,21 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
     state->transportOutput->addTransport(options.transport, options.sendAllFramesToTransport
         ? std::nullopt : std::optional<transport::FrameType>(transport::FrameType::SYNTHESIS));
 
-    //  LLM (optional)
+    //  LLM (optional): the app's transport, else the config's providers.llm, else its llm endpoint
     state->llmTransport = options.llmTransport;
+    std::shared_ptr<const llm::Completion> providerCompletion;
+    if (!state->llmTransport && config.providers().has_llm()) {
+        std::string reason;
+        auto provided = runtime->createLlm(&reason);
+        if (!provided.transport) return fail(reason);
+        state->llmTransport = std::move(provided.transport);
+        providerCompletion = std::move(provided.completion);
+        state->llmFromProvider = true;
+        auto llmConfig = state->llmTransport->getConfig();
+        llmConfig.systemPrompt = options.systemPrompt;   // the tools' descriptions join it at start()
+        state->llmTransport->setConfig(llmConfig);
+        spdlog::info("{} LLM: provider {}", state->logTag, config.providers().llm().id());
+    }
     const bool anthropic = config.llm().api() == vasdk::engine::LlmConfig::ANTHROPIC;
     if (!state->llmTransport && config.has_llm() && (!config.llm().endpoint().empty() || anthropic)) {
         llm::LLMConfig llmConfig;
@@ -546,7 +560,7 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
         state->llm->setFailureReplies(std::move(failureReplies));
         // The network down and the LLM elsewhere: the user is told, rather than left waiting for
         // a request that fails. An app's own transport (llama.cpp) and a server on this machine answer.
-        if (!options.llmTransport && !onThisMachine(state->llmTransport->getConfig().endpoint)) {
+        if (!options.llmTransport && !state->llmFromProvider && !onThisMachine(state->llmTransport->getConfig().endpoint)) {
             std::vector<std::string> replies(llmSettings.offline_replies().begin(), llmSettings.offline_replies().end());
             if (replies.empty())
                 replies.push_back("I can't reach the internet right now, so I can't answer that. Please try again in a moment.");
@@ -566,7 +580,7 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
         state->dialog->setPassUnmatchedTurns(state->llm != nullptr);
         state->dialog->setToolCaller(flow::ToolRunner::caller(std::make_shared<flow::ToolRunner>(options.agent, config.security())));
         // Understanding: the agent's examples, then paraphrases by meaning, then an LLM.
-        auto completion = options.llmCompletion;
+        auto completion = options.llmCompletion ? options.llmCompletion : providerCompletion;
         llm::LLMConfig completionConfig;
         completionConfig.endpoint = config.llm().endpoint();
         completionConfig.apiKey = config.llm().api_key();
@@ -780,6 +794,23 @@ void Session::registerTool(const llm::Tool& tool) { _state->tools->registerTool(
 int Session::addListener(engine::EventListener listener) { return _state->events->addListener(std::move(listener)); }
 void Session::removeListener(int id) { _state->events->removeListener(id); }
 
+// A providers.llm transport (llama.cpp, the app's) reads its instructions from its config, not
+// from a prompt template: the system prompt and the tools' descriptions go there, once the app's
+// tools are registered. Where the tool prompt carries the whole response contract (formats
+// with no tool-call tags, LFM2's tool tokens), a text-shaped format instruction after it
+// contradicts it and small models stop calling tools: it's dropped.
+void Session::promptProviderLlm() {
+    auto& transport = *_state->llmTransport;
+    const auto format = transport.getPromptChatFormat();
+    const std::string tools = _state->tools->renderToolDescriptions(format);
+    auto config = transport.getConfig();
+    config.systemPrompt = tools.empty() ? _state->options.systemPrompt : _state->options.systemPrompt + "\n\n" + tools;
+    transport.setConfig(config);
+    const bool toolPromptOwnsContract = !tools.empty() && (llm::PromptTemplate::create(format)->toolCallTags().first.empty() ||
+                                                           format == llm::ChatFormat::LFM2_5 || format == llm::ChatFormat::LFM2);
+    if (toolPromptOwnsContract) transport.setResponseFormatInstruction({});
+}
+
 bool Session::start(std::string* error) {
     auto fail = [this, error](const std::string& message) {
         spdlog::error("{} {}", _state->logTag, message);
@@ -789,6 +820,7 @@ bool Session::start(std::string* error) {
     if (_state->pipeline) return fail("already started");
     auto& transport = *_state->options.transport;
     if (!transport.initialize() || !transport.start()) return fail("transport " + transport.getName() + " failed to start");
+    if (_state->llmFromProvider) promptProviderLlm();
     if (_state->dialog) _state->dialog->setConnected(transport.isConnected());
 
     auto pipeline = std::make_shared<pipeline::Pipeline>();
@@ -875,6 +907,20 @@ bool Session::handle(const vasdk::engine::Command& command, std::string* error) 
     case vasdk::engine::Command::kSetSessionParam:
         setSessionParam(command.set_session_param().name(), command.set_session_param().value());
         return true;
+    case vasdk::engine::Command::kResetConversation: resetConversation(); return true;
+    case vasdk::engine::Command::kPushToTalk: pushToTalk(command.push_to_talk()); return true;
+    case vasdk::engine::Command::kFollowUpListenMs: setFollowUpListenMs(std::max(0, command.follow_up_listen_ms())); return true;
+    case vasdk::engine::Command::kSetEntityValues:
+        setEntityValues(command.set_entity_values().name(),
+                        std::vector<vasdk::nlu::EntityValue>(command.set_entity_values().values().begin(),
+                                                             command.set_entity_values().values().end()));
+        return true;
+    case vasdk::engine::Command::kSetBackchannel: {
+        auto current = backchannel();
+        applyBackchannel(command.set_backchannel(), current);
+        setBackchannel(current);
+        return true;
+    }
     case vasdk::engine::Command::KIND_NOT_SET: break;
     }
     if (error) *error = "an empty command";

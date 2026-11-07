@@ -7,8 +7,7 @@
 #include <mutex>
 #include <vector>
 
-namespace va {
-namespace android {
+namespace va::thirdparty::audio {
 
 /**
  * @brief AAudio-backed speaker sink for Android.
@@ -58,5 +57,4 @@ private:
     mutable std::mutex _callbackMutex;
 };
 
-} // namespace android
-} // namespace va
+} // namespace va::thirdparty::audio

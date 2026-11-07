@@ -7,13 +7,17 @@
 
 #include <cstddef>
 #include <string>
+#include <vector>
 
 namespace google::protobuf { class Message; }
 
 struct vasdk_result {
     std::string json;
+    std::vector<float> floats;   // vasdk_result_set_floats
+    bool hasFloats = false;
     std::string error;
     bool failed = false;
+    bool set = false;            // vasdk_result_set or _set_floats was called
 };
 
 namespace vasdk_c {

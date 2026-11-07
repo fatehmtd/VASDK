@@ -215,6 +215,7 @@ if(VASDK_ENABLE_ENGINE_CONFIG)
         ./src/nlu/TaggerEntityExtractor.cpp
         ./src/c/vasdk_c.cpp
         ./src/c/vasdk_c_session.cpp
+        ./src/c/vasdk_c_providers.cpp
         ./src/engine/RemoteControl.cpp
         ./proto/vasdk/engine/engine_config.proto
         ./proto/vasdk/engine/events.proto
@@ -258,6 +259,7 @@ if(VASDK_ENABLE_ENGINE_CONFIG)
             "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/FIvasdk_export.h>"
             "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<NOT:$<CXX_COMPILER_ID:MSVC>>>:SHELL:-include vasdk_export.h>")
     endif()
+    file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/proto)   # protoc doesn't create its output folder
     protobuf_generate(TARGET VASDK
         ${_vasdk_proto_export}
         IMPORT_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/proto
@@ -416,6 +418,10 @@ if(VASDK_BUILD_TESTS)
         add_executable(vasdk_session_test tests/session_test.cpp)
         target_link_libraries(vasdk_session_test PRIVATE VASDK)
         add_test(NAME vasdk_session COMMAND vasdk_session_test)
+        # The config's audio devices and LLM provider, the new Commands, a StepOutcome's question
+        add_executable(vasdk_config_providers_test tests/config_providers_test.cpp)
+        target_link_libraries(vasdk_config_providers_test PRIVATE VASDK)
+        add_test(NAME vasdk_config_providers COMMAND vasdk_config_providers_test)
 
         add_executable(vasdk_expression_test tests/expression_test.cpp)
         target_link_libraries(vasdk_expression_test PRIVATE VASDK)
@@ -498,6 +504,13 @@ if(VASDK_BUILD_TESTS)
         add_executable(vasdk_c_session_test tests/c_session_test.cpp)   # spoken sessions through the C API
         target_link_libraries(vasdk_c_session_test PRIVATE VASDK nlohmann_json::nlohmann_json)
         add_test(NAME vasdk_c_session COMMAND vasdk_c_session_test)
+        add_executable(vasdk_c_providers_test tests/c_providers_test.cpp)   # providers and processors written in C
+        target_link_libraries(vasdk_c_providers_test PRIVATE VASDK nlohmann_json::nlohmann_json)
+        add_test(NAME vasdk_c_providers COMMAND vasdk_c_providers_test)
+        add_executable(vasdk_c_conversation_test tests/c_conversation_test.cpp)   # conversations and turns, beyond turns in and out
+        target_link_libraries(vasdk_c_conversation_test PRIVATE VASDK)
+        add_test(NAME vasdk_c_conversation COMMAND vasdk_c_conversation_test)
+        set_tests_properties(vasdk_c_providers PROPERTIES TIMEOUT 60)
         add_executable(vasdk_network_fallback_test tests/network_fallback_test.cpp)
         target_link_libraries(vasdk_network_fallback_test PRIVATE VASDK)
         add_test(NAME vasdk_network_fallback COMMAND vasdk_network_fallback_test)

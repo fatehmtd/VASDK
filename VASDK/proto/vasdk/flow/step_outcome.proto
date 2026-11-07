@@ -6,10 +6,20 @@ syntax = "proto3";
 package vasdk.flow;
 
 import "google/protobuf/struct.proto";
+import "vasdk/flow/agent.proto";
+import "vasdk/flow/expectation.proto";
 
 message StepOutcome {
   map<string, google.protobuf.Value> set = 1;   // key → value
   repeated string unset = 2;                    // keys to empty
   repeated string say = 3;                      // added to the reply, as they are
   string goto = 4;                              // as a goto step's target; empty: carry on
+  StepAsk ask = 5;                              // a question, after the says: an answer is expected
+}
+
+// As an `ask` step: asked again when the answer isn't understood.
+message StepAsk {
+  string question = 1;
+  repeated Choice choices = 2;                  // offered as buttons and understood as answers
+  Expectation expect = 3;                       // unset: open, or a choice when there are choices
 }

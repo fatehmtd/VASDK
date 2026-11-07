@@ -5,12 +5,18 @@
 #include "nlu/EntityExtractor.h"
 
 #include "AudioRingBuffer.h"
+#include "GenericAudioSink.h"
+#include "GenericAudioSource.h"
 #include "GenericTranscriptionProvider.h"
 #include "GenericVoiceSynthesisProvider.h"
 #include "TurnDetectionProvider.h"
 #include "VADProvider.h"
 #include "WakeWordProvider.h"
+#include "LocalTransport.h"
+#include "WebRtcTransport.h"
 #include "engine/ProtoFileLoader.h"
+#include "llm/Completion.h"
+#include "llm/LLMTransport.h"
 
 #include <spdlog/spdlog.h>
 
@@ -105,6 +111,59 @@ std::shared_ptr<Runtime> Runtime::create(const vasdk::engine::EngineConfig& conf
         }
     }
     return runtime;
+}
+
+std::shared_ptr<transport::AudioTransport> Runtime::configTransport(bool* sendAllFrames, std::string* error) const {
+    if (sendAllFrames) *sendAllFrames = false;
+    if (error) error->clear();
+    auto fail = [error](const std::string& message) -> std::shared_ptr<transport::AudioTransport> {
+        if (error) *error = message;
+        return nullptr;
+    };
+    const auto& providers = _config.providers();
+    const ProviderContext input{_options.modelsDir, _options.inputAudio, _options.frameSize, nullptr};
+    const ProviderContext output{_options.modelsDir, _options.outputAudio, _options.frameSize, nullptr};
+    std::string reason;
+    if (providers.has_webrtc()) {   // a browser brings the audio, not the app
+        auto peer = _registry.create<network::WebRtcInterface>(providers.webrtc(), input, &reason);
+        if (!peer) return fail("webrtc: " + reason);
+        if (sendAllFrames) *sendAllFrames = true;   // the page shows the agent's state
+        return std::make_shared<transport::WebRtcTransport>(peer);
+    }
+    if (!providers.has_audio_input() && !providers.has_audio_output()) return nullptr;
+    if (!providers.has_audio_input() || !providers.has_audio_output())
+        return fail("audio_input and audio_output go together: set both, or neither");
+    auto source = _registry.create<audio::GenericAudioSource>(providers.audio_input(), input, &reason);
+    if (!source) return fail("audio_input: " + reason);
+    auto sink = _registry.create<audio::GenericAudioSink>(providers.audio_output(), output, &reason);
+    if (!sink) return fail("audio_output: " + reason);
+    return std::make_shared<transport::LocalTransport>(std::move(source), std::move(sink));
+}
+
+Runtime::LlmProvider Runtime::createLlm(std::string* error) const {
+    if (error) error->clear();
+    if (!_config.providers().has_llm()) return {};
+    const auto& spec = _config.providers().llm();
+    const ProviderContext context{_options.modelsDir, _options.inputAudio, _options.frameSize, nullptr};
+    LlmProvider llm;
+    std::string reason, chosen;
+    llm.transport = _registry.create<llm::LLMTransport>(spec, context, &reason, &chosen);
+    if (!llm.transport) {
+        if (error) *error = "LLM: " + reason;
+        return {};
+    }
+    // The agent's one-shot asks, from the same provider when it answers them
+    const auto completions = _registry.ids<llm::Completion>();
+    if (std::find(completions.begin(), completions.end(), chosen) != completions.end()) {
+        vasdk::engine::ProviderSpec started;   // the one that started, its own options, no fallbacks
+        started.set_id(chosen);
+        if (chosen == spec.id()) *started.mutable_options() = spec.options();
+        else if (const auto found = spec.fallback_options().find(chosen); found != spec.fallback_options().end())
+            *started.mutable_options() = found->second;
+        llm.completion = _registry.create<llm::Completion>(started, context, &reason);
+        if (!llm.completion) spdlog::info("[Runtime] LLM {} doesn't answer one-shot asks: the agent asks no LLM", chosen);
+    }
+    return llm;
 }
 
 Runtime::Runtime(vasdk::engine::EngineConfig config, ProviderRegistry registry, Options options)

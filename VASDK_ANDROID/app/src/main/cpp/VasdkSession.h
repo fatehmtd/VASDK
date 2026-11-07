@@ -1,8 +1,8 @@
 #pragma once
 
 #include "VizAnimSupport.h"
-#include "audio_sink/AAudioSink.h"
-#include "audio_source/AAudioSource.h"
+#include "AAudio/AAudioSink.h"
+#include "AAudio/AAudioSource.h"
 
 #include <VASDK/engine/Runtime.h>
 #include <VASDK/engine/Session.h>
@@ -20,8 +20,8 @@
 struct VasdkSession {
     std::shared_ptr<va::engine::Runtime> runtime;
     std::unique_ptr<va::engine::Session> engine;
-    std::shared_ptr<va::android::AAudioSource> audioSource;
-    std::shared_ptr<va::android::AAudioSink> audioSink;
+    std::shared_ptr<va::thirdparty::audio::AAudioSource> audioSource;
+    std::shared_ptr<va::thirdparty::audio::AAudioSink> audioSink;
     std::shared_ptr<va::llm::LLMTransport> llmTransport;   // the session's: local (llama.cpp) or the config's endpoint
     std::shared_ptr<va::llm::ToolDispatchProcessor> toolDispatcher;   // the session's, for ToolRegistration
     bool useLocalLLM{false};

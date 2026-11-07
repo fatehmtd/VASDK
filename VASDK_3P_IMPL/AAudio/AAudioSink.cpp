@@ -3,8 +3,7 @@
 #include <algorithm>
 #include <cstring>
 
-namespace va {
-namespace android {
+namespace va::thirdparty::audio {
 
 AAudioSink::AAudioSink() {
     _fifo.resize(kFifoCapacity);
@@ -206,5 +205,4 @@ void AAudioSink::setPlaybackCallback(PlaybackCallback cb) {
     _playbackCallback = std::move(cb);
 }
 
-} // namespace android
-} // namespace va
+} // namespace va::thirdparty::audio

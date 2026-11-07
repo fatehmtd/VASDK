@@ -8,8 +8,7 @@
 #include <mutex>
 #include <vector>
 
-namespace va {
-namespace android {
+namespace va::thirdparty::audio {
 
 /**
  * @brief AAudio-backed microphone source for Android.
@@ -59,5 +58,4 @@ private:
     std::condition_variable _dataReady;
 };
 
-} // namespace android
-} // namespace va
+} // namespace va::thirdparty::audio

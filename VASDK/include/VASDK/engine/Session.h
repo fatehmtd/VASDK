@@ -223,6 +223,7 @@ private:
     friend class Runtime;
     struct State;
     static std::unique_ptr<State> createState(std::shared_ptr<Runtime> runtime, Options options, std::string* error);
+    void promptProviderLlm();
     std::unique_ptr<State> _state;
 };
 

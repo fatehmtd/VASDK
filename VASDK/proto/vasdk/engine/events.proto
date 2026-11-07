@@ -7,6 +7,8 @@ package vasdk.engine;
 import "google/protobuf/struct.proto";
 import "vasdk/flow/expectation.proto";
 import "vasdk/flow/trigger.proto";
+import "vasdk/engine/engine_config.proto";
+import "vasdk/nlu/entity.proto";
 
 message Event {
   int64 timestamp_ms = 1;   // milliseconds since the Unix epoch
@@ -147,7 +149,18 @@ message Command {
     string say = 4;                         // spoken as the assistant
     bool interrupt = 5;                     // stops the reply playing
     SessionParamCommand set_session_param = 6;
+    bool reset_conversation = 7;            // starts the conversation over: history cleared, the agent at its start
+    bool push_to_talk = 8;                  // the button held (true) or let go (false): PUSH_TO_TALK and HYBRID activation
+    int32 follow_up_listen_ms = 9;          // how long the assistant keeps listening after a reply; 0: not at all
+    EntityValuesCommand set_entity_values = 10;
+    Backchannel set_backchannel = 11;       // the fields set replace the session's; the rest keep their value
   }
+}
+
+// A dynamic entity's values for this conversation (the phone's contacts, today's free times).
+message EntityValuesCommand {
+  string name = 1;
+  repeated vasdk.nlu.EntityValue values = 2;
 }
 
 message TriggerCommand {
