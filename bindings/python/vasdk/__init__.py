@@ -51,6 +51,7 @@ __all__ = ["Registry", "Turn", "Agent", "Conversation", "Providers", "Session", 
            "words", "version", "set_log_level", "VasdkError", "Event", "Command", "ConversationInput", "ConversationReply",
            "StepOutcome", "SessionOptions", "ToolDeclaration", "ToolParameter", "TriggerDecision", "Language",
            "builtin_language", "ConversationSnapshot", "FlowTestCase", "EntityValue", "EntityValuesCommand", "Backchannel",
+           "VoicePrint",
            "AFTER_INPUT", "AFTER_TRANSCRIPTION", "BEFORE_SYNTHESIS", "BEFORE_OUTPUT"]
 
 
@@ -103,6 +104,7 @@ FlowTestCase = test_case_pb2.FlowTestCase   # run_test()
 EntityValue = entity_pb2.EntityValue   # a dynamic entity's value: set_entity_values()
 EntityValuesCommand = events_pb2.EntityValuesCommand
 Backchannel = engine_config_pb2.Backchannel   # Session.set_backchannel()
+VoicePrint = events_pb2.VoicePrint   # Session.add_speaker()
 
 # Where Session.add_processor puts a processor (vasdk_slot)
 AFTER_INPUT, AFTER_TRANSCRIPTION, BEFORE_SYNTHESIS, BEFORE_OUTPUT = 0, 1, 2, 3
@@ -184,6 +186,8 @@ _TTS_SYNTHESIZE = ctypes.CFUNCTYPE(_i, _p, _s)
 _INSTANCE = ctypes.CFUNCTYPE(None, _p)   # cancel
 _TURN = ctypes.CFUNCTYPE(_f, _p, _pcm, _n)
 _WAKE_WORD = ctypes.CFUNCTYPE(_f, _p, _pcm, _n, _p)
+_AUDIO_DSP = ctypes.CFUNCTYPE(None, _p, _pcm, _pcm, _n)
+_SPEAKER_EMBEDDING = ctypes.CFUNCTYPE(None, _p, _pcm, _n, _p)
 _INSTANCE_TEXT = ctypes.CFUNCTYPE(None, _p, _s, _p)   # encode, extract, complete
 _FORMATS = {"text": 0, "json": 1, "binary": 2}
 _BINARY = _FORMATS["binary"]
@@ -244,6 +248,7 @@ _session_push_audio = _declare("vasdk_session_push_audio", None, _p, _p, _n)
 _session_send = _declare("vasdk_session_send", _i, _p, _s, _n, _i, _error)
 _session_set_network = _declare("vasdk_session_set_network_available", None, _p, _i)
 _session_snapshot = _declare("vasdk_session_snapshot_message", _p, _p, _i, _length)
+_session_speakers = _declare("vasdk_session_speakers_message", _p, _p, _i, _length)
 _session_add_tool = _declare("vasdk_session_add_tool_message", _i, _p, _s, _n, _i, _TOOL, _p, _error)
 _session_set_context = _declare("vasdk_session_set_context_message", _i, _p, _s, _n, _i, _error)
 _result_set_floats = _declare("vasdk_result_set_floats", None, _p, ctypes.POINTER(_f), _n)
@@ -284,6 +289,8 @@ _add_stt = _declare("vasdk_providers_add_stt", _i, _p, _s, _CREATE, _DESTROY, _S
 _add_tts = _declare("vasdk_providers_add_tts", _i, _p, _s, _CREATE, _DESTROY, _TTS_SYNTHESIZE, _INSTANCE, _p)
 _add_turn = _declare("vasdk_providers_add_turn", _i, _p, _s, _CREATE, _DESTROY, _TURN, _p)
 _add_wake_word = _declare("vasdk_providers_add_wake_word", _i, _p, _s, _CREATE, _DESTROY, _WAKE_WORD, _p)
+_add_audio_dsp = _declare("vasdk_providers_add_audio_dsp", _i, _p, _s, _CREATE, _DESTROY, _AUDIO_DSP, _p)
+_add_speaker_embedding = _declare("vasdk_providers_add_speaker_embedding", _i, _p, _s, _CREATE, _DESTROY, _SPEAKER_EMBEDDING, _p)
 _add_sentence_encoder = _declare("vasdk_providers_add_sentence_encoder", _i, _p, _s, _CREATE, _DESTROY, _INSTANCE_TEXT, _p)
 _add_entity_model = _declare("vasdk_providers_add_entity_model", _i, _p, _s, _CREATE, _DESTROY, _INSTANCE_TEXT, _p)
 _add_llm = _declare("vasdk_providers_add_llm", _i, _p, _s, _CREATE, _DESTROY, _INSTANCE_TEXT, _INSTANCE, _p)
@@ -870,6 +877,8 @@ class Providers:
       tts:              synthesize(text) -> True; speech with sink.audio(), then sink.done(); cancel() optional
       turn:             evaluate(pcm) -> chance, 0 to 1, that the user is done (pcm since they began speaking)
       wake_word:        process(pcm) -> (phrase, confidence) when it completes the phrase, else None
+      audio_dsp:        process(pcm) -> bytes of the same length (the microphone's audio, cleaned), or None to pass it on
+      speaker_embedding: embed(pcm) -> list of floats, one utterance's voice print (the same length each time)
       sentence_encoder: encode(sentence) -> list of floats, normalized; one instance for every session
       entity_model:     extract(words, labels, sensitive) -> [{"entity", "start", "length", "score"}]; one instance
       llm:              complete(messages) -> reply text, messages [{"role", "content"}]; cancel() optional
@@ -992,6 +1001,30 @@ class Providers:
                 _result_set(phrase, _encode(found[0]))
                 return float(found[1])
             self._register(_add_wake_word, id, create, destroy, self._keep(_WAKE_WORD(process)))
+            return cls
+        return register
+
+    def audio_dsp(self, id):
+        def register(cls):
+            create, destroy = self._lifecycle(cls)
+
+            def process(instance, pcm, output, samples):
+                changed = self._call(instance, "process", _pcm_bytes(pcm, samples))
+                if changed is not None and len(changed) == samples * 2:
+                    ctypes.memmove(output, bytes(changed), samples * 2)
+            self._register(_add_audio_dsp, id, create, destroy, self._keep(_AUDIO_DSP(process)))
+            return cls
+        return register
+
+    def speaker_embedding(self, id):
+        def register(cls):
+            create, destroy = self._lifecycle(cls)
+
+            def embed(instance, pcm, samples, voice_print):
+                values = self._call(instance, "embed", _pcm_bytes(pcm, samples))
+                if values:
+                    _result_set_floats(voice_print, (_f * len(values))(*values), len(values))
+            self._register(_add_speaker_embedding, id, create, destroy, self._keep(_SPEAKER_EMBEDDING(embed)))
             return cls
         return register
 
@@ -1278,6 +1311,21 @@ class Session:
         if not isinstance(backchannel, Backchannel):
             backchannel = json_format.ParseDict(backchannel, Backchannel())
         self.send(Command(set_backchannel=backchannel))
+
+    def enroll_speaker(self, speaker_id):
+        """The next utterance enrolls speaker_id, replacing their voice print; a speaker_enrollment
+        event says how it went. Needs providers.speaker_embedding in the config."""
+        self.send(Command(enroll_speaker=speaker_id))
+
+    def add_speaker(self, speaker_id, voice_print):
+        """Restores a voice print (a list of floats) kept from speakers()."""
+        self.send(Command(add_speaker=VoicePrint(speaker_id=speaker_id, embedding=list(voice_print))))
+
+    def speakers(self):
+        """The enrolled speakers' voice prints, {speaker_id: [floats]}, to keep across sessions."""
+        length = ctypes.c_size_t()
+        prints = events_pb2.VoicePrints.FromString(_take_bytes(_session_speakers(self._handle, _BINARY, ctypes.byref(length)), length))
+        return {print_.speaker_id: list(print_.embedding) for print_ in prints.speakers}
 
     def on_context(self, function):
         """fn() -> dict: the app's state, asked for each time the agent or the LLM reads it; its keys

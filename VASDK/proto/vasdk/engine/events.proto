@@ -26,7 +26,29 @@ message Event {
     TriggerFired trigger_fired = 24;
     ProviderSwitched provider_switched = 25;
     AgentTurn agent_turn = 26;
+    SpeakerIdentified speaker_identified = 27;
+    SpeakerEnrollment speaker_enrollment = 28;
   }
+}
+
+// Who said the utterance that just ended (providers.speaker_embedding), once its words are
+// transcribed. Utterances shorter than speaker_identification.min_speech_seconds get none.
+message SpeakerIdentified {
+  string speaker_id = 1;          // the enrolled speaker it matches best; empty: none matches
+  float similarity = 2;           // that match's cosine similarity; -1: nobody is enrolled
+  bool new_speaker = 3;           // not the voice of the utterance before
+  float tracked_similarity = 4;   // its cosine similarity to the voice of the utterance before
+}
+
+// How an enroll_speaker command went: the utterance after it was enrolled, or wasn't.
+message SpeakerEnrollment {
+  enum Status {
+    ENROLLED = 0;
+    FAILED = 1;
+  }
+  string speaker_id = 1;
+  Status status = 2;
+  string error = 3;   // FAILED: why
 }
 
 // STT, TTS or the LLM changed: the network dropped (Session::setNetworkAvailable) or a provider
@@ -154,7 +176,20 @@ message Command {
     int32 follow_up_listen_ms = 9;          // how long the assistant keeps listening after a reply; 0: not at all
     EntityValuesCommand set_entity_values = 10;
     Backchannel set_backchannel = 11;       // the fields set replace the session's; the rest keep their value
+    string enroll_speaker = 12;             // the next utterance enrolls this speaker id, replacing their voice print (speaker_enrollment event)
+    VoicePrint add_speaker = 13;            // restores a voice print kept from Session::speakers
   }
+}
+
+// A speaker's voice print (providers.speaker_embedding), to keep across sessions.
+message VoicePrint {
+  string speaker_id = 1;
+  repeated float embedding = 2;   // L2-normalized
+}
+
+// Every enrolled speaker's voice print: Session::speakers, the C API's vasdk_session_speakers_message.
+message VoicePrints {
+  repeated VoicePrint speakers = 1;
 }
 
 // A dynamic entity's values for this conversation (the phone's contacts, today's free times).

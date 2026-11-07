@@ -67,6 +67,9 @@ Rules for a row:
 | `Session::restoreTriggerState` | `vasdk_session_restore_trigger_state` | `Session.restore_trigger_state` | `Session.restoreTriggerState` | |
 | `Session::setNetworkAvailable` | `vasdk_session_set_network_available` | `Session.set_network_available` | `Session.setNetworkAvailable` | |
 | `Session::usingFallbacks` | `vasdk_session_using_fallbacks` | `Session.using_fallbacks` | `Session.usingFallbacks` | |
+| `Session::enrollSpeaker` | `vasdk_session_send` | `Session.enroll_speaker` | `Session.enrollSpeaker` | Command.enroll_speaker |
+| `Session::addSpeaker` | `vasdk_session_send` | `Session.add_speaker` | `Session.addSpeaker` | Command.add_speaker |
+| `Session::speakers` | `vasdk_session_speakers_message` | `Session.speakers` | `Session.speakers` | |
 | `Session::describe` | `vasdk_session_describe` | `Session.describe` | `Session.describe` | |
 | `Session::id` | — | — | — | C++ only: the app sets it (SessionOptions.id) and every event carries it (Event.session_id) |
 | `Session::hasLLM` | — | — | — | C++ only: describe() says which LLM the session has |
@@ -84,8 +87,8 @@ Rules for a row:
 | `GenericVoiceSynthesisProvider` | `vasdk_providers_add_tts` | `Providers.tts` | `Providers.tts` | |
 | `TurnDetectionProvider` | `vasdk_providers_add_turn` | `Providers.turn` | `Providers.turn` | |
 | `WakeWordProvider` | `vasdk_providers_add_wake_word` | `Providers.wake_word` | `Providers.wakeWord` | |
-| `GenericAudioDSPProvider` | — | — | — | C++ only: no Session runs one, from C++ either (AudioDSPProcessor is for hand-built pipelines); core gap: bind it once the engine config has a DSP stage |
-| `SpeakerEmbeddingProvider` | — | — | — | C++ only: no Session runs speaker identification on its own, and no event says who spoke (C++ apps add SpeakerIdentificationProcessor by hand); core gap: bind it once the engine config and events have it |
+| `GenericAudioDSPProvider` | `vasdk_providers_add_audio_dsp` | `Providers.audio_dsp` | `Providers.audioDsp` | |
+| `SpeakerEmbeddingProvider` | `vasdk_providers_add_speaker_embedding` | `Providers.speaker_embedding` | `Providers.speakerEmbedding` | |
 | `SentenceEncoder` | `vasdk_providers_add_sentence_encoder` | `Providers.sentence_encoder` | `Providers.sentenceEncoder` | |
 | `EntityExtractor` | `vasdk_providers_add_entity_model`, `vasdk_registry_add_entity_extractor` | `Providers.entity_model`, `Registry.entity_extractor` | `Providers.entityModel`, `Registry.entityExtractor` | the config's entity_model; an agent's code entities |
 | `LLMTransport`, `Completion` | `vasdk_providers_add_llm` | `Providers.llm` | `Providers.llm` | the same callback answers the conversation and the agent |

@@ -157,6 +157,62 @@ class ProvidersTest {
     }
 
     @Test
+    fun aKotlinAudioDspAndSpeakerEmbedding() {
+        Vasdk.setLogLevel("warn")
+        val processed = AtomicInteger()
+        val embedded = AtomicInteger()
+        val seen = CopyOnWriteArrayList<vasdk.engine.Events.Event>()
+        Providers(builtIn = false).use { providers ->
+            register(providers)
+            // Twice as loud: speech pushed under the VAD's threshold is heard only through it
+            providers.audioDsp("louder") { _, _ ->
+                object : AudioDspProvider {
+                    override fun process(pcm: ShortArray): ShortArray {
+                        processed.incrementAndGet()
+                        return ShortArray(pcm.size) { i -> (pcm[i] * 2).coerceIn(-32768, 32767).toShort() }
+                    }
+                }
+            }
+            providers.speakerEmbedding("voice") { _, _ ->
+                object : SpeakerEmbeddingProvider {
+                    override fun embed(pcm: ShortArray) = floatArrayOf(1f, 0f, 0f).also { embedded.incrementAndGet() }
+                }
+            }
+            val path = config("""providers { vad { id: "kotlin" } stt { id: "kotlin" } tts { id: "kotlin" } audio_dsp { id: "louder" } speaker_embedding { id: "voice" } }""")
+            Session(path, providers).use { session ->
+                session.onEvent { seen += it }
+                session.start()
+                val described = session.describe()
+                assertTrue("AudioDSPProcessor (louder)" in described && "SpeakerIdentificationProcessor (voice)" in described, described)
+                fun speak() {
+                    push(session, 300, 0)
+                    push(session, 1500, 700)
+                    push(session, 1500, 0)
+                }
+                session.enrollSpeaker("alice")
+                speak()
+                assertTrue(processed.get() > 0, "the DSP got the microphone's audio")
+                assertTrue(waitFor { seen.any { it.hasSpeakerEnrollment() && it.speakerEnrollment.speakerId == "alice" &&
+                                                it.speakerEnrollment.status == vasdk.engine.Events.SpeakerEnrollment.Status.ENROLLED } },
+                           "quiet speech, heard through the DSP, enrolled alice")
+                speak()
+                assertTrue(waitFor { seen.any { it.hasSpeakerIdentified() && it.speakerIdentified.speakerId == "alice" } },
+                           "the next utterance is identified as alice")
+                session.addSpeaker("bob", floatArrayOf(0f, 2f, 0f))
+                val speakers = session.speakers()
+                assertEquals(setOf("alice", "bob"), speakers.keys)
+                assertTrue(abs(speakers.getValue("bob")[1] - 1f) < 1e-5f, "voice prints are normalized")
+            }
+            Session(config("""providers { vad { id: "kotlin" } stt { id: "kotlin" } tts { id: "kotlin" } }"""), providers).use { session ->
+                val error = assertFailsWith<VasdkException> { session.enrollSpeaker("alice") }
+                assertTrue("speaker_embedding" in error.message!!, error.message)
+                assertTrue(session.speakers().isEmpty())
+            }
+        }
+        assertTrue(embedded.get() >= 2, "the speaker embedding was asked for each utterance")
+    }
+
+    @Test
     fun aRuntimeWithAKotlinEncoderAndEntityModel() {
         Providers(builtIn = false).use { providers ->
             register(providers)

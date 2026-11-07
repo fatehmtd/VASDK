@@ -4,7 +4,9 @@
 #include <algorithm>
 #include <vasdk/providers/options.pb.h>
 
+#include <VASDK/GenericAudioDSPProvider.h>
 #include <VASDK/GenericTranscriptionProvider.h>
+#include <VASDK/SpeakerEmbeddingProvider.h>
 #include <VASDK/GenericVoiceSynthesisProvider.h>
 #include <VASDK/TurnDetectionProvider.h>
 #include <VASDK/VADProvider.h>
@@ -95,6 +97,12 @@
 #endif
 #ifdef VASDK_HAS_LIBDATACHANNEL_WEBRTC
 #include "LibDataChannelWebRtc/LibDataChannelWebRtcProvider.h"
+#endif
+#ifdef VASDK_HAS_RNNOISE
+#include "RNNoise/RNNoiseDSPProvider.h"
+#endif
+#ifdef VASDK_HAS_PYANNOTE_SPEAKER
+#include "PyannoteSpeaker/PyannoteEmbeddingProvider.h"
 #endif
 
 namespace va {
@@ -372,6 +380,35 @@ void registerEncoders([[maybe_unused]] engine::ProviderRegistry& registry) {
 #endif
 }
 
+void registerAudioDsp([[maybe_unused]] engine::ProviderRegistry& registry) {
+#ifdef VASDK_HAS_RNNOISE
+    // The runtime initializes it with the session's input format.
+    registry.add<va::audio::GenericAudioDSPProvider, providers::RNNoiseOptions>("rnnoise",
+        [](const providers::RNNoiseOptions& options, const ProviderContext&) -> std::shared_ptr<va::audio::GenericAudioDSPProvider> {
+            audio::RNNoiseDSPOptions rnnoise;
+            rnnoise.modelPath = options.model_path();
+            if (options.has_vad_threshold()) rnnoise.vadThreshold = std::clamp(options.vad_threshold(), 0.0f, 1.0f);
+            rnnoise.normalizeOutput = options.normalize_output();
+            if (options.has_normalization_multiplier()) rnnoise.normalizationMultiplier = options.normalization_multiplier();
+            return std::make_shared<audio::RNNoiseDSPProvider>(rnnoise);
+        });
+#endif
+}
+
+void registerSpeakerEmbedding([[maybe_unused]] engine::ProviderRegistry& registry) {
+#ifdef VASDK_HAS_PYANNOTE_SPEAKER
+    registry.add<va::audio::SpeakerEmbeddingProvider, providers::PyannoteOptions>("pyannote",
+        [](const providers::PyannoteOptions& options, const ProviderContext& context)
+            -> std::shared_ptr<va::audio::SpeakerEmbeddingProvider> {
+            speaker::PyannoteEmbeddingOptions pyannote;
+            pyannote.modelPath = options.model_path().empty() ? context.modelsDir + "/pyannote_embedding.onnx" : options.model_path();
+            auto embedding = std::make_shared<speaker::PyannoteEmbeddingProvider>(pyannote);
+            if (!embedding->initialize(context.audio)) return nullptr;
+            return embedding;
+        });
+#endif
+}
+
 void registerWebRtc([[maybe_unused]] engine::ProviderRegistry& registry) {
 #ifdef VASDK_HAS_LIBDATACHANNEL_WEBRTC
     registry.add<va::network::WebRtcInterface, providers::LibDataChannelWebRtcOptions>("libdatachannel",
@@ -467,6 +504,8 @@ void registerAllProviders(engine::ProviderRegistry& registry) {
     registerStt(registry);
     registerTts(registry);
     registerTurn(registry);
+    registerAudioDsp(registry);
+    registerSpeakerEmbedding(registry);
     registerWebRtc(registry);
     registerAudioDevices(registry);
     registerLlm(registry);

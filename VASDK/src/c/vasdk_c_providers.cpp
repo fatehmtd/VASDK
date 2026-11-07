@@ -7,8 +7,10 @@
 
 #include "AudioRingBuffer.h"
 #include "Frame.h"
+#include "GenericAudioDSPProvider.h"
 #include "GenericTranscriptionProvider.h"
 #include "GenericVoiceSynthesisProvider.h"
+#include "SpeakerEmbeddingProvider.h"
 #include "TurnDetectionProvider.h"
 #include "VADProvider.h"
 #include "WakeWordProvider.h"
@@ -23,6 +25,8 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cmath>
+#include <cstring>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -298,6 +302,54 @@ private:
     std::string _id;
     Instance _instance;
     vasdk_wake_word_fn _process;
+};
+
+//  Audio DSP and speaker embedding
+
+class AppAudioDsp : public va::audio::GenericAudioDSPProvider {
+public:
+    AppAudioDsp(std::string id, const Callbacks& callbacks, int sampleRate, vasdk_audio_dsp_fn process)
+        : _id(std::move(id)), _instance(callbacks, sampleRate), _process(process) {}
+    std::string getName() const override { return _id; }
+    bool started() const { return _instance.started(); }
+    bool initialize(const va::audio::AudioConfig& config) override {
+        _config = config;
+        return sixteenBitMono(config, _id);
+    }
+    void release() override {}
+    size_t processAudio(const char* input, char* output, size_t numSamples) override {
+        std::memcpy(output, input, numSamples * sizeof(short));   // what the callback leaves passes through
+        _process(_instance.get(), samplesOf(input), reinterpret_cast<short*>(output), numSamples);
+        return numSamples;
+    }
+
+private:
+    std::string _id;
+    Instance _instance;
+    vasdk_audio_dsp_fn _process;
+};
+
+class AppSpeakerEmbedding : public va::audio::SpeakerEmbeddingProvider {
+public:
+    AppSpeakerEmbedding(std::string id, const Callbacks& callbacks, const ProviderContext& context, vasdk_speaker_embedding_fn embed)
+        : _id(std::move(id)), _instance(callbacks, static_cast<int>(context.audio.sampleRate)), _embed(embed) {
+        _audioConfig = context.audio;
+    }
+    std::string getName() const override { return _id; }
+    bool started() const { return _instance.started(); }
+    std::vector<float> computeEmbedding(const float* samples, size_t numSamples) override {
+        std::vector<short> pcm(numSamples);   // the processor gives [-1, 1]; the C API's audio is 16-bit
+        for (size_t i = 0; i < numSamples; ++i)
+            pcm[i] = static_cast<short>(std::lround(std::clamp(samples[i], -1.0f, 1.0f) * 32767.0f));
+        vasdk_result voicePrint;
+        _embed(_instance.get(), pcm.data(), pcm.size(), &voicePrint);
+        return voicePrint.hasFloats && !voicePrint.failed ? voicePrint.floats : std::vector<float>();
+    }
+
+private:
+    std::string _id;
+    Instance _instance;
+    vasdk_speaker_embedding_fn _embed;
 };
 
 //  Sentence encoder and entity model: one instance, shared by every session of a runtime
@@ -592,6 +644,26 @@ int vasdk_providers_add_wake_word(vasdk_providers* providers, const char* id, va
     const std::string name = id ? id : "";
     return add<va::audio::WakeWordProvider>(providers, id, create, [=](const ProviderContext& context) {
         return std::make_shared<AppWakeWord>(name, callbacks, rateOf(context), process);
+    });
+}
+
+int vasdk_providers_add_audio_dsp(vasdk_providers* providers, const char* id, vasdk_provider_create_fn create,
+                                  vasdk_provider_destroy_fn destroy, vasdk_audio_dsp_fn process, void* user) {
+    if (!process) return 0;
+    const Callbacks callbacks{create, destroy, user};
+    const std::string name = id ? id : "";
+    return add<va::audio::GenericAudioDSPProvider>(providers, id, create, [=](const ProviderContext& context) {
+        return std::make_shared<AppAudioDsp>(name, callbacks, rateOf(context), process);
+    });
+}
+
+int vasdk_providers_add_speaker_embedding(vasdk_providers* providers, const char* id, vasdk_provider_create_fn create,
+                                          vasdk_provider_destroy_fn destroy, vasdk_speaker_embedding_fn embed, void* user) {
+    if (!embed) return 0;
+    const Callbacks callbacks{create, destroy, user};
+    const std::string name = id ? id : "";
+    return add<va::audio::SpeakerEmbeddingProvider>(providers, id, create, [=](const ProviderContext& context) {
+        return std::make_shared<AppSpeakerEmbedding>(name, callbacks, context, embed);
     });
 }
 

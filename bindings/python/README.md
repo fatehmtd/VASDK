@@ -70,8 +70,8 @@ Everything else a C++ session does is here too:
 
 | | |
 | --- | --- |
-| `reset_conversation`, `push_to_talk`, `set_follow_up_listen_ms`, `set_entity_values`, `set_backchannel` | Commands, as `send()` takes them. |
-| `describe`, `using_fallbacks`, `next_scheduled_trigger`, `trigger_state`, `restore_trigger_state` | What the session runs, and its triggers across restarts. |
+| `reset_conversation`, `push_to_talk`, `set_follow_up_listen_ms`, `set_entity_values`, `set_backchannel`, `enroll_speaker`, `add_speaker` | Commands, as `send()` takes them. |
+| `describe`, `using_fallbacks`, `next_scheduled_trigger`, `trigger_state`, `restore_trigger_state`, `speakers` | What the session runs, its triggers across restarts, and the enrolled voice prints to keep. |
 | `on_context(fn)` | The app's state, asked each time the agent or the LLM reads it. |
 | `add_processor(slot, fn)` | At `vasdk.AFTER_INPUT` (the microphone's audio), `BEFORE_OUTPUT` (the reply's, changed by returning new bytes), `AFTER_TRANSCRIPTION` and `BEFORE_SYNTHESIS` (text: return new text, or `""` to drop it). |
 | `vasdk.Runtime(config, providers, max_sessions=4).session(agent, id=...)` | Many sessions over one set of loaded providers. |
@@ -93,7 +93,7 @@ class Mine:
 # engine.txtpb: providers { vad { id: "loudness" } llm { id: "mine" } ... }
 ```
 
-`vad`, `stt`, `tts`, `turn`, `wake_word`, `sentence_encoder`, `entity_model` and `llm`, each with the methods `Providers`' docstring lists; an STT and a TTS give their results through `sink` (`sink.text`, `sink.audio`, `sink.done`). A text `Conversation` has `snapshot`/`resume`, `set_entity_values`, `set_context`, `check_triggers`, `deliver_queued` and the trigger state; a `Turn` has `set_text`, `render`, `reply_text`, `flow`, `page` and `ask`; `vasdk.run_test(agent, case)` plays a `FlowTestCase` from memory. [`tests/test_providers.py`](tests/test_providers.py) uses all of it.
+`vad`, `stt`, `tts`, `turn`, `wake_word`, `audio_dsp`, `speaker_embedding`, `sentence_encoder`, `entity_model` and `llm`, each with the methods `Providers`' docstring lists; an STT and a TTS give their results through `sink` (`sink.text`, `sink.audio`, `sink.done`). A text `Conversation` has `snapshot`/`resume`, `set_entity_values`, `set_context`, `check_triggers`, `deliver_queued` and the trigger state; a `Turn` has `set_text`, `render`, `reply_text`, `flow`, `page` and `ask`; `vasdk.run_test(agent, case)` plays a `FlowTestCase` from memory. [`tests/test_providers.py`](tests/test_providers.py) uses all of it.
 
 The binding's tests run with `-DVASDK_BUILD_PYTHON_BINDING=ON` (off by default).
 

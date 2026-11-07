@@ -74,6 +74,19 @@ interface WakeWordProvider : Closeable {
     override fun close() {}
 }
 
+/** Audio DSP: each frame of the microphone's audio, in order, before anything hears it; the
+ *  processed samples (as many), or null to pass it on. */
+interface AudioDspProvider : Closeable {
+    fun process(pcm: ShortArray): ShortArray?
+    override fun close() {}
+}
+
+/** Speaker embedding: one utterance's voice print, the same length each time; null when it can't be made. */
+interface SpeakerEmbeddingProvider : Closeable {
+    fun embed(pcm: ShortArray): FloatArray?
+    override fun close() {}
+}
+
 /** A sentence's vector, normalized to length 1; null when it can't be encoded. One instance for every session, called from several threads. */
 interface SentenceEncoderProvider : Closeable {
     fun encode(sentence: String): FloatArray?
@@ -198,6 +211,24 @@ class Providers(builtIn: Boolean = true) : Closeable {
             }
         })
         added(Lib.vasdk.vasdk_providers_add_wake_word(live, id, create, destroy, process, null), id)
+    }
+
+    fun audioDsp(id: String, make: (sink: Sink, sampleRate: Int) -> AudioDspProvider) {
+        val (create, destroy) = lifecycle(id, make)
+        val process = keep(AudioDspFn { instance, input, output, samples ->
+            val changed = guarded<ShortArray?>("audio dsp $id", null) { of<AudioDspProvider>(instance)?.process(pcmAt(input, samples)) }
+            if (changed != null && output != null && changed.size.toLong() == samples.toLong()) output.write(0, changed, 0, changed.size)
+        })
+        added(Lib.vasdk.vasdk_providers_add_audio_dsp(live, id, create, destroy, process, null), id)
+    }
+
+    fun speakerEmbedding(id: String, make: (sink: Sink, sampleRate: Int) -> SpeakerEmbeddingProvider) {
+        val (create, destroy) = lifecycle(id, make)
+        val embed = keep(SpeakerEmbeddingFn { instance, pcm, samples, voicePrint ->
+            val values = guarded<FloatArray?>("speaker embedding $id", null) { of<SpeakerEmbeddingProvider>(instance)?.embed(pcmAt(pcm, samples)) }
+            if (values != null && values.isNotEmpty()) Lib.vasdk.vasdk_result_set_floats(voicePrint, values, SizeT(values.size.toLong()))
+        })
+        added(Lib.vasdk.vasdk_providers_add_speaker_embedding(live, id, create, destroy, embed, null), id)
     }
 
     fun sentenceEncoder(id: String, make: (sink: Sink, sampleRate: Int) -> SentenceEncoderProvider) {

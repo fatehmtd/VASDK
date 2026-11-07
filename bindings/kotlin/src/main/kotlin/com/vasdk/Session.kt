@@ -16,6 +16,8 @@ import vasdk.engine.Events.EntityValuesCommand
 import vasdk.engine.Events.Event
 import vasdk.engine.Events.SessionParamCommand
 import vasdk.engine.Events.TriggerCommand
+import vasdk.engine.Events.VoicePrint
+import vasdk.engine.Events.VoicePrints
 import vasdk.engine.Session.SessionOptions
 import vasdk.engine.Session.ToolDeclaration
 import vasdk.flow.Snapshot.ConversationSnapshot
@@ -196,6 +198,21 @@ class Session private constructor(private var handle: Pointer?, private val owne
 
     /** Back-channel handling: the fields set replace the session's. */
     fun setBackchannel(backchannel: Backchannel) = send(Command.newBuilder().setSetBackchannel(backchannel).build())
+
+    /** The next utterance enrolls `speakerId`, replacing their voice print; a speaker_enrollment event says how it went.
+     *  Needs providers.speaker_embedding in the config. */
+    fun enrollSpeaker(speakerId: String) = send(Command.newBuilder().setEnrollSpeaker(speakerId).build())
+
+    /** Restores a voice print kept from speakers(). */
+    fun addSpeaker(speakerId: String, voicePrint: FloatArray) =
+        send(Command.newBuilder().setAddSpeaker(VoicePrint.newBuilder().setSpeakerId(speakerId).addAllEmbedding(voicePrint.asList())).build())
+
+    /** The enrolled speakers' voice prints, by speaker id, to keep across sessions. */
+    fun speakers(): Map<String, FloatArray> {
+        val length = SizeTByReference()
+        val prints = VoicePrints.parseFrom(takenBytes(Lib.vasdk.vasdk_session_speakers_message(live, FORMAT_BINARY, length), length))
+        return prints.speakersList.associate { it.speakerId to it.embeddingList.toFloatArray() }
+    }
 
     /** The app's state: what the agent's $context.* reads, and {context} in the LLM's instructions. Each top-level key is replaced. */
     fun setContext(context: JsonObject) = setContext(context.toStruct())

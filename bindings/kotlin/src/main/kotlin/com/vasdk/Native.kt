@@ -53,6 +53,8 @@ internal fun interface SttWriteFn : Callback { fun invoke(instance: Pointer?, pc
 internal fun interface TtsSynthesizeFn : Callback { fun invoke(instance: Pointer?, text: Pointer): Int }
 internal fun interface TurnFn : Callback { fun invoke(instance: Pointer?, pcm: Pointer?, samples: SizeT): Float }
 internal fun interface WakeWordFn : Callback { fun invoke(instance: Pointer?, pcm: Pointer?, samples: SizeT, phrase: Pointer): Float }
+internal fun interface AudioDspFn : Callback { fun invoke(instance: Pointer?, input: Pointer?, output: Pointer?, samples: SizeT) }
+internal fun interface SpeakerEmbeddingFn : Callback { fun invoke(instance: Pointer?, pcm: Pointer?, samples: SizeT, voicePrint: Pointer) }
 internal fun interface InstanceTextFn : Callback { fun invoke(instance: Pointer?, text: Pointer, result: Pointer) }
 
 internal interface VasdkLibrary : Library {
@@ -129,6 +131,10 @@ internal interface VasdkLibrary : Library {
     fun vasdk_providers_add_turn(providers: Pointer, id: String, create: CreateFn, destroy: InstanceFn?, evaluate: TurnFn, user: Pointer?): Int
     fun vasdk_providers_add_wake_word(providers: Pointer, id: String, create: CreateFn, destroy: InstanceFn?, process: WakeWordFn,
                                       user: Pointer?): Int
+    fun vasdk_providers_add_audio_dsp(providers: Pointer, id: String, create: CreateFn, destroy: InstanceFn?, process: AudioDspFn,
+                                      user: Pointer?): Int
+    fun vasdk_providers_add_speaker_embedding(providers: Pointer, id: String, create: CreateFn, destroy: InstanceFn?,
+                                              embed: SpeakerEmbeddingFn, user: Pointer?): Int
     fun vasdk_providers_add_sentence_encoder(providers: Pointer, id: String, create: CreateFn, destroy: InstanceFn?, encode: InstanceTextFn,
                                              user: Pointer?): Int
     fun vasdk_providers_add_entity_model(providers: Pointer, id: String, create: CreateFn, destroy: InstanceFn?, extract: InstanceTextFn,
@@ -156,6 +162,7 @@ internal interface VasdkLibrary : Library {
     fun vasdk_session_on_context(session: Pointer, onContext: ContextFn, user: Pointer?)
     fun vasdk_session_describe(session: Pointer): Pointer?
     fun vasdk_session_using_fallbacks(session: Pointer): Int
+    fun vasdk_session_speakers_message(session: Pointer, format: Int, length: SizeTByReference): Pointer?
     fun vasdk_session_next_scheduled_trigger_ms(session: Pointer): Long
     fun vasdk_session_trigger_state(session: Pointer): Pointer?
     fun vasdk_session_restore_trigger_state(session: Pointer, state: String)

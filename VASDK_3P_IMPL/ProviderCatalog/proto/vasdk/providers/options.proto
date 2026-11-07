@@ -78,3 +78,16 @@ message LlamaCppOptions {
   // the model a second time: twice the memory. Unset: false, those steps run their offline steps.
   bool answer_agent = 13;
 }
+
+// Audio DSP: rnnoise (providers.audio_dsp), noise suppression at any input rate.
+message RNNoiseOptions {
+  string model_path = 1;                         // a custom RNNoise model (.rnnn); unset: the one built into the library
+  optional float vad_threshold = 2;              // RNNoise's own voice probability under which a frame counts as silence; unset: off
+  bool normalize_output = 3;                     // scale the output so its peak stays under normalization_multiplier of full scale
+  optional float normalization_multiplier = 4;   // headroom for normalize_output; unset: 0.8
+}
+
+// Speaker embedding: pyannote (providers.speaker_embedding), 16 kHz input.
+message PyannoteOptions {
+  string model_path = 1;   // unset: <models_dir>/pyannote_embedding.onnx
+}

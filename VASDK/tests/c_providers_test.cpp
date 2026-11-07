@@ -3,13 +3,15 @@
 // app's text processor to the app's TTS and out of the audio callback; pushed audio goes through
 // the app's VAD to the app's STT, whose transcript the app's turn model ends. The app's context,
 // the new Commands and queries, and a runtime with the app's sentence encoder and entity model.
-// Only C API calls.
+// The app's audio DSP (every stage hears its output) and speaker embedding (enrollment, then the
+// speaker named in an event). Only C API calls.
 
 #include <VASDK/c/vasdk.h>
 
 #include <nlohmann/json.hpp>
 #include <vasdk/engine/events.pb.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -280,6 +282,112 @@ void testRuntime(App& app) {
     std::filesystem::remove(config);
 }
 
+// Audio DSP: twice as loud, so speech pushed under the VAD's threshold is only heard through it.
+std::atomic<size_t> dspSamples{0};
+void twiceAsLoud(void*, const short* input, short* output, size_t samples) {
+    dspSamples += samples;
+    for (size_t i = 0; i < samples; ++i) output[i] = static_cast<short>(std::clamp(input[i] * 2, -32768, 32767));
+}
+
+// Speaker embedding: one voice for everybody.
+std::atomic<int> embedded{0};
+void sameVoice(void*, const short*, size_t samples, vasdk_result* voicePrint) {
+    if (samples == 0) return;
+    ++embedded;
+    const float print[3] = {1.0f, 0.0f, 0.0f};
+    vasdk_result_set_floats(voicePrint, print, 3);
+}
+
+bool sendCommand(vasdk_session* session, const vasdk::engine::Command& command, std::string* why = nullptr) {
+    const std::string bytes = command.SerializeAsString();
+    char* error = nullptr;
+    const bool sent = vasdk_session_send(session, bytes.data(), bytes.size(), VASDK_FORMAT_BINARY, &error) != 0;
+    if (why) *why = error ? error : "";
+    vasdk_free(error);
+    return sent;
+}
+
+void speak(vasdk_session* session) {
+    pushAudio(session, 300, 0);
+    pushAudio(session, 1500, 700);   // under the VAD's 1000; 1400 after the DSP
+    pushAudio(session, 1500, 0);
+}
+
+void testSpeakerAndDsp(App& app) {
+    vasdk_providers* providers = vasdk_providers_create();
+    check(vasdk_providers_add_vad(providers, "app", create, destroy, detect, &app), "add vad");
+    check(vasdk_providers_add_stt(providers, "app", create, destroy, nullptr, sttWrite, sttEnd, nullptr, &app), "add stt");
+    check(vasdk_providers_add_tts(providers, "app", create, destroy, synthesize, nullptr, &app), "add tts");
+    check(vasdk_providers_add_audio_dsp(providers, "louder", create, destroy, twiceAsLoud, &app), "add audio dsp");
+    check(vasdk_providers_add_speaker_embedding(providers, "voice", create, destroy, sameVoice, &app), "add speaker embedding");
+    check(!vasdk_providers_add_audio_dsp(providers, "louder", create, destroy, nullptr, &app), "a DSP without its callback is refused");
+
+    const auto config = configFile(R"(vad { id: "app" } stt { id: "app" } tts { id: "app" } audio_dsp { id: "louder" } speaker_embedding { id: "voice" })");
+    char* error = nullptr;
+    vasdk_session* session = vasdk_session_create(config.c_str(), providers, nullptr, nullptr, &error);
+    check(session != nullptr, std::string("a session with the app's DSP and speaker embedding: ") + (error ? error : ""));
+    vasdk_free(error);
+    if (!session) return;
+    vasdk_session_on_event(session, onEvent, &app);
+    check(vasdk_session_start(session, nullptr), "the session starts");
+    const std::string described = take(vasdk_session_describe(session));
+    check(described.find("AudioDSPProcessor (louder)") != std::string::npos &&
+              described.find("SpeakerIdentificationProcessor (voice)") != std::string::npos,
+          "describe names the DSP and speaker identification: " + described);
+
+    vasdk::engine::Command command;
+    command.set_enroll_speaker("alice");
+    check(sendCommand(session, command), "enroll_speaker through send");
+    speak(session);
+    check(dspSamples > 0, "the DSP got the microphone's audio");
+    check(waitFor([&] { return app.sawEvent("speakerEnrollment") && app.sawEvent("\"alice\""); }),
+          "quiet speech, heard through the DSP, enrolled alice");
+    speak(session);
+    check(waitFor([&] { return app.sawEvent("speakerIdentified") && app.sawEvent("\"speakerId\":\"alice\""); }),
+          "the next utterance is identified as alice");
+
+    command.Clear();
+    command.mutable_add_speaker()->set_speaker_id("bob");
+    for (float value : {0.0f, 2.0f, 0.0f}) command.mutable_add_speaker()->add_embedding(value);
+    check(sendCommand(session, command), "add_speaker through send");
+    size_t length = 0;
+    void* bytes = vasdk_session_speakers_message(session, VASDK_FORMAT_BINARY, &length);
+    vasdk::engine::VoicePrints prints;
+    check(bytes && prints.ParseFromArray(bytes, static_cast<int>(length)), "speakers_message parses");
+    vasdk_free(bytes);
+    check(prints.speakers_size() == 2 && prints.speakers(0).speaker_id() == "alice" && prints.speakers(1).speaker_id() == "bob" &&
+              std::abs(prints.speakers(1).embedding(1) - 1.0f) < 1e-5f,
+          "both voice prints, normalized");
+
+    vasdk_session_free(session);
+    vasdk_providers_free(providers);
+    std::filesystem::remove(config);
+    check(embedded >= 2, "the app's speaker embedding was asked for each utterance");
+}
+
+void testNoSpeakerEmbedding(App& app) {
+    vasdk_providers* providers = vasdk_providers_create();
+    vasdk_providers_add_vad(providers, "app", create, destroy, detect, &app);
+    vasdk_providers_add_stt(providers, "app", create, destroy, nullptr, sttWrite, sttEnd, nullptr, &app);
+    vasdk_providers_add_tts(providers, "app", create, destroy, synthesize, nullptr, &app);
+    const auto config = configFile(R"(vad { id: "app" } stt { id: "app" } tts { id: "app" })");
+    vasdk_session* session = vasdk_session_create(config.c_str(), providers, nullptr, nullptr, nullptr);
+    check(session != nullptr, "a session without speaker embedding");
+    if (session) {
+        vasdk::engine::Command command;
+        command.set_enroll_speaker("alice");
+        std::string why;
+        check(!sendCommand(session, command, &why) && why.find("speaker_embedding") != std::string::npos,
+              "enroll_speaker fails without providers.speaker_embedding: " + why);
+        size_t length = 1;
+        vasdk_free(vasdk_session_speakers_message(session, VASDK_FORMAT_BINARY, &length));
+        check(length == 0, "no speakers without providers.speaker_embedding");
+        vasdk_session_free(session);
+    }
+    vasdk_providers_free(providers);
+    std::filesystem::remove(config);
+}
+
 } // namespace
 
 int main() {
@@ -288,6 +396,9 @@ int main() {
     testSession(app);
     App shared;
     testRuntime(shared);
+    App speakers;
+    testSpeakerAndDsp(speakers);
+    testNoSpeakerEmbedding(speakers);
     if (failures) {
         std::fprintf(stderr, "%d failure(s)\n", failures);
         return 1;

@@ -289,8 +289,9 @@ VASDK_EXPORT void vasdk_session_say(vasdk_session* session, const char* text);
 VASDK_EXPORT int vasdk_session_set_param(vasdk_session* session, const char* name, const char* value_json, char** error);
 /* Does what a vasdk.engine.Command in `format` asks (vasdk/engine/events.proto): inject_text,
  * select_choice, fire_trigger, say, interrupt, set_session_param, reset_conversation,
- * push_to_talk, follow_up_listen_ms, set_entity_values, set_backchannel. 0, with `error` set, for
- * one that doesn't parse or is empty. Thread-safe. */
+ * push_to_talk, follow_up_listen_ms, set_entity_values, set_backchannel, enroll_speaker,
+ * add_speaker. 0, with `error` set, for one that doesn't parse, is empty, or the session can't do
+ * (enroll_speaker without providers.speaker_embedding). Thread-safe. */
 VASDK_EXPORT int vasdk_session_send(vasdk_session* session, const void* command, size_t length, vasdk_format format,
                                     char** error);
 /* Nonzero: the network is up. Down: local fallbacks speak and listen, and the LLM rests. Thread-safe. */
@@ -330,6 +331,9 @@ VASDK_EXPORT void vasdk_session_on_context(vasdk_session* session, vasdk_context
 VASDK_EXPORT char* vasdk_session_describe(vasdk_session* session);
 /* Nonzero: the network is down and the local fallbacks speak and listen. */
 VASDK_EXPORT int vasdk_session_using_fallbacks(vasdk_session* session);
+/* The enrolled speakers' voice prints (providers.speaker_embedding), a vasdk.engine.VoicePrints in
+ * `format`, to keep and give back with an add_speaker command; its size in *length. Free it with vasdk_free. */
+VASDK_EXPORT void* vasdk_session_speakers_message(vasdk_session* session, vasdk_format format, size_t* length);
 /* When the agent's next schedule trigger is due, in milliseconds since the epoch, for an app that
  * must wake up for it (Android's AlarmManager); -1 for none. */
 VASDK_EXPORT long long vasdk_session_next_scheduled_trigger_ms(vasdk_session* session);
@@ -430,6 +434,21 @@ VASDK_EXPORT int vasdk_providers_add_turn(vasdk_providers* providers, const char
 typedef float (*vasdk_wake_word_fn)(void* instance, const short* pcm, size_t samples, vasdk_result* phrase);
 VASDK_EXPORT int vasdk_providers_add_wake_word(vasdk_providers* providers, const char* id, vasdk_provider_create_fn create,
                                                vasdk_provider_destroy_fn destroy, vasdk_wake_word_fn process, void* user);
+
+/* Audio DSP (providers.audio_dsp): every frame of the microphone's audio, in order, before
+ * anything hears it; the callback writes as many samples to `output` (which starts as a copy of
+ * the input), e.g. with the noise taken out. */
+typedef void (*vasdk_audio_dsp_fn)(void* instance, const short* input, short* output, size_t samples);
+VASDK_EXPORT int vasdk_providers_add_audio_dsp(vasdk_providers* providers, const char* id, vasdk_provider_create_fn create,
+                                               vasdk_provider_destroy_fn destroy, vasdk_audio_dsp_fn process, void* user);
+
+/* Speaker embedding (providers.speaker_embedding): one utterance's audio; the callback sets its
+ * voice print with vasdk_result_set_floats, the same length for every utterance (the session
+ * normalizes it and matches it to the enrolled speakers'); nothing set: it can't be identified. */
+typedef void (*vasdk_speaker_embedding_fn)(void* instance, const short* pcm, size_t samples, vasdk_result* voice_print);
+VASDK_EXPORT int vasdk_providers_add_speaker_embedding(vasdk_providers* providers, const char* id, vasdk_provider_create_fn create,
+                                                       vasdk_provider_destroy_fn destroy, vasdk_speaker_embedding_fn embed,
+                                                       void* user);
 
 /* Sentence encoder (providers.sentence_encoder; one instance, shared by every session of a
  * runtime, called from several threads): the sentence's vector, normalized to length 1, with

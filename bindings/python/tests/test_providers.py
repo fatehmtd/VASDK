@@ -2,8 +2,9 @@
 models. Typed words go to the Python LLM, its reply through a Python text processor to the Python
 TTS and out of on_audio; pushed audio goes through the Python VAD to the Python STT, whose turn
 the Python turn model ends. The app's context, the new commands and queries, a runtime with a
-Python sentence encoder and entity model; and a text conversation's snapshot, resume, entity
-values, context and triggers, a page type's turn, a test case from memory.
+Python sentence encoder and entity model; a Python audio DSP (every stage hears its output) and
+speaker embedding (enrollment, then the speaker named in an event); and a text conversation's
+snapshot, resume, entity values, context and triggers, a page type's turn, a test case from memory.
 
     VASDK_LIBRARY=build/VASDK/libVASDK.dylib python3 bindings/python/tests/test_providers.py
 """
@@ -274,11 +275,77 @@ def test_conversation():
     assert not passed and report, report
 
 
+def test_speakers_and_dsp(folder):
+    providers = vasdk.Providers(built_in=False)
+    register(providers)
+    seen = {"dsp": 0, "embedded": 0}
+
+    @providers.audio_dsp("louder")
+    class TwiceAsLoud:
+        def __init__(self, sink, sample_rate):
+            pass
+
+        def process(self, pcm):
+            seen["dsp"] += 1
+            samples = struct.unpack(f"<{len(pcm) // 2}h", pcm)
+            return struct.pack(f"<{len(samples)}h", *(max(-32768, min(32767, 2 * sample)) for sample in samples))
+
+    @providers.speaker_embedding("voice")
+    class SameVoice:
+        def __init__(self, sink, sample_rate):
+            pass
+
+        def embed(self, pcm):
+            seen["embedded"] += 1
+            return [1.0, 0.0, 0.0]
+
+    config = folder / "speakers.txtpb"
+    config.write_text('providers { vad { id: "python" } stt { id: "python" } tts { id: "python" } '
+                      'audio_dsp { id: "louder" } speaker_embedding { id: "voice" } }\n')
+    events = []
+    session = vasdk.Session(config, providers)
+    session.on_event(events.append)
+    session.start()
+    assert "AudioDSPProcessor (louder)" in session.describe() and "SpeakerIdentificationProcessor (voice)" in session.describe()
+
+    def kinds(kind):
+        return [getattr(event, kind) for event in list(events) if event.WhichOneof("kind") == kind]
+
+    def speak():
+        push(session, 300, 0)
+        push(session, 1500, 700)   # under the VAD's 1000; 1400 after the DSP
+        push(session, 1500, 0)
+
+    session.enroll_speaker("alice")
+    speak()
+    assert seen["dsp"] > 0
+    assert wait_for(lambda: any(e.speaker_id == "alice" and e.status == vasdk.Event().speaker_enrollment.ENROLLED
+                                for e in kinds("speaker_enrollment"))), "quiet speech, heard through the DSP, enrolled alice"
+    speak()
+    assert wait_for(lambda: any(e.speaker_id == "alice" for e in kinds("speaker_identified"))), "the next utterance is alice"
+    session.add_speaker("bob", [0.0, 2.0, 0.0])
+    speakers = session.speakers()
+    assert sorted(speakers) == ["alice", "bob"] and abs(speakers["bob"][1] - 1.0) < 1e-5, speakers
+    session.close()
+
+    plain = folder / "plain.txtpb"
+    plain.write_text('providers { vad { id: "python" } stt { id: "python" } tts { id: "python" } }\n')
+    session = vasdk.Session(plain, providers)
+    try:
+        session.enroll_speaker("alice")
+        raise AssertionError("enroll_speaker without providers.speaker_embedding")
+    except vasdk.VasdkError as error:
+        assert "speaker_embedding" in str(error), error
+    assert session.speakers() == {}
+    session.close()
+
+
 def main():
     vasdk.set_log_level("warn")
     with tempfile.TemporaryDirectory() as folder:
         test_session(Path(folder))
         test_runtime(Path(folder))
+        test_speakers_and_dsp(Path(folder))
     test_conversation()
     print("test_providers: all passed")
     return 0

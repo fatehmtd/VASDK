@@ -50,6 +50,8 @@ Each `ProviderSpec` has:
   | `vasdk.providers.LocalTtsOptions` | `supertonic`, `moss`, `phonon`, `pocket` | `model_dir`, `voice`, `language`, `steps`, `prebuffer_ms` (pocket, moss: audio made before playback starts, against stalls on slow phones) |
   | `vasdk.providers.SmartTurnOptions` | `smartturn-v3` | `model_path` |
   | `vasdk.providers.LibDataChannelWebRtcOptions` | `libdatachannel` (`webrtc`) | `ice_servers`, `port` (8080), `host`, `page` ([WebRTC](../providers/webrtc.md#options)) |
+  | `vasdk.providers.RNNoiseOptions` | `rnnoise` (`audio_dsp`) | `model_path`, `vad_threshold`, `normalize_output`, `normalization_multiplier` ([RNNoise](../providers/rnnoise.md#options)) |
+  | `vasdk.providers.PyannoteOptions` | `pyannote` (`speaker_embedding`) | `model_path` |
   | `vasdk.providers.LlamaCppOptions` | `llamacpp` (`llm`) | `model_path`, `chat_format`, `context_tokens`, `max_tokens`, sampling (`temperature`, `top_p`, `top_k`, `min_p`, `repetition_penalty`), `threads`, `gpu_layers`, `native_library_dir` (Android), `answer_agent` ([llama.cpp](../providers/llamacpp.md#options)) |
 
   A recognizer's or voice's `language` is the provider's own setting: set it to match the agent's `locale` ([Languages](languages.md)), which the providers don't read.
@@ -57,6 +59,8 @@ Each `ProviderSpec` has:
 - `webrtc` (a stage of its own): a browser brings the audio instead of the app. `providers { webrtc { id: "libdatachannel" } }` makes `VAEngine` (and the C API's and Python's sessions) talk over a [`WebRtcTransport`](transports.md#webrtctransport), serve the signaling and a demo page on its `port`, and send the agent's state to the page. The app's own transport, `vasdk_session_push_audio` and the audio callback then go unused. Needs `-DVASDK_BUILD_LIBDATACHANNEL_WEBRTC=ON`, and not SonioxPP beside it ([why](../providers/webrtc.md#options)).
 - `audio_input` and `audio_output` (stages of their own, set together): the session opens the device's microphone and speaker itself, so an app (a C, Python or Kotlin one included) needs no audio code. `miniaudio` on macOS, Linux and Windows, [`aaudio`](../providers/aaudio.md) on Android. `providers { audio_input { id: "miniaudio" } audio_output { id: "miniaudio" } }`. The app's own transport, `vasdk_session_push_audio` and the audio callback then go unused; `webrtc`, when set, wins over them.
 - `llm` (a stage of its own): the conversation's LLM from a provider instead of the [`llm`](#llm) endpoint: [`llamacpp`](../providers/llamacpp.md) on the device, or one an app wrote (the C API's `vasdk_providers_add_llm`, Python's `Providers.llm`, Kotlin's `Providers.llm`). Each session gets its own. When the provider also answers one-shot asks (llamacpp with `answer_agent`, every app-written one), it answers the agent's too. The `llm` block's other settings (`history`, `tool_filler_phrases`, `failure_replies`) still apply.
+- `audio_dsp` (a stage of its own): processes the microphone's audio before anything hears it: noise suppression, echo cancellation. Every stage after it (wake word, VAD, turn model, STT, speaker identification) and the `AfterInput` processors hear its output. [`rnnoise`](../providers/rnnoise.md) (not on Android), or one an app wrote (the C API's `vasdk_providers_add_audio_dsp`, Python's `Providers.audio_dsp`, Kotlin's `Providers.audioDsp`). Each session gets its own. Unset: the audio as it comes.
+- `speaker_embedding` (a stage of its own): who is speaking. Each utterance's voice print is matched against the enrolled speakers, and the result is a `speaker_identified` event ([Speaker identification](#speaker-identification)). [`pyannote`](../providers/pyannote.md), or one an app wrote (`vasdk_providers_add_speaker_embedding`, `Providers.speaker_embedding`, `Providers.speakerEmbedding`). Unset: no speaker identification.
 - `fallback`: ids to try, in order, when `id` is not built into the binary or fails to start (a missing model file, or a cloud provider with no API key, for example), and to switch to when the network drops ([When the network drops](engine.md#when-the-network-drops)). `options` apply to `id`; a fallback gets its `fallback_options` entry (`fallback_options { key: "parakeet" value { [type.googleapis.com/vasdk.providers.LocalSttOptions] { model_dir: "models/parakeet" } } }`), or starts with its defaults. The log shows which provider was used and why the others were skipped.
 
 ## Activation
@@ -78,6 +82,20 @@ providers { wake_word { id: "my-wake-word" } }
 `follow_up.listen_ms` keeps the mic open after **every** reply, so the user can answer without the wake phrase or button. The window starts once the reply has finished playing, or was interrupted. Speech that starts in it is a new turn. Unset: 8000 ms; `0` closes it at once; `-1` never closes it. `Session::setFollowUpListenMs()` changes it at run time, for example from a settings screen. An agent can set its own, per page or per reply ([Expected input](flows.md#expected-input)). Apps get `listening_window` events to drive a mic indicator.
 
 No wake-word provider ships yet (milestone 28), so `WAKE_WORD` and `HYBRID` need one registered under `audio::WakeWordProvider`, as [`activation_test.cpp`](../../VASDK/tests/activation_test.cpp) does.
+
+## Speaker identification
+
+```textproto
+providers { speaker_embedding { id: "pyannote" } }
+speaker_identification { threshold: 0.3 min_speech_seconds: 1 }
+```
+
+With a `speaker_embedding`, the session embeds each utterance once its words are transcribed. It compares the voice print with the voice before (`new_speaker`, `tracked_similarity`) and with the enrolled speakers (`speaker_id`, `similarity`), and posts a `speaker_identified` event. Speakers are enrolled one at a time: the `enroll_speaker` command (`Session::enrollSpeaker`) makes the next utterance their voice print, and a `speaker_enrollment` event says `ENROLLED` or `FAILED`. Voice prints live as long as the session does. `Session::speakers()` gives them to keep (C: `vasdk_session_speakers_message`), and the `add_speaker` command restores them in the next one.
+
+| `speaker_identification` field | Meaning | Default |
+| --- | --- | --- |
+| `threshold` | cosine similarity, 0 to 1, a voice print needs to match an enrolled speaker or the voice before | 0.3 (pyannote 3.1's clustering threshold) |
+| `min_speech_seconds` | shorter utterances get no event | 1 |
 
 ## Understanding
 

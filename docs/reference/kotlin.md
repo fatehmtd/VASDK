@@ -47,7 +47,7 @@ val (passed, report) = Vasdk.runTestFile(agent, "VASDK_APP/agents/garage-menu/te
 | `Registry` | `step` (params as their bytes) and `stepJson` (as JSON, for a type only the agent's own `.proto` declares), `tool`, `envelope`, `pageType` / `pageTypeJson`, `entityExtractor`, `addLanguage`. |
 | `Turn` | `text`, `lookup`, `say`, `ask`, `goTo`, `setText`, `render`, `replyText`, `flow`, `page`, `apply(StepOutcome)`. |
 | `Agent` | `load(path)`, `parse(text)`, `protoFiles()`, `conversation()`. |
-| `Conversation` | `start`, `say`, `noInput`, `selectChoice`, `fireTrigger`, `checkTriggers`, `deliverQueued`, `send(ConversationInput)`, `setParam`, `lookup`, `snapshot` / `resume`, `setEntityValues`, `setContext`, `replyInterrupted`, `noInputMs`, `nextScheduledTrigger`, `triggerState` / `restoreTriggerState`. |
+| `Conversation` | `start`, `say`, `noInput`, `selectChoice`, `fireTrigger`, `checkTriggers`, `deliverQueued`, `send(ConversationInput)`, `setParam`, `lookup`, `snapshot` / `resume`, `setEntityValues`, `setContext`, `replyInterrupted`, `noInputMs`, `nextScheduledTrigger`, `triggerState` / `restoreTriggerState`, `speakers` (the enrolled voice prints, to give back with `addSpeaker`). |
 | `Vasdk` | `version`, `setLogLevel`, `builtinLanguage`, `runTestFile`, `runTest(FlowTestCase)`. |
 
 Values cross as [kotlinx.serialization](https://github.com/Kotlin/kotlinx.serialization) JSON: tool arguments and results, `lookup`'s values, the context. `jsonOf(value)` turns Kotlin values (maps, lists, strings, numbers) into it.
@@ -74,7 +74,7 @@ Session("engine.txtpb", providers, agent, options).use { session ->
 | | |
 | --- | --- |
 | Before `start()` | `onEvent`, `onAudio`, `tool`, `onContext`, `addProcessor` (`Slot.AFTER_INPUT`, `BEFORE_OUTPUT`: audio) and `addTextProcessor` (`AFTER_TRANSCRIPTION`, `BEFORE_SYNTHESIS`: text). |
-| Commands | `injectText`, `say`, `selectChoice`, `interrupt`, `setParam`, `fireTrigger`, `resetConversation`, `pushToTalk`, `setFollowUpListenMs`, `setEntityValues`, `setBackchannel`, or any `send(Command)`. |
+| Commands | `injectText`, `say`, `selectChoice`, `interrupt`, `setParam`, `fireTrigger`, `resetConversation`, `pushToTalk`, `setFollowUpListenMs`, `setEntityValues`, `setBackchannel`, `enrollSpeaker`, `addSpeaker`, or any `send(Command)`. |
 | State | `setContext`, `setNetworkAvailable`, `snapshot` and `start(resume)`, `describe`, `usingFallbacks`, `nextScheduledTrigger` (an alarm to set), `triggerState` / `restoreTriggerState`. |
 | `Runtime(config, providers, maxSessions = 4)` | `session(agent, options)` per conversation over one set of loaded providers; `activeSessions`, `idleProviderSets`. |
 
@@ -96,7 +96,7 @@ providers.llm("mine") { _, _ -> object : LlmProvider { override fun complete(mes
 // engine.txtpb: providers { vad { id: "loudness" } tts { id: "tone" } llm { id: "mine" } ... }
 ```
 
-Each session makes its own instance from the factory, with its `Sink` (transcripts, speech, errors) and sample rate; `close()` ends it. `VadProvider`, `SttProvider`, `TtsProvider`, `TurnProvider`, `WakeWordProvider`, `SentenceEncoderProvider` and `EntityModelProvider` (one instance for every session of a runtime), `LlmProvider`. An STT with `streaming_transcription` off (the default) gets a whole utterance in `write()`, and gives its final with `sink.text()` before `endOfSpeech()` returns.
+Each session makes its own instance from the factory, with its `Sink` (transcripts, speech, errors) and sample rate; `close()` ends it. `VadProvider`, `SttProvider`, `TtsProvider`, `TurnProvider`, `WakeWordProvider`, `AudioDspProvider` (the microphone's audio before anything hears it), `SpeakerEmbeddingProvider` (an utterance's voice print), `SentenceEncoderProvider` and `EntityModelProvider` (one instance for every session of a runtime), `LlmProvider`. An STT with `streaming_transcription` off (the default) gets a whole utterance in `write()`, and gives its final with `sink.text()` before `endOfSpeech()` returns.
 
 ## Tests
 

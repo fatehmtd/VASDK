@@ -5,6 +5,8 @@
 #include "nlu/EntityExtractor.h"
 
 #include "AudioRingBuffer.h"
+#include "GenericAudioDSPProvider.h"
+#include "SpeakerEmbeddingProvider.h"
 #include "GenericAudioSink.h"
 #include "GenericAudioSource.h"
 #include "GenericTranscriptionProvider.h"
@@ -179,10 +181,19 @@ std::shared_ptr<Runtime::ProviderSet> Runtime::createProviderSet(std::string* er
     auto set = std::make_shared<ProviderSet>();
     set->ringBuffer = std::make_shared<AudioRingBuffer>(
         (long)_options.inputAudio.sampleRate * 90, _options.inputAudio.getSampleSizeInBytes());
-    const ProviderContext input{_options.modelsDir, _options.inputAudio, _options.frameSize, set->ringBuffer};
-    const ProviderContext output{_options.modelsDir, _options.outputAudio, _options.frameSize, set->ringBuffer};
     const auto& providers = _config.providers();
     std::string reason;
+    // The DSP first: every other provider reads what it writes.
+    set->processedRingBuffer = set->ringBuffer;
+    if (!providers.audio_dsp().id().empty()) {
+        const ProviderContext raw{_options.modelsDir, _options.inputAudio, _options.frameSize, set->ringBuffer};
+        set->audioDsp = _registry.create<audio::GenericAudioDSPProvider>(providers.audio_dsp(), raw, &reason);
+        if (!set->audioDsp) return fail("Audio DSP: " + reason);
+        if (!set->audioDsp->initialize(_options.inputAudio)) return fail("Audio DSP: " + set->audioDsp->getName() + " failed to start");
+        set->processedRingBuffer = std::make_shared<AudioRingBuffer>(set->ringBuffer->getCapacity(), _options.inputAudio.getSampleSizeInBytes());
+    }
+    const ProviderContext input{_options.modelsDir, _options.inputAudio, _options.frameSize, set->processedRingBuffer};
+    const ProviderContext output{_options.modelsDir, _options.outputAudio, _options.frameSize, set->processedRingBuffer};
 
     set->vad = _registry.create<audio::VADProvider>(providers.vad(), input, &reason);
     if (!set->vad) return fail("VAD: " + reason);
@@ -200,6 +211,10 @@ std::shared_ptr<Runtime::ProviderSet> Runtime::createProviderSet(std::string* er
         set->wakeWord = _registry.create<audio::WakeWordProvider>(providers.wake_word(), input, &reason);
         if (!set->wakeWord) return fail("Wake word: " + reason);
         if (!set->wakeWord->initialize(_options.inputAudio)) return fail("Wake word: " + set->wakeWord->getName() + " failed to start");
+    }
+    if (!providers.speaker_embedding().id().empty()) {
+        set->speakerEmbedding = _registry.create<audio::SpeakerEmbeddingProvider>(providers.speaker_embedding(), input, &reason);
+        if (!set->speakerEmbedding) return fail("Speaker embedding: " + reason);
     }
     return set;
 }
@@ -227,8 +242,8 @@ vasdk::engine::ProviderSpec fallbacksAfter(const vasdk::engine::ProviderSpec& sp
 } // namespace
 
 bool Runtime::loadFallbacks(ProviderSet& set, std::string* error) const {
-    const ProviderContext input{_options.modelsDir, _options.inputAudio, _options.frameSize, set.ringBuffer};
-    const ProviderContext output{_options.modelsDir, _options.outputAudio, _options.frameSize, set.ringBuffer};
+    const ProviderContext input{_options.modelsDir, _options.inputAudio, _options.frameSize, set.processedRingBuffer};
+    const ProviderContext output{_options.modelsDir, _options.outputAudio, _options.frameSize, set.processedRingBuffer};
     std::string reasons;
     if (!set.sttFallback) {
         const auto spec = fallbacksAfter(_config.providers().stt(), set.sttId);

@@ -545,6 +545,17 @@ char* vasdk_session_describe(vasdk_session* session) { return copyText(session ?
 
 int vasdk_session_using_fallbacks(vasdk_session* session) { return session && session->engine->usingFallbacks() ? 1 : 0; }
 
+void* vasdk_session_speakers_message(vasdk_session* session, vasdk_format format, size_t* length) {
+    vasdk::engine::VoicePrints prints;
+    if (session)
+        for (const auto& [speakerId, embedding] : session->engine->speakers()) {
+            auto* print = prints.add_speakers();
+            print->set_speaker_id(speakerId);
+            print->mutable_embedding()->Add(embedding.begin(), embedding.end());
+        }
+    return vasdk_c::writtenCopy(prints, format, length);
+}
+
 long long vasdk_session_next_scheduled_trigger_ms(vasdk_session* session) {
     const auto next = session ? session->engine->nextScheduledTrigger() : std::nullopt;
     if (!next) return -1;

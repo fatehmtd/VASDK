@@ -90,8 +90,8 @@ Everything a C++ `Session` does, a C session does too ([binding parity](../../sk
 
 | Part | Functions |
 |---|---|
-| Commands | `vasdk_session_send` with a [`vasdk.engine.Command`](../../VASDK/proto/vasdk/engine/events.proto): `inject_text`, `say`, `select_choice`, `interrupt`, `fire_trigger`, `set_session_param`, `reset_conversation`, `push_to_talk`, `follow_up_listen_ms`, `set_entity_values`, `set_backchannel` (the fields set replace the session's). |
-| Queries | `vasdk_session_describe`, `_using_fallbacks`, `_next_scheduled_trigger_ms` (for an alarm that wakes the app), `_trigger_state` and `_restore_trigger_state`. |
+| Commands | `vasdk_session_send` with a [`vasdk.engine.Command`](../../VASDK/proto/vasdk/engine/events.proto): `inject_text`, `say`, `select_choice`, `interrupt`, `fire_trigger`, `set_session_param`, `reset_conversation`, `push_to_talk`, `follow_up_listen_ms`, `set_entity_values`, `set_backchannel` (the fields set replace the session's), `enroll_speaker` (the next utterance enrolls that speaker; needs `providers.speaker_embedding`), `add_speaker` (restores a kept voice print). |
+| Queries | `vasdk_session_describe`, `_using_fallbacks`, `_next_scheduled_trigger_ms` (for an alarm that wakes the app), `_trigger_state` and `_restore_trigger_state`, `_speakers_message` (the enrolled voice prints, a `vasdk.engine.VoicePrints`, to keep and give back with `add_speaker`). |
 | Context | `vasdk_session_set_context` (state the app pushes) and `vasdk_session_on_context` (a callback asked each time the agent or the LLM reads it; its keys win). |
 | Processors | `vasdk_session_add_audio_processor` at `VASDK_SLOT_AFTER_INPUT` (the microphone's audio, to read) or `VASDK_SLOT_BEFORE_OUTPUT` (the reply's audio, changed in place); `vasdk_session_add_text_processor` at `VASDK_SLOT_AFTER_TRANSCRIPTION` or `VASDK_SLOT_BEFORE_SYNTHESIS` (set new text, or `""` to drop it). Before `vasdk_session_start`. |
 | Runtime | `vasdk_runtime_create(config, providers, models_dir, max_sessions)`, then `vasdk_runtime_session_create` per conversation: models load once per session running at the same time, as a call center needs. `vasdk_runtime_active_sessions`, `_idle_provider_sets`. |
@@ -99,7 +99,7 @@ Everything a C++ `Session` does, a C session does too ([binding parity](../../sk
 
 ## Providers written in the app
 
-A VAD, an STT, a TTS, a turn model, a wake word, a sentence encoder, an entity model or an LLM written in C (or in Python or Kotlin, which wrap these) is added to a `vasdk_providers` by id, and an engine config names it like a built-in one. Each session gets its own instance from `create`, and gives results back through the `vasdk_sink` it was made with: `vasdk_sink_text` (transcripts), `vasdk_sink_audio` and `vasdk_sink_done` (speech), `vasdk_sink_error`.
+A VAD, an STT, a TTS, a turn model, a wake word, an audio DSP, a speaker embedding, a sentence encoder, an entity model or an LLM written in C (or in Python or Kotlin, which wrap these) is added to a `vasdk_providers` by id, and an engine config names it like a built-in one. Each session gets its own instance from `create`, and gives results back through the `vasdk_sink` it was made with: `vasdk_sink_text` (transcripts), `vasdk_sink_audio` and `vasdk_sink_done` (speech), `vasdk_sink_error`.
 
 ```c
 static void* create(vasdk_sink* sink, int sample_rate, void* user) { return sink; }   /* the instance */
@@ -125,6 +125,8 @@ vasdk_providers_add_llm(providers, "mine", create, NULL, complete, NULL, NULL);
 | `vasdk_providers_add_tts` | `synthesize` text, its speech through `vasdk_sink_audio`, then `vasdk_sink_done`; `cancel` at a barge-in |
 | `vasdk_providers_add_turn` | the chance the user is done, from their audio since they began |
 | `vasdk_providers_add_wake_word` | each microphone frame; the phrase and its confidence when it's heard |
+| `vasdk_providers_add_audio_dsp` | each microphone frame, processed into `output` (a copy of the input to start with) before anything hears it |
+| `vasdk_providers_add_speaker_embedding` | one utterance's voice print (`vasdk_result_set_floats`, the same length each time); the session matches it to the enrolled speakers |
 | `vasdk_providers_add_sentence_encoder` | a sentence's vector (`vasdk_result_set_floats`); one instance for every session of a runtime |
 | `vasdk_providers_add_entity_model` | where entities are in the words, as JSON spans; one instance |
 | `vasdk_providers_add_llm` | the reply to the messages, for the conversation and the agent's one-shot asks; `cancel` |

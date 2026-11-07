@@ -1,7 +1,9 @@
 #include "engine/Session.h"
 
+#include "AudioDSPProcessor.h"
 #include "AudioRingBuffer.h"
 #include "Pipeline.h"
+#include "SpeakerIdentificationProcessor.h"
 #include "TTSFrameProcessor.h"
 #include "TranscriptionProcessor.h"
 #include "TransportInputProcessor.h"
@@ -231,11 +233,13 @@ struct Session::State {
     std::shared_ptr<AudioRingBuffer> ringBuffer;
 
     std::shared_ptr<pipeline::TransportInputProcessor> transportInput;
+    std::shared_ptr<pipeline::AudioDSPProcessor> audioDsp;   // only with providers.audio_dsp
     std::shared_ptr<pipeline::TriggerProcessor> trigger;
     std::shared_ptr<pipeline::WakeWordProcessor> wakeWord;   // WAKE_WORD and HYBRID modes
     std::shared_ptr<pipeline::VADFrameProcessor> vad;
     std::shared_ptr<pipeline::TurnDetectionProcessor> turnDetection;
     std::shared_ptr<pipeline::TranscriptionFrameProcessor> transcription;
+    std::shared_ptr<pipeline::SpeakerIdentificationProcessor> speakerIdentification;   // only with providers.speaker_embedding
     std::shared_ptr<pipeline::AgentStateProcessor> agentState;
     std::shared_ptr<FrameProcessor> bargeInHandler;   // only with back-channel handling off
     std::shared_ptr<pipeline::TurnAssemblerProcessor> turnAssembler;
@@ -273,7 +277,9 @@ struct Session::State {
     } fallbackLoader;
 
     std::vector<std::shared_ptr<FrameProcessor>> chain() const {
-        std::vector<std::shared_ptr<FrameProcessor>> processors{transportInput, trigger};
+        std::vector<std::shared_ptr<FrameProcessor>> processors{transportInput};
+        if (audioDsp) processors.push_back(audioDsp);
+        processors.push_back(trigger);
         if (wakeWord) processors.push_back(wakeWord);
         auto addSlot = [&](Slot slot) {
             auto found = slots.find(slot);
@@ -281,6 +287,8 @@ struct Session::State {
         };
         addSlot(Slot::AfterInput);
         processors.insert(processors.end(), {vad, turnDetection, transcription});
+        // After STT: embedding the whole utterance takes ~70 ms per second of speech
+        if (speakerIdentification) processors.push_back(speakerIdentification);
         addSlot(Slot::AfterTranscription);
         processors.push_back(agentState);
         if (bargeInHandler) processors.push_back(bargeInHandler);
@@ -377,19 +385,24 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
     const auto& audioOptions = runtime->options();
     state->logTag = options.id.empty() ? "[VAEngine]" : "[Session " + options.id + "]";
     state->events->setSessionId(options.id);
-    state->ringBuffer = providers.ringBuffer;
+    state->ringBuffer = providers.processedRingBuffer;   // what the stages hear; the transport fills providers.ringBuffer
 
     auto& transport = *options.transport;
     transport.setInputAudioConfig(audioOptions.inputAudio);
     transport.setOutputAudioConfig(audioOptions.outputAudio);
     transport.setFrameSize(audioOptions.frameSize);
-    transport.setRingBuffer(state->ringBuffer);
+    transport.setRingBuffer(providers.ringBuffer);
     if (options.metricsReporter) transport.setMetricsConfig(options.metricsConfig.transport);
 
     //  Processors
     state->transportInput = std::make_shared<pipeline::TransportInputProcessor>();
     state->transportInput->addTransport(options.transport);
     state->trigger = std::make_shared<pipeline::TriggerProcessor>();
+    if (providers.audioDsp) {
+        state->audioDsp = std::make_shared<pipeline::AudioDSPProcessor>(providers.audioDsp);
+        state->audioDsp->setRawAudioRingBuffer(providers.ringBuffer);
+        state->audioDsp->setCleanAudioRingBuffer(providers.processedRingBuffer);
+    }
 
     const auto& turnTaking = config.turn_taking();
     applyBackchannel(turnTaking.backchannel(), options.backchannel);
@@ -407,6 +420,13 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
     state->transcription->configSilenceBehavior(false, false, 1000);
     state->transcription->setStreamingMode(turnTaking.streaming_transcription());
     state->transcription->setRingBuffer(state->ringBuffer);
+    if (providers.speakerEmbedding) {
+        state->speakerIdentification = std::make_shared<pipeline::SpeakerIdentificationProcessor>(providers.speakerEmbedding);
+        state->speakerIdentification->setRingBuffer(state->ringBuffer);
+        const auto& identification = config.speaker_identification();
+        if (identification.has_threshold()) state->speakerIdentification->setThreshold(identification.threshold());
+        if (identification.has_min_speech_seconds()) state->speakerIdentification->setMinSpeechSeconds(identification.min_speech_seconds());
+    }
 
     state->agentState = std::make_shared<pipeline::AgentStateProcessor>();
     const auto& activation = config.activation();
@@ -921,10 +941,35 @@ bool Session::handle(const vasdk::engine::Command& command, std::string* error) 
         setBackchannel(current);
         return true;
     }
+    case vasdk::engine::Command::kEnrollSpeaker:
+    case vasdk::engine::Command::kAddSpeaker: {
+        const bool done = command.has_add_speaker()
+            ? addSpeaker(command.add_speaker().speaker_id(),
+                         std::vector<float>(command.add_speaker().embedding().begin(), command.add_speaker().embedding().end()))
+            : enrollSpeaker(command.enroll_speaker());
+        if (!done && error) *error = "no speaker identification: the config names no providers.speaker_embedding, or no speaker id";
+        return done;
+    }
     case vasdk::engine::Command::KIND_NOT_SET: break;
     }
     if (error) *error = "an empty command";
     return false;
+}
+
+bool Session::enrollSpeaker(const std::string& speakerId) {
+    if (!_state->speakerIdentification || speakerId.empty()) return false;
+    _state->speakerIdentification->requestEnrollment(speakerId);
+    return true;
+}
+
+bool Session::addSpeaker(const std::string& speakerId, std::vector<float> voicePrint) {
+    if (!_state->speakerIdentification || speakerId.empty() || voicePrint.empty()) return false;
+    _state->speakerIdentification->addSpeaker(speakerId, std::move(voicePrint));
+    return true;
+}
+
+std::map<std::string, std::vector<float>> Session::speakers() const {
+    return _state->speakerIdentification ? _state->speakerIdentification->getSpeakers() : std::map<std::string, std::vector<float>>();
 }
 
 void Session::resetConversation() {

@@ -19,6 +19,8 @@ class GenericTranscriptionProvider;
 class GenericVoiceSynthesisProvider;
 class TurnDetectionProvider;
 class WakeWordProvider;
+class GenericAudioDSPProvider;
+class SpeakerEmbeddingProvider;
 }
 namespace nlu { class SentenceEncoder; class EntityExtractor; }
 namespace llm { class Completion; class LLMTransport; }
@@ -71,6 +73,11 @@ public:
         std::shared_ptr<audio::GenericVoiceSynthesisProvider> tts;
         std::shared_ptr<audio::TurnDetectionProvider> turn;   ///< null: the VAD's silence ends the turn
         std::shared_ptr<audio::WakeWordProvider> wakeWord;    ///< only in the WAKE_WORD and HYBRID modes
+        std::shared_ptr<audio::GenericAudioDSPProvider> audioDsp;           ///< null without providers.audio_dsp
+        std::shared_ptr<audio::SpeakerEmbeddingProvider> speakerEmbedding;  ///< null without providers.speaker_embedding
+        /// What every stage hears: audioDsp's output, written in step with ringBuffer (which the
+        /// transport fills); ringBuffer itself without an audioDsp.
+        std::shared_ptr<AudioRingBuffer> processedRingBuffer;
         std::string sttId, ttsId;                             ///< the ids that started
         /// The STT and TTS `fallback` providers after the ones that started, for when the network
         /// drops (loadFallbacks); null until loaded, or without one. Kept with the set once loaded.

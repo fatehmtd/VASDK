@@ -44,6 +44,8 @@ set(_vasdk_catalog_providers
     vasdk_miniaudio_audio MINIAUDIO
     vasdk_aaudio          AAUDIO
     vasdk_llamacpp        LLAMACPP
+    vasdk_rnnoise         RNNOISE
+    vasdk_pyannote_speaker PYANNOTE_SPEAKER
 )
 list(LENGTH _vasdk_catalog_providers _count)
 math(EXPR _last "${_count} - 1")
@@ -89,6 +91,15 @@ if(VASDK_BUILD_TESTS AND TARGET vasdk_silero_vad AND TARGET vasdk_whistle_stt AN
              COMMAND vasdk_offline_conversation_test ${CMAKE_CURRENT_BINARY_DIR}/../models)
     set_tests_properties(vasdk_offline_conversation PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 600)
     vasdk_test_dlls(vasdk_offline_conversation_test)
+endif()
+
+# The audio DSP and speaker embedding picked by config id (rnnoise, pyannote), and a session with both.
+if(VASDK_BUILD_TESTS AND TARGET vasdk_pyannote_speaker)
+    add_executable(vasdk_dsp_speaker_test dsp_speaker_test.cpp)
+    target_link_libraries(vasdk_dsp_speaker_test PRIVATE vasdk_provider_catalog)
+    add_test(NAME vasdk_dsp_speaker COMMAND vasdk_dsp_speaker_test ${CMAKE_CURRENT_BINARY_DIR}/../models)
+    set_tests_properties(vasdk_dsp_speaker PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 120)
+    vasdk_test_dlls(vasdk_dsp_speaker_test)
 endif()
 
 # A spoken conversation over WebRTC, as a browser has it: the config's webrtc peer, called by a
