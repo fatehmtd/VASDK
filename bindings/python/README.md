@@ -66,6 +66,37 @@ session.set_context({"kitchen": {...}})  # $context.kitchen, and {context} in th
 | `snapshot()`, `start(resume=...)` | Where the agent's conversation is, to pick it up in a later session: a `vasdk.ConversationSnapshot` (store it with `SerializeToString()`; `start` takes the message, its bytes or its JSON). |
 | `vasdk.set_log_level("warn")` | How much VASDK (and the providers) log to the console. |
 
+Everything else a C++ session does is here too:
+
+| | |
+| --- | --- |
+| `reset_conversation`, `push_to_talk`, `set_follow_up_listen_ms`, `set_entity_values`, `set_backchannel` | Commands, as `send()` takes them. |
+| `describe`, `using_fallbacks`, `next_scheduled_trigger`, `trigger_state`, `restore_trigger_state` | What the session runs, and its triggers across restarts. |
+| `on_context(fn)` | The app's state, asked each time the agent or the LLM reads it. |
+| `add_processor(slot, fn)` | At `vasdk.AFTER_INPUT` (the microphone's audio), `BEFORE_OUTPUT` (the reply's, changed by returning new bytes), `AFTER_TRANSCRIPTION` and `BEFORE_SYNTHESIS` (text: return new text, or `""` to drop it). |
+| `vasdk.Runtime(config, providers, max_sessions=4).session(agent, id=...)` | Many sessions over one set of loaded providers. |
+
+Providers can be written in Python, and an engine config names them by id like built-in ones:
+
+```python
+providers = vasdk.Providers(built_in=False)   # only Python's; True also loads the vasdk_providers library
+
+@providers.vad("loudness")
+class Loudness:
+    def __init__(self, sink, sample_rate): pass
+    def detect(self, pcm): return 0.9 if max(abs(s) for s in memoryview(pcm).cast("h")) > 1000 else 0.0
+
+@providers.llm("mine")
+class Mine:
+    def __init__(self, sink, sample_rate): pass
+    def complete(self, messages): return "Sure."   # messages: [{"role", "content"}]
+# engine.txtpb: providers { vad { id: "loudness" } llm { id: "mine" } ... }
+```
+
+`vad`, `stt`, `tts`, `turn`, `wake_word`, `sentence_encoder`, `entity_model` and `llm`, each with the methods `Providers`' docstring lists; an STT and a TTS give their results through `sink` (`sink.text`, `sink.audio`, `sink.done`). A text `Conversation` has `snapshot`/`resume`, `set_entity_values`, `set_context`, `check_triggers`, `deliver_queued` and the trigger state; a `Turn` has `set_text`, `render`, `reply_text`, `flow`, `page` and `ask`; `vasdk.run_test(agent, case)` plays a `FlowTestCase` from memory. [`tests/test_providers.py`](tests/test_providers.py) uses all of it.
+
+The binding's tests run with `-DVASDK_BUILD_PYTHON_BINDING=ON` (off by default).
+
 [VASDK_PYTHON_APP](../../VASDK_PYTHON_APP/) is a whole app built this way: a kitchen assistant with a microphone, a scripted demo, and tests.
 
 ## Messages

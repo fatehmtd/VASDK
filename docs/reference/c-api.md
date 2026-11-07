@@ -28,16 +28,17 @@ vasdk_registry_free(registry);
 | Part | Functions |
 |---|---|
 | Registry | `vasdk_registry_add_step` (for `custom` steps, by their params type; params arrive as JSON), `vasdk_registry_add_tool` (for `call_tool`; set or fail its `vasdk_result`), `vasdk_registry_add_envelope` (`before` returns nonzero when it answered the turn, `after` runs on the reply), `vasdk_registry_add_page_type` (for pages with `type: "<name>"`: `on_enter`, and `on_turn` returning nonzero when it answered; params as JSON), `vasdk_registry_add_entity_extractor` (for `code { extractor }` entities: gets `{"words", "text"}`, sets an array of `{"start", "length", "value", "spoken", "attributes"}`), `vasdk_registry_add_language` (a `vasdk.nlu.Language` pack agents may name in `locale` or `languages`; `vasdk_language_builtin` gives VASDK's en-US one: see [Languages](languages.md)). |
-| Turn, inside a callback | `vasdk_turn_text`, `vasdk_turn_lookup("$session.tier")` (JSON), `vasdk_turn_say`, `vasdk_turn_goto`, and `vasdk_turn_apply` with a [`StepOutcome`](../../VASDK/proto/vasdk/flow/step_outcome.proto): values to set and unset, texts to say, a target. A key it may not write (anything but `$session.<declared>`, `$page.locals.<name>`, `$form.<slot>`) fails it, and nothing applies. |
+| Turn, inside a callback | `vasdk_turn_text`, `vasdk_turn_lookup("$session.tier")` (JSON), `vasdk_turn_say`, `vasdk_turn_goto`, `vasdk_turn_set_text` (what the rest of the turn reads as the user's words: an envelope redacts them), `vasdk_turn_render` (a template filled in, as a `say` does), `vasdk_turn_reply_text` (the reply so far), `vasdk_turn_flow` and `vasdk_turn_page`, and `vasdk_turn_apply` with a [`StepOutcome`](../../VASDK/proto/vasdk/flow/step_outcome.proto): values to set and unset, texts to say, a question to `ask` (with its choices), a target. A key it may not write (anything but `$session.<declared>`, `$page.locals.<name>`, `$form.<slot>`) fails it, and nothing applies. |
 | Agents | `vasdk_agent_load(path)`, or `vasdk_agent_parse(data, length, format)` from text proto, JSON or binary. `vasdk_agent_proto_files(agent, &length)`: the agent's `proto_imports` as a serialized `FileDescriptorSet`, for a language that builds its message classes at run time. |
 | Conversations | `vasdk_conversation_start`, `_say`, `_no_input`, `_select_choice`, `_fire_trigger`, `_set_param` (a JSON value), `_lookup`. Each turn returns the reply as JSON: `text`, `segments`, `choices`, `matched`, `intent`, `event`, `expects_reply`, `ends_session`, `to_llm` and `llm_profile` (a route handed the turn to an LLM, [`target: "LLM"`](flows.md#with-an-llm): answer it with yours, by that profile; `text` is the answer without one), `flow`, `page`, `tool_calls`, `triggers`. |
-| Tests | `vasdk_run_test_file(agent, path, &report)`: a [`FlowTestCase`](flows.md#checking-and-testing-vasdk_agentc) file, 1 when it passed. |
+| Conversations, beyond turns | `vasdk_conversation_snapshot_message` and `_resume_message` (pick a conversation up later, in another conversation; `resumed` is 0 when the snapshot no longer fits the agent), `_set_entity_values_message` (a dynamic entity's values: an `EntityValuesCommand`), `_set_context_message` (what `$context.*` reads), `_reply_interrupted` (the user cut the reply off), `_no_input_ms` (how long to wait before a `no_input`), `_next_scheduled_trigger_ms`, `_trigger_state` and `_restore_trigger_state` (reminders across restarts). `check_triggers` and `deliver_queued` are `ConversationInput`s. |
+| Tests | `vasdk_run_test_file(agent, path, &report)`: a [`FlowTestCase`](flows.md#checking-and-testing-vasdk_agentc) file, 1 when it passed. `vasdk_run_test_message`: the same, from memory. |
 
 **Protos instead of JSON.** Every function above that takes or gives JSON has a version that takes and gives the proto itself, in a `vasdk_format` of the caller's choice: `VASDK_FORMAT_BINARY` for a language with protobuf (Python, Kotlin, Go), `VASDK_FORMAT_TEXT` for a readable one. What they return is freed with `vasdk_free`, and its size comes back through a `size_t*`.
 
 | Function | The proto |
 |---|---|
-| `vasdk_conversation_send(conversation, input, length, format, &reply_length, &error)` | Every turn: a [`ConversationInput`](../../VASDK/proto/vasdk/flow/conversation.proto) (`start`, `text`, `no_input`, `select_choice`, `fire_trigger`) in, the `ConversationReply` out, with the same fields as the JSON reply. |
+| `vasdk_conversation_send(conversation, input, length, format, &reply_length, &error)` | Every turn: a [`ConversationInput`](../../VASDK/proto/vasdk/flow/conversation.proto) (`start`, `text`, `no_input`, `select_choice`, `fire_trigger`, `check_triggers`, `deliver_queued`) in, the `ConversationReply` out, with the same fields as the JSON reply. |
 | `vasdk_conversation_set_param_message`, `vasdk_conversation_lookup_message`, `vasdk_turn_lookup_message` | A `google.protobuf.Value`. |
 | `vasdk_registry_add_step_message`, `vasdk_registry_add_page_type_message` | The step's or page type's params message, serialized in `format`. |
 
@@ -83,7 +84,54 @@ vasdk_providers_free(providers);
 
 [`c_session_test.cpp`](../../VASDK/tests/c_session_test.cpp) drives a session through these calls, in `ctest`.
 
-## From Python
+## Session controls, runtimes and processors
+
+Everything a C++ `Session` does, a C session does too ([binding parity](../../skills/vasdk-binding-parity/parity.md) lists each call):
+
+| Part | Functions |
+|---|---|
+| Commands | `vasdk_session_send` with a [`vasdk.engine.Command`](../../VASDK/proto/vasdk/engine/events.proto): `inject_text`, `say`, `select_choice`, `interrupt`, `fire_trigger`, `set_session_param`, `reset_conversation`, `push_to_talk`, `follow_up_listen_ms`, `set_entity_values`, `set_backchannel` (the fields set replace the session's). |
+| Queries | `vasdk_session_describe`, `_using_fallbacks`, `_next_scheduled_trigger_ms` (for an alarm that wakes the app), `_trigger_state` and `_restore_trigger_state`. |
+| Context | `vasdk_session_set_context` (state the app pushes) and `vasdk_session_on_context` (a callback asked each time the agent or the LLM reads it; its keys win). |
+| Processors | `vasdk_session_add_audio_processor` at `VASDK_SLOT_AFTER_INPUT` (the microphone's audio, to read) or `VASDK_SLOT_BEFORE_OUTPUT` (the reply's audio, changed in place); `vasdk_session_add_text_processor` at `VASDK_SLOT_AFTER_TRANSCRIPTION` or `VASDK_SLOT_BEFORE_SYNTHESIS` (set new text, or `""` to drop it). Before `vasdk_session_start`. |
+| Runtime | `vasdk_runtime_create(config, providers, models_dir, max_sessions)`, then `vasdk_runtime_session_create` per conversation: models load once per session running at the same time, as a call center needs. `vasdk_runtime_active_sessions`, `_idle_provider_sets`. |
+| Device audio | No call: `providers { audio_input { id: "miniaudio" } audio_output { id: "miniaudio" } }` in the engine config ([`aaudio`](../providers/aaudio.md) on Android) and the session opens the microphone and speaker itself. |
+
+## Providers written in the app
+
+A VAD, an STT, a TTS, a turn model, a wake word, a sentence encoder, an entity model or an LLM written in C (or in Python or Kotlin, which wrap these) is added to a `vasdk_providers` by id, and an engine config names it like a built-in one. Each session gets its own instance from `create`, and gives results back through the `vasdk_sink` it was made with: `vasdk_sink_text` (transcripts), `vasdk_sink_audio` and `vasdk_sink_done` (speech), `vasdk_sink_error`.
+
+```c
+static void* create(vasdk_sink* sink, int sample_rate, void* user) { return sink; }   /* the instance */
+static float loudness(void* instance, const short* pcm, size_t samples) {
+    int loudest = 0;
+    for (size_t i = 0; i < samples; ++i) loudest = abs(pcm[i]) > loudest ? abs(pcm[i]) : loudest;
+    return loudest > 1000 ? 0.9f : 0.0f;                                               /* 0.5 and above: speech */
+}
+static void complete(void* instance, const char* request_json, vasdk_result* reply) {
+    vasdk_result_set(reply, "Sure.");                  /* request: {"messages": [{"role", "content"}]} */
+}
+
+vasdk_providers* providers = vasdk_providers_create();
+vasdk_providers_add_vad(providers, "loudness", create, NULL, loudness, NULL);
+vasdk_providers_add_llm(providers, "mine", create, NULL, complete, NULL, NULL);
+/* engine.txtpb: providers { vad { id: "loudness" } llm { id: "mine" } ... } */
+```
+
+| Kind | What it implements |
+|---|---|
+| `vasdk_providers_add_vad` | the chance, 0 to 1, that the audio is speech |
+| `vasdk_providers_add_stt` | `write` the audio, `end_of_speech`; with `streaming_transcription` off (the default) the final must come before `end_of_speech` returns |
+| `vasdk_providers_add_tts` | `synthesize` text, its speech through `vasdk_sink_audio`, then `vasdk_sink_done`; `cancel` at a barge-in |
+| `vasdk_providers_add_turn` | the chance the user is done, from their audio since they began |
+| `vasdk_providers_add_wake_word` | each microphone frame; the phrase and its confidence when it's heard |
+| `vasdk_providers_add_sentence_encoder` | a sentence's vector (`vasdk_result_set_floats`); one instance for every session of a runtime |
+| `vasdk_providers_add_entity_model` | where entities are in the words, as JSON spans; one instance |
+| `vasdk_providers_add_llm` | the reply to the messages, for the conversation and the agent's one-shot asks; `cancel` |
+
+[`c_providers_test.cpp`](../../VASDK/tests/c_providers_test.cpp) runs a whole spoken session on providers and processors written in C, with no models; [`c_conversation_test.cpp`](../../VASDK/tests/c_conversation_test.cpp) covers the conversation and turn calls.
+
+## From Python and Kotlin
 
 [`bindings/python/vasdk`](../../bindings/python/vasdk/__init__.py) wraps the C API with `ctypes`, so it needs no compiler: point `VASDK_LIBRARY` at a shared build of VASDK (`build/VASDK/libVASDK.dylib`), and add `bindings/python` to `PYTHONPATH`. It uses the proto functions, with Python classes the build generates from the same `.proto` files: replies are `vasdk.ConversationReply` messages and events `vasdk.Event` ([Messages](../../bindings/python/README.md#messages)). It needs `pip install protobuf`.
 

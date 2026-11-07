@@ -1,6 +1,6 @@
 # llama.cpp
 
-*LLM provider, not in the provider catalog (construct it in C++), target `vasdk_llamacpp`, build flag `-DVASDK_BUILD_LLAMACPP=ON`. Source: [`VASDK_3P_IMPL/LlamaCpp/`](../../VASDK_3P_IMPL/LlamaCpp/). Interface: [`LLMTransport.h`](../../VASDK/include/VASDK/llm/LLMTransport.h).*
+*LLM provider, config id `llamacpp` (`providers.llm`), target `vasdk_llamacpp`, build flag `-DVASDK_BUILD_LLAMACPP=ON`. Source: [`VASDK_3P_IMPL/LlamaCpp/`](../../VASDK_3P_IMPL/LlamaCpp/). Interface: [`LLMTransport.h`](../../VASDK/include/VASDK/llm/LLMTransport.h).*
 
 A local LLM: `LlamaCppTransport` (the conversation) and `LlamaCppCompletion` (one-shot asks) run a GGUF model in-process with [llama.cpp](https://github.com/ggml-org/llama.cpp), no network. Off by default.
 
@@ -12,7 +12,19 @@ A local LLM: `LlamaCppTransport` (the conversation) and `LlamaCppCompletion` (on
 
 ## Options
 
-Its options are the core's `va::llm::LLMConfig` (`model` is the GGUF path, plus `temperature`, `maxTokens`, `nCtx`, ...), the struct every LLM seam takes, so it has no struct of its own. Select it from an engine config with `llm { api: ... }` as [engine config files](../reference/engine-config.md) describe, or construct it in C++.
+From an engine config, `providers { llm { id: "llamacpp" options { [type.googleapis.com/vasdk.providers.LlamaCppOptions] { ... } } } }`: each session gets its own transport, so a C, Python or Kotlin app runs a local LLM with no code of its own. Every field is optional; unset sampling fields keep `va::llm::LLMConfig`'s defaults, the struct every LLM seam takes (so it has no options struct of its own).
+
+| Field | Environment variable | Default | Meaning |
+| --- | --- | --- | --- |
+| `model_path` | `LLAMACPP_MODEL` | `<models_dir>/LFM2.5-1.2B-Instruct-Q4_K_M.gguf` (what `VASDK_DOWNLOAD_LLAMACPP_MODEL` fetches) | The GGUF file. |
+| `chat_format` | `LLAMACPP_CHAT_FORMAT` | the transport's | The GGUF's chat format: `chatml`, `llama3`, `llama2`, `mistral`, `gemma`, `phi3`, `lfm2`, `lfm2.5`. It renders the tools' descriptions and call syntax: a wrong one gives the model tokens it parrots back. |
+| `context_tokens`, `max_tokens` | - | `LLMConfig`'s (4096, 1000) | The context window, the longest reply. |
+| `temperature`, `top_p`, `top_k`, `min_p`, `repetition_penalty` | - | `LLMConfig`'s | Sampling. |
+| `threads`, `gpu_layers` | - | llama.cpp's choice, 99 | CPU threads, layers offloaded to the GPU. |
+| `native_library_dir` | - | - | Android: the app's `nativeLibraryDir`, where ggml's backends are. |
+| `answer_agent` | - | `false` | Also answer the agent's one-shot asks (understanding, `llm` steps, generative pages) with a `LlamaCppCompletion`. It loads the model a second time: twice the memory. |
+
+The session gives it the system prompt and, at start, the tools' descriptions in its chat format (llama.cpp renders requests with the GGUF's own template). In C++, construct `LlamaCppTransport` and `LlamaCppCompletion` from an `LLMConfig`, as below.
 
 ## Models and licenses
 

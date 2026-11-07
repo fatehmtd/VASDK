@@ -254,6 +254,18 @@ Cartesia, Fish Audio and Gradium also take a voice: `CARTESIA_VOICE_ID`, `FISHAU
 
 All of these are optional at build time - the providers are compiled in regardless, and a missing key only matters if that provider is actually selected at runtime. `.env.local` wins when both are present. Neither file is committed.
 
+### The Kotlin binding as an AAR
+
+The [Kotlin binding](../reference/kotlin.md) builds as an Android library, `:vasdk`: the sources of `bindings/kotlin`, VASDK's messages, JNA, and `libVASDK.so` (the C API and every provider) per ABI. It's optional, and this app doesn't use it yet:
+
+```bash
+cd VASDK_ANDROID
+./gradlew -Pvasdk.kotlinBinding=true :vasdk:assembleRelease          # vasdk/build/outputs/aar/vasdk-release.aar
+./gradlew -Pvasdk.kotlinBinding=true :vasdk:connectedAndroidTest     # the JVM tests, on a device or emulator
+```
+
+An app depends on the AAR and names the device's audio in its engine config (`providers { audio_input { id: "aaudio" } audio_output { id: "aaudio" } }`), or pushes its own. On a device the garage test is skipped: the agent's files aren't there.
+
 ### Tests on a device
 
 The native suite, the same `ctest` cases as on the desktop, runs on a device or emulator through adb:

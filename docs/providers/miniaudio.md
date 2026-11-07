@@ -1,6 +1,6 @@
 # MiniAudio
 
-*Audio input provider, not in the provider catalog (construct it in C++), target `vasdk_miniaudio_audio`, build flag `-DVASDK_BUILD_MINIAUDIO=ON`. Source: [`VASDK_3P_IMPL/MiniAudio/`](../../VASDK_3P_IMPL/MiniAudio/). Interface: [`GenericAudioSource.h`](../../VASDK/include/VASDK/GenericAudioSource.h).*
+*Audio I/O provider, config id `miniaudio` (`providers.audio_input` and `audio_output`), target `vasdk_miniaudio_audio`, build flag `-DVASDK_BUILD_MINIAUDIO=ON`. Source: [`VASDK_3P_IMPL/MiniAudio/`](../../VASDK_3P_IMPL/MiniAudio/). Interface: [`GenericAudioSource.h`](../../VASDK/include/VASDK/GenericAudioSource.h).*
 
 The default microphone and speaker on desktop: `MiniAudioSource` and `MiniAudioSink` over [miniaudio](https://github.com/mackron/miniaudio), a single-header library with no system dependency. The sink fades out on barge-in and holds playback while the agent waits.
 
@@ -29,6 +29,14 @@ Library: [mackron/miniaudio](https://github.com/mackron/miniaudio), public domai
 All of them are listed in [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md) and in [Providers, sources and licenses](../provider-catalog.md#sources-and-licenses). An app that ships this provider ships these licenses with it ([vasdk-app](../../skills/vasdk-app/SKILL.md#licenses-ship-with-the-app)).
 
 ## Usage
+
+From an engine config, so the session opens the device itself (the C API's, Python's and Kotlin's sessions too):
+
+```textproto
+providers { audio_input { id: "miniaudio" } audio_output { id: "miniaudio" } }
+```
+
+From C++:
 
 ```cpp
 #include "MiniAudio/MiniAudioSource.h"

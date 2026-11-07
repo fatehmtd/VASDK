@@ -184,13 +184,21 @@ internal object Lib {
 
     val vasdk: VasdkLibrary by lazy { Native.load(path, VasdkLibrary::class.java, options) }
 
-    /** VASDK_PROVIDERS_LIBRARY, else beside VASDK in a build tree, else "vasdk_providers" on the library path. */
+    /**
+     * VASDK_PROVIDERS_LIBRARY, else beside VASDK in a build tree, else "vasdk_providers" on the
+     * library path, else VASDK itself (Android's libVASDK.so holds the providers too).
+     */
     val providers: ProvidersLibrary by lazy {
         val explicit = System.getenv("VASDK_PROVIDERS_LIBRARY")?.takeIf { it.isNotEmpty() }
         val beside = File(path).absoluteFile.parentFile?.parentFile
             ?.let { File(it, "VASDK_3P_IMPL/ProviderCatalog/" + System.mapLibraryName("vasdk_providers")) }
         val name = explicit ?: beside?.takeIf { it.exists() }?.path ?: "vasdk_providers"
-        Native.load(name, ProvidersLibrary::class.java, options)
+        try {
+            Native.load(name, ProvidersLibrary::class.java, options)
+        } catch (missing: UnsatisfiedLinkError) {
+            if (explicit != null) throw missing
+            Native.load(path, ProvidersLibrary::class.java, options)
+        }
     }
 
     private val threads = CallbackThreadInitializer(true, false, "vasdk")
