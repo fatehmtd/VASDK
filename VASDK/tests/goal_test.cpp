@@ -167,9 +167,30 @@ void testMustBeFutureUsesGivenClock() {
     check(!state.updateSlot("day", "2026-11-01").valid, "must_be_future: a day before the given clock's");
 }
 
+// A datetime with must_be_future counts to the minute: later today is the future, earlier isn't.
+void testMustBeFutureDatetimeLaterToday() {
+    goal::GoalDefinition def;
+    def.name = "reminder";
+    auto when = slot("when", goal::SlotType::DATETIME);
+    when.constraints.mustBeFuture = true;
+    def.slots = {when};
+    goal::GoalState state(def);
+    std::tm afternoon{};
+    afternoon.tm_year = 2026 - 1900; afternoon.tm_mon = 10; afternoon.tm_mday = 6; afternoon.tm_hour = 14; afternoon.tm_min = 30;   // 14:30, local
+    afternoon.tm_isdst = -1;
+    state.setNow(std::chrono::system_clock::from_time_t(std::mktime(&afternoon)));
+    check(state.updateSlot("when", "2026-11-06T17:00").valid, "must_be_future: later today");
+    check(state.updateSlot("when", "2026-11-07T09:00").valid, "must_be_future: tomorrow");
+    check(!state.updateSlot("when", "2026-11-06T14:30").valid, "must_be_future: this very minute isn't future");
+    check(!state.updateSlot("when", "2026-11-06T09:00").valid, "must_be_future: earlier today");
+    check(!state.updateSlot("when", "2026-11-06").valid, "must_be_future: today's date alone isn't a later day");
+    check(state.updateSlot("when", "2026-11-07").valid, "must_be_future: a later date alone");
+}
+
 } // namespace
 
 int main() {
+    testMustBeFutureDatetimeLaterToday();
     testPhoneNormalisation();
     testCompositeSubSlotCondition();
     testConfirmationEnforced();

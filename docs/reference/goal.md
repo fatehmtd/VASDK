@@ -29,7 +29,7 @@ flowchart TD
 | `STRING` | passed through |
 | `PHONE` | normalized to `NXX-NXX-XXXX` (US) or `NXX-XXXX` |
 | `EMAIL` | basic format check |
-| `DATE` / `TIME` / `DATETIME` | ISO 8601 / `HH:MM`; `constraints.mustBeFuture` supported - the LLM resolves "next Tuesday" before calling |
+| `DATE` / `TIME` / `DATETIME` | ISO 8601 / `HH:MM`; `constraints.mustBeFuture` supported: a `DATE` must be a later day than today, a `DATETIME` with a time later than now to the minute (later today counts), one without a time a later day. The LLM resolves "next Tuesday" before calling |
 | `NUMBER` / `INTEGER` | optional `constraints.min`/`max` |
 | `BOOLEAN` | accepts yes/no/true/false/1/0 |
 | `ENUM` | must match `constraints.allowedValues` (case-insensitive); the allowed list is shown in the prompt |
