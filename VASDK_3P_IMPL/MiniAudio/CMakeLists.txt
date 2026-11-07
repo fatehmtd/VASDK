@@ -30,7 +30,9 @@ if(APPLE)
         "-framework AudioToolbox"
         "-framework CoreFoundation"
     )
-elseif(UNIX AND NOT APPLE)
+elseif(ANDROID)
+    target_link_libraries(vasdk_miniaudio_audio PRIVATE dl m)   # Android's threads are in its libc: no libpthread
+elseif(UNIX)
     target_link_libraries(vasdk_miniaudio_audio PRIVATE pthread dl m)
 elseif(WIN32)
     target_link_libraries(vasdk_miniaudio_audio PRIVATE winmm ole32)

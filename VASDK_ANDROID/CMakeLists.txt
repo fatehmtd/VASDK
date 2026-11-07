@@ -221,3 +221,18 @@ if(VASDK_BUILD_VIZANIM AND TARGET vasdk_vizanim)
     target_compile_definitions(vasdk_android PRIVATE VASDK_HAS_VIZANIM)
     message(STATUS "[vasdk_android] VizAnim audio features enabled")
 endif()
+
+#  The Kotlin binding's native side, for the :vasdk AAR (-Pvasdk.kotlinBinding=true, which passes
+#  -DVASDK_KOTLIN_BINDING=ON): the C API and every provider in one shared library, libVASDK.so, the
+#  name JNA loads on every platform. VASDK is static here (one protobuf per binary), so it's linked
+#  whole: every C API function ends up in it, not only those something here calls.
+option(VASDK_KOTLIN_BINDING "Build libVASDK.so for the Kotlin binding's AAR" OFF)
+if(VASDK_KOTLIN_BINDING)
+    add_library(vasdk_kotlin_native SHARED ${CMAKE_CURRENT_SOURCE_DIR}/../VASDK_3P_IMPL/ProviderCatalog/ProvidersShared.cpp)
+    set_target_properties(vasdk_kotlin_native PROPERTIES OUTPUT_NAME VASDK)
+    target_link_libraries(vasdk_kotlin_native
+        PRIVATE "-Wl,--whole-archive" VASDK "-Wl,--no-whole-archive"
+        PRIVATE vasdk_provider_catalog
+        PRIVATE android
+        PRIVATE log)
+endif()
