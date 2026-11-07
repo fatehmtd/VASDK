@@ -1,16 +1,14 @@
 #include "DeepgramppVoiceSynthesisProvider.h"
+#include <utility>
 #include <spdlog/spdlog.h>
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::tts {
 
-DeepgramppVoiceSynthesisProvider::DeepgramppVoiceSynthesisProvider(
-    const std::string& apiKey,
-    const std::string& model,
-    const std::string& caFilePath)
-    : _apiKey(apiKey),
-      _model(model),
-      _caFilePath(caFilePath)
+DeepgramppVoiceSynthesisProvider::DeepgramppVoiceSynthesisProvider(DeepgramppVoiceSynthesisOptions options)
+    : _apiKey(std::move(options.apiKey)),
+      _model(std::move(options.model)),
+      _caFilePath(std::move(options.caBundlePath))
 {
 }
 
@@ -214,5 +212,5 @@ std::string DeepgramppVoiceSynthesisProvider::resolveAudioFormat() const
     }
 }
 
-} // namespace thirdparty
+} // namespace thirdparty::tts
 } // namespace va

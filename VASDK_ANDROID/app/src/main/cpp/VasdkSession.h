@@ -32,7 +32,7 @@ struct VasdkSession {
     std::shared_ptr<va::pipeline::SpeakerIdentificationProcessor> speakerIdProcessor;
 #endif
 #ifdef VASDK_HAS_VIZANIM
-    std::shared_ptr<va::thirdparty::AudioInputVizAnimFrameProcessor> micAnimProcessor;
+    std::shared_ptr<va::thirdparty::audio::AudioInputVizAnimFrameProcessor> micAnimProcessor;
     std::shared_ptr<AudioFeatureSinkProcessor> audioFeaturesProcessor;
     std::shared_ptr<SynthAudioObserver> synthAudioObserver;
 #endif

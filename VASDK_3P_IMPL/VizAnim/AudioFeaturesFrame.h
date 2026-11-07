@@ -4,7 +4,7 @@
 #include "VizAnimProvider.h"
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::audio {
 
 /**
  * @brief Source that produced the audio features in an AudioFeaturesFrame.
@@ -20,14 +20,14 @@ enum class AudioFeaturesSource {
  * Emitted by VizAnimFrameProcessor for every analysis window's worth of
  * audio, for both microphone (MIC) and TTS synthesis (SYNTH) sources.
  */
-class VASDK_VIZANIM_EXPORT AudioFeaturesFrame : public transport::Frame {
+class VASDK_VIZANIM_EXPORT AudioFeaturesFrame : public va::transport::Frame {
 public:
-    transport::FrameType getType() const override
+    va::transport::FrameType getType() const override
     {
-        return transport::FrameType::AUDIO_FEATURES;
+        return va::transport::FrameType::AUDIO_FEATURES;
     }
 
-    std::shared_ptr<transport::Frame> clone() const override
+    std::shared_ptr<va::transport::Frame> clone() const override
     {
         auto c          = std::make_shared<AudioFeaturesFrame>();
         c->timestamp    = timestamp;
@@ -43,5 +43,5 @@ public:
     AudioFeaturesSource       source{ AudioFeaturesSource::MIC };
 };
 
-} // namespace thirdparty
+} // namespace thirdparty::audio
 } // namespace va

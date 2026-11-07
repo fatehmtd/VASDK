@@ -4,7 +4,15 @@
 #include <memory>
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::stt {
+
+/** Settings of GladiaPPTranscriptionProvider; every field but the API key has a default. */
+struct GladiaPPTranscriptionOptions {
+    /** API key of the service; required (the catalog falls back to the service's *_API_KEY variable). */
+    std::string apiKey;
+    /** PEM file of certificates to trust; empty uses the TLS library's own (Android's mbedTLS can't read the system store). */
+    std::string caBundlePath;
+};
 
 /**
  * @brief Real-time transcription provider backed by the Gladia WebSocket API.
@@ -12,7 +20,7 @@ namespace thirdparty {
 class GladiaPPTranscriptionProvider : public va::audio::GenericTranscriptionProvider
 {
 public:
-    GladiaPPTranscriptionProvider(const std::string &apiKey, const std::string &caFilePath = {});
+    explicit GladiaPPTranscriptionProvider(GladiaPPTranscriptionOptions options);
     ~GladiaPPTranscriptionProvider() override;
 
     // GenericTranscriptionProvider interface
@@ -46,5 +54,5 @@ private:
     std::unique_ptr<gladiapp::v2::ws::GladiaWebsocketClientSession> _session{nullptr};
 };
 
-} // namespace thirdparty
+} // namespace thirdparty::stt
 } // namespace va

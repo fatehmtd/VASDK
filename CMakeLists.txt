@@ -157,3 +157,28 @@ endif()
 if(VASDK_BUILD_TESTS)
     add_subdirectory(VASDK_PYTHON_APP)
 endif()
+
+#  The agent skills (skills/, AGENTS.md): every path, link, heading and provider id they name
+#  still exists, so a rename fails here instead of leaving a skill stale. And the third-party code
+#  rules (va::thirdparty::<category>, no static variables) on every integration in VASDK_3P_IMPL
+
+if(VASDK_BUILD_TESTS)
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+    if(Python3_Interpreter_FOUND)
+        add_test(NAME vasdk_skills COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/skills/check_skills.py)
+        add_test(NAME vasdk_skills_self_test COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/skills/check_skills.py --self-test)
+        add_test(NAME vasdk_thirdparty_rules COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/VASDK_3P_IMPL/check_rules.py)
+        add_test(NAME vasdk_thirdparty_rules_self_test COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/VASDK_3P_IMPL/check_rules.py --self-test)
+        # The binding's tests (vasdk_python_*) need protobuf in this interpreter
+        execute_process(COMMAND ${Python3_EXECUTABLE} -c "import google.protobuf"
+                        RESULT_VARIABLE _vasdk_python_protobuf OUTPUT_QUIET ERROR_QUIET)
+        if(NOT _vasdk_python_protobuf EQUAL 0)
+            message(WARNING "${Python3_EXECUTABLE} has no protobuf: the vasdk_python_* tests will fail. "
+                            "Run `uv sync --project VASDK_PYTHON_APP` and configure with "
+                            "-DPython3_EXECUTABLE=VASDK_PYTHON_APP/.venv/bin/python (Windows: .venv/Scripts/python.exe), "
+                            "or `pip install protobuf` (docs/apps/python.md)")
+        endif()
+    else()
+        message(WARNING "Python 3 not found: the vasdk_skills and vasdk_thirdparty_rules tests are not registered")
+    endif()
+endif()

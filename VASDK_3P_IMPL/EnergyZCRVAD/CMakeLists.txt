@@ -32,3 +32,10 @@ install(FILES EnergyZCRVAD.h
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/vasdk_energy_zcr_vad_export.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/EnergyZCRVAD
 )
+
+if(VASDK_BUILD_TESTS)
+    add_executable(vasdk_energy_zcr_vad_test tests/energy_zcr_vad_test.cpp)
+    target_link_libraries(vasdk_energy_zcr_vad_test PRIVATE vasdk_energy_zcr_vad)
+    vasdk_test_dlls(vasdk_energy_zcr_vad_test)
+    add_test(NAME vasdk_energy_zcr_vad COMMAND vasdk_energy_zcr_vad_test)
+endif()

@@ -88,7 +88,9 @@ void registerVozProvider(va::engine::ProviderRegistry &registry, JavaVM *javaVm)
             }
             return result;
         };
-            auto voz = std::make_shared<VozTranscriptionProvider>(recognizer);
+            va::thirdparty::stt::VozTranscriptionOptions vozOptions;
+            vozOptions.recognizer = recognizer;
+            auto voz = std::make_shared<va::thirdparty::stt::VozTranscriptionProvider>(vozOptions);
             voz->setAudioConfiguration(context.audio);
             spdlog::info("[VASDK] Voz STT provider configured");
             return voz;

@@ -1,4 +1,5 @@
 #include "MiniAudioSource.h"
+#include <algorithm>
 #include <miniaudio.h>
 #include <spdlog/spdlog.h>
 #include <atomic>
@@ -7,8 +8,7 @@
 #include <cstring>
 #include <mutex>
 
-namespace va {
-namespace miniaudio {
+namespace va::thirdparty::audio {
 
 //  helpers (translation-unit local) 
 
@@ -30,7 +30,7 @@ ma_format toMaFormat(va::audio::AudioFormat fmt)
 struct MiniAudioSource::Impl
 {
     // size of the internal buffer
-    size_t kRingCapacity = 1024 * 1024;
+    size_t ringCapacity = 1024 * 1024;  // bytes; set from the options and the format at initialize
 
     ma_device           device{};
     ma_rb               rb{};
@@ -45,7 +45,8 @@ struct MiniAudioSource::Impl
     std::condition_variable dataReady;
     std::mutex              dataReadyMutex;
 
-    Impl(size_t internalBufferCapacity) : kRingCapacity(internalBufferCapacity) {}
+    explicit Impl(MiniAudioSourceOptions options) : options(options) {}
+    MiniAudioSourceOptions options;
     ~Impl()
     {
         if (rbInitialized) {
@@ -56,7 +57,7 @@ struct MiniAudioSource::Impl
 
     bool initRingBuffer()
     {
-        if (ma_rb_init(kRingCapacity, nullptr, nullptr, &rb) != MA_SUCCESS)
+        if (ma_rb_init(ringCapacity, nullptr, nullptr, &rb) != MA_SUCCESS)
             return false;
         rbInitialized = true;
         return true;
@@ -95,7 +96,7 @@ struct MiniAudioSource::Impl
 
 //  Construction / destruction 
 
-MiniAudioSource::MiniAudioSource(size_t internalBufferCapacity) : _impl(std::make_unique<Impl>(internalBufferCapacity)) {}
+MiniAudioSource::MiniAudioSource(MiniAudioSourceOptions options) : _impl(std::make_unique<Impl>(options)) {}
 
 MiniAudioSource::~MiniAudioSource()
 {
@@ -116,6 +117,8 @@ bool MiniAudioSource::initializeAudioSource(const va::audio::AudioConfig &audioC
         return false;
     }
 
+    _impl->ringCapacity = static_cast<size_t>(audioConfig.sampleRate) * audioConfig.channels *
+                          audioConfig.getSampleSizeInBytes() * std::max(1, _impl->options.bufferSeconds);
     if (!_impl->initRingBuffer()) {
         spdlog::error("MiniAudioSource: failed to initialize ring buffer.");
         return false;
@@ -234,5 +237,4 @@ bool MiniAudioSource::waitForData(int timeoutMs)
     return signalled;
 }
 
-} // namespace miniaudio
-} // namespace va
+} // namespace va::thirdparty::audio

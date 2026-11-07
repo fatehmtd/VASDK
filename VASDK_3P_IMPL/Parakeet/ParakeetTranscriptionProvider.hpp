@@ -8,9 +8,48 @@
 #include <atomic>
 #include <condition_variable>
 #include <chrono>
+#include <string>
+
+namespace va::thirdparty::stt {
 
 // Forward declaration; handles the actual Parakeet model inference.
 class ParakeetInferenceProviderImpl;
+
+/** Settings of ParakeetTranscriptionProvider; every field but the model folder has a default.
+ *  Sample counts assume 16 kHz. */
+struct ParakeetTranscriptionOptions {
+    /** Folder holding the Parakeet ONNX files (VASDK_3P_IMPL/cmake/DownloadParakeetModel.cmake). */
+    std::string modelDir;
+    /** Silence after the last audio that finalizes the utterance when no end of speech arrives. */
+    int idleTimeoutMs = 550;
+    /** Shortest time between two partial results. */
+    int partialIntervalMs = 250;
+    /** Partials re-run only the new audio; off by default for accuracy. */
+    bool enableIncrementalPartials = false;
+    /** New audio needed before another partial (8000: 500 ms). */
+    size_t minNewSamplesForPartial = 8000;
+    /** The final pass is skipped when the buffer grew by less than this since the last partial (16000: 1 s). */
+    size_t minNewSamplesForFinal = 16000;
+    /** When the cached partial's confidence reaches highConfShortcutThreshold and fewer than this many
+     *  samples arrived after it, it becomes the final result without another inference, which avoids
+     *  multi-second stalls on Android. 0 disables the shortcut. */
+    size_t highConfShortcutSamples = 16000;
+    /** Confidence (0-1) the cached partial needs for that shortcut. */
+    float highConfShortcutThreshold = 0.85f;
+    /** Tail of the previous utterance prepended to each final pass, for decoder context (8000: 500 ms). */
+    size_t contextSamples = 8000;
+    /** Words that start within this of the context's end belong to the context and are dropped;
+     *  must stay below the VAD's maxSpeechEndDurationMs. */
+    int64_t contextBoundaryToleranceMs = 100;
+    /** Capacity of the preallocated audio buffer. */
+    float maxBufferSeconds = 90.0f;
+    /** Silence appended to each chunk for decoder stability at its end. */
+    float silencePaddingSeconds = 1.0f;
+    /** Tolerance for words at chunk boundaries; must exceed contextBoundaryToleranceMs. */
+    int overlapBoundaryToleranceMs = 1000;
+    /** Tolerance for words at the end of the last chunk, against hallucinations in the silence pad. */
+    int endPaddingToleranceMs = 1000;
+};
 
 /**
  * @brief ParakeetTranscriptionProvider
@@ -21,7 +60,7 @@ class ParakeetInferenceProviderImpl;
 class ParakeetTranscriptionProvider : public va::audio::GenericTranscriptionProvider
 {
     public:
-    explicit ParakeetTranscriptionProvider(const std::string& modelDir);
+    explicit ParakeetTranscriptionProvider(ParakeetTranscriptionOptions options);
     ~ParakeetTranscriptionProvider() override;
 
     bool initializeTranscriptionProvider() override;
@@ -43,50 +82,6 @@ class ParakeetTranscriptionProvider : public va::audio::GenericTranscriptionProv
     va::audio::AudioConfig getAudioConfiguration() const override;
 
     /**
-     * @brief InferenceConfig
-     * Tunable timeouts and thresholds for the inference loop's responsiveness.
-     */
-    struct InferenceConfig {
-        int   idleTimeoutMs            = 100;
-        int   partialIntervalMs        = 100;
-        // Accuracy-first default: partials use full inference unless explicitly enabled.
-        bool  enableIncrementalPartials = false;
-        size_t minNewSamplesForPartial = 2000;  // ~125 ms at 16 kHz
-        size_t minNewSamplesForFinal   = 2000;  // skip final re-inference if buffer barely grew
-        // When the cached partial has confidence >= highConfShortcutThreshold and the
-        // buffer grew by fewer than highConfShortcutSamples since that partial, emit it
-        // as the final result instead of re-running the (expensive) final inference.
-        // Avoids multi-second stalls on Android when the partial already captured the
-        // full utterance. Set highConfShortcutSamples = 0 to disable.
-        size_t highConfShortcutSamples    = 16000; // ~1 s at 16 kHz
-        float  highConfShortcutThreshold  = 0.85f; // minimum cached-partial confidence
-        size_t contextSamples          = 32000; // ~2 s at 16 kHz; tail prepended to each final for decoder context
-        int64_t contextBoundaryToleranceMs = 100; // tolerance for discarding context-prefix words;
-                                                   // must be < VAD maxSpeechEndDurationMs
-        float maxBufferSeconds         = 90.0f; // capacity of the preallocated audio accumulation buffer
-        float silencePaddingSeconds       = 0.5f;  // extra silence appended per chunk for decoder stability at boundaries
-
-        // Tolerance for discarding words at chunk boundaries; must be > contextBoundaryToleranceMs
-        // so valid words aren't dropped when the context tail is short/disabled. 1000 ms works
-        // well in practice for Parakeet TDT with a 2 s context tail.
-        int overlapBoundaryToleranceMs = 1000;
-        int endPaddingToleranceMs      = 1000; // tolerance for words at the end of the last chunk; avoids decoder hallucinations from the silence pad
-    };
-
-    /**
-     * @brief setInferenceConfig
-     * Sets the inference configuration parameters for the transcription provider.
-     */
-    void setInferenceConfig(const InferenceConfig& config);
-
-    /**
-     * @brief getInferenceConfig
-     * Gets the current inference configuration parameters for the transcription provider.
-     * @return The current InferenceConfig struct with the provider's inference parameters.
-     */
-    InferenceConfig getInferenceConfig() const;
-
-    /**
      * @brief Discard all in-progress audio accumulated so far for the current segment.
      *
      * Call this on barge-in to throw away audio that was captured while TTS was
@@ -106,7 +101,7 @@ class ParakeetTranscriptionProvider : public va::audio::GenericTranscriptionProv
     void inferenceLoop();
     void appendAudioAsFloat(const uint8_t* data, size_t size);
 
-    std::string _modelDir;
+    ParakeetTranscriptionOptions _options;  // fixed after construction
     std::unique_ptr<ParakeetInferenceProviderImpl> _parakeetInferenceProviderImpl;
     std::atomic<va::audio::TranscriptionResultListener*> _listener{ nullptr };
     std::atomic<bool> _allowCallbacks{ false };
@@ -114,7 +109,7 @@ class ParakeetTranscriptionProvider : public va::audio::GenericTranscriptionProv
     std::atomic<bool> _running{ false };
 
     // Audio buffering and inference thread.
-    // _buffer is preallocated to InferenceConfig::maxBufferSeconds at start time.
+    // _buffer is preallocated to ParakeetTranscriptionOptions::maxBufferSeconds at start time.
     // _bufferSize tracks the number of valid samples written so far.
     // On each final inference the two buffers are swapped (O(1)) so that the
     // inference thread can run without holding the mutex.
@@ -150,5 +145,6 @@ class ParakeetTranscriptionProvider : public va::audio::GenericTranscriptionProv
     // context and doesn't start cold at a hard VAD boundary.
     std::vector<float> _contextTailBuffer;
 
-    InferenceConfig _inferenceConfig;
 };
+
+} // namespace va::thirdparty::stt

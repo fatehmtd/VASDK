@@ -172,7 +172,7 @@ Claude directly:
 llm { api: ANTHROPIC api_key: "${ANTHROPIC_API_KEY}" }
 ```
 
-An agent can also ask a model run on the device: `VASDK_Pipeline --agent-llm-model-path qwen2.5-1.5b-instruct-q4_k_m.gguf` (or `transport::LlamaCppCompletion` in `Session::Options::llmCompletion`) answers its questions with llama.cpp in-process, with no network.
+An agent can also ask a model run on the device: `VASDK_Pipeline --agent-llm-model-path qwen2.5-1.5b-instruct-q4_k_m.gguf` (or `va::thirdparty::llm::LlamaCppCompletion` in `Session::Options::llmCompletion`) answers its questions with llama.cpp in-process, with no network.
 
 These apply also when the app passes its own LLM transport in code, as VASDK_CallCenter does with `--llm-endpoint`.
 

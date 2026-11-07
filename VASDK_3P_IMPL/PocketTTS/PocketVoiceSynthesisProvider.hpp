@@ -6,7 +6,27 @@
 #include <string>
 #include <vector>
 
+namespace va::thirdparty::tts {
+
 class PocketTTSImpl;
+
+/** Settings of PocketVoiceSynthesisProvider; every field but the model folder has a default. */
+struct PocketVoiceSynthesisOptions {
+    /** Folder with the ONNX models, tokenizer.model and voices.bin
+     *  (VASDK_3P_IMPL/cmake/DownloadPocketTTSModels.cmake). */
+    std::string modelDir;
+    /** A voice in voices.bin; an unknown name falls back to the first voice, with a warning. */
+    std::string voice = "jean";
+    /** Flow-matching steps per latent frame, 1-10: higher sounds better and costs more per frame. */
+    int lsdSteps = 4;
+    /** Sampling temperature; the flow's noise is sqrt(temperature). */
+    float temperature = 0.7f;
+    /** Silence after each utterance. */
+    float silenceDurationSeconds = 0.3f;
+    /** Audio made before playback starts, against choppy starts on throttled phones
+     *  (QueuedVoiceSynthesisProvider::setPreBufferedSamplesMS). */
+    int prebufferMs = 250;
+};
 
 /**
  * @brief Voice synthesis provider backed by Pocket TTS - a 5-model ONNX pipeline
@@ -34,46 +54,20 @@ class PocketTTSImpl;
  */
 class PocketVoiceSynthesisProvider : public va::audio::QueuedVoiceSynthesisProvider {
 public:
-    /**
-     * @param modelDir   Path to directory containing all ONNX models + tokenizer + voices.bin
-     * @param voiceName  Name of the voice to use (must match a name in voices.bin, e.g. "cosette")
-     *                   Falls back to the first available voice if the name is not found.
-     */
-    explicit PocketVoiceSynthesisProvider(const std::string& modelDir,
-                                          const std::string& voiceName = "cosette");
+    explicit PocketVoiceSynthesisProvider(PocketVoiceSynthesisOptions options);
     ~PocketVoiceSynthesisProvider() override;
 
     // Non-copyable
     PocketVoiceSynthesisProvider(const PocketVoiceSynthesisProvider&)            = delete;
     PocketVoiceSynthesisProvider& operator=(const PocketVoiceSynthesisProvider&) = delete;
 
-    // --- Synthesis quality / timing knobs ---
-
-    /// Number of ODE flow-matching steps per latent frame (1–10).
-    /// Higher = better quality audio, more compute per frame.
-    /// Default: POCKET_TTS_DEFAULT_LSD_STEPS (6 desktop / 4 Android).
-    void setLsdSteps(int steps);
-    int  getLsdSteps() const;
-
-    /// Seconds of silence appended after each utterance (default 0.3).
-    void  setSilenceDuration(float seconds);
-    float getSilenceDuration() const;
-
-    /// Number of latent frames accumulated before each mimi_decoder call (default 8).
-    /// Larger = more efficient decoding; smaller = lower first-audio latency.
-    void setDecoderBatchFrames(int frames);
-    int  getDecoderBatchFrames() const;
-
-    /// Select a voice by name. Falls back to first available voice if not found.
+    /// Switch voices at run time. Falls back to the first available voice if not found.
     /// Thread-safe: applied before the next synthesizeOne() call.
     bool setVoice(const std::string& voiceName);
     std::string getVoice() const;
 
     /// Returns the list of available voice names parsed from voices.bin.
     std::vector<std::string> getAvailableVoices() const;
-
-    // setPreBufferedSamplesMS() (the base class): default 1000 ms here, against choppy starts on
-    // throttled phones.
 
 private:
     std::shared_ptr<PocketTTSImpl> _impl;
@@ -86,5 +80,7 @@ private:
     // Text normalization: strip markdown, expand numbers, clean punctuation
     static std::string normalizeText(const std::string& text);
 };
+
+} // namespace va::thirdparty::tts
 
 #endif // POCKET_VOICE_SYNTHESIS_PROVIDER_HPP

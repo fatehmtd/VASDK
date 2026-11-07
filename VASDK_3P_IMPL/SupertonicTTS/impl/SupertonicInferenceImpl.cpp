@@ -4,6 +4,8 @@
 #include <nnapi_provider_factory.h>
 #endif
 
+namespace va::thirdparty::tts {
+
 SupertonicInferenceImpl::SupertonicInferenceImpl(const std::string& onnxDir,
                                                  const std::string& stylePath,
                                                  const std::string& lang)
@@ -31,11 +33,9 @@ bool SupertonicInferenceImpl::initialize() {
         tts_ = std::make_unique<TextToSpeech>(cfgs,
             text_proc.get(), models.dp.get(), models.text_enc.get(),
             models.vector_est.get(), models.vocoder.get());
-        // Keep models and text_proc alive for the lifetime of tts_
-        static OnnxModels static_models;
-        static std::unique_ptr<UnicodeProcessor> static_text_proc;
-        static_models    = std::move(models);
-        static_text_proc = std::move(text_proc);
+        // tts_ points into these, so they live as long as this instance (declared before tts_).
+        models_        = std::move(models);
+        textProcessor_ = std::move(text_proc);
         auto loadedStyle = loadVoiceStyle({stylePath_}, /*verbose=*/false);
         style_ = std::make_unique<Style>(std::move(loadedStyle));
         spdlog::info("SupertonicTTS initialized (sample_rate={}, onnx_dir={}, style={})",
@@ -134,3 +134,5 @@ void SupertonicInferenceImpl::setLanguage(const std::string& lang) {
 int SupertonicInferenceImpl::getSampleRate() const {
     return tts_ ? tts_->getSampleRate() : 0;
 }
+
+} // namespace va::thirdparty::tts

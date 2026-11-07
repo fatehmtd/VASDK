@@ -12,7 +12,7 @@
 #include <memory>
 #include <vector>
 
-namespace gradium::tts {
+namespace va::thirdparty::tts::phonon {
 
 // ---------------------------------------------------------------------------
 // Per-thread GGML context.
@@ -174,4 +174,4 @@ void mha_fwd(const float* x, int seq, int hiddenDim, int num_heads,
              int past, int max_ctx, float max_period,
              float* out, int window = 0, int pos_base = 0);
 
-} // namespace gradium::tts
+} // namespace va::thirdparty::tts::phonon

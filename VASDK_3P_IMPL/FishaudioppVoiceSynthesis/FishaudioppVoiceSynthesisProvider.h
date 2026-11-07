@@ -9,7 +9,7 @@
 #include <string>
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::tts {
 
     // Fish Audio voice ids for reference.
     namespace fishaudio::voices {
@@ -17,15 +17,24 @@ namespace thirdparty {
         constexpr const char* SELENE_VOICE_ID = "b347db033a6549378b48d00acb0d06cd";
     };
 
+/** Settings of FishaudioppVoiceSynthesisProvider; every field but the API key has a default. */
+struct FishaudioppVoiceSynthesisOptions {
+    /** API key of the service; required (the catalog falls back to the service's *_API_KEY variable). */
+    std::string apiKey;
+    /** Reference voice to speak with. */
+    std::string referenceId = fishaudio::voices::ETHAN_VOICE_ID;
+    /** Model to use. */
+    std::string model = fishaudiopp::tts::models::S1;
+    /** PEM file of certificates to trust; empty uses the TLS library's own (Android's mbedTLS can't read the system store). */
+    std::string caBundlePath;
+};
+
 /**
  * @brief Real-time voice synthesis provider backed by the Fish Audio live TTS WebSocket API.
  */
 class FishaudioppVoiceSynthesisProvider : public va::audio::GenericVoiceSynthesisProvider {
 public:
-    explicit FishaudioppVoiceSynthesisProvider(const std::string& apiKey,
-                                                const std::string& referenceId = fishaudio::voices::ETHAN_VOICE_ID,
-                                                const std::string& model = fishaudiopp::tts::models::S1,
-                                                const std::string& caFilePath = {});
+    explicit FishaudioppVoiceSynthesisProvider(FishaudioppVoiceSynthesisOptions options);
     ~FishaudioppVoiceSynthesisProvider() override;
 
     void setAudioConfiguration(const va::audio::AudioConfig &config) override;
@@ -60,5 +69,5 @@ private:
     mutable std::mutex _clientMutex;
 };
 
-} // namespace thirdparty
+} // namespace thirdparty::tts
 } // namespace va

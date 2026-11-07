@@ -35,7 +35,7 @@ bool waitForEvents(RecordingListener& listener, size_t count)
     return listener.eventCount() >= count;
 }
 
-void writeSamples(VozTranscriptionProvider& provider, size_t count, int16_t value)
+void writeSamples(va::thirdparty::stt::VozTranscriptionProvider& provider, size_t count, int16_t value)
 {
     std::vector<int16_t> samples(count, value);
     provider.writeAudioData(reinterpret_cast<const uint8_t*>(samples.data()), samples.size() * sizeof(int16_t));
@@ -48,7 +48,8 @@ int main()
     std::vector<size_t> receivedSizes;
     std::vector<int> receivedRates;
     bool failNext = false;
-    VozTranscriptionProvider provider([&](const std::vector<float>& samples, int sampleRate) {
+    va::thirdparty::stt::VozTranscriptionOptions options;
+    options.recognizer = [&](const std::vector<float>& samples, int sampleRate) {
         if (failNext) { failNext = false; throw std::runtime_error("model missing"); }
         receivedSizes.push_back(samples.size());
         receivedRates.push_back(sampleRate);
@@ -56,7 +57,8 @@ int main()
         result.text = "hello world";
         result.words = { { 80, 400, "hello" }, { 480, 900, "world" } };
         return result;
-    });
+    };
+    va::thirdparty::stt::VozTranscriptionProvider provider(options);
 
     va::audio::AudioConfig config{};
     config.sampleRate = 16000;

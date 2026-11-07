@@ -1,0 +1,45 @@
+---
+name: vasdk-bindings
+description: Take a VASDK core feature to every platform - the C API (vasdk.h), the Python binding over ctypes, and Android through JNI and Kotlin - with tests on each. Use whenever a change adds or changes something an app can call, configure or listen to, so it isn't C++-only.
+---
+
+# Bindings: C, Python, Android
+
+A feature isn't in the SDK until every platform can use it ([house rules](../../AGENTS.md#house-rules)). The C API is the one stable surface; Python sits on it, and Android links the C++ directly through JNI.
+
+```mermaid
+flowchart LR
+    Core["C++ core<br/>VAEngine / Session / flow"] --> CApi["C API<br/>VASDK/include/VASDK/c/vasdk.h"]
+    CApi --> Python["Python<br/>bindings/python (ctypes)"]
+    Core --> Jni["Android JNI<br/>VASDK_ANDROID/app/src/main/cpp"]
+    Jni --> Kotlin["Kotlin<br/>VasdkEngine.kt"]
+```
+
+| Layer | Files | Reference | Tests |
+| --- | --- | --- | --- |
+| C API | `VASDK/include/VASDK/c/vasdk.h`, `VASDK/include/VASDK/c/vasdk_cpp.h`, `VASDK/src/c/vasdk_c.cpp`, `VASDK/src/c/vasdk_c_session.cpp` | [the C API](../../docs/reference/c-api.md) | `vasdk_c` (`VASDK/tests/vasdk_c_test.c`), `vasdk_c_session` (`VASDK/tests/c_session_test.cpp`) |
+| Providers from C | `VASDK_3P_IMPL/ProviderCatalog/ProviderCatalogC.h` (`vasdk_providers_add_all`) | [spoken sessions](../../docs/reference/c-api.md#spoken-sessions) | `vasdk_offline_conversation` |
+| Python | `bindings/python/vasdk/__init__.py` | `bindings/python/README.md`, [Python app](../../docs/apps/python.md) | `bindings/python/tests/` (`vasdk_python_garage`, `vasdk_python_extensions`), `VASDK_PYTHON_APP/tests/` (`vasdk_python_kitchen`, `vasdk_python_session`) |
+| Android | `VASDK_ANDROID/app/src/main/cpp/vasdk_jni.cpp`, `VASDK_ANDROID/app/src/main/kotlin/com/vasdk/android/VasdkEngine.kt` | [Android](../../docs/apps/android.md) | [tests on a device](../../docs/apps/android.md#tests-on-a-device) |
+
+## Steps
+
+1. **C API:** add the function or callback to `vasdk.h` with a doc comment (who owns memory, which thread calls back, what errors return). Plain C types only; structured data crosses as protobuf bytes, as events and snapshots do. Never change an existing signature: add a new function. Implement it in `VASDK/src/c/`.
+2. **Python:** declare it in `bindings/python/vasdk/__init__.py` (ctypes `argtypes`/`restype`, callbacks kept alive while registered), wrap it in a Pythonic method, and decode protobuf payloads to messages.
+3. **Android:** the JNI entry in `vasdk_jni.cpp` (conversions with `VASDK_ANDROID/app/src/main/cpp/JniUtils.h`, callbacks attached to the JVM thread) and the Kotlin API in `VasdkEngine.kt`; settings the user can change go through the app's preferences.
+4. **Docs:** the C reference, the Python README and the Android guide each show it with a short example.
+
+## Pitfalls
+
+- Callbacks from C arrive on SDK threads: Python callbacks take the GIL (ctypes does it per call), Kotlin must hop to its own dispatcher before touching UI.
+- Strings are UTF-8 both ways; lengths are explicit where binary data crosses.
+- A feature that can't work on a platform (a device API missing on desktop, say) states so in its docs and logs a warning when used there.
+
+## Tests
+
+- **Unit:** a C test in `VASDK/tests/vasdk_c_test.c` or `VASDK/tests/c_session_test.cpp` covering the new call, its errors, and its callback.
+- **Integration:** the same scenario from Python in `bindings/python/tests/` (registered with `VASDK_LIBRARY` set, as `vasdk_python_garage` is in `VASDK_APP/CMakeLists.txt`), and on Android in the device suite.
+
+## Done when
+
+The [definition of done](../../AGENTS.md#definition-of-done) holds, and the feature is callable, documented and tested in C, Python and Kotlin, or the gap is documented and warned.

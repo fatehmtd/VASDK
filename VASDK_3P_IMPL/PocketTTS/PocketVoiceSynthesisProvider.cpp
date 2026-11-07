@@ -6,16 +6,22 @@
 
 #include <algorithm>
 
+namespace va::thirdparty::tts {
+
 // ---------------------------------------------------------------------------
 // Constructor / Destructor
 // ---------------------------------------------------------------------------
 
-PocketVoiceSynthesisProvider::PocketVoiceSynthesisProvider(
-    const std::string& modelDir, const std::string& voiceName)
+PocketVoiceSynthesisProvider::PocketVoiceSynthesisProvider(PocketVoiceSynthesisOptions options)
     : QueuedVoiceSynthesisProvider("PocketTTS", Delivery::Thread),
-      _impl(std::make_shared<PocketTTSImpl>(modelDir, voiceName))
+      _impl(std::make_shared<PocketTTSImpl>(options.modelDir, options.voice))
 {
-    setPreBufferedSamplesMS(1000);
+    auto params = _impl->getParams();
+    params.lsdSteps        = std::max(1, std::min(options.lsdSteps, 10));
+    params.temperature     = options.temperature;
+    params.silenceDuration = std::max(0.0f, options.silenceDurationSeconds);
+    _impl->setParams(params);
+    setPreBufferedSamplesMS(std::max(0, options.prebufferMs));
 }
 
 PocketVoiceSynthesisProvider::~PocketVoiceSynthesisProvider() {
@@ -33,36 +39,6 @@ bool PocketVoiceSynthesisProvider::loadEngine() {
 // ---------------------------------------------------------------------------
 // Knobs
 // ---------------------------------------------------------------------------
-
-void PocketVoiceSynthesisProvider::setLsdSteps(int steps) {
-    auto p = _impl->getParams();
-    p.lsdSteps = std::max(1, std::min(steps, 10));
-    _impl->setParams(p);
-}
-
-int PocketVoiceSynthesisProvider::getLsdSteps() const {
-    return _impl->getParams().lsdSteps;
-}
-
-void PocketVoiceSynthesisProvider::setSilenceDuration(float seconds) {
-    auto p = _impl->getParams();
-    p.silenceDuration = std::max(0.0f, seconds);
-    _impl->setParams(p);
-}
-
-float PocketVoiceSynthesisProvider::getSilenceDuration() const {
-    return _impl->getParams().silenceDuration;
-}
-
-void PocketVoiceSynthesisProvider::setDecoderBatchFrames(int frames) {
-    auto p = _impl->getParams();
-    p.decoderBatchFrames = std::max(1, frames);
-    _impl->setParams(p);
-}
-
-int PocketVoiceSynthesisProvider::getDecoderBatchFrames() const {
-    return _impl->getParams().decoderBatchFrames;
-}
 
 bool PocketVoiceSynthesisProvider::setVoice(const std::string& voiceName) {
     auto names = _impl->getVoiceNames();
@@ -124,3 +100,5 @@ bool PocketVoiceSynthesisProvider::synthesizeOne(const std::string& text) {
 /*static*/ std::string PocketVoiceSynthesisProvider::normalizeText(const std::string& text) {
     return PocketTTSImpl::normalizeText(text);
 }
+
+} // namespace va::thirdparty::tts

@@ -13,6 +13,8 @@
 #include <string>
 #include <vector>
 
+namespace va::thirdparty::tts {
+
 /**
  * @brief PIMPL wrapper for MOSS-TTS-Nano ONNX inference.
  *
@@ -184,3 +186,5 @@ private:
 };
 
 #endif // MOSS_TTS_IMPL_HPP
+
+} // namespace va::thirdparty::tts

@@ -1,4 +1,5 @@
 #include "SonioxppTranscriptionProvider.h"
+#include <utility>
 
 #include <sonioxpp/api_constants.hpp>
 #include <sonioxpp/stt_client.hpp>
@@ -146,10 +147,11 @@ std::vector<soniox::Token> parseTokensFromMessage(
 } // namespace
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::stt {
 
-SonioxppTranscriptionProvider::SonioxppTranscriptionProvider(const std::string& apiKey, const std::string& caFilePath)
-    : _apiKey(apiKey), _caFilePath(caFilePath)
+SonioxppTranscriptionProvider::SonioxppTranscriptionProvider(SonioxppTranscriptionOptions options)
+    : _apiKey(std::move(options.apiKey)),
+      _caFilePath(std::move(options.caBundlePath))
 {
 }
 
@@ -341,7 +343,7 @@ va::audio::TranscriptionResult SonioxppTranscriptionProvider::writeFullAudioData
         client.connect(cfg);
 
         std::thread sender([&client, audioBytes, audioSize]() {
-            static constexpr size_t kChunkBytes = 4096;
+            constexpr size_t kChunkBytes = 4096;
 
             for (size_t offset = 0; offset < audioSize; offset += kChunkBytes) {
                 const size_t chunkSize = std::min(kChunkBytes, audioSize - offset);
@@ -595,5 +597,5 @@ va::audio::TranscriptionResult SonioxppTranscriptionProvider::buildResultFromTok
     return result;
 }
 
-} // namespace thirdparty
+} // namespace thirdparty::stt
 } // namespace va

@@ -23,15 +23,29 @@ It shows what an app gets from VASDK when it's written in Python:
 
 ## Running it
 
-VASDK must be built as a shared library (the default on Windows; elsewhere `-DBUILD_SHARED_LIBS=ON`), which also builds `vasdk_providers`, the speech providers for Python, and VASDK's messages for Python. CMake downloads the speech models into `build/VASDK_3P_IMPL/models`. The binding needs `pip install protobuf`.
+VASDK must be built as a shared library (the default on Windows; elsewhere `-DBUILD_SHARED_LIBS=ON`), which also builds `vasdk_providers`, the speech providers for Python, and VASDK's messages for Python. CMake downloads the speech models into `build/VASDK_3P_IMPL/models`.
+
+The Python packages are listed twice, once for each tool: [`pyproject.toml`](../../VASDK_PYTHON_APP/pyproject.toml) and its `uv.lock` for uv, [`requirements.txt`](../../VASDK_PYTHON_APP/requirements.txt) for pip. Both install the binding from `bindings/python` (editable, so it finds the build tree), which brings `protobuf`; voice mode adds `sounddevice`. The other modes run without it.
+
+| Package | Needed for | License |
+| --- | --- | --- |
+| `vasdk` (`bindings/python`) | everything | Apache 2.0 |
+| `protobuf` >= 5.29.5 | everything: VASDK's messages | BSD 3-Clause |
+| `sounddevice` >= 0.4 (PortAudio) | voice mode: the microphone and speaker | MIT |
+
+```bash
+uv sync --project VASDK_PYTHON_APP --extra voice           # or: pip install -r VASDK_PYTHON_APP/requirements.txt
+uv run --project VASDK_PYTHON_APP VASDK_PYTHON_APP/app.py --text   # or: python VASDK_PYTHON_APP/app.py --text
+```
 
 ```bash
 python VASDK_PYTHON_APP/app.py --text      # the agent alone, by text: no models, no audio, no LLM
 python VASDK_PYTHON_APP/app.py --type      # type to it; it answers aloud, with the LLM
 python VASDK_PYTHON_APP/app.py --demo      # a scripted cook talks to it: the whole spoken loop, no microphone
-pip install sounddevice
-python VASDK_PYTHON_APP/app.py             # talk to it: the microphone and speaker
+python VASDK_PYTHON_APP/app.py             # talk to it: the microphone and speaker (sounddevice)
 ```
+
+With uv, either run these through `uv run --project VASDK_PYTHON_APP`, or first activate `VASDK_PYTHON_APP/.venv`.
 
 From the source tree, the app finds the binding beside it, VASDK in `build/VASDK`, and the providers in `build/VASDK_3P_IMPL/ProviderCatalog`; `VASDK_LIBRARY`, `VASDK_PROVIDERS_LIBRARY` and `--models` point elsewhere. The voice engine prints its loading lines on stderr (`2>/dev/null` hides them).
 
@@ -143,6 +157,13 @@ kitchen: A cup of flour is about 127 grams.
 "heard" is what the speech recognizer heard. With `sounddevice` installed, both voices play.
 
 ## Testing
+
+`ctest` runs the Python tests with the interpreter CMake found. If that interpreter has no `protobuf`, configure warns and the tests fail. Give CMake the app's environment instead:
+
+```bash
+uv sync --project VASDK_PYTHON_APP
+cmake -B build -S . -DPython3_EXECUTABLE=$PWD/VASDK_PYTHON_APP/.venv/bin/python   # Windows: .venv/Scripts/python.exe
+```
 
 ```bash
 ctest -R vasdk_python                                      # with VASDK built as a shared library

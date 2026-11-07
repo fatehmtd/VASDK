@@ -6,14 +6,14 @@
 #include <cstring>
 
 namespace va {
-    namespace thirdparty {
+    namespace thirdparty::audio {
 
         // 
         // Lifecycle
         // 
 
-        VizAnimProvider::VizAnimProvider(int fftSize)
-            : _impl(nullptr), _fftSize(fftSize)
+        VizAnimProvider::VizAnimProvider(VizAnimOptions options)
+            : _impl(nullptr), _fftSize(options.fftSize)
         {
         }
 
@@ -47,7 +47,11 @@ namespace va {
         size_t VizAnimProvider::processAudio(const char* input, char* output,
             size_t numSamples)
         {
-            return 0;
+            // Pass-through: the features come from computeFeatures(), so the audio is left as it is.
+            if (input == nullptr || output == nullptr) return 0;
+            const size_t bytes = numSamples * static_cast<size_t>(_config.getSampleSizeInBytes());
+            if (output != input) std::memmove(output, input, bytes);
+            return numSamples;
         }
 
         std::vector<VizAnimProvider::Features> VizAnimProvider::computeFeatures(const char* input, int numSamples) const
@@ -106,5 +110,5 @@ namespace va {
             return features;
         }
 
-    } // namespace thirdparty
+    } // namespace thirdparty::audio
 } // namespace va

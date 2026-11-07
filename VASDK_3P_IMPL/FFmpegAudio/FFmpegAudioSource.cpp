@@ -1,4 +1,5 @@
 #include "FFmpegAudioSource.h"
+#include <utility>
 
 #include <spdlog/spdlog.h>
 
@@ -15,6 +16,8 @@ extern "C" {
 }
 
 //  Helpers 
+
+namespace va::thirdparty::audio {
 
 namespace {
 
@@ -33,8 +36,8 @@ AVSampleFormat toAVSampleFormat(va::audio::AudioFormat fmt) {
 
 //  Lifecycle 
 
-FFmpegAudioSource::FFmpegAudioSource(const std::string& filePath)
-    : filePath_(filePath)
+FFmpegAudioSource::FFmpegAudioSource(FFmpegAudioSourceOptions options)
+    : filePath_(std::move(options.filePath))
 {}
 
 FFmpegAudioSource::~FFmpegAudioSource() {
@@ -365,3 +368,5 @@ bool FFmpegAudioSource::resampleIntoStaging() {
     stagingBuf_.resize(writeStart + static_cast<size_t>(samplesConverted) * bytesPerSample);
     return true;
 }
+
+} // namespace va::thirdparty::audio

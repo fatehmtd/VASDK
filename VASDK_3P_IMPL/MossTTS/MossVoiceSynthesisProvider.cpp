@@ -6,15 +6,23 @@
 
 #include <algorithm>
 
+namespace va::thirdparty::tts {
+
 // ---------------------------------------------------------------------------
 // Constructor / Destructor
 // ---------------------------------------------------------------------------
 
-MossVoiceSynthesisProvider::MossVoiceSynthesisProvider(
-    const std::string& modelDir, const std::string& voiceName, int numThreads)
+MossVoiceSynthesisProvider::MossVoiceSynthesisProvider(MossVoiceSynthesisOptions options)
     : QueuedVoiceSynthesisProvider("MossTTS", Delivery::Thread),
-      _impl(std::make_shared<MossTTSImpl>(modelDir, voiceName, numThreads))
+      _impl(std::make_shared<MossTTSImpl>(options.modelDir, options.voice, options.threads))
 {
+    auto params = _impl->getParams();
+    params.silenceDuration = std::max(0.0f, options.silenceDurationSeconds);
+    params.maxNewFrames    = std::max(0, options.maxNewFrames);
+    params.maxChunkTokens  = std::max(1, options.maxChunkTokens);
+    params.normalizeText   = options.textNormalization;
+    _impl->setParams(params);
+    setPreBufferedSamplesMS(std::max(0, options.prebufferMs));
 }
 
 MossVoiceSynthesisProvider::~MossVoiceSynthesisProvider() {
@@ -52,46 +60,6 @@ std::string MossVoiceSynthesisProvider::getVoice() const {
 
 std::vector<std::string> MossVoiceSynthesisProvider::getAvailableVoices() const {
     return _impl->getVoiceNames();
-}
-
-void MossVoiceSynthesisProvider::setSilenceDuration(float seconds) {
-    auto p = _impl->getParams();
-    p.silenceDuration = std::max(0.0f, seconds);
-    _impl->setParams(p);
-}
-
-float MossVoiceSynthesisProvider::getSilenceDuration() const {
-    return _impl->getParams().silenceDuration;
-}
-
-void MossVoiceSynthesisProvider::setMaxNewFrames(int frames) {
-    auto p = _impl->getParams();
-    p.maxNewFrames = std::max(0, frames);
-    _impl->setParams(p);
-}
-
-int MossVoiceSynthesisProvider::getMaxNewFrames() const {
-    return _impl->getParams().maxNewFrames;
-}
-
-void MossVoiceSynthesisProvider::setMaxChunkTokens(int tokens) {
-    auto p = _impl->getParams();
-    p.maxChunkTokens = std::max(1, tokens);
-    _impl->setParams(p);
-}
-
-int MossVoiceSynthesisProvider::getMaxChunkTokens() const {
-    return _impl->getParams().maxChunkTokens;
-}
-
-void MossVoiceSynthesisProvider::setTextNormalization(bool enabled) {
-    auto p = _impl->getParams();
-    p.normalizeText = enabled;
-    _impl->setParams(p);
-}
-
-bool MossVoiceSynthesisProvider::getTextNormalization() const {
-    return _impl->getParams().normalizeText;
 }
 
 // ---------------------------------------------------------------------------
@@ -136,3 +104,5 @@ bool MossVoiceSynthesisProvider::synthesizeOne(const std::string& text) {
     }
     return finishHandoff();
 }
+
+} // namespace va::thirdparty::tts

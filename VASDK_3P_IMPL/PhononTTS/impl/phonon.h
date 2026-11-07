@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-namespace gradium::tts {
+namespace va::thirdparty::tts::phonon {
 
     namespace text { class Tokenizer; }
 
@@ -171,4 +171,4 @@ namespace gradium::tts {
         std::unique_ptr<PhononTTSImpl> _ttsImpl;
     };
 
-} // namespace gradium::tts
+} // namespace va::thirdparty::tts::phonon

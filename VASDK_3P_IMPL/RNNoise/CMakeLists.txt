@@ -1,8 +1,6 @@
 add_library(vasdk_rnnoise ${VASDK_THIRDPARTY_LIB_TYPE}
     RNNoiseDSPProvider.h
     RNNoiseDSPProvider.cpp
-    RNNoiseProcessor.h
-    RNNoiseProcessor.cpp
 )
 
 include(GenerateExportHeader)
@@ -29,10 +27,17 @@ install(TARGETS vasdk_rnnoise
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 
-install(FILES RNNoiseDSPProvider.h RNNoiseProcessor.h
+install(FILES RNNoiseDSPProvider.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/RNNoise
 )
 
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/vasdk_rnnoise_export.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/RNNoise
 )
+
+if(VASDK_BUILD_TESTS)
+    add_executable(vasdk_rnnoise_test tests/rnnoise_test.cpp)
+    target_link_libraries(vasdk_rnnoise_test PRIVATE vasdk_rnnoise)
+    vasdk_test_dlls(vasdk_rnnoise_test)
+    add_test(NAME vasdk_rnnoise COMMAND vasdk_rnnoise_test)
+endif()

@@ -2,8 +2,7 @@
 #include <VASDK/GenericAudioSink.h>
 #include <memory>
 
-namespace va {
-namespace miniaudio {
+namespace va::thirdparty::audio {
 
 /**
  * @brief The MiniAudioSink class
@@ -39,5 +38,4 @@ private:
     std::unique_ptr<Impl> _impl;
 };
 
-} // namespace miniaudio
-} // namespace va
+} // namespace va::thirdparty::audio

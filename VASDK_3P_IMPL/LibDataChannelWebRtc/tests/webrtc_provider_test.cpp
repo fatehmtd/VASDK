@@ -29,7 +29,7 @@ void check(bool ok, const char* what) {
 }
 
 void reorderTests() {
-    using va::webrtc::RtpReorderBuffer;
+    using va::thirdparty::transport::RtpReorderBuffer;
     auto run = [](std::vector<uint16_t> seqs, std::vector<uint16_t>& out, int& lost) {
         RtpReorderBuffer buf(3);
         for (uint16_t s : seqs)
@@ -63,7 +63,7 @@ void reorderTests() {
 }
 
 void rtpPayloadTests() {
-    using va::webrtc::rtpPayloadRange;
+    using va::thirdparty::transport::rtpPayloadRange;
     auto range = [](std::vector<int> bytes, size_t& b, size_t& e) {
         std::vector<std::byte> v;
         for (int x : bytes) v.push_back(std::byte(x));
@@ -106,7 +106,7 @@ double rms(const std::vector<int16_t>& v, size_t from) {
 }
 
 void loopbackTest() {
-    va::webrtc::LibDataChannelWebRtcProvider provider(std::vector<std::string>{});  // host candidates only
+    va::thirdparty::transport::LibDataChannelWebRtcProvider provider(va::thirdparty::transport::LibDataChannelWebRtcOptions{{}});  // host candidates only
     std::mutex m;
     std::vector<int16_t> received;
     std::atomic<int> connects{0};

@@ -6,6 +6,9 @@
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <utility>
+
+namespace va::thirdparty::stt {
 
 namespace {
 
@@ -37,11 +40,10 @@ int64_t secondsToMs(double s)
 // Construction / destruction
 // ---------------------------------------------------------------------------
 
-WhistleTranscriptionProvider::WhistleTranscriptionProvider(const std::string& modelPath,
-                                                           const std::string& enginePath)
-    : _modelPath(resolveModelPath(modelPath))
-    , _enginePath(enginePath)
+WhistleTranscriptionProvider::WhistleTranscriptionProvider(WhistleTranscriptionOptions options)
+    : _options(std::move(options))
 {
+    _options.modelPath = resolveModelPath(_options.modelPath);
 }
 
 WhistleTranscriptionProvider::~WhistleTranscriptionProvider()
@@ -60,12 +62,12 @@ bool WhistleTranscriptionProvider::initializeTranscriptionProvider()
         spdlog::warn("[WhistleSTT] Already initialized");
         return true;
     }
-    if (!NeedleEngine::instance().load(_modelPath, _enginePath)) {
-        spdlog::error("[WhistleSTT] Failed to load model from '{}'", _modelPath);
+    if (!NeedleEngine::instance().load(_options.modelPath, _options.enginePath)) {
+        spdlog::error("[WhistleSTT] Failed to load model from '{}'", _options.modelPath);
         return false;
     }
     _initialized = true;
-    spdlog::info("[WhistleSTT] Initialized with model '{}'", _modelPath);
+    spdlog::info("[WhistleSTT] Initialized with model '{}'", _options.modelPath);
     return true;
 }
 
@@ -190,19 +192,6 @@ va::audio::AudioConfig WhistleTranscriptionProvider::getAudioConfiguration() con
     return _audioConfig;
 }
 
-void WhistleTranscriptionProvider::setInferenceConfig(const InferenceConfig& config)
-{
-    std::lock_guard<std::mutex> lock(_mtx);
-    _inferenceConfig = config;
-}
-
-WhistleTranscriptionProvider::InferenceConfig
-WhistleTranscriptionProvider::getInferenceConfig() const
-{
-    std::lock_guard<std::mutex> lock(_mtx);
-    return _inferenceConfig;
-}
-
 void WhistleTranscriptionProvider::setContextHints(const std::vector<std::string>& phrases)
 {
     std::lock_guard<std::mutex> lock(_mtx);
@@ -262,7 +251,7 @@ WhistleTranscriptionProvider::runInference(const std::vector<float>& audio)
     va::audio::TranscriptionResult result;
     if (audio.empty()) return result;
 
-    InferenceConfig config = getInferenceConfig();
+    const WhistleTranscriptionOptions& config = _options;  // fixed after construction
     std::vector<std::string> hints;
     {
         std::lock_guard<std::mutex> lock(_mtx);
@@ -363,7 +352,7 @@ void WhistleTranscriptionProvider::inferenceLoop()
             auto partialMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                                  now - lastPartialTime).count();
 
-            if (_endOfSpeech || idleMs >= _inferenceConfig.idleTimeoutMs) {
+            if (_endOfSpeech || idleMs >= _options.idleTimeoutMs) {
                 audio = std::move(_buffer);
                 _buffer.clear();
                 // Audio written after commitEndOfSpeech belongs to the next utterance's
@@ -374,11 +363,11 @@ void WhistleTranscriptionProvider::inferenceLoop()
                 _endOfSpeech  = false;
                 _bufferSizeAtEndOfSpeech = 0;
                 doFinal       = true;
-                minGrowth     = _inferenceConfig.minNewSamplesForFinal;
-            } else if (partialMs >= _inferenceConfig.partialIntervalMs) {
+                minGrowth     = _options.minNewSamplesForFinal;
+            } else if (partialMs >= _options.partialIntervalMs) {
                 audio     = _buffer; // copy, do not drain
                 doPartial = true;
-                minGrowth = _inferenceConfig.minNewSamplesForPartial;
+                minGrowth = _options.minNewSamplesForPartial;
             }
         }
 
@@ -412,3 +401,5 @@ void WhistleTranscriptionProvider::inferenceLoop()
         }
     }
 }
+
+} // namespace va::thirdparty::stt

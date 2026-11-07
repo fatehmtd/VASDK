@@ -1,4 +1,5 @@
 #include "SmartTurnV3Provider.h"
+#include <utility>
 #include "SmartTurnV3Impl.h"
 #include <VASDK/Frame.h>
 #include <VASDK/profiling/CTrack.h>
@@ -7,23 +8,18 @@
 #include <limits>
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::turn {
 
-SmartTurnV3Provider::SmartTurnV3Provider(const std::string& modelPath,
-    float threshold,
-    float maxAudioDurationSec,
-    int numPostAudioFrames,
-    int nFFT,
-    int hopLength,
-    int nMels) : _modelPath(modelPath),
-                 _nFFT(nFFT),
-                 _hopLength(hopLength),
-                 _nMels(nMels),
-                 _maxAudioDurationSec(maxAudioDurationSec),
-                 _numPostAudioFrames(numPostAudioFrames),
-                 _threshold(threshold)
+SmartTurnV3Provider::SmartTurnV3Provider(SmartTurnV3Options options)
+    : _threshold(options.threshold),
+      _maxAudioDurationSec(options.maxAudioDurationSeconds),
+      _numPostAudioFrames(options.postAudioFrames),
+      _nFFT(whisper::N_FFT),
+      _hopLength(whisper::HOP_LENGTH),
+      _nMels(whisper::N_MELS),
+      _modelPath(std::move(options.modelPath))
 {
-
+    setEvaluateOnPause(options.evaluateOnPause);
 }
 
 SmartTurnV3Provider::~SmartTurnV3Provider() = default;
@@ -50,40 +46,40 @@ bool SmartTurnV3Provider::initialize(const va::audio::AudioConfig& audioConfig,
     return true;
 }
 
-audio::TurnDetectionProvider::TurnEvaluation SmartTurnV3Provider::evaluate(
-    const std::shared_ptr<transport::Frame> frame,
+va::audio::TurnDetectionProvider::TurnEvaluation SmartTurnV3Provider::evaluate(
+    const std::shared_ptr<va::transport::Frame> frame,
     bool agentIsSpeaking)
 {
     VASDK_CTRACK_NAME("SmartTurnV3::evaluate");
-    if (frame->getType() == transport::FrameType::VAD_STATE) {
-        auto vadFrame = std::static_pointer_cast<transport::VADStateFrame>(frame);
+    if (frame->getType() == va::transport::FrameType::VAD_STATE) {
+        auto vadFrame = std::static_pointer_cast<va::transport::VADStateFrame>(frame);
         return handleVADStateFrame(vadFrame, agentIsSpeaking);
     }
-    if (frame->getType() == transport::FrameType::AUDIO) {
-        auto audioFrame = std::static_pointer_cast<transport::AudioFrame>(frame);
+    if (frame->getType() == va::transport::FrameType::AUDIO) {
+        auto audioFrame = std::static_pointer_cast<va::transport::AudioFrame>(frame);
         return handleAudioFrame(audioFrame);
     }
     return {};
 }
 
-audio::TurnDetectionProvider::TurnEvaluation SmartTurnV3Provider::handleVADStateFrame(
-    const std::shared_ptr<transport::VADStateFrame>& frame,
+va::audio::TurnDetectionProvider::TurnEvaluation SmartTurnV3Provider::handleVADStateFrame(
+    const std::shared_ptr<va::transport::VADStateFrame>& frame,
     bool agentIsSpeaking)
 {
-    _paused = frame->state == transport::VADState::PAUSED || frame->state == transport::VADState::ENDING;
-    if (frame->state == transport::VADState::STARTING) {
+    _paused = frame->state == va::transport::VADState::PAUSED || frame->state == va::transport::VADState::ENDING;
+    if (frame->state == va::transport::VADState::STARTING) {
         _vadActive = true;
         _vadStartOffset = frame->speechStartOffset;
         _postAudioFramesProcessed = 0;
         _vadOccured = true;
 
         auto type = agentIsSpeaking
-            ? transport::TurnStateFrame::TurnType::INTERRUPT
-            : transport::TurnStateFrame::TurnType::NORMAL;
+            ? va::transport::TurnStateFrame::TurnType::INTERRUPT
+            : va::transport::TurnStateFrame::TurnType::NORMAL;
 
         return { Decision::TURN_START, frame->confidence,
-                 transport::TurnStateFrame::TurnActor::USER, type };
-    } else if (frame->state == transport::VADState::ENDED) {
+                 va::transport::TurnStateFrame::TurnActor::USER, type };
+    } else if (frame->state == va::transport::VADState::ENDED) {
         _vadActive = false;
         _vadEndOffset = frame->speechEndOffset;
     }
@@ -91,8 +87,8 @@ audio::TurnDetectionProvider::TurnEvaluation SmartTurnV3Provider::handleVADState
     return {};
 }
 
-audio::TurnDetectionProvider::TurnEvaluation SmartTurnV3Provider::handleAudioFrame(
-    const std::shared_ptr<transport::AudioFrame>& frame)
+va::audio::TurnDetectionProvider::TurnEvaluation SmartTurnV3Provider::handleAudioFrame(
+    const std::shared_ptr<va::transport::AudioFrame>& frame)
 {
     // Run inference in the post-VAD window (after ENDED, before limit), or during a pause if enabled.
     if (!_vadOccured) return {};
@@ -137,8 +133,8 @@ audio::TurnDetectionProvider::TurnEvaluation SmartTurnV3Provider::handleAudioFra
         _vadOccured = false;
         _paused = false;
         return { Decision::TURN_END, turnProbability,
-                 transport::TurnStateFrame::TurnActor::USER,
-                 transport::TurnStateFrame::TurnType::NORMAL };
+                 va::transport::TurnStateFrame::TurnActor::USER,
+                 va::transport::TurnStateFrame::TurnType::NORMAL };
     }
 
     return {};
@@ -181,5 +177,5 @@ void SmartTurnV3Provider::convertAudioToFloat(const char* audioData,
     }
 }
 
-} // namespace thirdparty
+} // namespace thirdparty::turn
 } // namespace va

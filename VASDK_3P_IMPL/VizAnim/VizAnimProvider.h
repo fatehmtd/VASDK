@@ -9,7 +9,13 @@
 #include "vasdk_vizanim_export.h"
 
 namespace va {
-    namespace thirdparty {
+    namespace thirdparty::audio {
+
+        /** Settings of VizAnimProvider; every field has a default. */
+        struct VizAnimOptions {
+            /** FFT length for feature extraction, a power of 2. */
+            int fftSize = 2048;
+        };
 
         /**
          * @brief VizAnimProvider extracts rich audio features for live animation/visualization.
@@ -26,7 +32,7 @@ namespace va {
             // the number of chroma bins in the chromagram feature
             static constexpr int NUM_CHROMA = 12;
 
-            // fft size for feature extraction (must be a power of 2, typically 2048)
+            // the default FFT length (VizAnimOptions::fftSize): the window callers feed the provider
             static constexpr int FFT_SIZE = 2048;
 
             /**
@@ -45,7 +51,7 @@ namespace va {
                 std::array<float, NUM_CHROMA> chroma;
             };
 
-            VizAnimProvider(int fftSize = FFT_SIZE);
+            explicit VizAnimProvider(VizAnimOptions options = {});
             ~VizAnimProvider() override;
 
             // Non-copyable
@@ -64,10 +70,9 @@ namespace va {
             void release() override;
 
             /**
-             * @brief Pass audio through unchanged and update features as a side-effect.
+             * @brief Pass audio through unchanged (copied when output differs from input).
              *
-             * Features are recomputed whenever at least one full analysis window
-             * (2048 samples) has been accumulated since the last extraction.
+             * Features don't come from here: call computeFeatures() on the audio to animate.
              */
             size_t processAudio(const char* input, char* output,
                                 size_t numSamples) override;
@@ -90,7 +95,7 @@ namespace va {
             mutable std::vector<float>  _convertBuf;  ///< scratch for int16→float conversion
         };
 
-    } // namespace thirdparty
+    } // namespace thirdparty::audio
 } // namespace va
 
 #endif // VIZANIM_PROVIDER_H

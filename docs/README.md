@@ -14,11 +14,13 @@ Start here and pick your path.
 | **Implementing a provider** (new STT/TTS/VAD/LLM backend) | [Provider interfaces](reference/providers.md), especially the checklist at the end. |
 | **Extending the core** (new processor, transport, frame type) | [Processors](reference/processors.md), [Transports](reference/transports.md), [Frames](reference/frames.md) - each ends with an extension guide. |
 | **Doing compliance / legal review** | [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md). |
+| **Working with an AI coding agent** (or wanting the checklists one would follow) | [AGENTS.md](../AGENTS.md): build commands, house rules, the definition of done, and the [skills](../skills/README.md), one per stage (VAD, STT, TTS, turn detection, wake word, LLM, NLU, audio, speaker id, transports) plus providers, core components, agents, apps and bindings. |
 
 ## Setup
 
 - **[Building VASDK](building.md)** - prerequisites, build options, model files, air-gapped builds.
 - **[Providers](provider-catalog.md)** - every implementation, how the apps choose between them, per-provider options, sources and licenses.
+- **[Provider pages](providers/README.md)** - one page per integration: platforms, options and defaults, models and licenses, usage, a flow diagram, tests.
 
 ## Core concepts (reference)
 
@@ -71,6 +73,7 @@ VASDK_ANDROID/         Android app + JNI bindings around the core library
 VASDK_PYTHON_APP/      Kitchen assistant in Python, on the Python binding
 VASDK/languages/       The built-in language pack (en-US): copy it to write another language
 bindings/python/       The Python binding (the C API, over ctypes)
+skills/                Task skills for coding agents and contributors (index: AGENTS.md)
 docs/apps/             The example apps' guides
 docs/examples/         Worked examples (pipelines, tools, goals, testing)
 prometheus/, grafana/  docker-compose stack for local metrics visualization

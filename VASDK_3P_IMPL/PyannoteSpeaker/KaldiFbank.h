@@ -10,7 +10,7 @@
 #include <pffft/pffft.h>
 
 namespace va {
-    namespace thirdparty {
+    namespace thirdparty::speaker {
 
         /**
          * @brief Log-mel filterbank matching torchaudio.compliance.kaldi.fbank as called by
@@ -118,7 +118,7 @@ namespace va {
             std::vector<double> _melBanks;  // [kNumBins x kFftSize/2], row-major
         };
 
-    } // namespace thirdparty
+    } // namespace thirdparty::speaker
 } // namespace va
 
 #endif

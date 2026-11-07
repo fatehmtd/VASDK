@@ -81,10 +81,14 @@ int main(int argc, char** argv) {
     cfg.format     = va::audio::AudioFormat::SHORT;
 
     Collector collector;
-    SupertonicVoiceSynthesisProvider tts(onnxDir.string(), stylePath.string(), lang);
+    va::thirdparty::tts::SupertonicVoiceSynthesisOptions options;
+    options.onnxDir        = onnxDir.string();
+    options.voiceStylePath = stylePath.string();
+    options.language       = lang;
+    if (steps > 0) options.totalSteps = steps;
+    va::thirdparty::tts::SupertonicVoiceSynthesisProvider tts(options);
     tts.setAudioConfiguration(cfg);
     tts.setVoiceSynthesisResultListener(&collector);
-    if (steps > 0) tts.setTotalSteps(steps);
     if (!tts.startVoiceSynthesisProvider()) {
         std::fprintf(stderr, "failed to start provider\n");
         return 1;
@@ -115,7 +119,7 @@ int main(int argc, char** argv) {
 
     writeWav(outPath, collector.samples, kRate);
     std::printf("lang=%s steps=%d audio=%.2fs elapsed=%.2fs RTF=%.2f first-audio=%.2fs rms=%.4f peak=%d -> %s\n",
-                lang.c_str(), tts.getTotalSteps(), seconds, elapsed, seconds > 0 ? elapsed / seconds : 0.0, ttfa,
+                lang.c_str(), options.totalSteps, seconds, elapsed, seconds > 0 ? elapsed / seconds : 0.0, ttfa,
                 rms, peak, outPath.c_str());
 
     // Plausibility: speech-length audio that is not silent and not clipped flat.

@@ -1,18 +1,16 @@
 #include "GradiumppVoiceSynthesisProvider.h"
+#include <utility>
 
 #include <cppcodec/base64_rfc4648.hpp>
 #include <spdlog/spdlog.h>
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::tts {
 
-GradiumppVoiceSynthesisProvider::GradiumppVoiceSynthesisProvider(
-    const std::string& apiKey,
-    const std::string& voiceId,
-    const std::string& model)
-    : _apiKey(apiKey),
-      _voiceId(voiceId),
-      _model(model)
+GradiumppVoiceSynthesisProvider::GradiumppVoiceSynthesisProvider(GradiumppVoiceSynthesisOptions options)
+    : _apiKey(std::move(options.apiKey)),
+      _voiceId(std::move(options.voiceId)),
+      _model(std::move(options.model))
 {
 }
 
@@ -253,5 +251,5 @@ void GradiumppVoiceSynthesisProvider::connectCallbacks()
     });
 }
 
-} // namespace thirdparty
+} // namespace thirdparty::tts
 } // namespace va

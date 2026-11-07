@@ -1,4 +1,5 @@
 #include "PyannoteEmbeddingProvider.h"
+#include <utility>
 #include "KaldiFbank.h"
 #include <onnxruntime_cxx_api.h>
 #ifdef VASDK_USE_NNAPI
@@ -8,7 +9,7 @@
 #include <array>
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::speaker {
 
 struct PyannoteEmbeddingProvider::Impl {
     Ort::Env env{ ORT_LOGGING_LEVEL_WARNING, "PyannoteEmbedding" };
@@ -17,7 +18,8 @@ struct PyannoteEmbeddingProvider::Impl {
     KaldiFbank fbank;
 };
 
-PyannoteEmbeddingProvider::PyannoteEmbeddingProvider(const std::string& modelPath) : _modelPath(modelPath)
+PyannoteEmbeddingProvider::PyannoteEmbeddingProvider(PyannoteEmbeddingOptions options)
+    : _modelPath(std::move(options.modelPath))
 {
 }
 
@@ -105,5 +107,5 @@ std::vector<float> PyannoteEmbeddingProvider::computeEmbedding(const float* samp
     }
 }
 
-} // namespace thirdparty
+} // namespace thirdparty::speaker
 } // namespace va

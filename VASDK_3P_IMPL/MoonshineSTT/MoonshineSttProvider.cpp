@@ -5,14 +5,13 @@
 #include <algorithm>
 #include <utility>
 
+namespace va::thirdparty::stt {
+
 // ---------------------------------------------------------------------------
 // MoonshineSttProvider
 // ---------------------------------------------------------------------------
 
-MoonshineSttProvider::MoonshineSttProvider(const std::string& modelDir)
-    : _modelDir(modelDir)
-{
-}
+MoonshineSttProvider::MoonshineSttProvider(MoonshineSttOptions options) : _options(std::move(options)) {}
 
 MoonshineSttProvider::~MoonshineSttProvider()
 {
@@ -29,7 +28,7 @@ bool MoonshineSttProvider::initializeTranscriptionProvider()
 
     try {
         _impl = std::make_unique<MoonshineSttProviderImpl>();
-        if (!_impl->initialize(_modelDir)) {
+        if (!_impl->initialize(_options.modelDir)) {
             _impl.reset();
             return false;
         }
@@ -41,7 +40,7 @@ bool MoonshineSttProvider::initializeTranscriptionProvider()
         return false;
     }
 
-    spdlog::info("[MoonshineStt] Initialized from {}", _modelDir);
+    spdlog::info("[MoonshineStt] Initialized from {}", _options.modelDir);
     return true;
 }
 
@@ -166,17 +165,6 @@ va::audio::AudioConfig MoonshineSttProvider::getAudioConfiguration() const
     return _audioConfig;
 }
 
-void MoonshineSttProvider::setInferenceConfig(const InferenceConfig& config)
-{
-    std::lock_guard<std::mutex> lock(_mtx);
-    _inferenceConfig = config;
-}
-
-MoonshineSttProvider::InferenceConfig MoonshineSttProvider::getInferenceConfig() const
-{
-    return _inferenceConfig;
-}
-
 void MoonshineSttProvider::clearAudioBuffer()
 {
     {
@@ -222,10 +210,9 @@ void MoonshineSttProvider::inferenceLoop()
 
     while (_running) {
         bool finalize = false, reset = false, idle = false;
-        InferenceConfig cfg;
+        const MoonshineSttOptions& cfg = _options;
         {
             std::unique_lock<std::mutex> lock(_mtx);
-            cfg = _inferenceConfig;
             _cv.wait_for(lock, std::chrono::milliseconds(std::min(cfg.idleTimeoutMs, cfg.partialIntervalMs)),
                          [this] { return !_running || !_incoming.empty() || _endOfSpeech || _resetRequested; });
             if (!_running) break;
@@ -266,3 +253,5 @@ void MoonshineSttProvider::inferenceLoop()
         }
     }
 }
+
+} // namespace va::thirdparty::stt

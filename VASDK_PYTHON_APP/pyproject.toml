@@ -1,0 +1,24 @@
+# The kitchen assistant's Python environment, for uv (an app, not a package to install):
+#
+#   uv run --project VASDK_PYTHON_APP VASDK_PYTHON_APP/app.py --text                 # by text
+#   uv run --project VASDK_PYTHON_APP --extra voice VASDK_PYTHON_APP/app.py          # talk to it
+#
+# pip users: requirements.txt holds the same list. Either way VASDK itself comes from a shared
+# build (docs/apps/python.md): the binding finds it in ./build, or set VASDK_LIBRARY.
+[project]
+name = "vasdk-kitchen"
+version = "1.0.0"
+description = "A kitchen assistant in Python on VASDK's Python binding"
+requires-python = ">=3.8"
+license = { text = "Apache-2.0" }
+dependencies = ["vasdk"]   # the binding, from bindings/python; it brings protobuf
+
+[project.optional-dependencies]
+voice = ["sounddevice>=0.4"]   # the microphone and speaker; only voice mode needs them
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+# Editable, so the binding finds the source tree's build (build/VASDK, build/bindings/python).
+vasdk = { path = "../bindings/python", editable = true }

@@ -7,23 +7,33 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <utility>
+
+namespace va::thirdparty::audio {
 
 // 
 // RNNoise constants
 // 
 
-static constexpr int   RNNOISE_RATE = 48000;
-static constexpr int   RNNOISE_FRAME_SIZE = 480;   // 10 ms at 48 kHz
+namespace {
+
+constexpr int   RNNOISE_RATE = 48000;
+constexpr int   RNNOISE_FRAME_SIZE = 480;   // 10 ms at 48 kHz
 
 // RNNoise API uses floats in the range ±32768 (not normalised ±1).
-static constexpr float RNNOISE_SCALE = 32768.0f;
+constexpr float RNNOISE_SCALE = 32768.0f;
+
+} // namespace
 
 // 
 // Construction / destruction
 // 
 
-RNNoiseDSPProvider::RNNoiseDSPProvider(const std::string& modelPath)
-    : modelPath_(modelPath)
+RNNoiseDSPProvider::RNNoiseDSPProvider(RNNoiseDSPOptions options)
+    : modelPath_(std::move(options.modelPath))
+    , vadThreshold_(options.vadThreshold)
+    , normalizeOutput_(options.normalizeOutput)
+    , normalizationMultiplier_(options.normalizationMultiplier)
 {
 }
 
@@ -278,3 +288,5 @@ size_t RNNoiseDSPProvider::processAudio(const char* input, char* output,
 
     return numSamples;
 }
+
+} // namespace va::thirdparty::audio

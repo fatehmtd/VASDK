@@ -12,6 +12,8 @@
 #include <stdexcept>
 #include <string_view>
 
+namespace va::thirdparty::tts {
+
 namespace fs = std::filesystem;
 
 // ---------------------------------------------------------------------------
@@ -21,38 +23,40 @@ namespace fs = std::filesystem;
 using moss::text::detail::toU32;
 using moss::text::detail::toUtf8;
 
-static bool isSpace(char32_t c) {
+namespace {
+
+bool isSpace(char32_t c) {
     return c == U' ' || c == U'\t' || c == U'\n' || c == U'\r' || c == U'\f' || c == U'\v' ||
            c == 0x3000 || c == 0x00A0;
 }
 
-static std::u32string strip(const std::u32string& s) {
+std::u32string strip(const std::u32string& s) {
     size_t a = 0, b = s.size();
     while (a < b && isSpace(s[a]))     ++a;
     while (b > a && isSpace(s[b - 1])) --b;
     return s.substr(a, b - a);
 }
 
-static bool inSet(char32_t c, std::u32string_view set) {
+bool inSet(char32_t c, std::u32string_view set) {
     return set.find(c) != std::u32string_view::npos;
 }
 
 // Punctuation sets from onnx_tts_runtime.py.
-static std::u32string_view sentenceEndChars() { return U".!?。！？；;"; }       // SENTENCE_END_PUNCTUATION
-static std::u32string_view clauseSplitChars() { return U",，、；;：:"; }         // CLAUSE_SPLIT_PUNCTUATION
-static std::u32string_view closingChars()     { return U"\"'”’)]}）】》」』"; } // CLOSING_PUNCTUATION
+std::u32string_view sentenceEndChars() { return U".!?。！？；;"; }       // SENTENCE_END_PUNCTUATION
+std::u32string_view clauseSplitChars() { return U",，、；;：:"; }         // CLAUSE_SPLIT_PUNCTUATION
+std::u32string_view closingChars()     { return U"\"'”’)]}）】》」』"; } // CLOSING_PUNCTUATION
 
-static bool isCjk(char32_t c) {
+bool isCjk(char32_t c) {
     return (c >= 0x4E00 && c <= 0x9FFF) || (c >= 0x3400 && c <= 0x4DBF) ||
            (c >= 0x3040 && c <= 0x30FF) || (c >= 0xAC00 && c <= 0xD7AF);
 }
 
-static bool containsCjk(const std::u32string& s) {
+bool containsCjk(const std::u32string& s) {
     return std::any_of(s.begin(), s.end(), isCjk);
 }
 
 // Approximates Python str.isalnum() for the scripts MOSS-TTS-Nano covers.
-static bool isAlnum(char32_t c) {
+bool isAlnum(char32_t c) {
     if (c < 0x80) return std::isalnum(static_cast<int>(c)) != 0;
     return (c >= 0x00C0 && c <= 0x024F && c != 0x00D7 && c != 0x00F7) || // Latin-1 / Extended
            (c >= 0x0370 && c <= 0x03FF) ||                                // Greek
@@ -60,7 +64,7 @@ static bool isAlnum(char32_t c) {
            isCjk(c);
 }
 
-static int countWords(const std::u32string& s) {
+int countWords(const std::u32string& s) {
     int n = 0;
     bool inWord = false;
     for (char32_t c : s) {
@@ -71,7 +75,7 @@ static int countWords(const std::u32string& s) {
 }
 
 // _prepare_text_for_sentence_chunking
-static std::u32string prepareForChunking(std::u32string t) {
+std::u32string prepareForChunking(std::u32string t) {
     t = strip(t);
     if (t.empty()) return t;
     for (auto& c : t) if (c == U'\r' || c == U'\n') c = U' ';
@@ -92,7 +96,7 @@ static std::u32string prepareForChunking(std::u32string t) {
 }
 
 // _split_text_by_punctuation
-static std::vector<std::u32string> splitByPunctuation(const std::u32string& text,
+std::vector<std::u32string> splitByPunctuation(const std::u32string& text,
                                                       std::u32string_view punctuation) {
     std::vector<std::u32string> out;
     std::u32string cur;
@@ -117,19 +121,19 @@ static std::vector<std::u32string> splitByPunctuation(const std::u32string& text
     return out;
 }
 
-static std::u32string joinParts(const std::u32string& l, const std::u32string& r) {
+std::u32string joinParts(const std::u32string& l, const std::u32string& r) {
     if (l.empty()) return r;
     if (r.empty()) return l;
     if (containsCjk(l) || containsCjk(r)) return l + r;
     return l + U" " + r;
 }
 
-static double nowSeconds() {
+double nowSeconds() {
     using namespace std::chrono;
     return duration<double>(steady_clock::now().time_since_epoch()).count();
 }
 
-static std::vector<std::string> fetchNames(Ort::Session& sess, bool inputs) {
+std::vector<std::string> fetchNames(Ort::Session& sess, bool inputs) {
     Ort::AllocatorWithDefaultOptions alloc;
     const size_t n = inputs ? sess.GetInputCount() : sess.GetOutputCount();
     std::vector<std::string> names(n);
@@ -142,27 +146,27 @@ static std::vector<std::string> fetchNames(Ort::Session& sess, bool inputs) {
 }
 
 // Ort::Value has no default constructor; Session::Run takes a contiguous array of inputs.
-static std::vector<Ort::Value> nullValues(size_t n) {
+std::vector<Ort::Value> nullValues(size_t n) {
     std::vector<Ort::Value> v;
     v.reserve(n);
     for (size_t i = 0; i < n; ++i) v.emplace_back(nullptr);
     return v;
 }
 
-static std::vector<const char*> cstrs(const std::vector<std::string>& v) {
+std::vector<const char*> cstrs(const std::vector<std::string>& v) {
     std::vector<const char*> out(v.size());
     for (size_t i = 0; i < v.size(); ++i) out[i] = v[i].c_str();
     return out;
 }
 
-static bool indexOf(const std::vector<std::string>& names, const std::string& name, size_t& idx) {
+bool indexOf(const std::vector<std::string>& names, const std::string& name, size_t& idx) {
     auto it = std::find(names.begin(), names.end(), name);
     if (it == names.end()) return false;
     idx = static_cast<size_t>(it - names.begin());
     return true;
 }
 
-static bool readJson(const fs::path& path, nlohmann::json& out) {
+bool readJson(const fs::path& path, nlohmann::json& out) {
     std::ifstream f(path, std::ios::binary);
     if (!f) {
         spdlog::error("[MossTTS] Cannot open {}", path.string());
@@ -177,12 +181,14 @@ static bool readJson(const fs::path& path, nlohmann::json& out) {
     return true;
 }
 
-static std::vector<int32_t> toIntVector(const nlohmann::json& j) {
+std::vector<int32_t> toIntVector(const nlohmann::json& j) {
     std::vector<int32_t> v;
     v.reserve(j.size());
     for (const auto& x : j) v.push_back(x.get<int32_t>());
     return v;
 }
+
+} // namespace
 
 // ---------------------------------------------------------------------------
 // Constructor / params
@@ -849,3 +855,5 @@ std::vector<float> MossTTSImpl::runCodecFrames(const std::vector<int32_t>& frame
         for (auto& x : mono) x /= static_cast<float>(chans);
     return mono;
 }
+
+} // namespace va::thirdparty::tts

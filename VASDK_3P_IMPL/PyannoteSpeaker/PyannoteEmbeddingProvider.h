@@ -8,7 +8,13 @@
 #include "vasdk_pyannote_speaker_export.h"
 
 namespace va {
-    namespace thirdparty {
+    namespace thirdparty::speaker {
+
+        /** Settings of PyannoteEmbeddingProvider. */
+        struct PyannoteEmbeddingOptions {
+            /** The embedding model, ONNX (VASDK_3P_IMPL/cmake/DownloadPyannoteEmbeddingModel.cmake). */
+            std::string modelPath;
+        };
 
         /**
          * @brief Speaker embedding provider running the embedding model of
@@ -16,14 +22,14 @@ namespace va {
          *        exported to ONNX: 80-bin Kaldi fbank in, 256-dim voice print out.
          *
          * Usage:
-         *   auto provider = std::make_shared<PyannoteEmbeddingProvider>(modelPath);
+         *   auto provider = std::make_shared<PyannoteEmbeddingProvider>(PyannoteEmbeddingOptions{modelPath});
          *   provider->initialize(audioConfig);
          *   auto speakerProc = std::make_shared<SpeakerIdentificationProcessor>(provider);
          *   speakerProc->setRingBuffer(ringBuffer);
          */
         class VASDK_PYANNOTE_SPEAKER_EXPORT PyannoteEmbeddingProvider : public va::audio::SpeakerEmbeddingProvider {
         public:
-            explicit PyannoteEmbeddingProvider(const std::string& modelPath);
+            explicit PyannoteEmbeddingProvider(PyannoteEmbeddingOptions options);
             ~PyannoteEmbeddingProvider() override;
 
             /**
@@ -39,7 +45,7 @@ namespace va {
             std::string _modelPath;
         };
 
-    } // namespace thirdparty
+    } // namespace thirdparty::speaker
 } // namespace va
 
 #endif

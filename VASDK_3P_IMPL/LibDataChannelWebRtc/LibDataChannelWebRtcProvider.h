@@ -8,8 +8,14 @@
 #include <string>
 #include <vector>
 
-namespace va {
-namespace webrtc {
+namespace va::thirdparty::transport {
+
+/** Settings of LibDataChannelWebRtcProvider; every field has a default. */
+struct LibDataChannelWebRtcOptions {
+    /** STUN/TURN URLs, e.g. "stun:stun.l.google.com:19302". Empty: host candidates only (same machine
+     *  or LAN). */
+    std::vector<std::string> iceServers = {"stun:stun.l.google.com:19302"};
+};
 
 /**
  * @brief WebRtcInterface over a direct PeerConnection (libdatachannel + libopus).
@@ -24,9 +30,7 @@ namespace webrtc {
  */
 class VASDK_LIBDATACHANNEL_WEBRTC_EXPORT LibDataChannelWebRtcProvider : public va::network::WebRtcInterface {
 public:
-    /// @param iceServers STUN/TURN URLs, e.g. "stun:stun.l.google.com:19302". Empty = host candidates only.
-    explicit LibDataChannelWebRtcProvider(
-        std::vector<std::string> iceServers = {"stun:stun.l.google.com:19302"});
+    explicit LibDataChannelWebRtcProvider(LibDataChannelWebRtcOptions options = {});
     ~LibDataChannelWebRtcProvider() override;
 
     bool open(int inputSampleRate, int outputSampleRate) override;
@@ -65,5 +69,4 @@ private:
     std::shared_ptr<Impl> _impl;
 };
 
-} // namespace webrtc
-} // namespace va
+} // namespace va::thirdparty::transport

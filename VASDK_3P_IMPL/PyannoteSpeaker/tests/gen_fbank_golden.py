@@ -1,7 +1,13 @@
 # Writes the fbank golden for fbank_test.cpp with the reference front end of pyannote's
 # WeSpeaker ResNet34 (pyannote/audio models/embedding/wespeaker), before mean normalization.
 #
-#   uv run --python 3.12 --with torch --with torchaudio gen_fbank_golden.py golden/fbank_golden.txt
+#   uv run gen_fbank_golden.py golden/fbank_golden.txt     (uv reads the packages below)
+#   pip install torch torchaudio && python gen_fbank_golden.py golden/fbank_golden.txt
+#
+# /// script
+# requires-python = "==3.12.*"
+# dependencies = ["torch", "torchaudio"]
+# ///
 import math
 import sys
 

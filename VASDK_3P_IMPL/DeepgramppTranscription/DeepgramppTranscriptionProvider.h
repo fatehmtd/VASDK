@@ -10,7 +10,19 @@
 #include <string>
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::stt {
+
+/** Settings of DeepgramppTranscriptionProvider; every field but the API key has a default. */
+struct DeepgramppTranscriptionOptions {
+    /** API key of the service; required (the catalog falls back to the service's *_API_KEY variable). */
+    std::string apiKey;
+    /** Model to use. */
+    std::string model = deepgram::listen::models::nova_3::GENERAL;
+    /** Language code; empty lets the service detect it or use its default. */
+    std::string language = deepgram::listen::languages::nova_3::MULTILINGUAL;
+    /** PEM file of certificates to trust; empty uses the TLS library's own (Android's mbedTLS can't read the system store). */
+    std::string caBundlePath;
+};
 
 /**
  * @brief Real-time transcription provider backed by the Deepgram Listen WebSocket API.
@@ -18,11 +30,7 @@ namespace thirdparty {
 class DeepgramppTranscriptionProvider : public va::audio::GenericTranscriptionProvider
 {
 public:
-    explicit DeepgramppTranscriptionProvider(
-        const std::string& apiKey,
-        const std::string& model = deepgram::listen::models::nova_3::GENERAL,
-        const std::string& language = deepgram::listen::languages::nova_3::MULTILINGUAL,
-        const std::string& caFilePath = {});
+    explicit DeepgramppTranscriptionProvider(DeepgramppTranscriptionOptions options);
     ~DeepgramppTranscriptionProvider() override;
 
     bool initializeTranscriptionProvider() override;
@@ -66,5 +74,5 @@ private:
     mutable std::mutex _clientMutex;
 };
 
-} // namespace thirdparty
+} // namespace thirdparty::stt
 } // namespace va

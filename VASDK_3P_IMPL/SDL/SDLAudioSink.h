@@ -4,6 +4,8 @@
 #include <VASDK/GenericAudioSink.h>
 #include <mutex>
 
+namespace va::thirdparty::audio {
+
 /**
  * @brief The SDLAudioSink class
  */
@@ -12,7 +14,7 @@ class SDLAudioSink : public va::audio::GenericAudioSink
 private:
     /* data */
 public:
-    SDLAudioSink(/* args */);
+    SDLAudioSink();
     ~SDLAudioSink();
 
     // GenericAudioSink interface
@@ -40,3 +42,5 @@ private:
     PlaybackCallback _playbackCallback;
     std::mutex       _callbackMutex;
 };
+
+} // namespace va::thirdparty::audio

@@ -2,6 +2,7 @@
 #define SMART_TURN_V3_PROVIDER_H
 
 #include <memory>
+#include <string>
 #include <vector>
 #include <VASDK/TurnDetectionProvider.h>
 #include <VASDK/AudioRingBuffer.h>
@@ -9,13 +10,28 @@
 #include "vasdk_smartturn_v3_export.h"
 
 namespace va {
-    namespace thirdparty {
+    namespace thirdparty::turn {
         class SmartTurnV3Impl;
 
         namespace whisper {
             constexpr int N_FFT = 400;
             constexpr int HOP_LENGTH = 160; // 10ms hop at 16kHz
             constexpr int N_MELS = 80;
+        };
+
+        /** Settings of SmartTurnV3Provider; every field but the model path has a default. */
+        struct SmartTurnV3Options {
+            /** smart_turn_v3.onnx (downloaded by VASDK_3P_IMPL/cmake/DownloadSmartTurnModel.cmake). */
+            std::string modelPath;
+            /** End-of-turn probability (0-1) that ends the turn. */
+            float threshold = 0.5f;
+            /** Longest stretch of the turn the model looks at, from its end backwards. */
+            float maxAudioDurationSeconds = 8.0f;
+            /** Audio frames after the VAD end the model waits for before its last evaluation. */
+            int postAudioFrames = 3;
+            /** Also evaluate while the user pauses, so a clearly finished turn ends at the pause
+             *  (TurnDetectionProvider::setEvaluateOnPause). */
+            bool evaluateOnPause = true;
         };
 
         /**
@@ -30,19 +46,15 @@ namespace va {
          *     already fired.
          *
          * Usage:
-         *   auto provider = std::make_shared<SmartTurnV3Provider>(modelPath);
+         *   SmartTurnV3Options options;
+         *   options.modelPath = modelsDir + "/smart_turn_v3.onnx";
+         *   auto provider = std::make_shared<SmartTurnV3Provider>(options);
          *   provider->initialize(audioConfig, ringBuffer);
          *   auto turnProc = std::make_shared<TurnDetectionProcessor>(provider);
          */
         class VASDK_SMARTTURN_V3_EXPORT SmartTurnV3Provider : public va::audio::TurnDetectionProvider {
         public:
-            SmartTurnV3Provider(const std::string& modelPath,
-                float threshold = 0.5f,
-                float maxAudioDurationSec = 8.0f,
-                int numPostAudioFrames = 2,
-                int nFFT = whisper::N_FFT,
-                int hopLength = whisper::HOP_LENGTH,
-                int nMels = whisper::N_MELS);
+            explicit SmartTurnV3Provider(SmartTurnV3Options options = {});
 
             virtual ~SmartTurnV3Provider();
 
@@ -57,13 +69,13 @@ namespace va {
 
             //  TurnDetectionProvider interface 
 
-            TurnEvaluation evaluate(const std::shared_ptr<transport::Frame> frame,
+            TurnEvaluation evaluate(const std::shared_ptr<va::transport::Frame> frame,
                 bool agentIsSpeaking) override;
 
         private:
-            TurnEvaluation handleVADStateFrame(const std::shared_ptr<transport::VADStateFrame>& frame,
+            TurnEvaluation handleVADStateFrame(const std::shared_ptr<va::transport::VADStateFrame>& frame,
                 bool agentIsSpeaking);
-            TurnEvaluation handleAudioFrame(const std::shared_ptr<transport::AudioFrame>& frame);
+            TurnEvaluation handleAudioFrame(const std::shared_ptr<va::transport::AudioFrame>& frame);
 
             void convertAudioToFloat(const char* audioData,
                 size_t srcOffset,
@@ -92,7 +104,7 @@ namespace va {
             va::audio::AudioConfig _audioConfig;
         };
 
-    } // namespace thirdparty
+    } // namespace thirdparty::turn
 } // namespace va
 
 #endif

@@ -37,14 +37,14 @@ int main(int argc, char** argv)
             + 200.0 * (static_cast<long>((i * 7919L) % 101) - 50)) / 32768);
     }
 
-    va::thirdparty::SmartTurnV3Impl impl("", va::thirdparty::whisper::N_FFT, va::thirdparty::whisper::HOP_LENGTH,
-        va::thirdparty::whisper::N_MELS, maxLen);
+    va::thirdparty::turn::SmartTurnV3Impl impl("", va::thirdparty::turn::whisper::N_FFT, va::thirdparty::turn::whisper::HOP_LENGTH,
+        va::thirdparty::turn::whisper::N_MELS, maxLen);
     if (!impl.initializeFeatures()) {
         std::fprintf(stderr, "initializeFeatures failed\n");
         return 1;
     }
     const int computed = impl.computeFeatures(signal.data(), 0, n);
-    if (computed != static_cast<int>(frames) || mels != static_cast<size_t>(va::thirdparty::whisper::N_MELS)) {
+    if (computed != static_cast<int>(frames) || mels != static_cast<size_t>(va::thirdparty::turn::whisper::N_MELS)) {
         std::fprintf(stderr, "shape mismatch: got %d frames, expected %zu x %zu\n", computed, frames, mels);
         return 1;
     }

@@ -1,13 +1,16 @@
 #include "VozTranscriptionProvider.hpp"
 #include <spdlog/spdlog.h>
 #include <exception>
+#include <utility>
+
+namespace va::thirdparty::stt {
 
 // ---------------------------------------------------------------------------
 // Construction / destruction
 // ---------------------------------------------------------------------------
 
-VozTranscriptionProvider::VozTranscriptionProvider(VozRecognizer recognizer)
-    : _recognizer(std::move(recognizer))
+VozTranscriptionProvider::VozTranscriptionProvider(VozTranscriptionOptions options)
+    : _options(std::move(options))
 {
 }
 
@@ -23,7 +26,7 @@ VozTranscriptionProvider::~VozTranscriptionProvider()
 
 bool VozTranscriptionProvider::initializeTranscriptionProvider()
 {
-    if (!_recognizer) {
+    if (!_options.recognizer) {
         spdlog::error("[VozSTT] No recognizer supplied");
         return false;
     }
@@ -153,18 +156,6 @@ va::audio::AudioConfig VozTranscriptionProvider::getAudioConfiguration() const
     return _audioConfig;
 }
 
-void VozTranscriptionProvider::setInferenceConfig(const InferenceConfig& config)
-{
-    std::lock_guard<std::mutex> lock(_mtx);
-    _inferenceConfig = config;
-}
-
-VozTranscriptionProvider::InferenceConfig VozTranscriptionProvider::getInferenceConfig() const
-{
-    std::lock_guard<std::mutex> lock(_mtx);
-    return _inferenceConfig;
-}
-
 // ---------------------------------------------------------------------------
 // Audio format conversion (mirrors the Whistle / Parakeet implementations)
 // ---------------------------------------------------------------------------
@@ -218,7 +209,7 @@ va::audio::TranscriptionResult VozTranscriptionProvider::runInference(const std:
     const int sampleRate = _audioConfig.sampleRate > 0 ? _audioConfig.sampleRate : 16000;
     va::audio::TranscriptionResult result;
     try {
-        result = _recognizer(audio, sampleRate);
+        result = _options.recognizer(audio, sampleRate);
     } catch (const std::exception& error) {
         spdlog::error("[VozSTT] Transcription failed: {}", error.what());
         if (_listener) _listener->onTranscriptionError(std::string("Voz transcription failed: ") + error.what());
@@ -267,7 +258,7 @@ void VozTranscriptionProvider::inferenceLoop()
             auto idleMs    = std::chrono::duration_cast<std::chrono::milliseconds>(now - _lastWriteTime).count();
             auto partialMs = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastPartialTime).count();
 
-            if (_endOfSpeech || idleMs >= _inferenceConfig.idleTimeoutMs) {
+            if (_endOfSpeech || idleMs >= _options.idleTimeoutMs) {
                 audio = std::move(_buffer);
                 _buffer.clear();
                 // Audio written after commitEndOfSpeech belongs to the next utterance.
@@ -277,11 +268,11 @@ void VozTranscriptionProvider::inferenceLoop()
                 _endOfSpeech  = false;
                 _bufferSizeAtEndOfSpeech = 0;
                 doFinal       = true;
-                minGrowth     = _inferenceConfig.minNewSamplesForFinal;
-            } else if (_inferenceConfig.partialIntervalMs > 0 && partialMs >= _inferenceConfig.partialIntervalMs) {
+                minGrowth     = _options.minNewSamplesForFinal;
+            } else if (_options.partialIntervalMs > 0 && partialMs >= _options.partialIntervalMs) {
                 audio     = _buffer; // copy, do not drain
                 doPartial = true;
-                minGrowth = _inferenceConfig.minNewSamplesForPartial;
+                minGrowth = _options.minNewSamplesForPartial;
             }
         }
 
@@ -313,3 +304,5 @@ void VozTranscriptionProvider::inferenceLoop()
         }
     }
 }
+
+} // namespace va::thirdparty::stt

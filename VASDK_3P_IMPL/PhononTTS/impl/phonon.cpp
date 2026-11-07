@@ -37,7 +37,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace gradium::tts {
+namespace va::thirdparty::tts::phonon {
 
     // ---------------------------------------------------------------------------
     // GGML linear: y[seq, out] = x[seq, in] @ W^T + bias
@@ -146,7 +146,7 @@ namespace gradium::tts {
             std::vector<float> data;
         };
 
-        static std::vector<int64_t> parse_int_array(const std::string& s, size_t pos) {
+        std::vector<int64_t> parse_int_array(const std::string& s, size_t pos) {
             std::vector<int64_t> out;
             size_t p = s.find('[', pos) + 1;
             while (p < s.size() && s[p] != ']') {
@@ -161,7 +161,7 @@ namespace gradium::tts {
             return out;
         }
 
-        static VoiceTensor load_voice_tensor(const std::string& path) {
+        VoiceTensor load_voice_tensor(const std::string& path) {
             std::ifstream f(path, std::ios::binary);
             if (!f) throw std::runtime_error("Cannot open safetensors: " + path);
             uint64_t header_len = 0;
@@ -322,7 +322,7 @@ namespace gradium::tts {
     // ---------------------------------------------------------------------------
     // Config parser (hand-rolled, no external JSON dep)
     // ---------------------------------------------------------------------------
-    static Config parse_config_impl(const std::string& path) {
+    Config parse_config_impl(const std::string& path) {
         std::ifstream f(path);
         if (!f) throw std::runtime_error("Cannot open config: " + path);
         std::string jsonContent((std::istreambuf_iterator<char>(f)), {});
@@ -616,7 +616,7 @@ namespace gradium::tts {
     // ---------------------------------------------------------------------------
     // Flow-LM transformer layer (in-place, pre-norm, GELU FFN)
     // ---------------------------------------------------------------------------
-    static void flow_lm_layer(float* x, int seq, const Config& cfg,
+    void flow_lm_layer(float* x, int seq, const Config& cfg,
         const LayerW& layerWeights, float* keyCache, float* valueCache,
         int past, int max_ctx) {
         const int   modelDim = cfg.flow_lm.d_model;
@@ -655,7 +655,7 @@ namespace gradium::tts {
     // ---------------------------------------------------------------------------
     // Timestep embedder: scalar → sinusoidal → MLP → RMSNorm
     // ---------------------------------------------------------------------------
-    static void embed_timestep(float timestepValue, const TimeEmbedW& timeEmbedWeights,
+    void embed_timestep(float timestepValue, const TimeEmbedW& timeEmbedWeights,
         int flowDim, float* out) {
         const int numFreqs = timeEmbedWeights.n_freqs;
         std::vector<float> sinusoidalEmbedding(2 * numFreqs);
@@ -675,7 +675,7 @@ namespace gradium::tts {
     // ---------------------------------------------------------------------------
     // Flow network — predicts velocity for the Euler integration step
     // ---------------------------------------------------------------------------
-    static void flow_net_forward(const float* noiseLatent, const float* conditioning,
+    void flow_net_forward(const float* noiseLatent, const float* conditioning,
         const Config& cfg, const ModelWeights& modelWeights, float* velocityOut) {
         const int latentDim = cfg.flow_lm.ldim;
         const int flowDim = cfg.flow_lm.flow_dim;
@@ -817,7 +817,7 @@ namespace gradium::tts {
             memcpy(textEmbeddings.data() + i * modelDim,
                 modelWeights.txt_embed.data() + tokens[i] * modelDim, modelDim * sizeof(float));
 
-        static constexpr int MAX_CTX = 4096;
+        constexpr int MAX_CTX = 4096;
         int maxFrames = opts.max_frames > 0 ? opts.max_frames
             : (int)text::frameBudget(tokens.size(), config.mimi.frame_rate);
         maxFrames = std::min(maxFrames, MAX_CTX - prefixLength - 10);
@@ -1224,4 +1224,4 @@ namespace gradium::tts {
         return parse_config_impl(json_path);
     }
 
-} // namespace gradium::tts
+} // namespace va::thirdparty::tts::phonon

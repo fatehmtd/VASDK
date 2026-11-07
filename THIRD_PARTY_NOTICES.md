@@ -91,6 +91,17 @@ Every VAD/STT/TTS/LLM/audio provider under `VASDK_3P_IMPL/`, plus the core libra
 | OpenAI API | LLM (cloud) | [openai.com](https://openai.com) / [API docs](https://platform.openai.com/docs) - direct HTTP, no vendor SDK | Governed by OpenAI's API terms, not an OSS license |
 | Anthropic API | LLM (cloud) | [anthropic.com](https://www.anthropic.com) / [API docs](https://platform.claude.com/docs) - direct HTTP, no vendor SDK | Governed by Anthropic's API terms, not an OSS license |
 
+### Python packages
+
+Installed from PyPI by uv or pip (`bindings/python/pyproject.toml`, `VASDK_PYTHON_APP/pyproject.toml` and `uv.lock`, `VASDK_PYTHON_APP/requirements.txt`), not bundled in a wheel.
+
+| Package | Used by | License |
+| --- | --- | --- |
+| [protobuf](https://pypi.org/project/protobuf/) | The Python binding (`vasdk`): VASDK's messages | BSD 3-Clause |
+| [sounddevice](https://pypi.org/project/sounddevice/) (with [PortAudio](https://www.portaudio.com/), bundled in its macOS and Windows wheels) | The Python app's voice mode: microphone and speaker | MIT (PortAudio: MIT-style) |
+| [torch](https://pypi.org/project/torch/), [torchaudio](https://pypi.org/project/torchaudio/) | Development only: `gen_fbank_golden.py` writes the pyannote fbank golden | BSD 3-Clause / BSD 2-Clause |
+| [transformers](https://pypi.org/project/transformers/), [numpy](https://pypi.org/project/numpy/) | Development only: `gen_features_golden.py` writes the SmartTurn features golden | Apache 2.0 / BSD 3-Clause |
+
 ### Android app libraries
 
 Pulled from Google Maven and Maven Central by Gradle and packaged into the APK (see `VASDK_ANDROID/app/build.gradle`).

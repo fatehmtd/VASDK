@@ -29,7 +29,7 @@ namespace pipeline {
  *
  * Usage:
  * @code
- *   auto provider = std::make_shared<RNNoiseDSPProvider>();
+ *   auto provider = std::make_shared<va::thirdparty::audio::RNNoiseDSPProvider>();
  *   provider->initialize(audioConfig);
  *
  *   auto dspProcessor = std::make_shared<AudioDSPProcessor>(provider);

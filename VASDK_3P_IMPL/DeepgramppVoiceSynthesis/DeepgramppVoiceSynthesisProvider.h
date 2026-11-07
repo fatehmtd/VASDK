@@ -9,16 +9,24 @@
 #include <string>
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::tts {
+
+/** Settings of DeepgramppVoiceSynthesisProvider; every field but the API key has a default. */
+struct DeepgramppVoiceSynthesisOptions {
+    /** API key of the service; required (the catalog falls back to the service's *_API_KEY variable). */
+    std::string apiKey;
+    /** Model to use. */
+    std::string model = deepgram::speak::models::aura_2::en::THALIA;
+    /** PEM file of certificates to trust; empty uses the TLS library's own (Android's mbedTLS can't read the system store). */
+    std::string caBundlePath;
+};
 
 /**
  * @brief Real-time voice synthesis provider backed by the Deepgram Speak WebSocket API.
  */
 class DeepgramppVoiceSynthesisProvider : public va::audio::GenericVoiceSynthesisProvider {
 public:
-    explicit DeepgramppVoiceSynthesisProvider(const std::string& apiKey,
-                                               const std::string& model = deepgram::speak::models::aura_2::en::THALIA,
-                                               const std::string& caFilePath = {});
+    explicit DeepgramppVoiceSynthesisProvider(DeepgramppVoiceSynthesisOptions options);
     ~DeepgramppVoiceSynthesisProvider() override;
 
     void setAudioConfiguration(const va::audio::AudioConfig &config) override;
@@ -53,5 +61,5 @@ private:
     mutable std::mutex _clientMutex;
 };
 
-} // namespace thirdparty
+} // namespace thirdparty::tts
 } // namespace va

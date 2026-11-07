@@ -2,13 +2,16 @@
 #include <whisper.h>
 #include <spdlog/spdlog.h>
 #include <cstring>
+#include <utility>
+
+namespace va::thirdparty::stt {
 
 // ---------------------------------------------------------------------------
 // Construction / destruction
 // ---------------------------------------------------------------------------
 
-WhisperCppTranscriptionProvider::WhisperCppTranscriptionProvider(const std::string& modelPath)
-    : _modelPath(modelPath)
+WhisperCppTranscriptionProvider::WhisperCppTranscriptionProvider(WhisperCppTranscriptionOptions options)
+    : _options(std::move(options))
 {
 }
 
@@ -30,13 +33,13 @@ bool WhisperCppTranscriptionProvider::initializeTranscriptionProvider()
     }
 
     whisper_context_params cparams = whisper_context_default_params();
-    _ctx = whisper_init_from_file_with_params(_modelPath.c_str(), cparams);
+    _ctx = whisper_init_from_file_with_params(_options.modelPath.c_str(), cparams);
     if (!_ctx) {
-        spdlog::error("[WhisperCpp] Failed to load model from '{}'", _modelPath);
+        spdlog::error("[WhisperCpp] Failed to load model from '{}'", _options.modelPath);
         return false;
     }
 
-    spdlog::info("[WhisperCpp] Initialized with model '{}'", _modelPath);
+    spdlog::info("[WhisperCpp] Initialized with model '{}'", _options.modelPath);
     return true;
 }
 
@@ -211,18 +214,6 @@ va::audio::AudioConfig WhisperCppTranscriptionProvider::getAudioConfiguration() 
     return _audioConfig;
 }
 
-void WhisperCppTranscriptionProvider::setInferenceConfig(const InferenceConfig& config)
-{
-    std::lock_guard<std::mutex> lock(_mtx);
-    _inferenceConfig = config;
-}
-
-WhisperCppTranscriptionProvider::InferenceConfig
-WhisperCppTranscriptionProvider::getInferenceConfig() const
-{
-    return _inferenceConfig;
-}
-
 // ---------------------------------------------------------------------------
 // Audio format conversion (mirrors Parakeet implementation)
 // ---------------------------------------------------------------------------
@@ -280,17 +271,17 @@ WhisperCppTranscriptionProvider::runInference(const std::vector<float>& audio)
     if (!_ctx || audio.empty()) return result;
 
     whisper_full_params params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
-    params.n_threads         = _inferenceConfig.threads;
-    params.translate         = _inferenceConfig.translateToEnglish;
+    params.n_threads         = _options.threads;
+    params.translate         = _options.translateToEnglish;
     params.print_progress    = false;
     params.print_realtime    = false;
     params.print_special     = false;
     params.no_timestamps     = false;
     params.token_timestamps  = true;  // enables word-level timing
-    params.no_context        = _inferenceConfig.noContext;
-    params.no_speech_thold   = _inferenceConfig.noSpeechThreshold;
+    params.no_context        = _options.noContext;
+    params.no_speech_thold   = _options.noSpeechThreshold;
 
-    const std::string& lang = _inferenceConfig.language;
+    const std::string& lang = _options.language;
     if (lang == "auto" || lang.empty()) {
         // Pass "auto" as a non-null string; whisper.cpp's whisper_lang_id()
         // calls strcmp() on this pointer so nullptr causes UB / silent failure.
@@ -429,13 +420,13 @@ void WhisperCppTranscriptionProvider::inferenceLoop()
             auto partialMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                                  now - lastPartialTime).count();
 
-            if (_endOfSpeech || idleMs >= _inferenceConfig.idleTimeoutMs) {
+            if (_endOfSpeech || idleMs >= _options.idleTimeoutMs) {
                 audioSnapshot = std::move(_buffer);
                 _buffer.clear();
                 _hasNewAudio  = false;
                 _endOfSpeech  = false;
                 doFinal       = true;
-            } else if (partialMs >= _inferenceConfig.partialIntervalMs) {
+            } else if (partialMs >= _options.partialIntervalMs) {
                 audioSnapshot = _buffer; // copy, do not drain
                 doPartial     = true;
             }
@@ -453,8 +444,8 @@ void WhisperCppTranscriptionProvider::inferenceLoop()
                             : effectiveSize;
 
         bool canReuseCached = !_cachedPartialResult.empty() &&
-                              (doFinal ? growth < _inferenceConfig.minNewSamplesForFinal
-                                       : growth < _inferenceConfig.minNewSamplesForPartial);
+                              (doFinal ? growth < _options.minNewSamplesForFinal
+                                       : growth < _options.minNewSamplesForPartial);
 
         std::string text;
         float confidence = 0.0f;
@@ -504,3 +495,5 @@ void WhisperCppTranscriptionProvider::inferenceLoop()
         }
     }
 }
+
+} // namespace va::thirdparty::stt

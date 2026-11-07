@@ -11,7 +11,17 @@
 #include <vector>
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::stt {
+
+/** Settings of FishaudioppTranscriptionProvider; every field but the API key has a default. */
+struct FishaudioppTranscriptionOptions {
+    /** API key of the service; required (the catalog falls back to the service's *_API_KEY variable). */
+    std::string apiKey;
+    /** Language code; empty lets the service detect it or use its default. */
+    std::string language;
+    /** PEM file of certificates to trust; empty uses the TLS library's own (Android's mbedTLS can't read the system store). */
+    std::string caBundlePath;
+};
 
 /**
  * @brief Transcription provider backed by the Fish Audio ASR REST API.
@@ -27,10 +37,7 @@ namespace thirdparty {
 class FishaudioppTranscriptionProvider : public va::audio::GenericTranscriptionProvider
 {
 public:
-    explicit FishaudioppTranscriptionProvider(
-        const std::string& apiKey,
-        const std::string& language = {},
-        const std::string& caFilePath = {});
+    explicit FishaudioppTranscriptionProvider(FishaudioppTranscriptionOptions options);
     ~FishaudioppTranscriptionProvider() override;
 
     bool initializeTranscriptionProvider() override;
@@ -78,5 +85,5 @@ private:
     std::vector<int16_t> _pendingSegment;
 };
 
-} // namespace thirdparty
+} // namespace thirdparty::stt
 } // namespace va

@@ -1,4 +1,5 @@
 #include "MiniLmSentenceEncoder.h"
+#include <utility>
 
 #include <onnxruntime_cxx_api.h>
 #include <spdlog/spdlog.h>
@@ -9,7 +10,7 @@
 #include <fstream>
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::nlu {
 
 struct MiniLmSentenceEncoder::Model {
     Ort::Env env{ORT_LOGGING_LEVEL_WARNING, "MiniLM"};
@@ -18,7 +19,8 @@ struct MiniLmSentenceEncoder::Model {
     std::string outputName;
 };
 
-MiniLmSentenceEncoder::MiniLmSentenceEncoder(const std::string& modelDir) : _modelDir(modelDir) {}
+MiniLmSentenceEncoder::MiniLmSentenceEncoder(MiniLmSentenceEncoderOptions options)
+    : _modelDir(std::move(options.modelDir)) {}
 MiniLmSentenceEncoder::~MiniLmSentenceEncoder() = default;
 
 bool MiniLmSentenceEncoder::initialize() {
@@ -187,5 +189,5 @@ std::vector<std::vector<float>> MiniLmSentenceEncoder::encodeWords(const std::ve
     return vectors;
 }
 
-} // namespace thirdparty
+} // namespace thirdparty::nlu
 } // namespace va

@@ -66,14 +66,14 @@ public:
     void appendLog(std::string msg);
 
 private:
-    static AudioDisplayState toDisplayState(const va::thirdparty::VizAnimProvider::Features& f);
+    static AudioDisplayState toDisplayState(const va::thirdparty::audio::VizAnimProvider::Features& f);
 
     mutable std::mutex      _mutex;
     AudioDisplayState       _micState;
     AudioDisplayState       _synthState;
 
     // Playback-driven synth extraction (called from audio thread, no pipeline involvement)
-    std::unique_ptr<va::thirdparty::VizAnimProvider> _synthProvider;
+    std::unique_ptr<va::thirdparty::audio::VizAnimProvider> _synthProvider;
     std::vector<char>                                _synthAccum;
     size_t                                           _synthWindowBytes = 0; // FFT_SIZE * bytesPerSample
 

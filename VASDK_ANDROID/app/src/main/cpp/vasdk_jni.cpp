@@ -353,7 +353,7 @@ Java_com_vasdk_android_VasdkEngine_nativeInit(JNIEnv *env, jobject thiz, jstring
         localConfig.streaming = false;
         localConfig.topK = 50;
         localConfig.repetitionPenalty = 1.05f;
-        auto llama = std::make_shared<va::transport::LlamaCppTransport>(localConfig);
+        auto llama = std::make_shared<va::thirdparty::llm::LlamaCppTransport>(localConfig);
         llama->setChunker(std::make_shared<va::transport::PunctuationChunker>(10));
         // The model's chat format drives how tool descriptions and call syntax are rendered, so it
         // must match the GGUF: LFM2.5 tool tokens fed to Gemma are garbage the model parrots back.
@@ -398,7 +398,8 @@ Java_com_vasdk_android_VasdkEngine_nativeInit(JNIEnv *env, jobject thiz, jstring
     // Optional: logs SAME/NEW speaker per utterance; skipped when the model is missing.
     const std::string speakerModel = jstringToStdString(env, speakerModelPath);
     if (!speakerModel.empty()) {
-        auto speakerProvider = std::make_shared<va::thirdparty::PyannoteEmbeddingProvider>(speakerModel);
+        auto speakerProvider = std::make_shared<va::thirdparty::speaker::PyannoteEmbeddingProvider>(
+            va::thirdparty::speaker::PyannoteEmbeddingOptions{speakerModel});
         if (speakerProvider->initialize(runtimeOptions.inputAudio)) {
             session->speakerIdProcessor = std::make_shared<va::pipeline::SpeakerIdentificationProcessor>(speakerProvider);
             session->speakerIdProcessor->setRingBuffer(session->engine->inputRingBuffer());
@@ -413,7 +414,7 @@ Java_com_vasdk_android_VasdkEngine_nativeInit(JNIEnv *env, jobject thiz, jstring
 
 #ifdef VASDK_HAS_VIZANIM
     // MIC: AudioFrames → AudioFeaturesFrame → JNI, right after the mic.
-    session->micAnimProcessor = std::make_shared<va::thirdparty::AudioInputVizAnimFrameProcessor>(
+    session->micAnimProcessor = std::make_shared<va::thirdparty::audio::AudioInputVizAnimFrameProcessor>(
             session->engine->inputRingBuffer(), runtimeOptions.inputAudio, runtimeOptions.inputAudio.sampleRate * 10);
     session->audioFeaturesProcessor = std::make_shared<AudioFeatureSinkProcessor>();
     session->audioFeaturesProcessor->setCallbackTarget(gJvm, session->callbackRef, onAudioFeatures);

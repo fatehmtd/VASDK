@@ -1,23 +1,19 @@
 #include "CartesiappVoiceSynthesisProvider.h"
+#include <utility>
 
 #include <algorithm>
 
 #include <spdlog/spdlog.h>
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::tts {
 
-CartesiappVoiceSynthesisProvider::CartesiappVoiceSynthesisProvider(
-    const std::string& apiKey,
-    const std::string& voiceId,
-    const std::string& model,
-    const std::string& language,
-    const std::string& caFilePath)
-    : _apiKey(apiKey),
-      _voiceId(voiceId),
-      _model(model),
-      _language(language),
-      _caFilePath(caFilePath)
+CartesiappVoiceSynthesisProvider::CartesiappVoiceSynthesisProvider(CartesiappVoiceSynthesisOptions options)
+    : _apiKey(std::move(options.apiKey)),
+      _voiceId(std::move(options.voiceId)),
+      _model(std::move(options.model)),
+      _language(std::move(options.language)),
+      _caFilePath(std::move(options.caBundlePath))
 {
 }
 
@@ -267,5 +263,5 @@ cartesiapp::OutputFormat CartesiappVoiceSynthesisProvider::resolveOutputFormat()
     return format;
 }
 
-} // namespace thirdparty
+} // namespace thirdparty::tts
 } // namespace va

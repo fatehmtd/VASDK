@@ -10,7 +10,17 @@
 #include <string>
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::stt {
+
+/** Settings of GradiumppTranscriptionProvider; every field but the API key has a default. */
+struct GradiumppTranscriptionOptions {
+    /** API key of the service; required (the catalog falls back to the service's *_API_KEY variable). */
+    std::string apiKey;
+    /** Model to use. */
+    std::string model = gradium::asr::models::default_model;
+    /** Language code; empty lets the service detect it or use its default. */
+    std::string language;
+};
 
 /**
  * @brief Real-time transcription provider backed by the Gradium ASR WebSocket API.
@@ -18,10 +28,7 @@ namespace thirdparty {
 class GradiumppTranscriptionProvider : public va::audio::GenericTranscriptionProvider
 {
 public:
-    explicit GradiumppTranscriptionProvider(
-        const std::string& apiKey,
-        const std::string& model = gradium::asr::models::default_model,
-        const std::string& language = {});
+    explicit GradiumppTranscriptionProvider(GradiumppTranscriptionOptions options);
     ~GradiumppTranscriptionProvider() override;
 
     bool initializeTranscriptionProvider() override;
@@ -77,5 +84,5 @@ private:
     std::atomic<bool> _setupFailed{ false };
 };
 
-} // namespace thirdparty
+} // namespace thirdparty::stt
 } // namespace va

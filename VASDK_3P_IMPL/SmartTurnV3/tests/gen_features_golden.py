@@ -2,7 +2,13 @@
 # pipecat-ai/smart-turn (audio_utils.truncate_audio_to_last_n_seconds + WhisperFeatureExtractor),
 # shortened from 8 s to MAX_LEN samples to keep the golden small.
 #
-#   uv run --python 3.12 --with transformers --with numpy gen_features_golden.py golden/features_golden.txt
+#   uv run gen_features_golden.py golden/features_golden.txt     (uv reads the packages below)
+#   pip install transformers numpy && python gen_features_golden.py golden/features_golden.txt
+#
+# /// script
+# requires-python = "==3.12.*"
+# dependencies = ["transformers", "numpy"]
+# ///
 import math
 import sys
 

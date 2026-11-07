@@ -9,16 +9,21 @@
 #include <vector>
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::nlu {
+
+/** Settings of MiniLmSentenceEncoder. */
+struct MiniLmSentenceEncoderOptions {
+    /** Folder holding model.onnx and vocab.txt (VASDK_3P_IMPL/cmake/DownloadMiniLmModel.cmake). */
+    std::string modelDir;
+};
 
 /**
  * @brief all-MiniLM-L6-v2 on ONNX Runtime: a sentence as a 384-number vector (mean of its tokens,
- *        length 1). About 23 MB int8; a few milliseconds a sentence on a phone. `modelDir` holds
- *        model.onnx and vocab.txt (cmake/DownloadMiniLmModel.cmake fetches them).
+ *        length 1). About 23 MB int8; a few milliseconds a sentence on a phone.
  */
-class MiniLmSentenceEncoder : public nlu::SentenceEncoder {
+class MiniLmSentenceEncoder : public va::nlu::SentenceEncoder {
 public:
-    explicit MiniLmSentenceEncoder(const std::string& modelDir);
+    explicit MiniLmSentenceEncoder(MiniLmSentenceEncoderOptions options);
     ~MiniLmSentenceEncoder() override;
     /** False, with the reason logged, when the model or vocabulary can't be loaded. */
     bool initialize();
@@ -42,5 +47,5 @@ private:
     mutable std::mutex _mutex;   // one inference at a time
 };
 
-} // namespace thirdparty
+} // namespace thirdparty::nlu
 } // namespace va

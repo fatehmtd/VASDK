@@ -84,7 +84,9 @@ int main(int argc, char** argv) {
     cfg.format     = va::audio::AudioFormat::SHORT;
 
     Collector collector;
-    MoonshineSttProvider stt(modelDir);
+    va::thirdparty::stt::MoonshineSttOptions options;
+    options.modelDir = modelDir;
+    va::thirdparty::stt::MoonshineSttProvider stt(options);
     stt.setAudioConfiguration(cfg);
     stt.setTranscriptionResultListener(&collector);
     if (!stt.initializeTranscriptionProvider() || !stt.startTranscriptionProvider()) {

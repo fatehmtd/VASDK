@@ -14,6 +14,14 @@ struct AVPacket;
 struct AVFrame;
 struct SwrContext;
 
+namespace va::thirdparty::audio {
+
+/** Settings of FFmpegAudioSource. */
+struct FFmpegAudioSourceOptions {
+    /** Audio file in any container and codec FFmpeg reads (MP3, FLAC, WAV, OGG, M4A, OPUS, AAC, ...). */
+    std::string filePath;
+};
+
 /**
  * @brief Audio source that reads any file format supported by FFmpeg.
  *
@@ -24,7 +32,7 @@ struct SwrContext;
  *
  * Typical usage via FileTransport:
  * @code
- *   auto transport = std::make_shared<FileTransport>("/path/to/clip.flac");
+ *   auto transport = std::make_shared<FileTransport>(FileTransportOptions{"/path/to/clip.flac"});
  *   transport->setAudioConfig({16000, va::audio::AudioFormat::SHORT, 1});
  *   transport->onEndOfFile = [&]{ transport->stop(); };
  *   transport->initialize();
@@ -33,7 +41,7 @@ struct SwrContext;
  *
  * Direct usage (e.g., with LocalTransport + a null sink):
  * @code
- *   auto src = std::make_shared<FFmpegAudioSource>("/path/to/clip.mp3");
+ *   auto src = std::make_shared<FFmpegAudioSource>(FFmpegAudioSourceOptions{"/path/to/clip.mp3"});
  *   va::audio::AudioConfig cfg{16000, va::audio::AudioFormat::SHORT, 1};
  *   src->initializeAudioSource(cfg);
  *   src->startAudioSource();
@@ -48,7 +56,7 @@ struct SwrContext;
  */
 class VASDK_FFMPEG_AUDIO_EXPORT FFmpegAudioSource : public va::audio::GenericAudioSource {
 public:
-    explicit FFmpegAudioSource(const std::string& filePath);
+    explicit FFmpegAudioSource(FFmpegAudioSourceOptions options);
     ~FFmpegAudioSource() override;
 
     //  GenericAudioSource interface 
@@ -135,3 +143,5 @@ private:
     // The config the caller passed to initializeAudioSource().
     va::audio::AudioConfig requestedConfig_;
 };
+
+} // namespace va::thirdparty::audio

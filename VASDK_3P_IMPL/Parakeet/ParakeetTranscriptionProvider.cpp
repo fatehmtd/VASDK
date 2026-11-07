@@ -4,6 +4,11 @@
 #include <VASDK/profiling/CTrack.h>
 #include <spdlog/spdlog.h>
 #include <cstring>  // std::memcpy
+#include <utility>
+
+namespace va::thirdparty::stt {
+
+namespace {
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -12,7 +17,7 @@
 /// Convert raw PCM bytes to normalised float samples and write into out[0..outCapacity-1].
 /// Returns the number of float samples written (capped at outCapacity).
 /// This is the allocation-free core used by the hot streaming path.
-static size_t convertToFloatInto(const uint8_t* data, size_t size,
+size_t convertToFloatInto(const uint8_t* data, size_t size,
                                   va::audio::AudioFormat format,
                                   float* out, size_t outCapacity)
 {
@@ -57,8 +62,8 @@ static size_t convertToFloatInto(const uint8_t* data, size_t size,
 
 /// Convenience wrapper that allocates a vector.
 /// Used only in writeFullAudioData where a one-shot allocation is acceptable.
-static std::vector<float> convertToFloat(const uint8_t* data, size_t size,
-                                          va::audio::AudioFormat format)
+std::vector<float> convertToFloat(const uint8_t* data, size_t size,
+                                  va::audio::AudioFormat format)
 {
     // Upper bound on sample count: BYTE gives 1 sample per byte.
     std::vector<float> out(size);
@@ -67,12 +72,14 @@ static std::vector<float> convertToFloat(const uint8_t* data, size_t size,
     return out;
 }
 
+} // namespace
+
 // ---------------------------------------------------------------------------
 // ParakeetTranscriptionProvider
 // ---------------------------------------------------------------------------
 
-ParakeetTranscriptionProvider::ParakeetTranscriptionProvider(const std::string& modelDir)
-    : _modelDir(modelDir)
+ParakeetTranscriptionProvider::ParakeetTranscriptionProvider(ParakeetTranscriptionOptions options)
+    : _options(std::move(options))
 {
 }
 
@@ -90,13 +97,13 @@ bool ParakeetTranscriptionProvider::initializeTranscriptionProvider()
     }
 
     _parakeetInferenceProviderImpl = std::make_unique<ParakeetInferenceProviderImpl>();
-    if (!_parakeetInferenceProviderImpl->initialize(_modelDir, false)) {
+    if (!_parakeetInferenceProviderImpl->initialize(_options.modelDir, false)) {
         spdlog::error("[Parakeet] Failed to initialize inference engine");
         _parakeetInferenceProviderImpl.reset();
         return false;
     }
 
-    spdlog::info("[Parakeet] Initialized with model from {}", _modelDir);
+    spdlog::info("[Parakeet] Initialized with model from {}", _options.modelDir);
     return true;
 }
 
@@ -117,20 +124,20 @@ bool ParakeetTranscriptionProvider::startTranscriptionProvider()
     }
 
     // Preallocate both audio buffers once so that audio writes never trigger
-    // heap allocations.  setAudioConfiguration() and setInferenceConfig() must
+    // heap allocations.  setAudioConfiguration() must
     // be called before start(); resizing after start() is not supported.
     if (_audioConfig.sampleRate <= 0) {
         spdlog::warn("[Parakeet] sampleRate not set before start - defaulting to 16000 Hz");
         _audioConfig.sampleRate = 16000;
     }
     const size_t maxSamples = static_cast<size_t>(
-        _inferenceConfig.maxBufferSeconds * static_cast<float>(_audioConfig.sampleRate));
+        _options.maxBufferSeconds * static_cast<float>(_audioConfig.sampleRate));
     _buffer.assign(maxSamples, 0.0f);
     _inferenceBuffer.assign(maxSamples, 0.0f);
     _bufferSize          = 0;
     _inferenceBufferSize = 0;
     _audioWithContext.clear();
-    _audioWithContext.reserve(_inferenceConfig.contextSamples + maxSamples);
+    _audioWithContext.reserve(_options.contextSamples + maxSamples);
 
     _running       = true;
     _allowCallbacks = true;
@@ -221,7 +228,7 @@ va::audio::TranscriptionResult ParakeetTranscriptionProvider::writeFullAudioData
     const size_t chunkSamples      = std::min(static_cast<size_t>(60 * _audioConfig.sampleRate), totalSamples);
     const size_t overlapSamples    = static_cast<size_t>(2.0f * _audioConfig.sampleRate);
     const size_t warmupSamples     = static_cast<size_t>(0.5f * _audioConfig.sampleRate);
-    const size_t silencePadSamples = std::min(totalSamples, static_cast<size_t>(_inferenceConfig.silencePaddingSeconds * _audioConfig.sampleRate));
+    const size_t silencePadSamples = std::min(totalSamples, static_cast<size_t>(_options.silencePaddingSeconds * _audioConfig.sampleRate));
 
     const int64_t audioEndMs  = static_cast<int64_t>(totalSamples) * 1000 / _audioConfig.sampleRate;
     const size_t  totalChunks = (totalSamples + chunkSamples - 1) / chunkSamples;
@@ -231,8 +238,8 @@ va::audio::TranscriptionResult ParakeetTranscriptionProvider::writeFullAudioData
     //   and still be included (handles tokens that straddle the chunk boundary).
     // endPaddingToleranceMs - how far past audioEndMs a word may begin on the last
     //   chunk (~12 encoder frames of runway to flush tokens for speech at the end).
-    const int64_t overlapBoundaryToleranceMs = _inferenceConfig.overlapBoundaryToleranceMs;
-    const int64_t endPaddingToleranceMs      = _inferenceConfig.endPaddingToleranceMs;
+    const int64_t overlapBoundaryToleranceMs = _options.overlapBoundaryToleranceMs;
+    const int64_t endPaddingToleranceMs      = _options.endPaddingToleranceMs;
 
     std::string fullText;
     std::vector<va::audio::TranscriptionResult::LanguageTag> detectedLanguages;
@@ -377,17 +384,6 @@ void ParakeetTranscriptionProvider::clearAudioBuffer()
     _bufferSizeAtEndOfSpeech = 0;
 }
 
-void ParakeetTranscriptionProvider::setInferenceConfig(const InferenceConfig& config)
-{
-    std::lock_guard<std::mutex> lock(_mtx);
-    _inferenceConfig = config;
-}
-
-ParakeetTranscriptionProvider::InferenceConfig ParakeetTranscriptionProvider::getInferenceConfig() const
-{
-    return _inferenceConfig;
-}
-
 void ParakeetTranscriptionProvider::setTimingObserver(va::metrics::TimingObserverInterface* observer)
 {
     if (_parakeetInferenceProviderImpl)
@@ -422,12 +418,10 @@ void ParakeetTranscriptionProvider::inferenceLoop()
     while (_running) {
         bool doFinal   = false;
         bool doPartial = false;
-        InferenceConfig cfg;
+        const ParakeetTranscriptionOptions& cfg = _options;
 
         {
             std::unique_lock<std::mutex> lock(_mtx);
-            // Snapshot config first so idleTimeoutMs is available as the wait deadline.
-            cfg = _inferenceConfig;
             // Wake immediately when audio arrives or speech ends; otherwise sleep
             // up to idleTimeoutMs (default 100 ms) instead of spinning at 10 ms.
             _cv.wait_for(lock, std::chrono::milliseconds(cfg.idleTimeoutMs), [this] {
@@ -773,3 +767,5 @@ void ParakeetTranscriptionProvider::inferenceLoop()
         lastPartialTime = std::chrono::steady_clock::now();
     }
 }
+
+} // namespace va::thirdparty::stt

@@ -6,7 +6,7 @@
 #include <memory>
 
 namespace va {
-namespace transport {
+namespace thirdparty::llm {
 
 /**
  * @brief LLM transport for local, offline inference using llama.cpp
@@ -32,14 +32,14 @@ namespace transport {
  * cfg.maxTokens    = 512;
  * cfg.nCtx         = 4096;
  *
- * auto transport = std::make_shared<va::transport::LlamaCppTransport>(cfg);
+ * auto transport = std::make_shared<va::thirdparty::llm::LlamaCppTransport>(cfg);
  * transport->initialize();
  * transport->start();
  * @endcode
  */
-class VASDK_LLAMACPP_EXPORT LlamaCppTransport : public llm::LLMTransport {
+class VASDK_LLAMACPP_EXPORT LlamaCppTransport : public va::llm::LLMTransport {
 public:
-    explicit LlamaCppTransport(const llm::LLMConfig& config);
+    explicit LlamaCppTransport(const va::llm::LLMConfig& config);
     ~LlamaCppTransport();
 
     // LLMTransport / Transport overrides
@@ -77,7 +77,7 @@ public:
      * sendLLMRequest() re-encodes the full (trimmed) history instead of
      * triggering the "KV cache state inconsistent" fallback path.
      */
-    void addMessageToHistory(llm::MessageRole role, const std::string& content) override;
+    void addMessageToHistory(va::llm::MessageRole role, const std::string& content) override;
 
     /**
      * @brief Replace the response chunking strategy used during generation.
@@ -89,15 +89,15 @@ public:
      * Built-in options (see ResponseChunker.h):
      *   - PunctuationChunker  - splits on sentence-ending punctuation (default)
      *   - WordCountChunker    - splits every N words
-     *   - NoChunkingChunker   - emits the entire response as one frame at the end
+     *   - va::transport::NoChunkingChunker   - emits the entire response as one frame at the end
      *
      * @param chunker  Non-null chunker; null is ignored.
      */
-    void setChunker(std::shared_ptr<ResponseChunkerInterface> chunker) {
+    void setChunker(std::shared_ptr<va::transport::ResponseChunkerInterface> chunker) {
         if (chunker) chunker_ = std::move(chunker);
     }
 
-    const ResponseChunkerInterface& chunker() const { return *chunker_; }
+    const va::transport::ResponseChunkerInterface& chunker() const { return *chunker_; }
 
 protected:
     std::string sendLLMRequest(const std::string& userMessage) override;
@@ -105,8 +105,8 @@ protected:
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
-    std::shared_ptr<ResponseChunkerInterface> chunker_{ std::make_shared<NoChunkingChunker>() };
+    std::shared_ptr<va::transport::ResponseChunkerInterface> chunker_{ std::make_shared<va::transport::NoChunkingChunker>() };
 };
 
-} // namespace transport
+} // namespace thirdparty::llm
 } // namespace va

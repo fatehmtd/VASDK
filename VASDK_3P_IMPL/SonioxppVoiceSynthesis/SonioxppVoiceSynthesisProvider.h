@@ -9,7 +9,19 @@
 #include <string>
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::tts {
+
+/** Settings of SonioxppVoiceSynthesisProvider; every field but the API key has a default. */
+struct SonioxppVoiceSynthesisOptions {
+    /** API key of the service; required (the catalog falls back to the service's *_API_KEY variable). */
+    std::string apiKey;
+    /** Language code; empty lets the service detect it or use its default. */
+    std::string language = "en";
+    /** Voice to speak with. */
+    std::string voice = "Adrian";
+    /** PEM file of certificates to trust; empty uses the TLS library's own (Android's mbedTLS can't read the system store). */
+    std::string caBundlePath;
+};
 
 /**
  * @brief Real-time voice synthesis provider backed by the Soniox TTS WebSocket API.
@@ -17,10 +29,7 @@ namespace thirdparty {
 class SonioxppVoiceSynthesisProvider : public va::audio::GenericVoiceSynthesisProvider
 {
 public:
-    SonioxppVoiceSynthesisProvider(const std::string& apiKey,
-                                   const std::string& language = "en",
-                                   const std::string& voice = "Adrian",
-                                   const std::string& caFilePath = {});
+    explicit SonioxppVoiceSynthesisProvider(SonioxppVoiceSynthesisOptions options);
     ~SonioxppVoiceSynthesisProvider() override;
 
     bool synthesizeSpeech(const std::string& text) override;
@@ -56,5 +65,5 @@ private:
     std::atomic<uint64_t> _streamCounter{ 1 };
 };
 
-} // namespace thirdparty
+} // namespace thirdparty::tts
 } // namespace va

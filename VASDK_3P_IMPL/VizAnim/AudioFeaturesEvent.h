@@ -8,7 +8,7 @@
 #include <string>
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::audio {
 
 /**
  * @brief Event encoder that sends AudioFeaturesFrames to a WebRTC peer, for live mic/TTS visuals.
@@ -20,13 +20,13 @@ namespace thirdparty {
  *
  * @code
  * webrtc->setEventEncoder(va::transport::FrameType::AUDIO_FEATURES,
- *                         va::thirdparty::audioFeaturesEventEncoder(sampleRate));
+ *                         va::thirdparty::audio::audioFeaturesEventEncoder(sampleRate));
  * @endcode
  * @param sampleRate rate the VizAnim processors analyse at (sets win_ms)
  */
-inline std::function<std::string(const transport::Frame&)> audioFeaturesEventEncoder(int sampleRate) {
+inline std::function<std::string(const va::transport::Frame&)> audioFeaturesEventEncoder(int sampleRate) {
     const double winMs = sampleRate > 0 ? 1000.0 * VizAnimProvider::FFT_SIZE / sampleRate : 0.0;
-    return [winMs](const transport::Frame& frame) -> std::string {
+    return [winMs](const va::transport::Frame& frame) -> std::string {
         const auto* f = dynamic_cast<const AudioFeaturesFrame*>(&frame);
         if (!f || f->featuresArray.empty()) return {};
 
@@ -70,5 +70,5 @@ inline std::function<std::string(const transport::Frame&)> audioFeaturesEventEnc
     };
 }
 
-} // namespace thirdparty
+} // namespace thirdparty::audio
 } // namespace va

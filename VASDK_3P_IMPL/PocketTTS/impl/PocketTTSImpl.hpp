@@ -14,6 +14,8 @@
 #include <unordered_map>
 #include <vector>
 
+namespace va::thirdparty::tts {
+
 /**
  * @brief PIMPL wrapper for Pocket TTS ONNX inference.
  *
@@ -247,3 +249,5 @@ public:
 };
 
 #endif // POCKET_TTS_IMPL_HPP
+
+} // namespace va::thirdparty::tts

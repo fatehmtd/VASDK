@@ -25,6 +25,8 @@
 #endif
 #endif
 
+namespace va::thirdparty::stt {
+
 namespace {
 
 constexpr size_t kInitialOutputBytes = 64 * 1024;
@@ -67,6 +69,8 @@ std::string lastLoaderError()
 
 NeedleEngine& NeedleEngine::instance()
 {
+    // The one allowed static: the needle engine itself is process-global (one model, no unload,
+    // not thread-safe), so its wrapper and mutex must be too. See the class comment.
     static NeedleEngine engine;
     return engine;
 }
@@ -215,3 +219,5 @@ bool NeedleEngine::transcribe(const std::vector<float>& pcm, const std::string& 
         _out.assign(_out.size() * 4, '\0');
     }
 }
+
+} // namespace va::thirdparty::stt

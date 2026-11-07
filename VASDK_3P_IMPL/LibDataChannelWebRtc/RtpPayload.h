@@ -3,8 +3,7 @@
 #include <algorithm>
 #include <cstddef>
 
-namespace va {
-namespace webrtc {
+namespace va::thirdparty::transport {
 
 /**
  * @brief Finds the payload of an RTP packet (RFC 3550), skipping CSRCs, header extension and padding.
@@ -25,5 +24,4 @@ inline bool rtpPayloadRange(const std::byte* p, size_t size, size_t& begin, size
     return begin < end;
 }
 
-} // namespace webrtc
-} // namespace va
+} // namespace va::thirdparty::transport

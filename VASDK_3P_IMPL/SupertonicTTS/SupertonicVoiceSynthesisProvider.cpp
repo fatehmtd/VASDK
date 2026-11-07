@@ -6,13 +6,20 @@
 #include <cstring>
 #include <regex>
 #include <sstream>
+#include <utility>
 
-SupertonicVoiceSynthesisProvider::SupertonicVoiceSynthesisProvider(
-    const std::string& modelDir,
-    const std::string& stylePath,
-    const std::string& lang)
+namespace va::thirdparty::tts {
+
+SupertonicVoiceSynthesisProvider::SupertonicVoiceSynthesisProvider(SupertonicVoiceSynthesisOptions options)
     : QueuedVoiceSynthesisProvider("SupertonicTTS", Delivery::Thread),
-      impl_(std::make_shared<SupertonicInferenceImpl>(modelDir, stylePath, lang)) {}
+      impl_(std::make_shared<SupertonicInferenceImpl>(options.onnxDir, options.voiceStylePath, options.language)) {
+    SupertonicInferenceImpl::SynthesisParams params;
+    params.totalSteps      = std::max(1, options.totalSteps);
+    params.speed           = options.speed;
+    params.silenceDuration = std::max(0.0f, options.silenceDurationSeconds);
+    params.trimMargin      = std::max(0.0f, options.trimMargin);
+    impl_->setParams(params);
+}
 
 SupertonicVoiceSynthesisProvider::~SupertonicVoiceSynthesisProvider() {
     stopVoiceSynthesisProvider();
@@ -37,7 +44,9 @@ bool SupertonicVoiceSynthesisProvider::loadEngine() {
 /// has a hard maximum sequence length of 1000 tokens (≈ 1000 characters using
 /// the unicode_indexer); longer inputs raise an ONNX broadcast error in the
 /// attention Mul node.
-static std::vector<std::string> splitIntoChunks(const std::string& text, size_t maxChars = 900) {
+namespace {
+
+std::vector<std::string> splitIntoChunks(const std::string& text, size_t maxChars = 900) {
     std::vector<std::string> chunks;
     if (text.empty()) return chunks;
     if (text.size() <= maxChars) {
@@ -110,7 +119,7 @@ static std::vector<std::string> splitIntoChunks(const std::string& text, size_t 
 /// length-capped by splitIntoChunks(). The LLM hands over a whole reply at once, so
 /// synthesizing sentence by sentence lets the first one play while the rest is generated.
 /// shortcut: abbreviations like "Dr. " also split; harmless (just an extra pause) - add an exception list if it sounds off.
-static std::vector<std::string> splitIntoSentenceChunks(const std::string& text) {
+std::vector<std::string> splitIntoSentenceChunks(const std::string& text) {
     std::vector<std::string> chunks;
     size_t start = 0;
     for (size_t i = 0; i <= text.size(); ++i) {
@@ -125,6 +134,8 @@ static std::vector<std::string> splitIntoSentenceChunks(const std::string& text)
     }
     return chunks;
 }
+
+} // namespace
 
 bool SupertonicVoiceSynthesisProvider::synthesizeOne(const std::string& text) {
     // A part said faster or slower (say { speed }): its speed times the part's, for this text only.
@@ -166,62 +177,22 @@ bool SupertonicVoiceSynthesisProvider::synthesizeOne(const std::string& text) {
     return finishHandoff();
 }
 
-// --- Synthesis quality / timing knobs ---
-
-void SupertonicVoiceSynthesisProvider::setSpeed(float speed) {
-    auto p = impl_->getParams();
-    p.speed = speed;
-    impl_->setParams(p);
-}
-
-float SupertonicVoiceSynthesisProvider::getSpeed() const {
-    return impl_->getParams().speed;
-}
-
-void SupertonicVoiceSynthesisProvider::setSilenceDuration(float seconds) {
-    auto p = impl_->getParams();
-    p.silenceDuration = std::max(0.0f, seconds);
-    impl_->setParams(p);
-}
-
-float SupertonicVoiceSynthesisProvider::getSilenceDuration() const {
-    return impl_->getParams().silenceDuration;
-}
-
-void SupertonicVoiceSynthesisProvider::setTrimMargin(float margin) {
-    auto p = impl_->getParams();
-    p.trimMargin = std::max(0.0f, margin);
-    impl_->setParams(p);
-}
-
-float SupertonicVoiceSynthesisProvider::getTrimMargin() const {
-    return impl_->getParams().trimMargin;
-}
-
-void SupertonicVoiceSynthesisProvider::setTotalSteps(int steps) {
-    auto p = impl_->getParams();
-    p.totalSteps = std::max(1, steps);
-    impl_->setParams(p);
-}
-
-int SupertonicVoiceSynthesisProvider::getTotalSteps() const {
-    return impl_->getParams().totalSteps;
-}
-
 // --- Chunking knobs ---
 
 // --- Text normalization (numbers to words) ---
 
-static const char* const ONES[] = {
+namespace {
+
+constexpr const char* ONES[] = {
     "", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
     "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen",
     "seventeen", "eighteen", "nineteen"
 };
-static const char* const TENS[] = {
+constexpr const char* TENS[] = {
     "", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"
 };
 
-static std::string numberToWords(long long n) {
+std::string numberToWords(long long n) {
     if (n == 0) return "zero";
     if (n < 0) return "negative " + numberToWords(-n);
 
@@ -254,8 +225,8 @@ static std::string numberToWords(long long n) {
 }
 
 /// Spell out a digit string one digit at a time: "778" -> "seven seven eight"
-static std::string digitByDigit(const std::string& digits) {
-    static const char* const DIGIT_NAMES[] = {
+std::string digitByDigit(const std::string& digits) {
+    constexpr const char* DIGIT_NAMES[] = {
         "zero", "one", "two", "three", "four",
         "five", "six", "seven", "eight", "nine"
     };
@@ -273,7 +244,7 @@ static std::string digitByDigit(const std::string& digits) {
 /// clean, speakable prose.  Must run BEFORE number normalization because
 /// markdown markers like `**` or `#` are not in the model's unicode indexer
 /// and confuse the attention mechanism, causing entire words to be skipped.
-static std::string stripMarkdown(const std::string& text) {
+std::string stripMarkdown(const std::string& text) {
     std::string result;
     result.reserve(text.size());
 
@@ -346,6 +317,8 @@ static std::string stripMarkdown(const std::string& text) {
     size_t b = cleaned.find_last_not_of(' ');
     return cleaned.substr(a, b - a + 1);
 }
+
+} // namespace
 
 std::string SupertonicVoiceSynthesisProvider::normalizeText(const std::string& text) {
     // First strip markdown/LLM formatting artifacts
@@ -427,3 +400,5 @@ std::string SupertonicVoiceSynthesisProvider::normalizeText(const std::string& t
     }
     return result;
 }
+
+} // namespace va::thirdparty::tts

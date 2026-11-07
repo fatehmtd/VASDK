@@ -9,6 +9,28 @@
 #include <thread>
 #include <vector>
 
+namespace va::thirdparty::stt {
+
+/**
+ * Transcribes mono float samples in [-1, 1] at sampleRate (any rate; the SDK resamples).
+ * Throws std::exception on failure; the provider reports it via onTranscriptionError.
+ */
+using VozRecognizer = std::function<va::audio::TranscriptionResult(const std::vector<float>& samples, int sampleRate)>;
+
+/** Settings of VozTranscriptionProvider; every field but the recognizer has a default. */
+struct VozTranscriptionOptions {
+    /** Calls the Voz SDK of the platform (on Android, through JNI: VASDK_ANDROID/app/src/main/cpp/VozProvider.cpp). */
+    VozRecognizer recognizer;
+    /** Silence after the last audio that finalizes the utterance when no end of speech arrives. */
+    int idleTimeoutMs = 500;
+    /** Time between two partial results; 0 disables partials (each one decodes a full 15 s window). */
+    int partialIntervalMs = 0;
+    /** New audio needed before another partial, in samples (8000: 500 ms at 16 kHz). */
+    size_t minNewSamplesForPartial = 8000;
+    /** New audio needed before the final pass re-runs, in samples (1600: 100 ms at 16 kHz). */
+    size_t minNewSamplesForFinal = 1600;
+};
+
 /**
  * @brief VozTranscriptionProvider
  * Implements GenericTranscriptionProvider with Desert Ant Labs' Voz model (Parakeet TDT
@@ -26,13 +48,8 @@
 class VASDK_VOZ_STT_EXPORT VozTranscriptionProvider : public va::audio::GenericTranscriptionProvider
 {
 public:
-    /**
-     * Transcribes mono float samples in [-1, 1] at sampleRate (any rate; the SDK resamples).
-     * Throws std::exception on failure; the provider reports it via onTranscriptionError.
-     */
-    using VozRecognizer = std::function<va::audio::TranscriptionResult(const std::vector<float>& samples, int sampleRate)>;
 
-    explicit VozTranscriptionProvider(VozRecognizer recognizer);
+    explicit VozTranscriptionProvider(VozTranscriptionOptions options);
     ~VozTranscriptionProvider() override;
 
     bool initializeTranscriptionProvider() override;
@@ -53,26 +70,12 @@ public:
     void setAudioConfiguration(const va::audio::AudioConfig& config) override;
     va::audio::AudioConfig getAudioConfiguration() const override;
 
-    /**
-     * @brief InferenceConfig
-     * Tunable parameters for the inference loop.
-     */
-    struct InferenceConfig {
-        int idleTimeoutMs     = 500;
-        int partialIntervalMs = 0;              // 0 disables partial results
-        size_t minNewSamplesForPartial = 8000;  // ~500 ms @ 16 kHz
-        size_t minNewSamplesForFinal   = 1600;  // ~100 ms @ 16 kHz
-    };
-
-    void setInferenceConfig(const InferenceConfig& config);
-    InferenceConfig getInferenceConfig() const;
-
 private:
     void inferenceLoop();
     void appendAudioAsFloat(const uint8_t* data, size_t size, std::vector<float>& out) const;
     va::audio::TranscriptionResult runInference(const std::vector<float>& audio);
 
-    VozRecognizer _recognizer;
+    VozTranscriptionOptions _options;  // fixed after construction
     bool _initialized = false;
 
     va::audio::TranscriptionResultListener* _listener = nullptr;
@@ -95,5 +98,6 @@ private:
     va::audio::TranscriptionResult _cachedResult;
     size_t _lastInferSamples = 0;
 
-    InferenceConfig _inferenceConfig;
 };
+
+} // namespace va::thirdparty::stt

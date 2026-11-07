@@ -42,7 +42,7 @@ private:
     jweak _callbackRef{nullptr};
     jmethodID _onAudioFeatures{nullptr};
 
-    void fireAudioFeatures(const std::shared_ptr<va::thirdparty::AudioFeaturesFrame> &af);
+    void fireAudioFeatures(const std::shared_ptr<va::thirdparty::audio::AudioFeaturesFrame> &af);
 };
 
 //  SynthAudioObserver
@@ -57,11 +57,11 @@ public:
     void onPlayback(const char *data, size_t bytes);
 
 private:
-    using FeatureVec = std::vector<va::thirdparty::VizAnimProvider::Features>;
+    using FeatureVec = std::vector<va::thirdparty::audio::VizAnimProvider::Features>;
 
     void fireAudioFeatures(const FeatureVec &batch);
 
-    std::unique_ptr<va::thirdparty::VizAnimProvider> _provider;
+    std::unique_ptr<va::thirdparty::audio::VizAnimProvider> _provider;
     std::vector<char> _accum;
     size_t _windowBytes{0};
     JavaVM *_jvm{nullptr};

@@ -9,7 +9,39 @@
 #include <string>
 #include <vector>
 
-namespace gradium::tts { class PhononTTS; }
+namespace va::thirdparty::tts {
+
+namespace phonon { class PhononTTS; }
+
+/** Settings of PhononVoiceSynthesisProvider; every field but the model folder has a default. */
+struct PhononVoiceSynthesisOptions {
+    /** Checkpoint folder, laid out like the model's Hugging Face repo (see the class comment;
+     *  VASDK_3P_IMPL/cmake/DownloadPhononTTSModel.cmake). */
+    std::string modelDir;
+    /** Voice to speak in: a file stem under voices/, or "default". Unknown falls back to
+     *  "default", then the first voice. */
+    std::string voice = "Easton";
+    /** Language the text is normalized as before synthesis (numbers, amounts, dates, symbols and
+     *  addresses spelled out as Gradium's runtime does): en, fr, de, es, pt, or "none" to pass the
+     *  text as written. The language of the text, not of the voice. */
+    std::string language = "en";
+    /** Rewrite rules normalization runs: "default" (numbers, currency, dashed digits, emails, urls,
+     *  abbreviations, elongations), "all" (also phones, times, dates), "none", or a comma-separated
+     *  list of rule names. */
+    std::string normalizationRules = "default";
+    /** Sampling temperature; 0 is deterministic. */
+    float temperature = 0.3f;
+    /** Speaking-rate condition of the 40m checkpoints; negative is faster. */
+    float durationDelta = 0.0f;
+    /** Largest audio chunk handed over, in 80 ms frames (12: about 1 s). The first chunk is always
+     *  6 frames so playback starts early. */
+    int streamChunkFrames = 12;
+    /** Longer text is spoken as groups of whole sentences of up to this many tokens; a sentence over
+     *  200 tokens is cut at a clause. */
+    int maxTokensPerChunk = 50;
+    /** Silence after each completed synthesis sequence. */
+    float silenceDurationSeconds = 0.3f;
+};
 
 /**
  * @brief Voice synthesis provider backed by Gradium's Phonon TTS (flow-matching transformer +
@@ -29,25 +61,18 @@ namespace gradium::tts { class PhononTTS; }
  *   voices/<name>.safetensors    (optional, one per voice, named after the file)
  *
  * Audio streams in chunks while the rest of the utterance is still being generated:
- * a 480 ms first chunk, then doubling up to setStreamChunkFrames().
+ * a 480 ms first chunk, then doubling up to the streamChunkFrames option.
  */
 class PhononVoiceSynthesisProvider : public va::audio::QueuedVoiceSynthesisProvider {
 public:
-    /**
-     * @param modelDir   Checkpoint folder (see above)
-     * @param voiceName  Voice to speak in (file stem under voices/, or "default").
-     *                   Empty or unknown falls back to "default", then the first voice.
-     */
-    explicit PhononVoiceSynthesisProvider(const std::string& modelDir,
-                                          const std::string& voiceName = "",
-                                          const std::string& language = "en");
+    explicit PhononVoiceSynthesisProvider(PhononVoiceSynthesisOptions options);
     ~PhononVoiceSynthesisProvider() override;
 
     // Non-copyable
     PhononVoiceSynthesisProvider(const PhononVoiceSynthesisProvider&)            = delete;
     PhononVoiceSynthesisProvider& operator=(const PhononVoiceSynthesisProvider&) = delete;
 
-    // --- Phonon knobs ---
+    // --- Switching at run time ---
 
     /// Select a voice by name. Thread-safe: applied before the next utterance.
     /// Returns false if no voice file with that name exists in the model directory.
@@ -64,39 +89,18 @@ public:
     bool setLanguage(const std::string& language);
     std::string getLanguage() const;
 
-    /// Which rewrite rules normalization runs: "default" (numbers, currency, dashed-digits,
-    /// emails, urls, abbreviations, elongations), "all" (also phones, times, dates), "none", or
-    /// a comma-separated list of rule names. Returns false (and keeps the current set) when the
-    /// spec does not parse.
-    bool setNormalizationRules(const std::string& rules);
-
-    /// Sampling temperature (default 0.3). 0 is deterministic.
-    void  setTemperature(float temperature);
-    float getTemperature() const { return _temperature.load(); }
-
-    /// Speaking-rate condition of the 40m checkpoints (default 0; negative = faster).
-    void  setDurationDelta(float delta) { _durationDelta.store(delta); }
-    float getDurationDelta() const { return _durationDelta.load(); }
-
-    /// Largest audio chunk handed over, in 80 ms frames (default 12, ~1 s). The first
-    /// chunk is always 6 frames so playback starts early.
-    void setStreamChunkFrames(int frames);
-    int  getStreamChunkFrames() const { return _streamChunkFrames.load(); }
-
-    /// Longer text is spoken as groups of whole sentences of up to this many tokens
-    /// (default 50, as Gradium's runtime). A sentence over 200 tokens is cut at a clause.
-    void setMaxTokensPerChunk(int tokens);
-    int  getMaxTokensPerChunk() const { return _maxTokensPerChunk.load(); }
-
-    /// Seconds of silence appended after each completed synthesis sequence (default 0).
-    void  setSilenceDuration(float seconds);
-    float getSilenceDuration() const { return _silenceDuration; }
-
 private:
     class StreamListener;
 
+    // Applied from the options by the constructor; each keeps the current value on a bad one.
+    bool setNormalizationRules(const std::string& rules);
+    void setTemperature(float temperature);
+    void setStreamChunkFrames(int frames);
+    void setMaxTokensPerChunk(int tokens);
+    void setSilenceDuration(float seconds);
+
     std::string _modelDir;
-    std::unique_ptr<gradium::tts::PhononTTS> _engine;
+    std::unique_ptr<phonon::PhononTTS> _engine;
     float _silenceDuration = 0.0f;
 
     int modelSampleRate() const { return 24000; }   // the model's output rate
@@ -134,5 +138,7 @@ private:
     void onModelAudio(const float* pcm, size_t n);
     void flushResampler();
 };
+
+} // namespace va::thirdparty::tts
 
 #endif // PHONON_VOICE_SYNTHESIS_PROVIDER_HPP

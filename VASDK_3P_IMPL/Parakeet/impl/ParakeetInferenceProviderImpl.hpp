@@ -21,6 +21,8 @@
 #include <unordered_set>
 #include <chrono>
 
+namespace va::thirdparty::stt {
+
 class ParakeetInferenceProviderImpl {
 public:
     struct InferResult {
@@ -912,3 +914,5 @@ private:
     int64_t            _incrEncLen = 0;   // number of cached encoder frames (T'_prev)
     int64_t            _incrMelLen = 0;   // mel frame count that produced _incrEncCache
 };
+
+} // namespace va::thirdparty::stt

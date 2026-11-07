@@ -26,7 +26,7 @@
 #endif
 
 namespace va {
-    namespace thirdparty {
+    namespace thirdparty::turn {
         class SmartTurnV3Impl {
             public:
             SmartTurnV3Impl(const std::string& modelPath,
@@ -351,7 +351,7 @@ namespace va {
                 static_cast<int>(_featuresBuffer.size()));
         }
 
-        int va::thirdparty::SmartTurnV3Impl::computeWhisperFeatures(
+        int va::thirdparty::turn::SmartTurnV3Impl::computeWhisperFeatures(
             const float* audioData, int numSamples,
             int nFFT, int hopLength, int nMels,
             float* featuresBuffer, int featuresBufferSize)

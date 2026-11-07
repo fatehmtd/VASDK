@@ -1,4 +1,5 @@
 #include "DeepgramppTranscriptionProvider.h"
+#include <utility>
 
 #include <spdlog/spdlog.h>
 
@@ -78,17 +79,13 @@ std::vector<int16_t> toPcm16(const uint8_t* data, size_t size, va::audio::AudioF
 } // namespace
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::stt {
 
-DeepgramppTranscriptionProvider::DeepgramppTranscriptionProvider(
-    const std::string& apiKey,
-    const std::string& model,
-    const std::string& language,
-    const std::string& caFilePath)
-    : _apiKey(apiKey),
-      _model(model),
-      _language(language),
-      _caFilePath(caFilePath)
+DeepgramppTranscriptionProvider::DeepgramppTranscriptionProvider(DeepgramppTranscriptionOptions options)
+    : _apiKey(std::move(options.apiKey)),
+      _model(std::move(options.model)),
+      _language(std::move(options.language)),
+      _caFilePath(std::move(options.caBundlePath))
 {
 }
 
@@ -412,5 +409,5 @@ va::audio::TranscriptionResult DeepgramppTranscriptionProvider::buildResult(
     return result;
 }
 
-} // namespace thirdparty
+} // namespace thirdparty::stt
 } // namespace va

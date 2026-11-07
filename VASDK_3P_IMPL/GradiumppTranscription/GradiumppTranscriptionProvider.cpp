@@ -1,4 +1,5 @@
 #include "GradiumppTranscriptionProvider.h"
+#include <utility>
 
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
@@ -103,15 +104,12 @@ std::vector<uint8_t> wrapPcm16AsWav(const int16_t* samples, size_t sampleCount, 
 } // namespace
 
 namespace va {
-namespace thirdparty {
+namespace thirdparty::stt {
 
-GradiumppTranscriptionProvider::GradiumppTranscriptionProvider(
-    const std::string& apiKey,
-    const std::string& model,
-    const std::string& language)
-    : _apiKey(apiKey),
-      _model(model),
-      _language(language)
+GradiumppTranscriptionProvider::GradiumppTranscriptionProvider(GradiumppTranscriptionOptions options)
+    : _apiKey(std::move(options.apiKey)),
+      _model(std::move(options.model)),
+      _language(std::move(options.language))
 {
 }
 
@@ -587,5 +585,5 @@ va::audio::TranscriptionResult GradiumppTranscriptionProvider::parseNdjsonResult
     return result;
 }
 
-} // namespace thirdparty
+} // namespace thirdparty::stt
 } // namespace va

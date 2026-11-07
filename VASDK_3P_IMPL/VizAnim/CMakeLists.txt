@@ -59,3 +59,10 @@ install(FILES
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/vasdk_vizanim_export.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/VizAnim
 )
+
+if(VASDK_BUILD_TESTS)
+    add_executable(vasdk_vizanim_test ${CMAKE_CURRENT_LIST_DIR}/tests/vizanim_test.cpp)
+    target_link_libraries(vasdk_vizanim_test PRIVATE vasdk_vizanim)
+    vasdk_test_dlls(vasdk_vizanim_test)
+    add_test(NAME vasdk_vizanim COMMAND vasdk_vizanim_test)
+endif()
