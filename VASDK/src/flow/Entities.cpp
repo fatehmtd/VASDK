@@ -18,7 +18,8 @@ namespace {
 
 std::string inQuotes(const std::string& text) { return "\"" + text + "\""; }
 
-// How alike a word must be to a value's, inside a span an entity model marked as that entity.
+// How alike a word must be to a value's, inside a span an entity model marked as that entity,
+// unless the entity sets its own min_similarity.
 constexpr float kInSpanSimilarity = 0.6f;
 
 bool isDigits(const std::string& word, bool decimals) {
@@ -303,9 +304,12 @@ std::vector<EntityMatch> EntityCatalog::matches(const std::string& name, const s
                         spots.push_back(spot);
                 };
                 // Inside the model's span the words are this entity: only which value is left to
-                // decide, so a looser likeness does ("tyers" for "tyres"), fuzzy off excepted.
+                // decide, so a looser likeness does ("tyers" for "tyres"), fuzzy off excepted. An
+                // entity's own min_similarity holds there too: a name the model marks that isn't a
+                // contact ("jimmy") mustn't become the nearest one ("mommy").
+                const float inSpanSimilarity = matching.has_min_similarity() ? minSimilarity : std::min(minSimilarity, kInSpanSimilarity);
                 if (spans && minSimilarity < 1.0f)
-                    for (const auto& spot : nlu::findPhrase(words, phraseWords, std::min(minSimilarity, kInSpanSimilarity))) add(spot);
+                    for (const auto& spot : nlu::findPhrase(words, phraseWords, inSpanSimilarity)) add(spot);
                 if (matching.phonetic())   // "Catherine" for "Katherine", "Schmidt" for "Smith"
                     for (const auto& spot : soundsAt(phraseWords)) add(spot);
                 for (const auto& [start, similarity] : spots) {

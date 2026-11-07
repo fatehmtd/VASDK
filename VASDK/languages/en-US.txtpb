@@ -167,7 +167,7 @@ intents { key: "sys.no" value { phrases: ["no", "nope", "nah", "no thanks", "not
 intents { key: "sys.cancel" value { phrases: ["cancel", "never mind", "nevermind", "forget it", "stop"] } }
 intents {
   key: "sys.repeat"
-  value { phrases: ["repeat", "say that again", "come again", "what did you say", "pardon", "one more time"] }
+  value { phrases: ["repeat", "say that again", "come again", "what did you say", "what did you just say", "what did you just tell me", "what was that", "pardon", "one more time"] }
 }
 intents { key: "sys.help" value { phrases: ["help", "what can i say", "what can you do", "i'm confused", "options"] } }
 intents { key: "sys.skip" value { phrases: ["skip", "i don't know", "not sure", "no idea", "pass", "next question"] } }

@@ -75,8 +75,12 @@ int main() {
     check(toText(conversation.lookup({"form", "size"})).empty(), "the dependent answer is cleared");
     check(reply.text.rfind("So oil change", 0) == 0, "and the read-back again, without asking the size: " + reply.text);
     // Back to a tire repair: the size applies again, so it's asked.
-    reply = conversation.handleText("no, make it a tire repair");
-    check(reply.text == "What tire size?", "the size is asked again: " + reply.text);
+    // A new value alone at the read-back is a no with it: changed, and read back again.
+    reply = conversation.handleText("an oil change");
+    check(reply.text == "Please say yes or no. So oil change, a wax and a car wash, notes: . Right?",
+          "the same value isn't a change: yes or no is asked again: " + reply.text);
+    reply = conversation.handleText("a tire repair");
+    check(reply.text == "What tire size?", "a new value alone changes it, and the size is asked again: " + reply.text);
 
     // Load errors
     std::string text = kAgent;

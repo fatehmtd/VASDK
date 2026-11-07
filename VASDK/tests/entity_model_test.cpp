@@ -28,6 +28,7 @@ const char* kAgent = R"(
   entity_types { name: "service" list {
     values { value: "tire_repair" spoken: "a tire repair" synonyms: ["tires", "tyres"] }
     values { value: "oil_change" spoken: "an oil change" synonyms: ["oil change"] } } }
+  entity_types { name: "contact" list { values { value: "mom" synonyms: ["mommy"] } } matching { min_similarity: 0.8 } }
   intents { name: "book" examples: ["book @service", "i need @service", "my @service please"] }
   intents { name: "cancel" examples: ["cancel my appointment"] }
   intents { name: "hello" examples: ["hello", "say something", "what time is it"] }
@@ -103,8 +104,11 @@ int main() {
         check(!entities.find("service", "i need my tyers checked", {}, now, &none).has_value(), "outside any span it doesn't");
         const std::vector<nlu::EntitySpan> other{{"color", 3, 1, 0.9f}};
         check(!entities.find("service", "i need my tyers checked", {}, now, &other).has_value(), "nor in another entity's span");
+        const std::vector<nlu::EntitySpan> name{{"contact", 1, 1, 0.9f}};
+        check(!entities.find("contact", "text jimmy", {}, now, &name).has_value(),
+              "an entity's own min_similarity holds inside its span: \"jimmy\" isn't \"mommy\"");
         const auto labels = entities.modelLabels();
-        check(labels.size() == 1 && labels[0].entity == "service" && labels[0].label == "service" &&
+        check(labels.size() == 2 && labels[0].entity == "service" && labels[0].label == "service" &&
                   labels[0].examples.front() == "a tire repair", "labels: the list entities, a few values as said");
     }
     {

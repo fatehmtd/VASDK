@@ -76,7 +76,7 @@ Intents are understood from their examples, with no model and no LLM. When sever
 
 | What | Example |
 |---|---|
-| Speech-recognition misspellings | "cancel my apointment" matches `cancel my appointment`. Words of 4 letters or more match when at least 80% alike (an edit, or two letters swapped, in a 5-letter word); shorter ones must be exact. List entity synonyms match the same way ("tyres" is `tires`). An entity can opt out with `matching { fuzzy: false }`, or ask for more or less with `min_similarity`. With an [entity model](#entity-models) an entity's misspellings count only inside the words it marks as that entity, and with a sentence encoder the rules match intents exactly (the encoder understands the rest). |
+| Speech-recognition misspellings | "cancel my apointment" matches `cancel my appointment`. Words of 4 letters or more match when at least 80% alike (an edit, or two letters swapped, in a 5-letter word); shorter ones must be exact. List entity synonyms match the same way ("tyres" is `tires`). An entity can opt out with `matching { fuzzy: false }`, or ask for more or less with `min_similarity`. With an [entity model](#entity-models) an entity's misspellings count only inside the words it marks as that entity, where 60% alike does unless the entity sets its own `min_similarity` (names: "jimmy" is 60% "mommy"), and with a sentence encoder the rules match intents exactly (the encoder understands the rest). |
 | Entities in examples | `examples: ["book @service"]` matches "book my tyres": the words around the entity in order, the entity anywhere in the words. Each entity counts as one word. |
 | Negation | "I don't want to cancel" doesn't match `cancel`: a negating word (not, no, never, don't, can't, ...) up to three words before the example. `negative_examples: ["don't cancel"]` rules an intent out whenever they're in the words. |
 | Built-in intents | `sys.yes`, `sys.no`, `sys.cancel`, `sys.repeat`, `sys.help` and `sys.skip` work in routes without declaring them, with the examples of each of the agent's languages. Declaring an intent of the same name replaces its examples. |
@@ -620,7 +620,7 @@ Any other empty `ENUM` slot whose value is named is filled too, so "an oil chang
 - **Lists.** A `list: true` slot (`ENUM`, or an entity) keeps every value named, in the order said: "a wax and a car wash" → `["wax", "wash"]`. A reply says "a wax and a car wash".
 - **Corrections.** Changing an answer ("no, make it an oil change") clears the answers whose `condition` reads it, such as the tire size. They're asked again only if they still apply. With `require_confirmation`, it then speaks `confirm`, and:
 - *yes*: `$form.confirmed` becomes true;
-- *no* with a new `ENUM` value ("no, Tuesday"): it changes and is read back again;
+- *no* with a new `ENUM` value ("no, Tuesday"), or the new value alone ("Tuesday", "to John"): it changes and is read back again;
 - a plain *no*: "What would you like to change?" (or the goal's `change` text). Naming a value changes it; naming a slot ("the phone number") empties it and asks for it again.
 
 **When an answer fits nothing,** the page's routes get it, so "what are your hours" or "talk to a person" still work. A route that stays on the page is followed by the form's next question. With no route, the slot's `reprompt` is asked (default: "Sorry, I didn't get that." and the prompt), and `matched` is false. After more than `max_reprompts` (default 2) answers in a row that don't fit, `$form.failed` becomes true.

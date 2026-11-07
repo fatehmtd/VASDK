@@ -34,7 +34,7 @@ message EntityType {
 // marks as this entity; exact values and synonyms count anywhere.
 message Matching {
   optional bool fuzzy = 1;            // misspelled words still match ("tyres" for "tires"); unset: true
-  optional float min_similarity = 2;  // how alike a word must be, 0 to 1; unset: 0.8
+  optional float min_similarity = 2;  // how alike a word must be, 0 to 1; unset: 0.8, and 0.6 inside an entity model's span (set: the same everywhere)
   bool phonetic = 3;                  // words that sound alike match too: names ("Catherine" for "Katherine")
   // What an entity model is told this entity is, a short noun phrase ("car repair"); unset: the
   // name, with spaces for underscores ("available time"). Zero-shot models (gliner) depend on it.
