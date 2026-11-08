@@ -16,6 +16,9 @@
 #include <memory>
 #include <string>
 
+// forward declaration
+class ToolRegistry;
+
 // The app's one conversation: a VAEngine runtime and session, with what the Android app adds to it.
 struct VasdkSession {
     std::shared_ptr<va::engine::Runtime> runtime;
@@ -24,6 +27,7 @@ struct VasdkSession {
     std::shared_ptr<va::thirdparty::audio::AAudioSink> audioSink;
     std::shared_ptr<va::llm::LLMTransport> llmTransport;   // the session's: local (llama.cpp) or the config's endpoint
     std::shared_ptr<va::llm::ToolDispatchProcessor> toolDispatcher;   // the session's, for ToolRegistration
+    std::unique_ptr<ToolRegistry> toolRegistry; // the tool registry
     bool useLocalLLM{false};
     // The base instruction text before tool descriptions are appended (see nativeInit) -
     // kept separately so the "model info" screen can show it apart from the tools list.

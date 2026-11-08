@@ -38,6 +38,8 @@
 
 #define VASDK_TAG "VASDK"
 
+#include "ToolRegistration.h"
+
 static JavaVM *gJvm = nullptr;
 static std::unique_ptr<VasdkSession> gSession;
 static std::mutex gSessionMutex;
@@ -453,11 +455,13 @@ Java_com_vasdk_android_VasdkEngine_nativeInit(JNIEnv *env, jobject thiz, jstring
         }
         return result;
     };
+
     // HINT: the more tools you add the less likely they'll be called, a limit of small models.
-    registerCommunicationTools(session.get(), androidToolBridge);
-    registerNotificationAndAlarmTools(session.get(), androidToolBridge);
-    registerCalendarTools(session.get(), androidToolBridge);
-    registerCameraTools(session.get(), androidToolBridge);
+    session->toolRegistry = std::make_unique<ToolRegistry>(session.get(), androidToolBridge);
+    session->toolRegistry->registerCommunicationTools();
+    session->toolRegistry->registerNotificationAndAlarmTools();
+    session->toolRegistry->registerCalendarTools();
+    session->toolRegistry->registerCameraTools();
 
     if (session->useLocalLLM && session->llmTransport) {
         // llama.cpp renders requests with the GGUF's own template: the tool descriptions go into

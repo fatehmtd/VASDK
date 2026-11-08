@@ -8,12 +8,24 @@
 // enable/disable them independently (see the HINT comment at the call site: the
 // more tools registered, the less reliably small on-device models call any one
 // of them).
-void registerSystemTools(VasdkSession *session, AndroidToolBridge callKotlinTool);
-void registerMediaTools(VasdkSession *session, AndroidToolBridge callKotlinTool);
-void registerNotificationAndAlarmTools(VasdkSession *session, AndroidToolBridge callKotlinTool);
-void registerCommunicationTools(VasdkSession *session, AndroidToolBridge callKotlinTool);
-void registerCalendarTools(VasdkSession *session, AndroidToolBridge callKotlinTool);
-void registerLocationTools(VasdkSession *session, AndroidToolBridge callKotlinTool);
-void registerWebTools(VasdkSession *session, AndroidToolBridge callKotlinTool);
-void registerCameraTools(VasdkSession *session, AndroidToolBridge callKotlinTool);
-void registerAndroidTools(VasdkSession *session, AndroidToolBridge callKotlinTool);
+
+/**
+ * Tool registration.
+ */
+class ToolRegistry {
+    public:
+    ToolRegistry(VasdkSession *session, AndroidToolBridge callKotlinTool): session(session), callKotlinTool(callKotlinTool) {}
+
+    void registerSystemTools();
+    void registerMediaTools();
+    void registerNotificationAndAlarmTools();
+    void registerCommunicationTools();
+    void registerCalendarTools();
+    void registerLocationTools();
+    void registerWebTools();
+    void registerCameraTools();
+    void registerAndroidTools();
+private:
+    VasdkSession *session;
+    AndroidToolBridge callKotlinTool;
+};

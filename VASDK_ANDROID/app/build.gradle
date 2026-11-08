@@ -13,7 +13,7 @@ if (localPropsFile.exists()) {
 
 // Load environment variables from .env.local if it exists, overriding local.properties
 def envLocalProps = new Properties()
-def envLocalFile = rootProject.file('../.env.local')
+def envLocalFile = rootProject.file('../.env.cloud')
 if (envLocalFile.exists()) {
     envLocalFile.eachLine { line ->
         line = line.trim()

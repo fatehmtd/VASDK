@@ -2,7 +2,7 @@
 
 #include "tools/android_tools.h"
 
-void registerSystemTools(VasdkSession *session, AndroidToolBridge callKotlinTool) {
+void ToolRegistry::registerSystemTools() {
     // System tools (system_tools.h)
     session->toolDispatcher->registerTool(BatteryStatusTool{callKotlinTool});
     session->toolDispatcher->registerTool(DeviceInfoTool{callKotlinTool});
@@ -15,7 +15,7 @@ void registerSystemTools(VasdkSession *session, AndroidToolBridge callKotlinTool
     session->toolDispatcher->registerTool(GetInstalledAppsTool{callKotlinTool});
 }
 
-void registerMediaTools(VasdkSession *session, AndroidToolBridge callKotlinTool) {
+void ToolRegistry::registerMediaTools() {
     // Media tools (media_tools.h)
     session->toolDispatcher->registerTool(GetVolumeTool{callKotlinTool});
     session->toolDispatcher->registerTool(SetVolumeTool{callKotlinTool});
@@ -27,13 +27,13 @@ void registerMediaTools(VasdkSession *session, AndroidToolBridge callKotlinTool)
     session->toolDispatcher->registerTool(GetNowPlayingTool{callKotlinTool});
 }
 
-void registerNotificationAndAlarmTools(VasdkSession *session, AndroidToolBridge callKotlinTool) {
+void ToolRegistry::registerNotificationAndAlarmTools() {
     // Notification & alarm tools (notification_tools.h)
     session->toolDispatcher->registerTool(SendNotificationTool{callKotlinTool});
     session->toolDispatcher->registerTool(SetAlarmOrTimerTool{callKotlinTool});
 }
 
-void registerCommunicationTools(VasdkSession *session, AndroidToolBridge callKotlinTool) {
+void ToolRegistry::registerCommunicationTools() {
     // Communication tools (communication_tools.h)
     session->toolDispatcher->registerTool(GetContactsTool{callKotlinTool});
     session->toolDispatcher->registerTool(GetCallLogsTool{callKotlinTool});
@@ -41,30 +41,30 @@ void registerCommunicationTools(VasdkSession *session, AndroidToolBridge callKot
     session->toolDispatcher->registerTool(SendSmsTool{callKotlinTool});
 }
 
-void registerCalendarTools(VasdkSession *session, AndroidToolBridge callKotlinTool) {
+void ToolRegistry::registerCalendarTools() {
     session->toolDispatcher->registerTool(GetCalendarEventsTool{callKotlinTool});
     session->toolDispatcher->registerTool(AddCalendarEventTool{callKotlinTool});
 }
 
-void registerLocationTools(VasdkSession *session, AndroidToolBridge callKotlinTool) {
+void ToolRegistry::registerLocationTools() {
     // Location tools (location_tools.h)
     session->toolDispatcher->registerTool(GetLocationTool{callKotlinTool});
     session->toolDispatcher->registerTool(NavigateToTool{callKotlinTool});
 }
 
-void registerWebTools(VasdkSession *session, AndroidToolBridge callKotlinTool) {
+void ToolRegistry::registerWebTools() {
     // Web tools (web_tools.h)
     session->toolDispatcher->registerTool(WebSearchTool{callKotlinTool});
     session->toolDispatcher->registerTool(FetchUrlTool{callKotlinTool});
 }
 
-void registerCameraTools(VasdkSession *session, AndroidToolBridge callKotlinTool) {
+void ToolRegistry::registerCameraTools() {
     // Camera tools (camera_tools.h)
     session->toolDispatcher->registerTool(CapturePhotoTool{callKotlinTool});
     session->toolDispatcher->registerTool(SetFlashlightTool{callKotlinTool});
 }
 
-void registerAndroidTools(VasdkSession *session, AndroidToolBridge callKotlinTool) {
+void ToolRegistry::registerAndroidTools() {
     // Pure C++ tools - no JNI round-trip needed
     session->toolDispatcher->registerTool(DateTimeTool{});
     session->toolDispatcher->registerTool(RandomNumberTool{});
