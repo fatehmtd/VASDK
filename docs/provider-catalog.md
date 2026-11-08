@@ -6,7 +6,7 @@ Every row is an independent target under `VASDK_3P_IMPL/`, and each name links t
 
 | Stage | Local / offline | Cloud |
 | --- | --- | --- |
-| Audio I/O | [MiniAudio](providers/miniaudio.md), [SDL3](providers/sdl.md) | - |
+| Audio I/O | [MiniAudio](providers/miniaudio.md) (config id `miniaudio`), [AAudio](providers/aaudio.md) (Android only, config id `aaudio`), [SDL3](providers/sdl.md) | - |
 | VAD | [Silero](providers/silero.md) (ONNX), [Energy+ZCR](providers/energy-zcr-vad.md) | - |
 | Turn detection | [SmartTurn v3](providers/smartturn-v3.md) | - |
 | Speaker identification | [pyannote](providers/pyannote.md) (WeSpeaker ResNet34-LM, ONNX) | - |
@@ -15,7 +15,7 @@ Every row is an independent target under `VASDK_3P_IMPL/`, and each name links t
 | Entity finding | [GLiNER](providers/gliner.md) (ONNX, opt-in), a tagger on MiniLM's word vectors | the agent's LLM |
 | STT | [Whistle](providers/whistle.md) (prebuilt engine), [Parakeet](providers/parakeet.md), [Moonshine](providers/moonshine.md) (streaming), [Whisper.cpp](providers/whispercpp.md) (WIP) (ONNX/GGUF), [Voz](providers/voz.md) (Android, via the Desert Ant Labs SDK) | [Gladia](providers/gladia.md) (WIP), [Gradium](providers/gradium-stt.md), [Soniox](providers/soniox-stt.md), [Deepgram](providers/deepgram-stt.md), [Cartesia](providers/cartesia-stt.md), [Fish Audio](providers/fishaudio-stt.md) |
 | TTS | [PocketTTS](providers/pocket.md) (ONNX), [Phonon](providers/phonon.md) (GGUF), [MOSS-TTS-Nano](providers/moss.md) (ONNX), [Supertonic 3](providers/supertonic.md) (ONNX, 31 languages) | [Gradium](providers/gradium-tts.md), [Soniox](providers/soniox-tts.md), [Deepgram](providers/deepgram-tts.md), [Cartesia](providers/cartesia-tts.md), [Fish Audio](providers/fishaudio-tts.md) |
-| LLM | [llama.cpp](providers/llamacpp.md), or any OpenAI-compatible local server | OpenAI, Anthropic |
+| LLM | [llama.cpp](providers/llamacpp.md) (config id `llamacpp`), or any OpenAI-compatible local server | OpenAI, Anthropic |
 | File / batch audio | [FFmpeg-backed file transport](providers/ffmpeg.md) (not on Android) | - |
 | WebRTC (browser calls) | [libdatachannel + Opus](providers/webrtc.md), direct peer connection | - |
 | Visualization | [VizAnim](providers/vizanim.md) (audio feature extraction for UI animation) | - |
@@ -55,7 +55,7 @@ Moonshine STT ([Useful Sensors](https://huggingface.co/UsefulSensors/moonshine-s
 
 `WHISTLE_LANGUAGE` (in `.env`; `en`, `de`, `fr`, `es`, `it`, `nl` or `pl`) pins the language. Without it, the language is detected per utterance. The engine holds one speech model per process, so every Whistle provider instance shares it and their inference calls are serialised. The Android app offers Whistle on arm64 only, because the needle engine has no x86_64 Android build.
 
-Speaker tracking uses pyannote/speaker-diarization-3.1's embedding model (WeSpeaker ResNet34-LM, ONNX, on a Kaldi fbank front end checked by a parity test). It is on by default (`VASDK_BUILD_PYANNOTE_SPEAKER`). Both showcase apps insert `SpeakerIdentificationProcessor` after turn detection. For each utterance, it reports whether the speaker is the same as the last one or new, and it matches against voices enrolled with `requestEnrollment()`. If the model fails to load, the apps log an error and run without speaker tracking.
+Speaker tracking uses pyannote/speaker-diarization-3.1's embedding model (WeSpeaker ResNet34-LM, ONNX, on a Kaldi fbank front end checked by a parity test). It is on by default (`VASDK_BUILD_PYANNOTE_SPEAKER`). Any session runs it with `providers { speaker_embedding { id: "pyannote" } }`: each utterance ends in a `speaker_identified` event (same speaker or new, and the best enrolled match), and the `enroll_speaker` command enrolls the next one ([Speaker identification](reference/engine-config.md#speaker-identification)). Noise suppression is the same: `providers { audio_dsp { id: "rnnoise" } }`, heard by every stage. The two showcase apps still insert `SpeakerIdentificationProcessor` by hand, after turn detection; if the model fails to load, they log an error and run without speaker tracking.
 
 The [ManniX-ITA/whistle-GGUF](https://huggingface.co/ManniX-ITA/whistle-GGUF) repackaging uses custom ggml tensor types (CQ2_0/CQ4_0) that only the opencoti llamafile fork loads, so the provider uses the original `.cact` and engine instead.
 
@@ -95,10 +95,13 @@ Where each provider's underlying code or API actually comes from, and under what
 | <a href="https://openai.com"><img src="../assets/logos/openai.png" width="48" alt=""></a> | OpenAI (cloud LLM) | [openai.com](https://openai.com) · [API docs](https://platform.openai.com/docs) | - (direct HTTP via libcurl, no vendor SDK) | - |
 | <a href="https://www.anthropic.com"><img src="../assets/logos/anthropic.svg" width="48" alt=""></a> | Anthropic (cloud LLM) | [anthropic.com](https://www.anthropic.com) · [API docs](https://platform.claude.com/docs) | - (direct HTTP via libcurl, no vendor SDK) | - |
 | <a href="https://github.com/mackron/miniaudio"><img src="../assets/logos/mackron.png" width="48" height="48" alt=""></a> | MiniAudio | - | [mackron/miniaudio](https://github.com/mackron/miniaudio) | Public domain (Unlicense) / MIT-0, your choice |
+| | AAudio | [developer.android.com](https://developer.android.com/ndk/guides/audio/aaudio/aaudio) | the Android NDK's | Apache 2.0 (VASDK's wrapper; AAudio is part of Android) |
 | <a href="https://github.com/libsdl-org/SDL"><img src="../assets/logos/libsdl-org.png" width="48" alt=""></a> | SDL3 | - | [libsdl-org/SDL](https://github.com/libsdl-org/SDL) | zlib |
 | <a href="https://ffmpeg.org"><img src="../assets/logos/ffmpeg.svg" width="48" alt=""></a> | FFmpeg | [ffmpeg.org](https://ffmpeg.org) | [FFmpeg/FFmpeg](https://github.com/FFmpeg/FFmpeg) | LGPL or GPL, depending on how your system build was configured |
 | | libdatachannel (WebRTC) | - | [paullouisageneau/libdatachannel](https://github.com/paullouisageneau/libdatachannel) | MPL 2.0 |
 | | Opus (WebRTC audio codec) | [opus-codec.org](https://opus-codec.org) | [xiph/opus](https://github.com/xiph/opus) | BSD 3-Clause |
 | | VizAnim | - | custom, in-repo · [marton78/pffft](https://github.com/marton78/pffft) (FFT dependency) | Apache 2.0 (VASDK) · permissive NCAR/UCAR license (pffft) |
+
+The bindings bring libraries of their own, each only when that binding is built (`VASDK_BUILD_PYTHON_BINDING`, `VASDK_BUILD_KOTLIN_BINDING`): Python's [protobuf](https://pypi.org/project/protobuf/) (BSD 3-Clause), and Kotlin's [JNA](https://github.com/java-native-access/jna) (Apache 2.0, or LGPL 2.1; VASDK takes it under Apache 2.0), [protobuf-kotlin-lite](https://github.com/protocolbuffers/protobuf) (BSD 3-Clause), [kotlinx.coroutines](https://github.com/Kotlin/kotlinx.coroutines) and [kotlinx.serialization](https://github.com/Kotlin/kotlinx.serialization) (Apache 2.0). They're in [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md).
 
 `gladiapp`, `SonioxPP`, `deepgrampp`, `CartesiaPP`, `fishaudiopp`, and `GradiumPP` are VASDK's own thin WebSocket clients for those APIs, not an SDK published by Gladia, Soniox, Deepgram, Cartesia, Fish Audio, or Gradium themselves - the license listed is for that wrapper code, not the underlying service.

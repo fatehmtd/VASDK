@@ -42,6 +42,9 @@ namespace va {
                 float minSpeechSec = 1.0f);
 
             void setRingBuffer(std::shared_ptr<AudioRingBuffer> ringBuffer) { _ringBuffer = ringBuffer; }
+            /** The constructor's threshold and minSpeechSec, changed before the pipeline starts. */
+            void setThreshold(float threshold) { _threshold = threshold; }
+            void setMinSpeechSeconds(float seconds) { _minSpeechSec = seconds; }
 
             /** Enroll the next utterance as speakerId (replaces an existing voice print). */
             void requestEnrollment(const std::string& speakerId);

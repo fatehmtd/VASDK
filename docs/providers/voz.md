@@ -22,7 +22,7 @@ In C++, `va::thirdparty::stt::VozTranscriptionOptions` (in [`VozTranscriptionPro
 | `minNewSamplesForPartial` | `8000` | New audio needed before another partial, in samples (8000: 500 ms at 16 kHz). |
 | `minNewSamplesForFinal` | `1600` | New audio needed before the final pass re-runs, in samples (1600: 100 ms at 16 kHz). |
 
-The engine config can't select it on desktop: only the Android app registers `voz` (`VASDK_ANDROID/app/src/main/cpp/VozProvider.cpp`).
+The engine config can't select it on desktop: only the Android app registers `voz` (`VASDK_ANDROID/app/src/main/cpp/VozProvider.cpp`). There, its `VozOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) sets `idle_timeout_ms`, `partial_interval_ms`, `min_new_samples_for_partial` and `min_new_samples_for_final`; the recognizer is the app's.
 
 ## Models and licenses
 

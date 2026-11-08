@@ -31,13 +31,24 @@ In C++, `va::thirdparty::stt::ParakeetTranscriptionOptions` (in [`ParakeetTransc
 | `overlapBoundaryToleranceMs` | `1000` | Tolerance for words at chunk boundaries; must exceed contextBoundaryToleranceMs. |
 | `endPaddingToleranceMs` | `1000` | Tolerance for words at the end of the last chunk, against hallucinations in the silence pad. |
 
-In an engine config, the catalog's `LocalSttOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) fills them: a field the config leaves unset falls back to its environment variable, then to the struct's default.
+In an engine config, its own `ParakeetOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) fills them: a field the config leaves unset falls back to its environment variable, then to the struct's default. The shared `LocalSttOptions` of configs written before it had its own message is still accepted.
 
 | Config field | Environment variable | Sets |
 | --- | --- | --- |
 | `model_dir` | - | `modelDir` |
 | `idle_timeout_ms` | - | `idleTimeoutMs` |
 | `partial_interval_ms` | - | `partialIntervalMs` |
+| `incremental_partials` | - | `enableIncrementalPartials` |
+| `min_new_samples_for_partial` | - | `minNewSamplesForPartial` |
+| `min_new_samples_for_final` | - | `minNewSamplesForFinal` |
+| `high_confidence_shortcut_samples` | - | `highConfShortcutSamples` |
+| `high_confidence_shortcut_threshold` | - | `highConfShortcutThreshold` |
+| `context_samples` | - | `contextSamples` |
+| `context_boundary_tolerance_ms` | - | `contextBoundaryToleranceMs` |
+| `max_buffer_seconds` | - | `maxBufferSeconds` |
+| `silence_padding_seconds` | - | `silencePaddingSeconds` |
+| `overlap_boundary_tolerance_ms` | - | `overlapBoundaryToleranceMs` |
+| `end_padding_tolerance_ms` | - | `endPaddingToleranceMs` |
 
 The catalog derives `minNewSamplesForPartial`, `minNewSamplesForFinal` and `contextSamples` from the pipeline's sample rate.
 
@@ -59,7 +70,7 @@ From an engine config:
 providers {
   stt {
     id: "parakeet"
-    options { [type.googleapis.com/vasdk.providers.LocalSttOptions] { idle_timeout_ms: 600 } }
+    options { [type.googleapis.com/vasdk.providers.ParakeetOptions] { idle_timeout_ms: 600 } }
     fallback: "whistle"
   }
 }

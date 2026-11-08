@@ -23,6 +23,7 @@ struct ProviderContext {
     audio::AudioConfig audio{};
     int frameSize = 0;   // samples per pipeline frame
     std::shared_ptr<AudioRingBuffer> ringBuffer;   // mic audio, for providers that read it directly
+    int ttsPrebufferMs = -1;   // audio.tts_prebuffer_ms, for a TTS; -1: unset, the voice's own default
 };
 
 /**
@@ -47,6 +48,29 @@ public:
                     return nullptr;
                 }
                 return factory(options, context);
+            }});
+    }
+
+    /**
+     * Factory with its own options message that also takes an older, shared one (a config written
+     * before the provider had its own message): a `Shared` is turned into an `Options` by
+     * `fromShared`, then given to the factory. Any other type is an error naming both.
+     */
+    template <class Interface, class Options, class Shared>
+    void add(const std::string& id,
+             std::function<std::shared_ptr<Interface>(const Options&, const ProviderContext&)> factory,
+             std::function<Options(const Shared&)> fromShared) {
+        entries<Interface>().push_back({id,
+            [id, factory, fromShared](const google::protobuf::Any& any, const ProviderContext& context,
+                                      std::string& error) -> std::shared_ptr<Interface> {
+                Options options;
+                if (any.type_url().empty() || (any.template Is<Options>() && any.UnpackTo(&options)))
+                    return factory(options, context);
+                Shared shared;
+                if (any.template Is<Shared>() && any.UnpackTo(&shared)) return factory(fromShared(shared), context);
+                error = id + ": options must be " + std::string(Options::descriptor()->full_name()) + " (or "
+                        + std::string(Shared::descriptor()->full_name()) + "), got " + any.type_url();
+                return nullptr;
             }});
     }
 

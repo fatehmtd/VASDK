@@ -158,11 +158,11 @@ kitchen: A cup of flour is about 127 grams.
 
 ## Testing
 
-`ctest` runs the Python tests with the interpreter CMake found. If that interpreter has no `protobuf`, configure warns and the tests fail. Give CMake the app's environment instead:
+The Python binding is optional: its tests and this app's are registered only with `-DVASDK_BUILD_PYTHON_BINDING=ON` (off by default). `ctest` then runs them with the interpreter CMake found. If that interpreter has no `protobuf`, configure warns and the tests fail. Give CMake the app's environment instead:
 
 ```bash
 uv sync --project VASDK_PYTHON_APP
-cmake -B build -S . -DPython3_EXECUTABLE=$PWD/VASDK_PYTHON_APP/.venv/bin/python   # Windows: .venv/Scripts/python.exe
+cmake -B build -S . -DVASDK_BUILD_PYTHON_BINDING=ON -DPython3_EXECUTABLE=$PWD/VASDK_PYTHON_APP/.venv/bin/python   # Windows: .venv/Scripts/python.exe
 ```
 
 ```bash

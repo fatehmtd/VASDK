@@ -6,6 +6,7 @@
 #include <sentencepiece_processor.h>
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <fstream>
@@ -24,7 +25,7 @@ struct GlinerEntityExtractor::Model {
 };
 
 GlinerEntityExtractor::GlinerEntityExtractor(GlinerEntityExtractorOptions options)
-    : _modelDir(std::move(options.modelDir)), _threshold(options.threshold) {}
+    : _modelDir(std::move(options.modelDir)), _threshold(options.threshold), _threads(std::max(1, options.threads)) {}
 GlinerEntityExtractor::~GlinerEntityExtractor() = default;
 
 bool GlinerEntityExtractor::initialize() {
@@ -62,7 +63,7 @@ bool GlinerEntityExtractor::initialize() {
     model->end = model->tokenizer.PieceToId("[SEP]");
     try {
         Ort::SessionOptions options;
-        options.SetIntraOpNumThreads(2);
+        options.SetIntraOpNumThreads(_threads);
         const std::string path = _modelDir + "/model.onnx";
 #ifdef _WIN32
         const std::wstring widePath(path.begin(), path.end());

@@ -32,6 +32,9 @@ namespace va {
             /** Also evaluate while the user pauses, so a clearly finished turn ends at the pause
              *  (TurnDetectionProvider::setEvaluateOnPause). */
             bool evaluateOnPause = true;
+            /** End-of-turn probability (0-1) a pause needs to end the turn
+             *  (TurnDetectionProvider::setPauseThreshold). */
+            float pauseThreshold = 0.85f;
         };
 
         /**

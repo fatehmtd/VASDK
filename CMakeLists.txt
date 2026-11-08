@@ -27,6 +27,9 @@ option(VASDK_BUILD_APP "Build VASDK application" ON)
 option(VASDK_BUILD_THIRDPARTY_IMPL "Build third-party provider implementations" ON)
 option(VASDK_THIRDPARTY_SHARED_LIBS "Build third-party provider libraries as shared (ON) or static (OFF)" OFF)
 option(VASDK_BUILD_TESTS "Build unit tests (run with ctest)" OFF)
+# The language bindings over the C API, off by default: they need VASDK as a shared library
+option(VASDK_BUILD_PYTHON_BINDING "Python binding (bindings/python): its tests and the Python app's" OFF)
+option(VASDK_BUILD_KOTLIN_BINDING "Kotlin binding (bindings/kotlin): the JVM library and its tests" OFF)
 if(VASDK_BUILD_TESTS)
     enable_testing()
 endif()
@@ -152,10 +155,26 @@ if(VASDK_BUILD_CAR)
     add_subdirectory(VASDK_CAR_APP)
 endif()
 
+#  The bindings load VASDK at run time: it must be a shared library
+
+if(VASDK_BUILD_PYTHON_BINDING OR VASDK_BUILD_KOTLIN_BINDING)
+    get_target_property(_vasdk_library_type VASDK TYPE)
+    if(NOT _vasdk_library_type STREQUAL "SHARED_LIBRARY")
+        message(FATAL_ERROR "VASDK_BUILD_PYTHON_BINDING and VASDK_BUILD_KOTLIN_BINDING load VASDK at run time: "
+                            "build it as a shared library (VASDK is ${_vasdk_library_type})")
+    endif()
+endif()
+
 #  Kitchen assistant in Python, on the C API's binding: tests only (the app is Python)
 
-if(VASDK_BUILD_TESTS)
+if(VASDK_BUILD_TESTS AND VASDK_BUILD_PYTHON_BINDING)
     add_subdirectory(VASDK_PYTHON_APP)
+endif()
+
+#  The Kotlin binding on the JVM (bindings/kotlin), by Gradle; Android builds the same sources (VASDK_ANDROID/vasdk)
+
+if(VASDK_BUILD_KOTLIN_BINDING)
+    add_subdirectory(bindings/kotlin)
 endif()
 
 #  The agent skills (skills/, AGENTS.md): every path, link, heading and provider id they name
@@ -169,14 +188,35 @@ if(VASDK_BUILD_TESTS)
         add_test(NAME vasdk_skills_self_test COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/skills/check_skills.py --self-test)
         add_test(NAME vasdk_thirdparty_rules COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/VASDK_3P_IMPL/check_rules.py)
         add_test(NAME vasdk_thirdparty_rules_self_test COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/VASDK_3P_IMPL/check_rules.py --self-test)
+        # C and the bindings that are on level with the C++ API (skills/vasdk-binding-parity)
+        if(VASDK_BUILD_PYTHON_BINDING OR VASDK_BUILD_KOTLIN_BINDING)
+            set(_vasdk_parity_bindings c)
+            if(VASDK_BUILD_PYTHON_BINDING)
+                string(APPEND _vasdk_parity_bindings ",python")
+            endif()
+            if(VASDK_BUILD_KOTLIN_BINDING)
+                string(APPEND _vasdk_parity_bindings ",kotlin")
+            endif()
+            add_test(NAME vasdk_binding_parity
+                     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/skills/vasdk-binding-parity/check_parity.py
+                             --bindings ${_vasdk_parity_bindings})
+            add_test(NAME vasdk_binding_parity_self_test
+                     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/skills/vasdk-binding-parity/check_parity.py --self-test)
+        else()
+            message(WARNING "VASDK_BUILD_PYTHON_BINDING and VASDK_BUILD_KOTLIN_BINDING are off: the binding parity "
+                            "checks (vasdk_binding_parity) are not registered, so a C++ API the bindings don't follow "
+                            "goes unnoticed. Turn a binding on, or run skills/vasdk-binding-parity/check_parity.py")
+        endif()
         # The binding's tests (vasdk_python_*) need protobuf in this interpreter
-        execute_process(COMMAND ${Python3_EXECUTABLE} -c "import google.protobuf"
-                        RESULT_VARIABLE _vasdk_python_protobuf OUTPUT_QUIET ERROR_QUIET)
-        if(NOT _vasdk_python_protobuf EQUAL 0)
-            message(WARNING "${Python3_EXECUTABLE} has no protobuf: the vasdk_python_* tests will fail. "
-                            "Run `uv sync --project VASDK_PYTHON_APP` and configure with "
-                            "-DPython3_EXECUTABLE=VASDK_PYTHON_APP/.venv/bin/python (Windows: .venv/Scripts/python.exe), "
-                            "or `pip install protobuf` (docs/apps/python.md)")
+        if(VASDK_BUILD_PYTHON_BINDING)
+            execute_process(COMMAND ${Python3_EXECUTABLE} -c "import google.protobuf"
+                            RESULT_VARIABLE _vasdk_python_protobuf OUTPUT_QUIET ERROR_QUIET)
+            if(NOT _vasdk_python_protobuf EQUAL 0)
+                message(WARNING "${Python3_EXECUTABLE} has no protobuf: the vasdk_python_* tests will fail. "
+                                "Run `uv sync --project VASDK_PYTHON_APP` and configure with "
+                                "-DPython3_EXECUTABLE=VASDK_PYTHON_APP/.venv/bin/python (Windows: .venv/Scripts/python.exe), "
+                                "or `pip install protobuf` (docs/apps/python.md)")
+            endif()
         endif()
     else()
         message(WARNING "Python 3 not found: the vasdk_skills and vasdk_thirdparty_rules tests are not registered")

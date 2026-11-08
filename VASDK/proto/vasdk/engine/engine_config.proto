@@ -42,6 +42,41 @@ message Providers {
   //                   LibDataChannelWebRtcOptions.port (VASDK_BUILD_LIBDATACHANNEL_WEBRTC)
   // Unset: the app brings the audio (its transport, or the C API's vasdk_session_push_audio).
   ProviderSpec webrtc = 9;
+  // The device's microphone and speaker, opened by the session itself (VAEngine, the C API's
+  // sessions, whose pushed audio and audio callback then go unused). Set both or neither.
+  //   miniaudio: macOS, Linux, Windows (VASDK_BUILD_MINIAUDIO)
+  //   aaudio:    Android (VASDK_BUILD_AAUDIO)
+  // Unset: the app brings the audio. webrtc, when set, wins over them.
+  ProviderSpec audio_input = 10;
+  ProviderSpec audio_output = 11;
+  // An LLM run by a provider instead of the llm endpoint: on the device (llamacpp, options
+  // LlamaCppOptions), or written by the app (the C API's vasdk_providers_add_llm). Each session
+  // gets its own. It answers the conversation; when the provider also answers one-shot asks, it
+  // answers the agent's too (understanding, llm steps, generative pages). llm's other settings
+  // (history, filler phrases, failure replies) still apply. Unset: the llm endpoint, if any.
+  ProviderSpec llm = 12;
+  // Audio DSP on the microphone's audio before anything hears it (noise suppression, echo
+  // cancellation): the wake word, VAD, turn model, STT and speaker identification all hear its
+  // output, and so do AfterInput processors (Session::inputRingBuffer). One instance per session.
+  //   rnnoise: noise suppression (VASDK_BUILD_RNNOISE; options RNNoiseOptions); not on Android
+  // Unset: the audio as it comes.
+  ProviderSpec audio_dsp = 13;
+  // Who is speaking: each utterance's voice print is matched against the enrolled speakers, and
+  // the result is a speaker_identified event. The enroll_speaker command enrolls the next
+  // utterance; add_speaker restores a voice print kept from an earlier session. Tuned by
+  // speaker_identification.
+  //   pyannote: WeSpeaker ResNet34 on the device, 16 kHz (VASDK_BUILD_PYANNOTE_SPEAKER; options PyannoteOptions)
+  // Unset: no speaker identification.
+  ProviderSpec speaker_embedding = 14;
+}
+
+// How providers.speaker_embedding's voice prints are matched.
+message SpeakerIdentification {
+  // The cosine similarity, 0 to 1, a voice print needs to match an enrolled speaker, or the
+  // speaker before. Unset: 0.3 (pyannote 3.1's clustering threshold).
+  optional float threshold = 1;
+  // Utterances shorter than this, in seconds, aren't identified. Unset: 1.
+  optional float min_speech_seconds = 2;
 }
 
 message LlmConfig {
@@ -158,6 +193,10 @@ message Audio {
   AudioFormat input = 1;               // mic: what the VAD, turn model, wake word and STT receive
   AudioFormat output = 2;              // speaker: what the TTS produces
   optional int32 frame_ms = 3;         // input frame length: the grid VAD and turn decisions run on
+  // TTS audio gathered before each text starts playing, so a slow piece isn't heard as a gap;
+  // unset: each voice's own (250 for the local voices); 0: play at once. A voice's own prebuffer_ms
+  // overrides it; cloud voices ignore it and play audio as it arrives.
+  optional int32 tts_prebuffer_ms = 4;
 }
 
 // When the assistant listens.
@@ -199,6 +238,7 @@ message EngineConfig {
   // (understanding.llm_profile), a capable one for the hard turns (a route's llm_profile, an llm
   // step's or a generative page's profile). What else isn't named uses `llm`.
   repeated LlmProfile llm_profiles = 10;
+  SpeakerIdentification speaker_identification = 11;   // with providers.speaker_embedding
 }
 
 // One more LLM. Each field left unset is `llm`'s, so a profile may be only another model on the

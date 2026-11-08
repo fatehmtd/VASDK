@@ -6,6 +6,7 @@
 #include "EventTapProcessor.h"
 
 #include <chrono>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -33,8 +34,13 @@ class Runtime;
 /**
  * @brief One conversation: the standard pipeline over a Runtime's providers.
  *
- *   input → trigger → [wake word] → [AfterInput] → VAD → turn → STT → [AfterTranscription]
- *     → agent state → turn assembly → dialog → LLM → tools → [BeforeSynthesis] → TTS → [BeforeOutput] → output
+ *   input → [audio DSP] → trigger → [wake word] → [AfterInput] → VAD → turn → STT → [speaker id]
+ *     → [AfterTranscription] → agent state → turn assembly → dialog → LLM → tools → [BeforeSynthesis]
+ *     → TTS → [BeforeOutput] → output
+ *
+ * The audio DSP is there when the config names providers.audio_dsp: every stage after it hears
+ * its output. Speaker identification is there with providers.speaker_embedding: each utterance
+ * ends in a speaker_identified event.
  *
  * The dialog stage is there when Options::agent is set: the agent's pages answer each turn,
  * and turns no route understands go on to the LLM when there is one. The LLM stages are there
@@ -51,7 +57,7 @@ public:
     /** Where addProcessor() puts an app processor in the standard pipeline. */
     enum class Slot {
         AfterInput,           ///< raw mic audio, before VAD (recorders, visualisers)
-        AfterTranscription,   ///< transcriptions, before the agent reacts (speaker id, logging)
+        AfterTranscription,   ///< transcriptions, before the agent reacts (logging)
         BeforeSynthesis,      ///< reply text, before TTS
         BeforeOutput,         ///< synthesized audio, before the transport plays it
     };
@@ -126,8 +132,10 @@ public:
     void fireTrigger(const std::string& name, const google::protobuf::Struct& payload = {});
     /**
      * Does what a vasdk.engine.Command asks (inject_text, select_choice, fire_trigger, say,
-     * interrupt, set_session_param): what remote_control's POST /command and the C API's
-     * vasdk_session_send take. False, with `error` set, for an empty one. Thread-safe.
+     * interrupt, set_session_param, reset_conversation, push_to_talk, follow_up_listen_ms,
+     * set_entity_values, set_backchannel, enroll_speaker, add_speaker): what remote_control's
+     * POST /command and the C API's vasdk_session_send take. False, with `error` set, for an empty
+     * one or one the session can't do (enroll_speaker without providers.speaker_embedding). Thread-safe.
      */
     bool handle(const vasdk::engine::Command& command, std::string* error = nullptr);
     /**
@@ -200,12 +208,23 @@ public:
     /** True while the network is down (setNetworkAvailable) or a provider failed. */
     bool usingFallbacks() const;
 
+    /**
+     * The next utterance long enough to identify enrolls `speakerId`, replacing their voice print;
+     * a speaker_enrollment event says how it went. False without providers.speaker_embedding. Thread-safe.
+     */
+    bool enrollSpeaker(const std::string& speakerId);
+    /** Restores a voice print kept from speakers(). False without providers.speaker_embedding. Thread-safe. */
+    bool addSpeaker(const std::string& speakerId, std::vector<float> voicePrint);
+    /** The enrolled speakers' voice prints (L2-normalized), to keep across sessions. Empty without providers.speaker_embedding. */
+    std::map<std::string, std::vector<float>> speakers() const;
+
     const std::string& id() const;
     bool hasLLM() const;
     /** "TransportInputProcessor → TriggerProcessor → VADFrameProcessor (SileroVAD) → ..." */
     std::string describe() const;
 
-    /** Mic audio, for app processors that read it directly (recorders, speaker id). */
+    /** Mic audio as every stage hears it (after providers.audio_dsp, when there is one), for app
+     *  processors that read it directly (recorders, visualisers). */
     std::shared_ptr<AudioRingBuffer> inputRingBuffer() const;
     std::shared_ptr<llm::LLMTransport> llmTransport() const;
     /** The tools the LLM can call, for code that adds or swaps them as the call goes on (goals). */
@@ -223,6 +242,7 @@ private:
     friend class Runtime;
     struct State;
     static std::unique_ptr<State> createState(std::shared_ptr<Runtime> runtime, Options options, std::string* error);
+    void promptProviderLlm();
     std::unique_ptr<State> _state;
 };
 

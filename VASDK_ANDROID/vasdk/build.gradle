@@ -1,0 +1,80 @@
+// The Kotlin binding as an Android library (AAR): the sources of bindings/kotlin, VASDK's messages
+// as lite classes, and libVASDK.so (the C API and every provider) per ABI, which JNA loads.
+// Built only with -Pvasdk.kotlinBinding=true (settings.gradle); the app doesn't use it yet.
+plugins {
+    id 'com.android.library'
+    id 'org.jetbrains.kotlin.android'
+    id 'com.google.protobuf'
+}
+
+android {
+    namespace 'com.vasdk'
+    compileSdk 35
+    ndkVersion "28.0.12433566"   // as the app: NDK 26 crashes compiling protobuf 36
+
+    defaultConfig {
+        minSdk 33
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        externalNativeBuild {
+            cmake {
+                abiFilters 'arm64-v8a', 'x86_64'
+                targets 'vasdk_kotlin_native'
+                arguments "-DVASDK_KOTLIN_BINDING=ON",
+                          "-DVASDK_ENABLE_HTTP_TRANSPORT=ON",
+                          "-DVASDK_BUILD_APP=OFF",
+                          "-DCMAKE_BUILD_TYPE=Release",
+                          "-DLLAMA_BUILD_COMMON=ON",
+                          "-DLLAMA_CURL=ON",
+                          "-DGGML_NATIVE=OFF",
+                          "-DGGML_OPENMP=ON",
+                          "-DGGML_LLAMAFILE=OFF",
+                          "-DGGML_SYSTEM_ARCH=ARM",
+                          "-DGGML_CPU_KLEIDIAI=OFF"
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path "../CMakeLists.txt"
+            version "3.22.0+"
+        }
+    }
+
+    sourceSets {
+        main {
+            kotlin.srcDir '../../bindings/kotlin/src/main/kotlin'
+            proto.srcDir '../../VASDK/proto'
+            proto.srcDir '../../VASDK_3P_IMPL/ProviderCatalog/proto'   // the providers' options, for a config built in code
+        }
+        // The JVM tests, on a device: they write their engine configs to the cache folder
+        androidTest.kotlin.srcDir '../../bindings/kotlin/src/test/kotlin'
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions { jvmTarget = '17' }
+}
+
+protobuf {
+    protoc { artifact = 'com.google.protobuf:protoc:4.29.5' }
+    generateProtoTasks {
+        all().each { task ->
+            task.builtins {
+                java { option 'lite' }
+                kotlin { option 'lite' }
+            }
+        }
+    }
+}
+
+dependencies {
+    api 'net.java.dev.jna:jna:5.15.0@aar'
+    api 'com.google.protobuf:protobuf-kotlin-lite:4.29.5'
+    api 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0'
+    api 'org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3'
+    androidTestImplementation 'androidx.test:runner:1.6.2'
+    androidTestImplementation 'org.jetbrains.kotlin:kotlin-test-junit:2.2.10'
+}

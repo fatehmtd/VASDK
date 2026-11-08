@@ -18,3 +18,7 @@ dependencyResolutionManagement {
 
 rootProject.name = "VasdkApp"
 include ':app'
+// The Kotlin binding as an AAR (bindings/kotlin's sources): ./gradlew -Pvasdk.kotlinBinding=true :vasdk:assembleRelease
+if (providers.gradleProperty('vasdk.kotlinBinding').getOrElse('false') == 'true') {
+    include ':vasdk'
+}

@@ -18,13 +18,17 @@ In C++, `va::thirdparty::stt::SonioxppTranscriptionOptions` (in [`SonioxppTransc
 | --- | --- | --- |
 | `apiKey` | `""` | API key of the service; required (the catalog falls back to the service's *_API_KEY variable). |
 | `caBundlePath` | `""` | PEM file of certificates to trust; empty uses the TLS library's own (Android's mbedTLS can't read the system store). |
+| `model` | `soniox::stt::models::realtime_v5` | Model to use. |
+| `endpointDetection` | `true` | Streaming: the service marks where speech ends (whole segments never ask for it). |
 
-In an engine config, the catalog's `CloudOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) fills them: a field the config leaves unset falls back to its environment variable, then to the struct's default.
+In an engine config, its own `SonioxSttOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) fills them: a field the config leaves unset falls back to its environment variable, then to the struct's default. The shared `CloudOptions` of configs written before it had its own message is still accepted.
 
 | Config field | Environment variable | Sets |
 | --- | --- | --- |
 | `api_key` | `SONIOX_API_KEY` | `apiKey` |
 | `ca_bundle_path` | `VASDK_CA_BUNDLE` | `caBundlePath` |
+| `model` | - | `model` |
+| `endpoint_detection` | - | `endpointDetection` |
 
 ## Models and licenses
 
@@ -40,7 +44,7 @@ From an engine config:
 providers {
   stt {
     id: "soniox"
-    options { [type.googleapis.com/vasdk.providers.CloudOptions] { api_key: "${SONIOX_API_KEY}" } }
+    options { [type.googleapis.com/vasdk.providers.SonioxSttOptions] { api_key: "${SONIOX_API_KEY}" } }
     fallback: "whistle"
   }
 }

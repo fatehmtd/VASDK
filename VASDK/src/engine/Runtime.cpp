@@ -5,12 +5,20 @@
 #include "nlu/EntityExtractor.h"
 
 #include "AudioRingBuffer.h"
+#include "GenericAudioDSPProvider.h"
+#include "SpeakerEmbeddingProvider.h"
+#include "GenericAudioSink.h"
+#include "GenericAudioSource.h"
 #include "GenericTranscriptionProvider.h"
 #include "GenericVoiceSynthesisProvider.h"
 #include "TurnDetectionProvider.h"
 #include "VADProvider.h"
 #include "WakeWordProvider.h"
+#include "LocalTransport.h"
+#include "WebRtcTransport.h"
 #include "engine/ProtoFileLoader.h"
+#include "llm/Completion.h"
+#include "llm/LLMTransport.h"
 
 #include <spdlog/spdlog.h>
 
@@ -57,6 +65,10 @@ bool applyFormat(const vasdk::engine::AudioFormat& config, const char* name, aud
     return true;
 }
 
+int ttsPrebufferMs(const vasdk::engine::Audio& config) {
+    return config.has_tts_prebuffer_ms() ? config.tts_prebuffer_ms() : -1;
+}
+
 } // namespace
 
 bool applyAudioConfig(const vasdk::engine::Audio& config, audio::AudioConfig& inputAudio,
@@ -73,6 +85,10 @@ bool applyAudioConfig(const vasdk::engine::Audio& config, audio::AudioConfig& in
         frameSize = static_cast<int>(static_cast<int64_t>(inputAudio.sampleRate) * config.frame_ms() / 1000);
     } else if (inputAudio.sampleRate != inputRate && frameMs > 0) {
         frameSize = static_cast<int>(static_cast<int64_t>(inputAudio.sampleRate) * frameMs / 1000);  // same duration
+    }
+    if (config.has_tts_prebuffer_ms() && (config.tts_prebuffer_ms() < 0 || config.tts_prebuffer_ms() > 5000)) {
+        if (error) *error = "audio.tts_prebuffer_ms: " + std::to_string(config.tts_prebuffer_ms()) + " is outside 0-5000";
+        return false;
     }
     return true;
 }
@@ -107,6 +123,59 @@ std::shared_ptr<Runtime> Runtime::create(const vasdk::engine::EngineConfig& conf
     return runtime;
 }
 
+std::shared_ptr<transport::AudioTransport> Runtime::configTransport(bool* sendAllFrames, std::string* error) const {
+    if (sendAllFrames) *sendAllFrames = false;
+    if (error) error->clear();
+    auto fail = [error](const std::string& message) -> std::shared_ptr<transport::AudioTransport> {
+        if (error) *error = message;
+        return nullptr;
+    };
+    const auto& providers = _config.providers();
+    const ProviderContext input{_options.modelsDir, _options.inputAudio, _options.frameSize, nullptr};
+    const ProviderContext output{_options.modelsDir, _options.outputAudio, _options.frameSize, nullptr};
+    std::string reason;
+    if (providers.has_webrtc()) {   // a browser brings the audio, not the app
+        auto peer = _registry.create<network::WebRtcInterface>(providers.webrtc(), input, &reason);
+        if (!peer) return fail("webrtc: " + reason);
+        if (sendAllFrames) *sendAllFrames = true;   // the page shows the agent's state
+        return std::make_shared<transport::WebRtcTransport>(peer);
+    }
+    if (!providers.has_audio_input() && !providers.has_audio_output()) return nullptr;
+    if (!providers.has_audio_input() || !providers.has_audio_output())
+        return fail("audio_input and audio_output go together: set both, or neither");
+    auto source = _registry.create<audio::GenericAudioSource>(providers.audio_input(), input, &reason);
+    if (!source) return fail("audio_input: " + reason);
+    auto sink = _registry.create<audio::GenericAudioSink>(providers.audio_output(), output, &reason);
+    if (!sink) return fail("audio_output: " + reason);
+    return std::make_shared<transport::LocalTransport>(std::move(source), std::move(sink));
+}
+
+Runtime::LlmProvider Runtime::createLlm(std::string* error) const {
+    if (error) error->clear();
+    if (!_config.providers().has_llm()) return {};
+    const auto& spec = _config.providers().llm();
+    const ProviderContext context{_options.modelsDir, _options.inputAudio, _options.frameSize, nullptr};
+    LlmProvider llm;
+    std::string reason, chosen;
+    llm.transport = _registry.create<llm::LLMTransport>(spec, context, &reason, &chosen);
+    if (!llm.transport) {
+        if (error) *error = "LLM: " + reason;
+        return {};
+    }
+    // The agent's one-shot asks, from the same provider when it answers them
+    const auto completions = _registry.ids<llm::Completion>();
+    if (std::find(completions.begin(), completions.end(), chosen) != completions.end()) {
+        vasdk::engine::ProviderSpec started;   // the one that started, its own options, no fallbacks
+        started.set_id(chosen);
+        if (chosen == spec.id()) *started.mutable_options() = spec.options();
+        else if (const auto found = spec.fallback_options().find(chosen); found != spec.fallback_options().end())
+            *started.mutable_options() = found->second;
+        llm.completion = _registry.create<llm::Completion>(started, context, &reason);
+        if (!llm.completion) spdlog::info("[Runtime] LLM {} doesn't answer one-shot asks: the agent asks no LLM", chosen);
+    }
+    return llm;
+}
+
 Runtime::Runtime(vasdk::engine::EngineConfig config, ProviderRegistry registry, Options options)
     : _config(std::move(config)), _registry(std::move(registry)), _options(std::move(options)) {
     if (!_config.models_dir().empty()) _options.modelsDir = _config.models_dir();
@@ -120,10 +189,20 @@ std::shared_ptr<Runtime::ProviderSet> Runtime::createProviderSet(std::string* er
     auto set = std::make_shared<ProviderSet>();
     set->ringBuffer = std::make_shared<AudioRingBuffer>(
         (long)_options.inputAudio.sampleRate * 90, _options.inputAudio.getSampleSizeInBytes());
-    const ProviderContext input{_options.modelsDir, _options.inputAudio, _options.frameSize, set->ringBuffer};
-    const ProviderContext output{_options.modelsDir, _options.outputAudio, _options.frameSize, set->ringBuffer};
     const auto& providers = _config.providers();
     std::string reason;
+    // The DSP first: every other provider reads what it writes.
+    set->processedRingBuffer = set->ringBuffer;
+    if (!providers.audio_dsp().id().empty()) {
+        const ProviderContext raw{_options.modelsDir, _options.inputAudio, _options.frameSize, set->ringBuffer};
+        set->audioDsp = _registry.create<audio::GenericAudioDSPProvider>(providers.audio_dsp(), raw, &reason);
+        if (!set->audioDsp) return fail("Audio DSP: " + reason);
+        if (!set->audioDsp->initialize(_options.inputAudio)) return fail("Audio DSP: " + set->audioDsp->getName() + " failed to start");
+        set->processedRingBuffer = std::make_shared<AudioRingBuffer>(set->ringBuffer->getCapacity(), _options.inputAudio.getSampleSizeInBytes());
+    }
+    const ProviderContext input{_options.modelsDir, _options.inputAudio, _options.frameSize, set->processedRingBuffer};
+    const ProviderContext output{_options.modelsDir, _options.outputAudio, _options.frameSize, set->processedRingBuffer,
+                                 ttsPrebufferMs(_config.audio())};
 
     set->vad = _registry.create<audio::VADProvider>(providers.vad(), input, &reason);
     if (!set->vad) return fail("VAD: " + reason);
@@ -141,6 +220,10 @@ std::shared_ptr<Runtime::ProviderSet> Runtime::createProviderSet(std::string* er
         set->wakeWord = _registry.create<audio::WakeWordProvider>(providers.wake_word(), input, &reason);
         if (!set->wakeWord) return fail("Wake word: " + reason);
         if (!set->wakeWord->initialize(_options.inputAudio)) return fail("Wake word: " + set->wakeWord->getName() + " failed to start");
+    }
+    if (!providers.speaker_embedding().id().empty()) {
+        set->speakerEmbedding = _registry.create<audio::SpeakerEmbeddingProvider>(providers.speaker_embedding(), input, &reason);
+        if (!set->speakerEmbedding) return fail("Speaker embedding: " + reason);
     }
     return set;
 }
@@ -168,8 +251,9 @@ vasdk::engine::ProviderSpec fallbacksAfter(const vasdk::engine::ProviderSpec& sp
 } // namespace
 
 bool Runtime::loadFallbacks(ProviderSet& set, std::string* error) const {
-    const ProviderContext input{_options.modelsDir, _options.inputAudio, _options.frameSize, set.ringBuffer};
-    const ProviderContext output{_options.modelsDir, _options.outputAudio, _options.frameSize, set.ringBuffer};
+    const ProviderContext input{_options.modelsDir, _options.inputAudio, _options.frameSize, set.processedRingBuffer};
+    const ProviderContext output{_options.modelsDir, _options.outputAudio, _options.frameSize, set.processedRingBuffer,
+                                 ttsPrebufferMs(_config.audio())};
     std::string reasons;
     if (!set.sttFallback) {
         const auto spec = fallbacksAfter(_config.providers().stt(), set.sttId);

@@ -20,14 +20,15 @@ In C++, `va::thirdparty::stt::FishaudioppTranscriptionOptions` (in [`Fishaudiopp
 | `language` | `""` | Language code; empty lets the service detect it or use its default. |
 | `caBundlePath` | `""` | PEM file of certificates to trust; empty uses the TLS library's own (Android's mbedTLS can't read the system store). |
 
-In an engine config, the catalog's `CloudOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) fills them: a field the config leaves unset falls back to its environment variable, then to the struct's default.
+In an engine config, its own `FishAudioSttOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) fills them: a field the config leaves unset falls back to its environment variable, then to the struct's default. The shared `CloudOptions` of configs written before it had its own message is still accepted.
 
 | Config field | Environment variable | Sets |
 | --- | --- | --- |
 | `api_key` | `FISHAUDIO_API_KEY` | `apiKey` |
 | `ca_bundle_path` | `VASDK_CA_BUNDLE` | `caBundlePath` |
+| `language` | - | `language` |
 
-The engine config sets the key and the certificate bundle; `language` is set in C++.
+The engine config sets every field, through `FishAudioSttOptions`.
 
 ## Models and licenses
 
@@ -43,7 +44,7 @@ From an engine config:
 providers {
   stt {
     id: "fishaudio"
-    options { [type.googleapis.com/vasdk.providers.CloudOptions] { api_key: "${FISHAUDIO_API_KEY}" } }
+    options { [type.googleapis.com/vasdk.providers.FishAudioSttOptions] { api_key: "${FISHAUDIO_API_KEY}" } }
     fallback: "whistle"
   }
 }

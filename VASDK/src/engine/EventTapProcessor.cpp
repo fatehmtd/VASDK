@@ -101,6 +101,8 @@ bool EventTapProcessor::shouldProcess(std::shared_ptr<transport::Frame> frame) c
     case transport::FrameType::AGENT_STATE:
     case transport::FrameType::ERROR:
     case transport::FrameType::VAD_STATE:
+    case transport::FrameType::SPEAKER_IDENTIFICATION:
+    case transport::FrameType::SPEAKER_ENROLLMENT:
         return true;
     default:
         return false;
@@ -170,6 +172,26 @@ void EventTapProcessor::processFrame(std::shared_ptr<transport::Frame> frame, pi
         case transport::VADState::ENDED: event.mutable_user_speech()->set_state(State::ENDED); break;
         default: break;
         }
+        break;
+    }
+    case transport::FrameType::SPEAKER_IDENTIFICATION: {
+        if (direction != pipeline::FlowDirection::DOWNSTREAM) break;
+        auto speaker = std::static_pointer_cast<transport::SpeakerIdentificationFrame>(frame);
+        auto* identified = event.mutable_speaker_identified();
+        identified->set_speaker_id(speaker->speakerId);
+        identified->set_similarity(speaker->confidence);
+        identified->set_new_speaker(speaker->isNewSpeaker);
+        identified->set_tracked_similarity(speaker->trackedSimilarity);
+        break;
+    }
+    case transport::FrameType::SPEAKER_ENROLLMENT: {
+        auto enrollment = std::static_pointer_cast<transport::SpeakerEnrollmentFrame>(frame);
+        if (direction != pipeline::FlowDirection::DOWNSTREAM || enrollment->status == transport::SpeakerEnrollmentStatus::REQUESTED) break;
+        auto* outcome = event.mutable_speaker_enrollment();
+        outcome->set_speaker_id(enrollment->speakerId);
+        outcome->set_status(enrollment->status == transport::SpeakerEnrollmentStatus::ENROLLED
+                                ? vasdk::engine::SpeakerEnrollment::ENROLLED : vasdk::engine::SpeakerEnrollment::FAILED);
+        outcome->set_error(enrollment->errorMessage);
         break;
     }
     case transport::FrameType::ERROR: {

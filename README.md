@@ -72,6 +72,8 @@ That's a full voice loop: mic in, VAD, speaker tracking, transcription, LLM turn
 
 With Visual Studio or Xcode, binaries land under an extra `Release/` folder (e.g. `./build/VASDK_APP/Release/VASDK_Pipeline`).
 
+Beyond C++, the [C API](docs/reference/c-api.md) has [Python](bindings/python/README.md) and [Kotlin](bindings/kotlin/README.md) (JVM and Android) bindings, level with the C++ API: agents, spoken sessions, every control, and providers and processors written in them. Both are optional and off by default: `-DVASDK_BUILD_PYTHON_BINDING=ON`, `-DVASDK_BUILD_KOTLIN_BINDING=ON`.
+
 ## Architecture at a glance
 
 Frames carry data, processors act on frames, a pipeline chains processors, and providers are the swappable backends a processor wraps. A voice turn flows left to right as typed frames; interrupts and errors race back right to left:

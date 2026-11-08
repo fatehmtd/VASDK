@@ -69,7 +69,7 @@ private:
 // ---------------------------------------------------------------------------
 
 PhononVoiceSynthesisProvider::PhononVoiceSynthesisProvider(PhononVoiceSynthesisOptions options)
-    : QueuedVoiceSynthesisProvider("PhononTTS", Delivery::Direct),
+    : QueuedVoiceSynthesisProvider("PhononTTS", Delivery::Thread),
       _modelDir(std::move(options.modelDir)), _voice(std::move(options.voice)),
       _ruleBits(phonon::text::Rules::defaults().bits)
 {
@@ -81,6 +81,7 @@ PhononVoiceSynthesisProvider::PhononVoiceSynthesisProvider(PhononVoiceSynthesisO
     setStreamChunkFrames(options.streamChunkFrames);
     setMaxTokensPerChunk(options.maxTokensPerChunk);
     setSilenceDuration(options.silenceDurationSeconds);
+    setPreBufferedSamplesMS(std::max(0, options.prebufferMs));
 }
 
 PhononVoiceSynthesisProvider::~PhononVoiceSynthesisProvider() {
@@ -263,8 +264,10 @@ bool PhononVoiceSynthesisProvider::applyPendingVoice() {
 
 void PhononVoiceSynthesisProvider::onSequenceCompleted() {
     if (_silenceDuration <= 0.0f || audioConfig().sampleRate <= 0) return;
-    std::vector<float> silence(static_cast<size_t>(_silenceDuration * audioConfig().sampleRate), 0.0f);
-    deliverAudio(silence.data(), silence.size());
+    // Through the delivery thread too: deliverAudio() takes one thread at a time.
+    handoffAudio(std::vector<float>(static_cast<size_t>(_silenceDuration * audioConfig().sampleRate), 0.0f),
+                 audioConfig().sampleRate);
+    finishHandoff();
 }
 
 // ---------------------------------------------------------------------------
@@ -330,25 +333,26 @@ bool PhononVoiceSynthesisProvider::synthesizeOne(const std::string& text) {
     if (cancelled()) return false;
 
     flushResampler();
-    return true;
+    return finishHandoff();
 }
 
 void PhononVoiceSynthesisProvider::onModelAudio(const float* pcm, size_t n) {
     if (!listener() || n == 0) return;
+    // Already at the pipeline's rate, so the delivery thread passes it through.
     if (_resampler.passthrough()) {
-        deliverAudio(pcm, n);
+        handoffAudio(std::vector<float>(pcm, pcm + n), audioConfig().sampleRate);
         return;
     }
     _resampleBuf.clear();
     _resampler.process(pcm, n, _resampleBuf);
-    deliverAudio(_resampleBuf.data(), _resampleBuf.size());
+    handoffAudio(_resampleBuf, audioConfig().sampleRate);
 }
 
 void PhononVoiceSynthesisProvider::flushResampler() {
     // The last real samples, centred in the kernel.
     _resampleBuf.clear();
     _resampler.flush(_resampleBuf);
-    deliverAudio(_resampleBuf.data(), _resampleBuf.size());
+    handoffAudio(_resampleBuf, audioConfig().sampleRate);
 }
 
 } // namespace va::thirdparty::tts

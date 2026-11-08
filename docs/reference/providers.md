@@ -148,7 +148,7 @@ bool loadEngine() override;                          // on start: load the model
 bool synthesizeOne(const std::string& text) override; // on the worker: one text, true when said in full
 ```
 
-In `synthesizeOne()`, `style()` is the voice and pace the text is to be said in (an agent's `say { voice speed }`); the default style is the voice's own. It passes audio to `handoffAudio(pcm, sampleRate)` and ends with `return finishHandoff();`. A delivery thread plays each piece while the next one is synthesized. If the engine streams audio on a thread of its own, construct the base with `Delivery::Direct` and call `deliverAudio()` instead, as Phonon does. `onCancel()` stops the engine early; `cancelFlag()` is there for an engine that checks between steps. The provider's destructor calls `stopVoiceSynthesisProvider()`.
+In `synthesizeOne()`, `style()` is the voice and pace the text is to be said in (an agent's `say { voice speed }`); the default style is the voice's own. It passes audio to `handoffAudio(pcm, sampleRate)` and ends with `return finishHandoff();`. A delivery thread plays each piece while the next one is synthesized. An engine that streams audio on a thread of its own calls `handoffAudio()` from that thread, as Phonon does. `Delivery::Direct` with `deliverAudio()` also exists, but it skips the pre-buffer (`setPreBufferedSamplesMS()`), so any slow piece is heard as a gap. `onCancel()` stops the engine early; `cancelFlag()` is there for an engine that checks between steps. The provider's destructor calls `stopVoiceSynthesisProvider()`.
 
 ## GenericAudioDSPProvider
 

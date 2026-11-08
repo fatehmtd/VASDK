@@ -1,6 +1,6 @@
 # RNNoise
 
-*Audio DSP provider, not in the provider catalog (construct it in C++), target `vasdk_rnnoise`, build flag `-DVASDK_BUILD_RNNOISE=ON`. Source: [`VASDK_3P_IMPL/RNNoise/`](../../VASDK_3P_IMPL/RNNoise/). Interface: [`GenericAudioDSPProvider.h`](../../VASDK/include/VASDK/GenericAudioDSPProvider.h).*
+*Audio DSP provider, config id `rnnoise` (`providers.audio_dsp`), target `vasdk_rnnoise`, build flag `-DVASDK_BUILD_RNNOISE=ON`. Source: [`VASDK_3P_IMPL/RNNoise/`](../../VASDK_3P_IMPL/RNNoise/). Interface: [`GenericAudioDSPProvider.h`](../../VASDK/include/VASDK/GenericAudioDSPProvider.h).*
 
 Xiph's RNNoise noise suppression: a small recurrent network at 48 kHz, with the source audio resampled in and out. Built-in weights; no download needed at run time. On by default on desktop.
 
@@ -12,7 +12,7 @@ Xiph's RNNoise noise suppression: a small recurrent network at 48 kHz, with the 
 
 ## Options
 
-In C++, `va::thirdparty::audio::RNNoiseDSPOptions` (in [`RNNoiseDSPProvider.h`](../../VASDK_3P_IMPL/RNNoise/RNNoiseDSPProvider.h)). Every field has a default except the ones marked "required" in its comment.
+In an engine config, `vasdk.providers.RNNoiseOptions` (`model_path`, `vad_threshold`, `normalize_output`, `normalization_multiplier`), each unset field keeping the default below. In C++, `va::thirdparty::audio::RNNoiseDSPOptions` (in [`RNNoiseDSPProvider.h`](../../VASDK_3P_IMPL/RNNoise/RNNoiseDSPProvider.h)). Every field has a default except the ones marked "required" in its comment.
 
 | Field | Default | Meaning |
 | --- | --- | --- |
@@ -33,6 +33,14 @@ All of them are listed in [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md)
 
 ## Usage
 
+In an engine config: every stage of the session (wake word, VAD, turn model, STT, speaker identification) then hears the denoised audio.
+
+```textproto
+providers { audio_dsp { id: "rnnoise" } }
+```
+
+In a pipeline built by hand:
+
 ```cpp
 #include "RNNoise/RNNoiseDSPProvider.h"
 
@@ -46,12 +54,13 @@ auto provider = std::make_shared<va::thirdparty::audio::RNNoiseDSPProvider>(opti
 
 ```mermaid
 flowchart LR
-    In["raw audio"] --> Processor["AudioDSPProcessor"]
+    In["raw audio (the transport's ring buffer)"] --> Processor["AudioDSPProcessor"]
     Processor -->|"processAudio(input, output, samples)"| Provider["RNNoiseDSPProvider"]
     Provider -->|"rnnoise_process_frame (48 kHz, 10 ms frames)"| Engine["RNNoise (built-in model)"]
     Engine --> Provider
     Provider -->|"denoised audio"| Processor
-    Processor --> Out["clean audio ring buffer"]
+    Processor --> Out["processed ring buffer"]
+    Out --> Stages["wake word, VAD, turn, STT, speaker id"]
 ```
 
 ## Tests
@@ -59,5 +68,6 @@ flowchart LR
 | Test | Kind | Needs | Run |
 | --- | --- | --- | --- |
 | `vasdk_rnnoise` | unit | nothing | `ctest --test-dir build -R vasdk_rnnoise` |
+| `vasdk_dsp_speaker` | integration: by config id, and a session with it | pyannote's model (skipped without) | `ctest --test-dir build -R vasdk_dsp_speaker` |
 
 A test that needs a model or a key reports "skipped" without it.

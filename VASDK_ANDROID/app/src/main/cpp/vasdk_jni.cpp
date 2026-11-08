@@ -17,14 +17,6 @@
 #include <nlohmann/json.hpp>
 #include <algorithm>
 
-#ifdef VASDK_HAS_PYANNOTE_SPEAKER
-#include "PyannoteSpeaker/PyannoteEmbeddingProvider.h"
-#endif
-
-#ifdef VASDK_HAS_LLAMACPP
-#include "LlamaCpp/LlamaCppTransport.h"
-#endif
-
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/android_sink.h>
 
@@ -37,6 +29,8 @@
 #include <string>
 
 #define VASDK_TAG "VASDK"
+
+#include "ToolRegistration.h"
 
 static JavaVM *gJvm = nullptr;
 static std::unique_ptr<VasdkSession> gSession;
@@ -268,16 +262,14 @@ std::shared_ptr<va::flow::FlowRegistry> kotlinExtensions(jweak target, jmethodID
 
 //  nativeInit
 //
-// engineConfig: a vasdk.engine.EngineConfig in text proto (VasdkEngine builds it from the
-// settings): providers, their keys and model folders, audio formats, activation, turn-taking
-// and, for a cloud LLM, its endpoint. agentPath: an agent file to answer from before the LLM;
-// empty for none. The local LLM (llama.cpp) is set up here: it isn't a config provider yet.
+// engineConfig: a vasdk.engine.EngineConfig, serialized (VasdkEngine builds it from the
+// settings): providers with their own options (keys, model folders, the local LLM, speaker
+// identification), audio formats, activation, turn-taking and, for a cloud LLM, its endpoint.
+// agentPath: an agent file to answer from before the LLM; empty for none.
 
 extern "C" JNIEXPORT jboolean JNICALL
-Java_com_vasdk_android_VasdkEngine_nativeInit(JNIEnv *env, jobject thiz, jstring engineConfig,
-                                              jstring agentPath, jstring nativeLibDir,
-                                              jstring speakerModelPath, jboolean useLocalLLM,
-                                              jstring llmModelPath, jstring llmChatFormat,
+Java_com_vasdk_android_VasdkEngine_nativeInit(JNIEnv *env, jobject thiz, jbyteArray engineConfig,
+                                              jstring agentPath,
                                               jstring systemPrompt,
                                               jstring responseFormatInstruction,
                                               jstring toolCallExceptionClause,
@@ -290,7 +282,9 @@ Java_com_vasdk_android_VasdkEngine_nativeInit(JNIEnv *env, jobject thiz, jstring
 
     vasdk::engine::EngineConfig config;
     std::string error;
-    if (!va::engine::parseProto(jstringToStdString(env, engineConfig), va::engine::ProtoFormat::Text, config, &error)) {
+    std::string configBytes(static_cast<size_t>(env->GetArrayLength(engineConfig)), '\0');
+    env->GetByteArrayRegion(engineConfig, 0, static_cast<jsize>(configBytes.size()), reinterpret_cast<jbyte *>(configBytes.data()));
+    if (!va::engine::parseProto(configBytes, va::engine::ProtoFormat::Binary, config, &error)) {
         spdlog::error("[VASDK] Engine config: {}", error);
         return JNI_FALSE;
     }
@@ -334,52 +328,21 @@ Java_com_vasdk_android_VasdkEngine_nativeInit(JNIEnv *env, jobject thiz, jstring
     session->runtime = va::engine::Runtime::create(config, registry, runtimeOptions, &error);
     if (!session->runtime) return fail("Engine: " + error);
 
-    //  The local LLM (llama.cpp); a cloud one comes from the config's llm block
+    // The local LLM (llama.cpp) is the config's providers.llm, made by the runtime with the rest;
+    // a cloud one is its llm block. The local one's system prompt carries the tools (below).
     const std::string systemPromptText = jstringToStdString(env, systemPrompt);
     session->baseSystemPrompt = systemPromptText;
-    session->useLocalLLM = useLocalLLM == JNI_TRUE;
-    std::shared_ptr<va::llm::LLMTransport> localLlm;
-#ifdef VASDK_HAS_LLAMACPP
-    if (session->useLocalLLM) {
-        va::llm::LLMConfig localConfig;
-        localConfig.apiKey = "sk-test";
-        localConfig.model = jstringToStdString(env, llmModelPath);
-        localConfig.systemPrompt = systemPromptText;
-        localConfig.temperature = 0.1f;
-        localConfig.minP = 0.15f;
-        localConfig.maxTokens = 512;
-        localConfig.nCtx = 48000;
-        localConfig.nativeLibDir = jstringToStdString(env, nativeLibDir);
-        localConfig.streaming = false;
-        localConfig.topK = 50;
-        localConfig.repetitionPenalty = 1.05f;
-        auto llama = std::make_shared<va::thirdparty::llm::LlamaCppTransport>(localConfig);
-        llama->setChunker(std::make_shared<va::transport::PunctuationChunker>(10));
-        // The model's chat format drives how tool descriptions and call syntax are rendered, so it
-        // must match the GGUF: LFM2.5 tool tokens fed to Gemma are garbage the model parrots back.
-        const std::string chatFormat = jstringToStdString(env, llmChatFormat);
-        if (auto format = chatFormatFromString(chatFormat)) llama->setPromptChatFormat(*format);
-        else spdlog::warn("[VASDK] Unknown or missing llmChatFormat \"{}\": the transport's default", chatFormat);
-        if (!llama->initialize()) return fail("Failed to initialize the local LLM");
-        localLlm = std::move(llama);
-    }
-#else
-    if (session->useLocalLLM) return fail("This build has no local LLM (llama.cpp)");
-    (void) llmModelPath;
-    (void) llmChatFormat;
-    (void) nativeLibDir;
-#endif
+    session->useLocalLLM = config.providers().llm().id() == "llamacpp";
 
     //  The session: mic and speaker over AAudio
-    session->audioSource = std::make_shared<va::android::AAudioSource>();
-    session->audioSink = std::make_shared<va::android::AAudioSink>();
+    session->audioSource = std::make_shared<va::thirdparty::audio::AAudioSource>();
+    session->audioSink = std::make_shared<va::thirdparty::audio::AAudioSink>();
     va::engine::Session::Options options;
     options.transport = std::make_shared<va::transport::LocalTransport>(session->audioSource, session->audioSink);
     options.systemPrompt = systemPromptText;
     // Every session registers tools below: the reply format allows tool calls.
     options.responseFormatInstruction = jstringToStdString(env, responseFormatInstruction) +
                                         jstringToStdString(env, toolCallExceptionClause);
-    options.llmTransport = localLlm;
     const std::string agentFile = jstringToStdString(env, agentPath);
     if (!agentFile.empty()) {
         std::vector<std::string> warnings;
@@ -393,24 +356,6 @@ Java_com_vasdk_android_VasdkEngine_nativeInit(JNIEnv *env, jobject thiz, jstring
     if (!session->engine) return fail("Session: " + error);
     session->llmTransport = session->engine->llmTransport();
     session->toolDispatcher = session->engine->toolDispatcher();
-
-#ifdef VASDK_HAS_PYANNOTE_SPEAKER
-    // Optional: logs SAME/NEW speaker per utterance; skipped when the model is missing.
-    const std::string speakerModel = jstringToStdString(env, speakerModelPath);
-    if (!speakerModel.empty()) {
-        auto speakerProvider = std::make_shared<va::thirdparty::speaker::PyannoteEmbeddingProvider>(
-            va::thirdparty::speaker::PyannoteEmbeddingOptions{speakerModel});
-        if (speakerProvider->initialize(runtimeOptions.inputAudio)) {
-            session->speakerIdProcessor = std::make_shared<va::pipeline::SpeakerIdentificationProcessor>(speakerProvider);
-            session->speakerIdProcessor->setRingBuffer(session->engine->inputRingBuffer());
-            session->engine->addProcessor(va::engine::Session::Slot::AfterTranscription, session->speakerIdProcessor);
-        } else {
-            spdlog::error("[VASDK] Failed to initialize PyannoteEmbeddingProvider - speaker tracking disabled");
-        }
-    }
-#else
-    (void) speakerModelPath;
-#endif
 
 #ifdef VASDK_HAS_VIZANIM
     // MIC: AudioFrames → AudioFeaturesFrame → JNI, right after the mic.
@@ -453,11 +398,13 @@ Java_com_vasdk_android_VasdkEngine_nativeInit(JNIEnv *env, jobject thiz, jstring
         }
         return result;
     };
+
     // HINT: the more tools you add the less likely they'll be called, a limit of small models.
-    registerCommunicationTools(session.get(), androidToolBridge);
-    registerNotificationAndAlarmTools(session.get(), androidToolBridge);
-    registerCalendarTools(session.get(), androidToolBridge);
-    registerCameraTools(session.get(), androidToolBridge);
+    session->toolRegistry = std::make_unique<ToolRegistry>(session.get(), androidToolBridge);
+    session->toolRegistry->registerCommunicationTools();
+    session->toolRegistry->registerNotificationAndAlarmTools();
+    session->toolRegistry->registerCalendarTools();
+    session->toolRegistry->registerCameraTools();
 
     if (session->useLocalLLM && session->llmTransport) {
         // llama.cpp renders requests with the GGUF's own template: the tool descriptions go into

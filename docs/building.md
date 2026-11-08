@@ -23,6 +23,12 @@ cmake -B build -S . -DVASDK_THIRDPARTY_SHARED_LIBS=ON
 # Terminal UI for VASDK_Pipeline (FTXUI)
 cmake -B build -S . -DVASDK_BUILD_TUI=ON
 
+# The language bindings, off by default: Python's tests and app, the Kotlin JVM library and its
+# tests (needs Gradle and a JDK 17+). Both load VASDK at run time, as a shared library. The binding
+# parity check (vasdk_binding_parity) is registered only with one on, for C and the bindings on;
+# configure warns that it isn't when both are off.
+cmake -B build -S . -DVASDK_BUILD_PYTHON_BINDING=ON -DVASDK_BUILD_KOTLIN_BINDING=ON
+
 # Metrics exporters (all default OFF, pick what your monitoring stack speaks)
 cmake -B build -S . -DVASDK_METRICS_PROMETHEUS=ON -DVASDK_METRICS_STATSD=ON
 

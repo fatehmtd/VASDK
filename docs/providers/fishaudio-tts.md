@@ -21,13 +21,14 @@ In C++, `va::thirdparty::tts::FishaudioppVoiceSynthesisOptions` (in [`Fishaudiop
 | `model` | `fishaudiopp::tts::models::S1` | Model to use. |
 | `caBundlePath` | `""` | PEM file of certificates to trust; empty uses the TLS library's own (Android's mbedTLS can't read the system store). |
 
-In an engine config, the catalog's `CloudOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) fills them: a field the config leaves unset falls back to its environment variable, then to the struct's default.
+In an engine config, its own `FishAudioTtsOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) fills them: a field the config leaves unset falls back to its environment variable, then to the struct's default. The shared `CloudOptions` of configs written before it had its own message is still accepted.
 
 | Config field | Environment variable | Sets |
 | --- | --- | --- |
 | `api_key` | `FISHAUDIO_API_KEY` | `apiKey` |
-| `voice_id` | `FISHAUDIO_VOICE_ID` | `referenceId` |
+| `reference_id` | `FISHAUDIO_VOICE_ID` | `referenceId` |
 | `ca_bundle_path` | `VASDK_CA_BUNDLE` | `caBundlePath` |
+| `model` | - | `model` |
 
 `voice_id` fills `referenceId`.
 
@@ -45,7 +46,7 @@ From an engine config:
 providers {
   tts {
     id: "fishaudio"
-    options { [type.googleapis.com/vasdk.providers.CloudOptions] { api_key: "${FISHAUDIO_API_KEY}" } }
+    options { [type.googleapis.com/vasdk.providers.FishAudioTtsOptions] { api_key: "${FISHAUDIO_API_KEY}" } }
     fallback: "pocket"
   }
 }

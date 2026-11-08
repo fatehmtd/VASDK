@@ -41,6 +41,9 @@ struct PhononVoiceSynthesisOptions {
     int maxTokensPerChunk = 50;
     /** Silence after each completed synthesis sequence. */
     float silenceDurationSeconds = 0.3f;
+    /** Audio made before playback starts, so a stall at a chunk or sentence start doesn't leave the
+     *  speaker empty; 0 streams at once (QueuedVoiceSynthesisProvider::setPreBufferedSamplesMS). */
+    int prebufferMs = 250;
 };
 
 /**
@@ -49,8 +52,8 @@ struct PhononVoiceSynthesisOptions {
  *        (impl/), loading the Hugging Face checkpoint files as published.
  *
  * A QueuedVoiceSynthesisProvider: the base class queues the texts and cancels; this class loads
- * the model, synthesizes one text and delivers its audio straight from the engine's stream
- * thread (Delivery::Direct).
+ * the model, synthesizes one text and hands its audio, from the engine's stream thread, to the
+ * base class's delivery thread (Delivery::Thread), which pre-buffers the start of each text.
  *
  * Model directory, laid out like the model's Hugging Face repo
  * (e.g. gradium/phonon-40m-multilingual):

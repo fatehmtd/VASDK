@@ -39,7 +39,7 @@ providers {
 }
 ```
 
-An agent can say part of a reply in another voice or at another pace (`say { voice speed }`, [flows](../../docs/reference/flows.md#rich-replies)), which reaches the provider as `synthesizeStyledSpeech(text, style)`. `prebuffer_ms` (pocket, moss) trades first-word latency for no stalls on slow phones.
+An agent can say part of a reply in another voice or at another pace (`say { voice speed }`, [flows](../../docs/reference/flows.md#rich-replies)), which reaches the provider as `synthesizeStyledSpeech(text, style)`. The engine config's `audio { tts_prebuffer_ms }` (default 250, 0: off; a voice's own `prebuffer_ms` overrides it) trades first-word latency for no stalls on a slow CPU, for every local voice; cloud voices ignore it.
 
 ## Contract pitfalls
 
@@ -52,7 +52,7 @@ An agent can say part of a reply in another voice or at another pace (`say { voi
 
 1. The steps, files and code rules in [vasdk-provider](../vasdk-provider/SKILL.md). Options: `CloudOptions` for a cloud voice, `LocalTtsOptions` for a local one, or a new message if neither fits exactly.
 2. **A cloud voice:** copy `VASDK_3P_IMPL/CartesiappVoiceSynthesis/` (already `va::thirdparty::tts`) and implement `GenericVoiceSynthesisProvider`.
-3. **A local voice:** derive from `QueuedVoiceSynthesisProvider` and implement only `loadEngine()` and `synthesizeOne(text)`: pass audio to `handoffAudio(pcm, sampleRate)` and `return finishHandoff();`. Use `style()` for the voice and pace, and `onCancel()` / `cancelFlag()` to stop early. An engine that streams on its own thread uses `Delivery::Direct` and `deliverAudio()`, as Phonon does. Copy the structure of `VASDK_3P_IMPL/SupertonicTTS/` (model download, test), but write it in `va::thirdparty::tts`, with an options struct and no file-scope `static` tables: Supertonic predates those rules.
+3. **A local voice:** derive from `QueuedVoiceSynthesisProvider` and implement only `loadEngine()` and `synthesizeOne(text)`: pass audio to `handoffAudio(pcm, sampleRate)` and `return finishHandoff();`. Use `style()` for the voice and pace, and `onCancel()` / `cancelFlag()` to stop early. An engine that streams on its own thread calls `handoffAudio()` from that thread, as Phonon does, so it keeps the pre-buffer; `Delivery::Direct` and `deliverAudio()` skip the pre-buffer, and with no cushion a slow chunk is heard as a gap. Copy the structure of `VASDK_3P_IMPL/SupertonicTTS/` (model download, test), but write it in `va::thirdparty::tts`, with an options struct and no file-scope `static` tables: Supertonic predates those rules.
 4. Register it with `registry.add<va::audio::GenericVoiceSynthesisProvider, ...>("<id>", ...)`.
 
 ## Tests

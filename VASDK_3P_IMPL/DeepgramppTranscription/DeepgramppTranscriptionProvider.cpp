@@ -85,7 +85,11 @@ DeepgramppTranscriptionProvider::DeepgramppTranscriptionProvider(DeepgramppTrans
     : _apiKey(std::move(options.apiKey)),
       _model(std::move(options.model)),
       _language(std::move(options.language)),
-      _caFilePath(std::move(options.caBundlePath))
+      _caFilePath(std::move(options.caBundlePath)),
+      _interimResults(options.interimResults),
+      _smartFormat(options.smartFormat),
+      _endpointingMs(options.endpointingMs),
+      _utteranceEndMs(options.utteranceEndMs)
 {
 }
 
@@ -140,10 +144,10 @@ bool DeepgramppTranscriptionProvider::startTranscriptionProvider()
     options.sampleRate = _audioConfig.sampleRate > 0 ? _audioConfig.sampleRate : 16000;
     options.channels = _audioConfig.channels > 0 ? _audioConfig.channels : 1;
     options.encoding = resolveEncoding(_audioConfig.format);
-    options.interimResults = true;
-    options.smartFormat = true;
-    options.endpointing = 300;
-    options.utteranceEndMs = 1000;
+    options.interimResults = _interimResults;
+    options.smartFormat = _smartFormat;
+    options.endpointing = _endpointingMs;
+    options.utteranceEndMs = _utteranceEndMs;
 
     bool connected = false;
     {
@@ -266,7 +270,7 @@ va::audio::TranscriptionResult DeepgramppTranscriptionProvider::writeFullAudioDa
     options.sampleRate = _audioConfig.sampleRate > 0 ? _audioConfig.sampleRate : 16000;
     options.channels = _audioConfig.channels > 0 ? _audioConfig.channels : 1;
     options.encoding = deepgram::listen::encoding::LINEAR_16;
-    options.smartFormat = true;
+    options.smartFormat = _smartFormat;
 
     try {
         deepgram::listen::ListenRestClient restClient(_apiKey, nullptr, _caFilePath);

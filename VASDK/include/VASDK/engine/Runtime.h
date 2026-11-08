@@ -19,8 +19,12 @@ class GenericTranscriptionProvider;
 class GenericVoiceSynthesisProvider;
 class TurnDetectionProvider;
 class WakeWordProvider;
+class GenericAudioDSPProvider;
+class SpeakerEmbeddingProvider;
 }
 namespace nlu { class SentenceEncoder; class EntityExtractor; }
+namespace llm { class Completion; class LLMTransport; }
+namespace transport { class AudioTransport; }
 
 namespace engine {
 
@@ -69,6 +73,11 @@ public:
         std::shared_ptr<audio::GenericVoiceSynthesisProvider> tts;
         std::shared_ptr<audio::TurnDetectionProvider> turn;   ///< null: the VAD's silence ends the turn
         std::shared_ptr<audio::WakeWordProvider> wakeWord;    ///< only in the WAKE_WORD and HYBRID modes
+        std::shared_ptr<audio::GenericAudioDSPProvider> audioDsp;           ///< null without providers.audio_dsp
+        std::shared_ptr<audio::SpeakerEmbeddingProvider> speakerEmbedding;  ///< null without providers.speaker_embedding
+        /// What every stage hears: audioDsp's output, written in step with ringBuffer (which the
+        /// transport fills); ringBuffer itself without an audioDsp.
+        std::shared_ptr<AudioRingBuffer> processedRingBuffer;
         std::string sttId, ttsId;                             ///< the ids that started
         /// The STT and TTS `fallback` providers after the ones that started, for when the network
         /// drops (loadFallbacks); null until loaded, or without one. Kept with the set once loaded.
@@ -100,6 +109,21 @@ public:
     size_t activeSessions() const;
     /** Provider sets loaded and waiting for a session. */
     size_t idleProviderSets() const;
+
+    /**
+     * The transport the config names, when it names one: a webrtc peer (`sendAllFrames` true: the
+     * page shows the session's state), else the audio_input and audio_output devices. nullptr with
+     * `error` empty when it names none (the app brings the audio); nullptr with `error` set when
+     * one fails to start.
+     */
+    std::shared_ptr<transport::AudioTransport> configTransport(bool* sendAllFrames, std::string* error) const;
+    /** One session's LLM from the config's providers.llm. */
+    struct LlmProvider {
+        std::shared_ptr<llm::LLMTransport> transport;      ///< the conversation's
+        std::shared_ptr<const llm::Completion> completion; ///< the agent's; null when the provider has none
+    };
+    /** Empty, with `error` empty, when the config names none; empty with `error` set when it fails. */
+    LlmProvider createLlm(std::string* error) const;
 
     /**
      * Loads the set's STT and TTS fallbacks, if not yet: the config's `fallback` providers after

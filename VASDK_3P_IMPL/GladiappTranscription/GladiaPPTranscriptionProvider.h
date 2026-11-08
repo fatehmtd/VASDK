@@ -12,6 +12,12 @@ struct GladiaPPTranscriptionOptions {
     std::string apiKey;
     /** PEM file of certificates to trust; empty uses the TLS library's own (Android's mbedTLS can't read the system store). */
     std::string caBundlePath;
+    /** Where the audio is processed: "us-west" or "eu-west". */
+    std::string region = "us-west";
+    /** Silence, in seconds, that ends an utterance. */
+    double endpointingSeconds = 0.01;
+    /** An utterance is cut after this many seconds without an endpoint. */
+    int maxDurationWithoutEndpointingSeconds = 5;
 };
 
 /**
@@ -51,6 +57,9 @@ private:
     va::audio::AudioConfig _audioConfig;
     std::string _apiKey;
     std::string _caFilePath;
+    std::string _region;
+    double _endpointingSeconds;
+    int _maxDurationWithoutEndpointingSeconds;
     std::unique_ptr<gladiapp::v2::ws::GladiaWebsocketClientSession> _session{nullptr};
 };
 

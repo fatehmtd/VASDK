@@ -7,8 +7,7 @@
 #include <mutex>
 #include <vector>
 
-namespace va {
-namespace android {
+namespace va::thirdparty::audio {
 
 /**
  * @brief AAudio-backed speaker sink for Android.
@@ -16,9 +15,15 @@ namespace android {
  * Audio is written into a thread-safe circular FIFO by writeAudio();
  * the AAudio playback callback drains that FIFO on the audio thread.
  */
+/** Settings of AAudioSink. */
+struct AAudioSinkOptions {
+    /** The FIFO between the pipeline and the device callback, in bytes (at least 4096). */
+    size_t bufferBytes = 8 * 1024 * 1024;
+};
+
 class AAudioSink : public va::audio::GenericAudioSink {
 public:
-    AAudioSink();
+    explicit AAudioSink(AAudioSinkOptions options = {});
     virtual ~AAudioSink();
 
     bool isAudioSinkReady()  const override;
@@ -47,7 +52,7 @@ private:
     int               _bytesPerFrame{1};
     va::audio::PlaybackHoldEnvelope _playbackHoldEnvelope;  // applied on the AAudio callback thread
 
-    static constexpr size_t kFifoCapacity = 8 * 1024 * 1024; // 8 MB
+    size_t _fifoCapacity;
     std::vector<char>       _fifo;
     size_t                  _fifoReadPos{0};
     size_t                  _fifoWritePos{0};
@@ -58,5 +63,4 @@ private:
     mutable std::mutex _callbackMutex;
 };
 
-} // namespace android
-} // namespace va
+} // namespace va::thirdparty::audio

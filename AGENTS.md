@@ -44,6 +44,7 @@ Prerequisites, CMake options and model downloads: [docs/building.md](docs/buildi
 | A scripted conversation (agent file, goals, entities) | [vasdk-agent](skills/vasdk-agent/SKILL.md) |
 | A use case: agent, car vertical or new app | [vasdk-app](skills/vasdk-app/SKILL.md) |
 | Exposing a feature in C, Python and Android | [vasdk-bindings](skills/vasdk-bindings/SKILL.md) |
+| Bringing C, Python and Kotlin level with the C++ API (parity check and manifest) | [vasdk-binding-parity](skills/vasdk-binding-parity/SKILL.md) |
 
 ## House rules
 

@@ -8,8 +8,7 @@
 #include <mutex>
 #include <vector>
 
-namespace va {
-namespace android {
+namespace va::thirdparty::audio {
 
 /**
  * @brief AAudio-backed microphone source for Android.
@@ -18,9 +17,15 @@ namespace android {
  * thread-safe circular FIFO; readAudio() drains that FIFO on the
  * pipeline capture thread.
  */
+/** Settings of AAudioSource. */
+struct AAudioSourceOptions {
+    /** The FIFO between the device callback and the pipeline, in bytes (at least 4096). */
+    size_t bufferBytes = 1024 * 1024;
+};
+
 class AAudioSource : public va::audio::GenericAudioSource {
 public:
-    AAudioSource();
+    explicit AAudioSource(AAudioSourceOptions options = {});
     virtual ~AAudioSource();
 
     bool isAudioSourceReady()  const override;
@@ -48,7 +53,7 @@ private:
     aaudio_format_t    _aaudioFormat{AAUDIO_FORMAT_PCM_I16};
     va::audio::AudioConfig _audioConfig{};
 
-    static constexpr size_t kFifoCapacity = 1024 * 1024; // 1 MB
+    size_t _fifoCapacity;
     std::vector<char>       _fifo;
     size_t                  _fifoReadPos{0};
     size_t                  _fifoWritePos{0};
@@ -59,5 +64,4 @@ private:
     std::condition_variable _dataReady;
 };
 
-} // namespace android
-} // namespace va
+} // namespace va::thirdparty::audio

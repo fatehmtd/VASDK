@@ -85,6 +85,10 @@ Every VAD/STT/TTS/LLM/audio provider under `VASDK_3P_IMPL/`, plus the core libra
 | [curl/curl](https://github.com/curl/curl) (libcurl) | HTTP (OpenAI/Anthropic/Gladia/Deepgram/Cartesia/Fish Audio/Gradium transport) | An installed libcurl when CMake finds one, otherwise built from source (curl 8.21; always on Android). GradiumPP fetches its own copy unless another client already has | curl license (MIT-style) |
 | [protocolbuffers/protobuf](https://github.com/protocolbuffers/protobuf) | Engine config files, events and steps as protobuf messages (core library, Python binding) | An installed protobuf when CMake finds one, otherwise built from source; prebuilt `protoc` release binary for cross builds | BSD 3-Clause |
 | [abseil/abseil-cpp](https://github.com/abseil/abseil-cpp) | protobuf, when protobuf is built from source | GitHub | Apache 2.0 |
+| [java-native-access/jna](https://github.com/java-native-access/jna) | The Kotlin binding's calls into the C API (`VASDK_BUILD_KOTLIN_BINDING`, the Android AAR) | Maven Central | Apache 2.0 or LGPL 2.1, the user's choice; VASDK takes it under Apache 2.0 |
+| [protocolbuffers/protobuf](https://github.com/protocolbuffers/protobuf) (protobuf-kotlin-lite, protobuf-javalite) | The Kotlin binding's messages | Maven Central | BSD 3-Clause |
+| [Kotlin/kotlinx.coroutines](https://github.com/Kotlin/kotlinx.coroutines) | The Kotlin binding's event flow | Maven Central | Apache 2.0 |
+| [Kotlin/kotlinx.serialization](https://github.com/Kotlin/kotlinx.serialization) (kotlinx-serialization-json) | The Kotlin binding's JSON (tools, entity models, LLM requests) | Maven Central | Apache 2.0 |
 | [warmcat/libwebsockets](https://github.com/warmcat/libwebsockets) | WebSocket client in CartesiaPP, fishaudiopp and GradiumPP | GitHub (fetched by those clients) | MIT (a few files BSD 3-Clause, zlib or, with Mbed TLS, Apache 2.0) |
 | [tplgy/cppcodec](https://github.com/tplgy/cppcodec) | Base64 in SonioxPP and GradiumPP | GitHub | MIT |
 | [tobiaslocker/base64](https://github.com/tobiaslocker/base64) | Base64 in gladiapp | GitHub (fetched by gladiapp) | MIT |

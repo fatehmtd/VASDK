@@ -29,6 +29,9 @@ struct SupertonicVoiceSynthesisOptions {
      *  the vocoder's silent tail. Off by default: the duration predictor can underestimate and clip
      *  the last phoneme. */
     float trimMargin = 0.0f;
+    /** Audio made before playback starts, so a slow chunk doesn't leave the speaker empty; 0 streams
+     *  at once (QueuedVoiceSynthesisProvider::setPreBufferedSamplesMS). */
+    int prebufferMs = 250;
 };
 
 /**

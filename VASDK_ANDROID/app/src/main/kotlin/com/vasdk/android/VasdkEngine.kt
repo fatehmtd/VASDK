@@ -2,6 +2,40 @@ package com.vasdk.android
 
 import vasdk.engine.Events.Event
 import vasdk.flow.StepOutcomeOuterClass.StepOutcome
+import vasdk.engine.EngineConfigOuterClass.Activation
+import vasdk.engine.EngineConfigOuterClass.EngineConfig
+import vasdk.engine.activation
+import vasdk.engine.audio
+import vasdk.engine.audioFormat
+import vasdk.engine.engineConfig
+import vasdk.engine.llmConfig
+import vasdk.engine.providerSpec
+import vasdk.engine.providers
+import vasdk.engine.turnTaking
+import vasdk.engine.voiceActivity
+import vasdk.providers.Options.LlamaCppOptions
+import vasdk.providers.cartesiaSttOptions
+import vasdk.providers.cartesiaTtsOptions
+import vasdk.providers.deepgramSttOptions
+import vasdk.providers.deepgramTtsOptions
+import vasdk.providers.fishAudioSttOptions
+import vasdk.providers.fishAudioTtsOptions
+import vasdk.providers.gladiaOptions
+import vasdk.providers.gradiumSttOptions
+import vasdk.providers.gradiumTtsOptions
+import vasdk.providers.llamaCppOptions
+import vasdk.providers.mossOptions
+import vasdk.providers.parakeetOptions
+import vasdk.providers.phononOptions
+import vasdk.providers.pocketOptions
+import vasdk.providers.pyannoteOptions
+import vasdk.providers.sileroOptions
+import vasdk.providers.smartTurnOptions
+import vasdk.providers.sonioxSttOptions
+import vasdk.providers.sonioxTtsOptions
+import vasdk.providers.whistleOptions
+import com.google.protobuf.MessageLite
+import com.google.protobuf.Any as ProtobufAny
 import android.content.Context
 import android.content.ContextWrapper
 import android.net.ConnectivityManager
@@ -18,6 +52,16 @@ import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.io.FileOutputStream
+
+/**
+ * A provider's own options message as the Any a ProviderSpec's options hold. Lite messages have no
+ * descriptor to name their type, so it comes from the generated class: VASDK's messages set no
+ * java_package, so a message's class is <proto package>.<Outer>$<Message> (as the Kotlin binding's toAny()).
+ */
+private fun MessageLite.toAny(): ProtobufAny = ProtobufAny.newBuilder()
+    .setTypeUrl("type.googleapis.com/" + javaClass.name.substringBeforeLast('.') + "." + javaClass.simpleName)
+    .setValue(toByteString())
+    .build()
 
 /** Download URL, GGUF filename, and chat format for one local LLM preset. */
 data class LLMModelMeta(
@@ -426,23 +470,20 @@ class VasdkEngine private constructor(
                 Log.e(TAG, "Failed to extract system CA bundle; cloud TLS connections will fail")
             }
 
-            val engineConfig = engineConfigText(
+            val engineConfig = engineConfig(
                 modelsDir = contextWrapper.cacheDir.absolutePath,
                 vadModelPath = modelMap[R.raw.silero_vad]!!,
                 turnModelPath = modelMap[R.raw.smart_turn_v3]!!,
                 sttModelDir = sttModelDir.absolutePath,
                 ttsModelDir = ttsModelDir.absolutePath,
-                caBundlePath = caBundlePath
+                caBundlePath = caBundlePath,
+                localLlmPath = if (useLocalLLM) llmModelFile.absolutePath else null,
+                speakerModelPath = if (speakerModelFile.exists()) speakerModelFile.absolutePath else null
             )
             val agentPath = agentAsset?.let { extractAgent(it) } ?: ""
             isNativeInitialized = nativeInit(
-                engineConfig = engineConfig,
+                engineConfig = engineConfig.toByteArray(),
                 agentPath = agentPath,
-                nativeLibDir = contextWrapper.applicationInfo.nativeLibraryDir,
-                speakerModelPath = if (speakerModelFile.exists()) speakerModelFile.absolutePath else "",
-                useLocalLLM = useLocalLLM,
-                llmModelPath = if (useLocalLLM) llmModelFile.absolutePath else "",
-                llmChatFormat = llmModelMeta.format,
                 systemPrompt = contextWrapper.getString(R.string.default_system_prompt),
                 formatInstruction = contextWrapper.getString(R.string.response_format_instruction),
                 toolCallExceptionClause = contextWrapper.getString(R.string.tool_call_exception_clause),
@@ -454,62 +495,102 @@ class VasdkEngine private constructor(
     }
 
     /**
-     * The engine config (vasdk/engine/engine_config.proto, text proto) for the current settings:
-     * which providers, their keys and model folders, audio formats, always-on listening and
-     * turn-taking, and the cloud LLM. Keys come from BuildConfig, never from a file.
+     * The engine config (vasdk/engine/engine_config.proto) for the current settings: which
+     * providers, their keys and model folders, audio formats, always-on listening and turn-taking,
+     * the local or cloud LLM, and speaker identification. Keys come from BuildConfig, never from a
+     * file. Each provider's settings are its own message (vasdk/providers/options.proto), so a wrong
+     * field name or type doesn't compile.
      */
-    private fun engineConfigText(modelsDir: String, vadModelPath: String, turnModelPath: String,
-                                 sttModelDir: String, ttsModelDir: String, caBundlePath: String): String {
-        fun quoted(value: String) = "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
-        fun options(type: String, fields: String) = "options { [type.googleapis.com/vasdk.providers.$type] { $fields } }"
-        fun cloud(apiKey: String, voiceId: String = "") = options("CloudOptions",
-            "api_key: ${quoted(apiKey)} voice_id: ${quoted(voiceId)} ca_bundle_path: ${quoted(caBundlePath)}")
-        val stt = when (sttProvider) {
-            SttProvider.PARAKEET -> options("LocalSttOptions", "model_dir: ${quoted(sttModelDir)} idle_timeout_ms: 550 partial_interval_ms: 150")
-            SttProvider.WHISTLE -> options("LocalSttOptions", "model_dir: ${quoted(sttModelDir)} idle_timeout_ms: 550 partial_interval_ms: 250")
-            SttProvider.VOZ -> ""
-            SttProvider.SONIOX -> cloud(BuildConfig.SONIOX_API_KEY)
-            SttProvider.DEEPGRAM -> cloud(BuildConfig.DEEPGRAM_API_KEY)
-            SttProvider.GLADIA -> cloud(BuildConfig.GLADIA_API_KEY)
-            SttProvider.CARTESIA -> cloud(BuildConfig.CARTESIA_API_KEY)
-            SttProvider.FISHAUDIO -> cloud(BuildConfig.FISHAUDIO_API_KEY)
-            SttProvider.GRADIUM -> cloud(BuildConfig.GRADIUM_API_KEY)
+    private fun engineConfig(modelsDir: String, vadModelPath: String, turnModelPath: String,
+                             sttModelDir: String, ttsModelDir: String, caBundlePath: String,
+                             localLlmPath: String?, speakerModelPath: String?): EngineConfig {
+        fun parakeet(dir: String) = parakeetOptions { modelDir = dir; idleTimeoutMs = 550; partialIntervalMs = 150 }.toAny()
+        fun pocket(dir: String) = pocketOptions { modelDir = dir; voice = "jean"; steps = 4; prebufferMs = 500 }.toAny()
+        val sttOptions: ProtobufAny? = when (sttProvider) {
+            SttProvider.PARAKEET -> parakeet(sttModelDir)
+            SttProvider.WHISTLE -> whistleOptions { modelDir = sttModelDir; idleTimeoutMs = 550; partialIntervalMs = 250 }.toAny()
+            SttProvider.VOZ -> null
+            SttProvider.SONIOX -> sonioxSttOptions { apiKey = BuildConfig.SONIOX_API_KEY; this.caBundlePath = caBundlePath }.toAny()
+            SttProvider.DEEPGRAM -> deepgramSttOptions { apiKey = BuildConfig.DEEPGRAM_API_KEY; this.caBundlePath = caBundlePath }.toAny()
+            SttProvider.GLADIA -> gladiaOptions { apiKey = BuildConfig.GLADIA_API_KEY; this.caBundlePath = caBundlePath }.toAny()
+            SttProvider.CARTESIA -> cartesiaSttOptions { apiKey = BuildConfig.CARTESIA_API_KEY; this.caBundlePath = caBundlePath }.toAny()
+            SttProvider.FISHAUDIO -> fishAudioSttOptions { apiKey = BuildConfig.FISHAUDIO_API_KEY; this.caBundlePath = caBundlePath }.toAny()
+            SttProvider.GRADIUM -> gradiumSttOptions { apiKey = BuildConfig.GRADIUM_API_KEY }.toAny()
         }
-        val tts = when (ttsProvider) {
-            TtsProvider.POCKET -> options("LocalTtsOptions", "model_dir: ${quoted(ttsModelDir)} voice: \"jean\" steps: 4 prebuffer_ms: 500")
-            TtsProvider.PHONON -> options("LocalTtsOptions", "model_dir: ${quoted(ttsModelDir)} voice: \"default\"")
-            TtsProvider.MOSS -> options("LocalTtsOptions", "model_dir: ${quoted(ttsModelDir)} prebuffer_ms: 400")
-            TtsProvider.SONIOX -> cloud(BuildConfig.SONIOX_API_KEY)
-            TtsProvider.DEEPGRAM -> cloud(BuildConfig.DEEPGRAM_API_KEY)
-            TtsProvider.CARTESIA -> cloud(BuildConfig.CARTESIA_API_KEY, BuildConfig.CARTESIA_VOICE_ID)
-            TtsProvider.FISHAUDIO -> cloud(BuildConfig.FISHAUDIO_API_KEY, BuildConfig.FISHAUDIO_VOICE_ID)
-            TtsProvider.GRADIUM -> cloud(BuildConfig.GRADIUM_API_KEY, BuildConfig.GRADIUM_VOICE_ID)
+        val ttsOptions: ProtobufAny = when (ttsProvider) {
+            TtsProvider.POCKET -> pocket(ttsModelDir)
+            TtsProvider.PHONON -> phononOptions { modelDir = ttsModelDir; voice = "default" }.toAny()
+            TtsProvider.MOSS -> mossOptions { modelDir = ttsModelDir; prebufferMs = 400 }.toAny()
+            TtsProvider.SONIOX -> sonioxTtsOptions { apiKey = BuildConfig.SONIOX_API_KEY; this.caBundlePath = caBundlePath }.toAny()
+            TtsProvider.DEEPGRAM -> deepgramTtsOptions { apiKey = BuildConfig.DEEPGRAM_API_KEY; this.caBundlePath = caBundlePath }.toAny()
+            TtsProvider.CARTESIA -> cartesiaTtsOptions {
+                apiKey = BuildConfig.CARTESIA_API_KEY; voiceId = BuildConfig.CARTESIA_VOICE_ID; this.caBundlePath = caBundlePath }.toAny()
+            TtsProvider.FISHAUDIO -> fishAudioTtsOptions {
+                apiKey = BuildConfig.FISHAUDIO_API_KEY; referenceId = BuildConfig.FISHAUDIO_VOICE_ID; this.caBundlePath = caBundlePath }.toAny()
+            TtsProvider.GRADIUM -> gradiumTtsOptions { apiKey = BuildConfig.GRADIUM_API_KEY; voiceId = BuildConfig.GRADIUM_VOICE_ID }.toAny()
         }
-        // Gladia only streams: its live API has no whole-segment call.
-        val streaming = sttStreaming || sttProvider == SttProvider.GLADIA
-        val llm = if (useLocalLLM) "llm { history: 40 }" else
-            "llm { endpoint: ${quoted(BuildConfig.LLM_ENDPOINT)} model: ${quoted(BuildConfig.LLM_MODEL)} " +
-                "api_key: ${quoted(BuildConfig.LLM_API_KEY)} effort: ${quoted(BuildConfig.LLM_REASONING_EFFORT)} history: 100 }"
-        return """
-            models_dir: ${quoted(modelsDir)}
-            audio { input { sample_rate: 16000 } output { sample_rate: 24000 } frame_ms: 125 }
-            activation { mode: ALWAYS_ON }
-            providers {
-              vad { id: "silero" ${options("SileroOptions", "model_path: ${quoted(vadModelPath)}")} }
-              turn { id: "smartturn-v3" ${options("SmartTurnOptions", "model_path: ${quoted(turnModelPath)}")} }
-              stt { id: ${quoted(sttProvider.id)} $stt fallback: ["parakeet"]
-                    fallback_options { key: "parakeet" value { [type.googleapis.com/vasdk.providers.LocalSttOptions] {
-                      model_dir: ${quoted(File(modelsDir, "parakeet").absolutePath)} idle_timeout_ms: 550 partial_interval_ms: 150 } } } }
-              tts { id: ${quoted(ttsProvider.id)} $tts fallback: ["pocket"]
-                    fallback_options { key: "pocket" value { [type.googleapis.com/vasdk.providers.LocalTtsOptions] {
-                      model_dir: ${quoted(File(modelsDir, "pocket_tts").absolutePath)} voice: "jean" steps: 4 prebuffer_ms: 500 } } } }
+        return engineConfig {
+            this.modelsDir = modelsDir
+            audio = audio {
+                input = audioFormat { sampleRate = 16000 }
+                output = audioFormat { sampleRate = 24000 }
+                frameMs = 125
+                ttsPrebufferMs = 500
             }
-            turn_taking {
-              streaming_transcription: $streaming
-              voice_activity { start_ms: 250 min_speech_ms: 250 pause_ms: 500 end_silence_ms: 250 lookback_factor: 5 }
+            activation = activation { mode = Activation.Mode.ALWAYS_ON }
+            providers = providers {
+                vad = providerSpec { id = "silero"; options = sileroOptions { modelPath = vadModelPath }.toAny() }
+                turn = providerSpec { id = "smartturn-v3"; options = smartTurnOptions { modelPath = turnModelPath }.toAny() }
+                stt = providerSpec {
+                    id = sttProvider.id
+                    sttOptions?.let { options = it }
+                    fallback += "parakeet"
+                    fallbackOptions.put("parakeet", parakeet(File(modelsDir, "parakeet").absolutePath))
+                }
+                tts = providerSpec {
+                    id = ttsProvider.id
+                    options = ttsOptions
+                    fallback += "pocket"
+                    fallbackOptions.put("pocket", pocket(File(modelsDir, "pocket_tts").absolutePath))
+                }
+                // The LLM on the phone, built by the engine like the other providers; a cloud one is the llm block below.
+                if (localLlmPath != null) llm = providerSpec {
+                    id = "llamacpp"
+                    options = llamaCppOptions {
+                        modelPath = localLlmPath
+                        chatFormat = llmModelMeta.format   // must match the GGUF: it renders the tools' descriptions and calls
+                        nativeLibraryDir = contextWrapper.applicationInfo.nativeLibraryDir
+                        contextTokens = 48000
+                        maxTokens = 512
+                        temperature = 0.1f
+                        minP = 0.15f
+                        topK = 50
+                        repetitionPenalty = 1.05f
+                        chunker = LlamaCppOptions.Chunker.PUNCTUATION
+                        chunkerMinBytes = 10
+                    }.toAny()
+                }
+                // Same speaker or a new one, per utterance; skipped when the model isn't downloaded.
+                if (speakerModelPath != null) speakerEmbedding = providerSpec {
+                    id = "pyannote"
+                    options = pyannoteOptions { modelPath = speakerModelPath }.toAny()
+                }
             }
-            $llm
-        """.trimIndent()
+            turnTaking = turnTaking {
+                // Gladia only streams: its live API has no whole-segment call.
+                streamingTranscription = sttStreaming || sttProvider == SttProvider.GLADIA
+                voiceActivity = voiceActivity {
+                    startMs = 250; minSpeechMs = 250; pauseMs = 500; endSilenceMs = 250; lookbackFactor = 5f
+                }
+            }
+            llm = if (localLlmPath != null) llmConfig { history = 40 } else llmConfig {
+                endpoint = BuildConfig.LLM_ENDPOINT
+                model = BuildConfig.LLM_MODEL
+                apiKey = BuildConfig.LLM_API_KEY
+                effort = BuildConfig.LLM_REASONING_EFFORT
+                history = 100
+            }
+        }
     }
 
     fun start(): Boolean {
@@ -977,13 +1058,8 @@ class VasdkEngine private constructor(
 
     //  Native declarations 
 
-    private external fun nativeInit(engineConfig: String,
+    private external fun nativeInit(engineConfig: ByteArray,
                                     agentPath: String,
-                                    nativeLibDir: String,
-                                    speakerModelPath: String,
-                                    useLocalLLM: Boolean,
-                                    llmModelPath: String,
-                                    llmChatFormat: String,
                                     systemPrompt: String,
                                     formatInstruction: String,
                                     toolCallExceptionClause: String,

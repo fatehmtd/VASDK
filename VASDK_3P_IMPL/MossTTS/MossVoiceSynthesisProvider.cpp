@@ -21,6 +21,8 @@ MossVoiceSynthesisProvider::MossVoiceSynthesisProvider(MossVoiceSynthesisOptions
     params.maxNewFrames    = std::max(0, options.maxNewFrames);
     params.maxChunkTokens  = std::max(1, options.maxChunkTokens);
     params.normalizeText   = options.textNormalization;
+    params.pauseShortSeconds = std::max(0.0f, options.pauseShortSeconds);
+    params.pauseLongSeconds  = std::max(0.0f, options.pauseLongSeconds);
     _impl->setParams(params);
     setPreBufferedSamplesMS(std::max(0, options.prebufferMs));
 }

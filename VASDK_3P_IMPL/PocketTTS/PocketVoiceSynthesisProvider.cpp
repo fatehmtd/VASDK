@@ -20,6 +20,7 @@ PocketVoiceSynthesisProvider::PocketVoiceSynthesisProvider(PocketVoiceSynthesisO
     params.lsdSteps        = std::max(1, std::min(options.lsdSteps, 10));
     params.temperature     = options.temperature;
     params.silenceDuration = std::max(0.0f, options.silenceDurationSeconds);
+    params.decoderBatchFrames = std::max(1, options.decoderBatchFrames);
     _impl->setParams(params);
     setPreBufferedSamplesMS(std::max(0, options.prebufferMs));
 }

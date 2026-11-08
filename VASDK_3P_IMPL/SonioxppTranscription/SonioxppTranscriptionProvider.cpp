@@ -151,7 +151,9 @@ namespace thirdparty::stt {
 
 SonioxppTranscriptionProvider::SonioxppTranscriptionProvider(SonioxppTranscriptionOptions options)
     : _apiKey(std::move(options.apiKey)),
-      _caFilePath(std::move(options.caBundlePath))
+      _caFilePath(std::move(options.caBundlePath)),
+      _model(std::move(options.model)),
+      _endpointDetection(options.endpointDetection)
 {
 }
 
@@ -296,7 +298,7 @@ va::audio::TranscriptionResult SonioxppTranscriptionProvider::writeFullAudioData
 
     soniox::SttRealtimeConfig cfg;
     cfg.api_key = _apiKey;
-    cfg.model = soniox::stt::models::realtime_v5;
+    cfg.model = _model;
     cfg.audio_format = audioFormat;
     cfg.sample_rate = sampleRate;
     cfg.num_channels = channels;
@@ -489,12 +491,12 @@ bool SonioxppTranscriptionProvider::ensureRealtimeSessionStarted()
 
     soniox::SttRealtimeConfig cfg;
     cfg.api_key = _apiKey;
-    cfg.model = soniox::stt::models::realtime_v5;
+    cfg.model = _model;
     cfg.audio_format = resolveRealtimeAudioFormat(_audioConfig.format);
     cfg.sample_rate = _audioConfig.sampleRate > 0 ? _audioConfig.sampleRate : 16000;
     cfg.num_channels = _audioConfig.channels > 0 ? _audioConfig.channels : 1;
     cfg.context_json = contextJson();
-    cfg.enable_endpoint_detection = true;
+    cfg.enable_endpoint_detection = _endpointDetection;
 
     if (needsPcm16Conversion(_audioConfig.format)) {
         spdlog::warn("[SonioxSTT] Audio format {} is not directly supported by Soniox realtime STT; provider will require PCM16-compatible input.",

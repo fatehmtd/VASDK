@@ -117,7 +117,12 @@ int main() {
     // The dialog checks each second.
     {
         std::atomic<double> level{50};
-        auto dialog = std::make_shared<DialogProcessor>(agent);
+        // On the real clock: only the triggers checked here, so 08:00 and the booking can't come first.
+        vasdk::flow::Agent liveDefinition = definition;
+        liveDefinition.clear_triggers();
+        for (const auto& trigger : definition.triggers())
+            if (trigger.name() == "half_hour" || trigger.name() == "battery") *liveDefinition.add_triggers() = trigger;
+        auto dialog = std::make_shared<DialogProcessor>(CompiledAgent::compile(liveDefinition, &error));
         dialog->setContextSource([&level] {
             google::protobuf::Struct context;
             (*context.mutable_fields())["battery"] = numberValue(level.load());

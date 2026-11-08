@@ -23,15 +23,20 @@ In C++, `va::thirdparty::tts::SupertonicVoiceSynthesisOptions` (in [`SupertonicV
 | `speed` | `1.05f` | Speaking speed: 1.0 is natural, 1.05 is 5% faster. |
 | `silenceDurationSeconds` | `0.3f` | Silence after each synthesized chunk; below about 0.1 s chunks join with hard cuts. |
 | `trimMargin` | `0.0f` | When above 0, each chunk is cut to sample_rate * predicted duration * (1 + trimMargin), removing the vocoder's silent tail. Off by default: the duration predictor can underestimate and clip the last phoneme. |
+| `prebufferMs` | `250` | Audio made before playback starts, so a slow chunk doesn't leave the speaker empty; 0 streams at once (QueuedVoiceSynthesisProvider::setPreBufferedSamplesMS). |
 
-In an engine config, the catalog's `LocalTtsOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) fills them: a field the config leaves unset falls back to its environment variable, then to the struct's default.
+In an engine config, its own `SupertonicOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) fills them: a field the config leaves unset falls back to its environment variable, then to the struct's default. The shared `LocalTtsOptions` of configs written before it had its own message is still accepted.
 
 | Config field | Environment variable | Sets |
 | --- | --- | --- |
-| `model_dir` | - | (onnxDir, voiceStylePath) |
+| `model_dir` | - | `onnxDir`, the folder of `voiceStylePath` |
 | `voice` | `SUPERTONIC_TTS_VOICE` | `voiceStylePath` |
 | `language` | `SUPERTONIC_TTS_LANG` | `language` |
 | `steps` | `SUPERTONIC_TTS_STEPS` | `totalSteps` |
+| `prebuffer_ms`, else the engine's `audio.tts_prebuffer_ms` | - | `prebufferMs` |
+| `speed` | - | `speed` |
+| `silence_duration_seconds` | - | `silenceDurationSeconds` |
+| `trim_margin` | - | `trimMargin` |
 
 In the engine config, `model_dir` is the Supertonic folder: the catalog uses `<model_dir>/onnx` and `<model_dir>/voice_styles/<voice>.json` (voice `M1` by default).
 
@@ -53,7 +58,7 @@ From an engine config:
 providers {
   tts {
     id: "supertonic"
-    options { [type.googleapis.com/vasdk.providers.LocalTtsOptions] { voice: "F1" } }
+    options { [type.googleapis.com/vasdk.providers.SupertonicOptions] { voice: "F1" } }
     fallback: "pocket"
   }
 }

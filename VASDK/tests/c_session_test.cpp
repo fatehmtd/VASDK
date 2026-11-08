@@ -204,6 +204,43 @@ int main() {
         vasdk_session_free(typed);
     }
 
+    // An engine config the app built, no file: as a serialized message and as text.
+    vasdk::engine::EngineConfig built;
+    built.mutable_providers()->mutable_stt()->set_id("stt");
+    built.mutable_providers()->mutable_tts()->set_id("tts");
+    const std::string builtData = built.SerializeAsString();
+    vasdk_session* fromConfig = vasdk_session_create_config(builtData.data(), builtData.size(), VASDK_FORMAT_BINARY, providers, agent,
+                                                            nullptr, 0, VASDK_FORMAT_BINARY, &error);
+    check(fromConfig != nullptr, std::string("a session from an EngineConfig message: ") + (error ? error : ""));
+    if (fromConfig) {
+        Heard configHeard;
+        vasdk_session_on_event_message(fromConfig, onEventMessage, VASDK_FORMAT_BINARY, &configHeard);
+        check(vasdk_session_start(fromConfig, &error) == 1 && configHeard.waitFor("How can I help?"), "it starts and greets");
+        vasdk_session_free(fromConfig);
+    }
+    const std::string builtText = R"(providers { stt { id: "stt" } tts { id: "tts" } })";
+    fromConfig = vasdk_session_create_config(builtText.data(), builtText.size(), VASDK_FORMAT_TEXT, providers, agent, nullptr, 0,
+                                             VASDK_FORMAT_BINARY, &error);
+    check(fromConfig != nullptr, std::string("a session from an EngineConfig in text: ") + (error ? error : ""));
+    vasdk_session_free(fromConfig);
+    const std::string broken = R"(providers { stt { no_such_field: 1 } })";
+    check(vasdk_session_create_config(broken.data(), broken.size(), VASDK_FORMAT_TEXT, providers, agent, nullptr, 0,
+                                      VASDK_FORMAT_BINARY, &error) == nullptr && error && std::string(error).find("EngineConfig") != std::string::npos,
+          "a config that doesn't parse is reported as the EngineConfig");
+    vasdk_free(error);
+    error = nullptr;
+    vasdk::engine::EngineConfig floatAudio = built;
+    floatAudio.mutable_audio()->mutable_output()->set_encoding(vasdk::engine::AudioFormat::FLOAT_32);
+    const std::string floatData = floatAudio.SerializeAsString();
+    check(vasdk_session_create_config(floatData.data(), floatData.size(), VASDK_FORMAT_BINARY, providers, agent, nullptr, 0,
+                                      VASDK_FORMAT_BINARY, &error) == nullptr && error && std::string(error).find("config: audio") != std::string::npos,
+          "a built config's errors name it \"config\"");
+    vasdk_free(error);
+    error = nullptr;
+    vasdk_runtime* runtime = vasdk_runtime_create_config(builtData.data(), builtData.size(), VASDK_FORMAT_BINARY, providers, nullptr, 2, &error);
+    check(runtime != nullptr, std::string("a runtime from an EngineConfig message: ") + (error ? error : ""));
+    if (runtime) vasdk_runtime_free(runtime);
+
     vasdk_agent_free(agent);
     vasdk_providers_free(providers);
     std::filesystem::remove_all(dir);

@@ -25,17 +25,24 @@ In C++, `va::thirdparty::tts::PhononVoiceSynthesisOptions` (in [`PhononVoiceSynt
 | `streamChunkFrames` | `12` | Largest audio chunk handed over, in 80 ms frames (12: about 1 s). The first chunk is always 6 frames so playback starts early. |
 | `maxTokensPerChunk` | `50` | Longer text is spoken as groups of whole sentences of up to this many tokens; a sentence over 200 tokens is cut at a clause. |
 | `silenceDurationSeconds` | `0.3f` | Silence after each completed synthesis sequence. |
+| `prebufferMs` | `250` | Audio made before playback starts, so a stall at a chunk or sentence start doesn't leave the speaker empty; 0 streams at once (QueuedVoiceSynthesisProvider::setPreBufferedSamplesMS). |
 
-In an engine config, the catalog's `LocalTtsOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) fills them: a field the config leaves unset falls back to its environment variable, then to the struct's default.
+In an engine config, its own `PhononOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) fills them: a field the config leaves unset falls back to its environment variable, then to the struct's default. The shared `LocalTtsOptions` of configs written before it had its own message is still accepted.
 
 | Config field | Environment variable | Sets |
 | --- | --- | --- |
 | `model_dir` | - | `modelDir` |
 | `voice` | `PHONON_TTS_VOICE` | `voice` |
 | `language` | `PHONON_TTS_LANG` | `language` |
-| - | `PHONON_TTS_RULES` | `normalizationRules` |
+| `prebuffer_ms`, else the engine's `audio.tts_prebuffer_ms` | - | `prebufferMs` |
+| `normalization_rules` | `PHONON_TTS_RULES` | `normalizationRules` |
+| `temperature` | - | `temperature` |
+| `duration_delta` | - | `durationDelta` |
+| `stream_chunk_frames` | - | `streamChunkFrames` |
+| `max_tokens_per_chunk` | - | `maxTokensPerChunk` |
+| `silence_duration_seconds` | - | `silenceDurationSeconds` |
 
-`setVoice()` and `setLanguage()` switch while running. `PHONON_TTS_RULES` has no config field: it is read from the environment only.
+`setVoice()` and `setLanguage()` switch while running. `normalization_rules` falls back to `PHONON_TTS_RULES`.
 
 ## Models and licenses
 
@@ -55,7 +62,7 @@ From an engine config:
 providers {
   tts {
     id: "phonon"
-    options { [type.googleapis.com/vasdk.providers.LocalTtsOptions] { voice: "Zoey" } }
+    options { [type.googleapis.com/vasdk.providers.PhononOptions] { voice: "Zoey" } }
     fallback: "pocket"
   }
 }
@@ -79,8 +86,8 @@ flowchart LR
     In["TextFrame (a sentence of the reply)"] --> Processor["TTSFrameProcessor"]
     Processor -->|"synthesizeSpeech(text) / cancelSynthesis()"| Provider["PhononVoiceSynthesisProvider"]
     Provider -->|"ggml (in-repo port, va::thirdparty::tts::phonon)"| Engine["model.q8.gguf, voices/*.safetensors"]
-    Engine --> Provider
-    Provider -->|"onAudioDataReceived, onSynthesisCompleted"| Processor
+    Engine -->|"audio chunks (stream thread)"| Buffer["pre-buffer (prebufferMs), delivery thread"]
+    Buffer -->|"onAudioDataReceived, onSynthesisCompleted"| Processor
     Processor --> Out["SynthesisFrame (audio to play)"]
 ```
 

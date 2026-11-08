@@ -1,7 +1,9 @@
 #include "engine/Session.h"
 
+#include "AudioDSPProcessor.h"
 #include "AudioRingBuffer.h"
 #include "Pipeline.h"
+#include "SpeakerIdentificationProcessor.h"
 #include "TTSFrameProcessor.h"
 #include "TranscriptionProcessor.h"
 #include "TransportInputProcessor.h"
@@ -231,17 +233,20 @@ struct Session::State {
     std::shared_ptr<AudioRingBuffer> ringBuffer;
 
     std::shared_ptr<pipeline::TransportInputProcessor> transportInput;
+    std::shared_ptr<pipeline::AudioDSPProcessor> audioDsp;   // only with providers.audio_dsp
     std::shared_ptr<pipeline::TriggerProcessor> trigger;
     std::shared_ptr<pipeline::WakeWordProcessor> wakeWord;   // WAKE_WORD and HYBRID modes
     std::shared_ptr<pipeline::VADFrameProcessor> vad;
     std::shared_ptr<pipeline::TurnDetectionProcessor> turnDetection;
     std::shared_ptr<pipeline::TranscriptionFrameProcessor> transcription;
+    std::shared_ptr<pipeline::SpeakerIdentificationProcessor> speakerIdentification;   // only with providers.speaker_embedding
     std::shared_ptr<pipeline::AgentStateProcessor> agentState;
     std::shared_ptr<FrameProcessor> bargeInHandler;   // only with back-channel handling off
     std::shared_ptr<pipeline::TurnAssemblerProcessor> turnAssembler;
     std::shared_ptr<FrameInjector> userInput;
     std::shared_ptr<flow::DialogProcessor> dialog;   // only with Options::agent
     std::shared_ptr<llm::LLMTransport> llmTransport;
+    bool llmFromProvider = false;   // providers.llm: it reads the system prompt from its config
     std::shared_ptr<llm::LLMProcessor> llm;
     std::shared_ptr<llm::ToolDispatchProcessor> tools = std::make_shared<llm::ToolDispatchProcessor>();
     std::shared_ptr<FrameInjector> speech;
@@ -272,7 +277,9 @@ struct Session::State {
     } fallbackLoader;
 
     std::vector<std::shared_ptr<FrameProcessor>> chain() const {
-        std::vector<std::shared_ptr<FrameProcessor>> processors{transportInput, trigger};
+        std::vector<std::shared_ptr<FrameProcessor>> processors{transportInput};
+        if (audioDsp) processors.push_back(audioDsp);
+        processors.push_back(trigger);
         if (wakeWord) processors.push_back(wakeWord);
         auto addSlot = [&](Slot slot) {
             auto found = slots.find(slot);
@@ -280,6 +287,8 @@ struct Session::State {
         };
         addSlot(Slot::AfterInput);
         processors.insert(processors.end(), {vad, turnDetection, transcription});
+        // After STT: embedding the whole utterance takes ~70 ms per second of speech
+        if (speakerIdentification) processors.push_back(speakerIdentification);
         addSlot(Slot::AfterTranscription);
         processors.push_back(agentState);
         if (bargeInHandler) processors.push_back(bargeInHandler);
@@ -376,19 +385,24 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
     const auto& audioOptions = runtime->options();
     state->logTag = options.id.empty() ? "[VAEngine]" : "[Session " + options.id + "]";
     state->events->setSessionId(options.id);
-    state->ringBuffer = providers.ringBuffer;
+    state->ringBuffer = providers.processedRingBuffer;   // what the stages hear; the transport fills providers.ringBuffer
 
     auto& transport = *options.transport;
     transport.setInputAudioConfig(audioOptions.inputAudio);
     transport.setOutputAudioConfig(audioOptions.outputAudio);
     transport.setFrameSize(audioOptions.frameSize);
-    transport.setRingBuffer(state->ringBuffer);
+    transport.setRingBuffer(providers.ringBuffer);
     if (options.metricsReporter) transport.setMetricsConfig(options.metricsConfig.transport);
 
     //  Processors
     state->transportInput = std::make_shared<pipeline::TransportInputProcessor>();
     state->transportInput->addTransport(options.transport);
     state->trigger = std::make_shared<pipeline::TriggerProcessor>();
+    if (providers.audioDsp) {
+        state->audioDsp = std::make_shared<pipeline::AudioDSPProcessor>(providers.audioDsp);
+        state->audioDsp->setRawAudioRingBuffer(providers.ringBuffer);
+        state->audioDsp->setCleanAudioRingBuffer(providers.processedRingBuffer);
+    }
 
     const auto& turnTaking = config.turn_taking();
     applyBackchannel(turnTaking.backchannel(), options.backchannel);
@@ -406,6 +420,13 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
     state->transcription->configSilenceBehavior(false, false, 1000);
     state->transcription->setStreamingMode(turnTaking.streaming_transcription());
     state->transcription->setRingBuffer(state->ringBuffer);
+    if (providers.speakerEmbedding) {
+        state->speakerIdentification = std::make_shared<pipeline::SpeakerIdentificationProcessor>(providers.speakerEmbedding);
+        state->speakerIdentification->setRingBuffer(state->ringBuffer);
+        const auto& identification = config.speaker_identification();
+        if (identification.has_threshold()) state->speakerIdentification->setThreshold(identification.threshold());
+        if (identification.has_min_speech_seconds()) state->speakerIdentification->setMinSpeechSeconds(identification.min_speech_seconds());
+    }
 
     state->agentState = std::make_shared<pipeline::AgentStateProcessor>();
     const auto& activation = config.activation();
@@ -481,8 +502,21 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
     state->transportOutput->addTransport(options.transport, options.sendAllFramesToTransport
         ? std::nullopt : std::optional<transport::FrameType>(transport::FrameType::SYNTHESIS));
 
-    //  LLM (optional)
+    //  LLM (optional): the app's transport, else the config's providers.llm, else its llm endpoint
     state->llmTransport = options.llmTransport;
+    std::shared_ptr<const llm::Completion> providerCompletion;
+    if (!state->llmTransport && config.providers().has_llm()) {
+        std::string reason;
+        auto provided = runtime->createLlm(&reason);
+        if (!provided.transport) return fail(reason);
+        state->llmTransport = std::move(provided.transport);
+        providerCompletion = std::move(provided.completion);
+        state->llmFromProvider = true;
+        auto llmConfig = state->llmTransport->getConfig();
+        llmConfig.systemPrompt = options.systemPrompt;   // the tools' descriptions join it at start()
+        state->llmTransport->setConfig(llmConfig);
+        spdlog::info("{} LLM: provider {}", state->logTag, config.providers().llm().id());
+    }
     const bool anthropic = config.llm().api() == vasdk::engine::LlmConfig::ANTHROPIC;
     if (!state->llmTransport && config.has_llm() && (!config.llm().endpoint().empty() || anthropic)) {
         llm::LLMConfig llmConfig;
@@ -546,7 +580,7 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
         state->llm->setFailureReplies(std::move(failureReplies));
         // The network down and the LLM elsewhere: the user is told, rather than left waiting for
         // a request that fails. An app's own transport (llama.cpp) and a server on this machine answer.
-        if (!options.llmTransport && !onThisMachine(state->llmTransport->getConfig().endpoint)) {
+        if (!options.llmTransport && !state->llmFromProvider && !onThisMachine(state->llmTransport->getConfig().endpoint)) {
             std::vector<std::string> replies(llmSettings.offline_replies().begin(), llmSettings.offline_replies().end());
             if (replies.empty())
                 replies.push_back("I can't reach the internet right now, so I can't answer that. Please try again in a moment.");
@@ -566,7 +600,7 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
         state->dialog->setPassUnmatchedTurns(state->llm != nullptr);
         state->dialog->setToolCaller(flow::ToolRunner::caller(std::make_shared<flow::ToolRunner>(options.agent, config.security())));
         // Understanding: the agent's examples, then paraphrases by meaning, then an LLM.
-        auto completion = options.llmCompletion;
+        auto completion = options.llmCompletion ? options.llmCompletion : providerCompletion;
         llm::LLMConfig completionConfig;
         completionConfig.endpoint = config.llm().endpoint();
         completionConfig.apiKey = config.llm().api_key();
@@ -780,6 +814,23 @@ void Session::registerTool(const llm::Tool& tool) { _state->tools->registerTool(
 int Session::addListener(engine::EventListener listener) { return _state->events->addListener(std::move(listener)); }
 void Session::removeListener(int id) { _state->events->removeListener(id); }
 
+// A providers.llm transport (llama.cpp, the app's) reads its instructions from its config, not
+// from a prompt template: the system prompt and the tools' descriptions go there, once the app's
+// tools are registered. Where the tool prompt carries the whole response contract (formats
+// with no tool-call tags, LFM2's tool tokens), a text-shaped format instruction after it
+// contradicts it and small models stop calling tools: it's dropped.
+void Session::promptProviderLlm() {
+    auto& transport = *_state->llmTransport;
+    const auto format = transport.getPromptChatFormat();
+    const std::string tools = _state->tools->renderToolDescriptions(format);
+    auto config = transport.getConfig();
+    config.systemPrompt = tools.empty() ? _state->options.systemPrompt : _state->options.systemPrompt + "\n\n" + tools;
+    transport.setConfig(config);
+    const bool toolPromptOwnsContract = !tools.empty() && (llm::PromptTemplate::create(format)->toolCallTags().first.empty() ||
+                                                           format == llm::ChatFormat::LFM2_5 || format == llm::ChatFormat::LFM2);
+    if (toolPromptOwnsContract) transport.setResponseFormatInstruction({});
+}
+
 bool Session::start(std::string* error) {
     auto fail = [this, error](const std::string& message) {
         spdlog::error("{} {}", _state->logTag, message);
@@ -789,6 +840,7 @@ bool Session::start(std::string* error) {
     if (_state->pipeline) return fail("already started");
     auto& transport = *_state->options.transport;
     if (!transport.initialize() || !transport.start()) return fail("transport " + transport.getName() + " failed to start");
+    if (_state->llmFromProvider) promptProviderLlm();
     if (_state->dialog) _state->dialog->setConnected(transport.isConnected());
 
     auto pipeline = std::make_shared<pipeline::Pipeline>();
@@ -875,10 +927,49 @@ bool Session::handle(const vasdk::engine::Command& command, std::string* error) 
     case vasdk::engine::Command::kSetSessionParam:
         setSessionParam(command.set_session_param().name(), command.set_session_param().value());
         return true;
+    case vasdk::engine::Command::kResetConversation: resetConversation(); return true;
+    case vasdk::engine::Command::kPushToTalk: pushToTalk(command.push_to_talk()); return true;
+    case vasdk::engine::Command::kFollowUpListenMs: setFollowUpListenMs(std::max(0, command.follow_up_listen_ms())); return true;
+    case vasdk::engine::Command::kSetEntityValues:
+        setEntityValues(command.set_entity_values().name(),
+                        std::vector<vasdk::nlu::EntityValue>(command.set_entity_values().values().begin(),
+                                                             command.set_entity_values().values().end()));
+        return true;
+    case vasdk::engine::Command::kSetBackchannel: {
+        auto current = backchannel();
+        applyBackchannel(command.set_backchannel(), current);
+        setBackchannel(current);
+        return true;
+    }
+    case vasdk::engine::Command::kEnrollSpeaker:
+    case vasdk::engine::Command::kAddSpeaker: {
+        const bool done = command.has_add_speaker()
+            ? addSpeaker(command.add_speaker().speaker_id(),
+                         std::vector<float>(command.add_speaker().embedding().begin(), command.add_speaker().embedding().end()))
+            : enrollSpeaker(command.enroll_speaker());
+        if (!done && error) *error = "no speaker identification: the config names no providers.speaker_embedding, or no speaker id";
+        return done;
+    }
     case vasdk::engine::Command::KIND_NOT_SET: break;
     }
     if (error) *error = "an empty command";
     return false;
+}
+
+bool Session::enrollSpeaker(const std::string& speakerId) {
+    if (!_state->speakerIdentification || speakerId.empty()) return false;
+    _state->speakerIdentification->requestEnrollment(speakerId);
+    return true;
+}
+
+bool Session::addSpeaker(const std::string& speakerId, std::vector<float> voicePrint) {
+    if (!_state->speakerIdentification || speakerId.empty() || voicePrint.empty()) return false;
+    _state->speakerIdentification->addSpeaker(speakerId, std::move(voicePrint));
+    return true;
+}
+
+std::map<std::string, std::vector<float>> Session::speakers() const {
+    return _state->speakerIdentification ? _state->speakerIdentification->getSpeakers() : std::map<std::string, std::vector<float>>();
 }
 
 void Session::resetConversation() {

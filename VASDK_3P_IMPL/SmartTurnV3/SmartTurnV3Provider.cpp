@@ -20,6 +20,7 @@ SmartTurnV3Provider::SmartTurnV3Provider(SmartTurnV3Options options)
       _modelPath(std::move(options.modelPath))
 {
     setEvaluateOnPause(options.evaluateOnPause);
+    setPauseThreshold(options.pauseThreshold);
 }
 
 SmartTurnV3Provider::~SmartTurnV3Provider() = default;

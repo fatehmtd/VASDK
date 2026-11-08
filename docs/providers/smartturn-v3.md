@@ -21,12 +21,18 @@ In C++, `va::thirdparty::turn::SmartTurnV3Options` (in [`SmartTurnV3Provider.h`]
 | `maxAudioDurationSeconds` | `8.0f` | Longest stretch of the turn the model looks at, from its end backwards. |
 | `postAudioFrames` | `3` | Audio frames after the VAD end the model waits for before its last evaluation. |
 | `evaluateOnPause` | `true` | Also evaluate while the user pauses, so a clearly finished turn ends at the pause (TurnDetectionProvider::setEvaluateOnPause). |
+| `pauseThreshold` | `0.85f` | End-of-turn probability (0-1) a pause needs to end the turn (TurnDetectionProvider::setPauseThreshold). |
 
-In an engine config, the catalog's `SmartTurnOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) fills them: a field the config leaves unset falls back to its environment variable, then to the struct's default.
+In an engine config, its own `SmartTurnOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) fills them: a field the config leaves unset falls back to its environment variable, then to the struct's default.
 
 | Config field | Environment variable | Sets |
 | --- | --- | --- |
 | `model_path` | - | `modelPath` |
+| `threshold` | - | `threshold` |
+| `max_audio_duration_seconds` | - | `maxAudioDurationSeconds` |
+| `post_audio_frames` | - | `postAudioFrames` |
+| `evaluate_on_pause` | - | `evaluateOnPause` |
+| `pause_threshold` | - | `pauseThreshold` |
 
 ## Models and licenses
 

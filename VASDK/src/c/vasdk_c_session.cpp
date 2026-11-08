@@ -7,6 +7,8 @@
 #include "context/ContextProvider.h"
 
 #include "../AudioFrameUtil.h"
+#include "AudioRingBuffer.h"
+#include "FrameProcessor.h"
 #include "Transport.h"
 #include "VAEngine.h"
 #include "engine/ProtoFileLoader.h"
@@ -20,9 +22,11 @@
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <optional>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -102,10 +106,39 @@ private:
 
 } // namespace
 
+// The app's state: what set_context stored, under what on_context gives when asked.
+class AppContext : public va::context::ContextProvider {
+public:
+    nlohmann::json getContext() const override {
+        auto context = ContextProvider::getContext();
+        if (!context.is_object()) context = nlohmann::json::object();
+        if (!onContext) return context;
+        vasdk_result result;
+        onContext(&result, contextUser);
+        if (result.failed || result.json.empty()) return context;
+        const auto given = nlohmann::json::parse(result.json, nullptr, false);
+        if (given.is_object())
+            for (const auto& [key, value] : given.items()) context[key] = value;
+        return context;
+    }
+    nlohmann::json getValue(const std::string& key) const override {
+        const auto context = getContext();
+        return context.contains(key) ? context[key] : nlohmann::json();
+    }
+    bool containsKey(const std::string& key) const override { return getContext().contains(key); }
+
+    vasdk_context_fn onContext = nullptr;
+    void* contextUser = nullptr;
+};
+
+struct vasdk_runtime {
+    std::shared_ptr<va::engine::Runtime> runtime;
+};
+
 struct vasdk_session {
     std::shared_ptr<PushAudioTransport> transport;
-    std::shared_ptr<va::context::ContextProvider> context;   // vasdk_session_set_context
-    std::unique_ptr<va::VAEngine> engine;
+    std::shared_ptr<AppContext> context;   // vasdk_session_set_context, vasdk_session_on_context
+    std::unique_ptr<va::engine::Session> engine;   // a VAEngine, or a session of a vasdk_runtime
     int inputRate = 16000;
     int outputRate = 16000;
     vasdk_event_fn onEvent = nullptr;          // events as JSON
@@ -118,6 +151,12 @@ namespace {
 
 vasdk_session* createSession(const char* config_path, const vasdk_providers* providers, const vasdk_agent* agent,
                              const vasdk::engine::SessionOptions& given, char** error);
+vasdk_session* createSession(const vasdk::engine::EngineConfig& config, const std::string& label, const vasdk_providers* providers,
+                             const vasdk_agent* agent, const vasdk::engine::SessionOptions& given, char** error);
+vasdk_runtime* createRuntime(const vasdk::engine::EngineConfig& config, const std::string& label, const vasdk_providers* providers,
+                             const char* models_dir, int max_sessions, char** error);
+vasdk_session* createRuntimeSession(vasdk_runtime* runtime, const vasdk_agent* agent, const vasdk::engine::SessionOptions& given,
+                                    char** error);
 
 // A tool for the session's LLM, its callback the app's.
 va::llm::Tool appTool(const std::string& name, const std::string& description, vasdk_tool_fn tool, void* user) {
@@ -173,39 +212,45 @@ vasdk_session* vasdk_session_create_message(const char* config_path, const vasdk
     return createSession(config_path, providers, agent, parsed, error);
 }
 
+vasdk_session* vasdk_session_create_config(const void* config, size_t config_length, vasdk_format config_format,
+                                           const vasdk_providers* providers, const vasdk_agent* agent,
+                                           const void* options, size_t length, vasdk_format format, char** error) {
+    if (!config || config_length == 0 || !providers) return failWith(error, "no config or providers", static_cast<vasdk_session*>(nullptr));
+    vasdk::engine::EngineConfig engineConfig;
+    std::string reason;
+    if (!vasdk_c::read(config, config_length, config_format, engineConfig, &reason))
+        return failWith(error, "EngineConfig: " + reason, static_cast<vasdk_session*>(nullptr));
+    vasdk::engine::SessionOptions parsed;
+    if (!vasdk_c::read(options, length, format, parsed, &reason))
+        return failWith(error, "SessionOptions: " + reason, static_cast<vasdk_session*>(nullptr));
+    return createSession(engineConfig, "config", providers, agent, parsed, error);
+}
+
 } // extern "C"
 
 namespace {
 
-vasdk_session* createSession(const char* config_path, const vasdk_providers* providers, const vasdk_agent* agent,
-                             const vasdk::engine::SessionOptions& given, char** error) {
-    vasdk::engine::EngineConfig config;
-    std::string reason;
-    if (!va::engine::loadEngineConfig(config_path, config, &reason))
-        return failWith(error, reason, static_cast<vasdk_session*>(nullptr));
-
-    va::VAEngine::Options options;
-    options.id = given.id();
-    options.modelsDir = given.models_dir();
-    options.systemPrompt = given.system_prompt();
-    options.responseFormatInstruction = given.format_instruction();
-    if (!va::engine::applyAudioConfig(config.audio(), options.inputAudio, options.outputAudio, options.frameSize, &reason))
-        return failWith(error, std::string(config_path) + ": " + reason, static_cast<vasdk_session*>(nullptr));
-    if (options.inputAudio.format != va::audio::AudioFormat::SHORT || options.outputAudio.format != va::audio::AudioFormat::SHORT ||
-        options.inputAudio.channels != 1 || options.outputAudio.channels != 1)
-        return failWith(error, std::string(config_path) + ": audio: the C API takes and gives 16-bit mono PCM",
-                        static_cast<vasdk_session*>(nullptr));
-
+// What every session of the C API has: the app's audio, the app's context, the agent, the options.
+std::unique_ptr<vasdk_session> prepare(const vasdk::engine::SessionOptions& given, const vasdk_agent* agent,
+                                       va::engine::Session::Options& options) {
     auto session = std::make_unique<vasdk_session>();
     session->transport = std::make_shared<PushAudioTransport>();
-    session->inputRate = static_cast<int>(options.inputAudio.sampleRate);
-    session->outputRate = static_cast<int>(options.outputAudio.sampleRate);
+    session->context = std::make_shared<AppContext>();
+    options.id = given.id();
+    options.systemPrompt = given.system_prompt().empty() ? options.systemPrompt : given.system_prompt();
+    options.responseFormatInstruction = given.format_instruction();
     options.transport = session->transport;
-    session->context = std::make_shared<va::context::ContextProvider>();
     options.context = session->context;
     if (agent) options.agent = vasdk_agent_compiled(agent);
-    session->engine = va::VAEngine::create(config, providers->registry, options, &reason);
-    if (!session->engine) return failWith(error, reason, static_cast<vasdk_session*>(nullptr));
+    return session;
+}
+
+bool sixteenBitMono(const va::audio::AudioConfig& input, const va::audio::AudioConfig& output) {
+    return input.format == va::audio::AudioFormat::SHORT && output.format == va::audio::AudioFormat::SHORT &&
+           input.channels == 1 && output.channels == 1;
+}
+
+vasdk_session* finish(std::unique_ptr<vasdk_session> session) {
     auto* raw = session.get();
     session->engine->addListener([raw](const vasdk::engine::Event& event) {
         if (raw->onEventMessage) {
@@ -218,6 +263,149 @@ vasdk_session* createSession(const char* config_path, const vasdk_providers* pro
         if (google::protobuf::util::MessageToJsonString(event, &json).ok()) raw->onEvent(json.c_str(), raw->eventUser);
     });
     return session.release();
+}
+
+vasdk_session* createSession(const char* config_path, const vasdk_providers* providers, const vasdk_agent* agent,
+                             const vasdk::engine::SessionOptions& given, char** error) {
+    vasdk::engine::EngineConfig config;
+    std::string reason;
+    if (!va::engine::loadEngineConfig(config_path, config, &reason))
+        return failWith(error, reason, static_cast<vasdk_session*>(nullptr));
+    return createSession(config, config_path, providers, agent, given, error);
+}
+
+// A config read from a file (label: its path) or built by the app (label: "config").
+vasdk_session* createSession(const vasdk::engine::EngineConfig& config, const std::string& label, const vasdk_providers* providers,
+                             const vasdk_agent* agent, const vasdk::engine::SessionOptions& given, char** error) {
+    std::string reason;
+    va::VAEngine::Options options;
+    options.modelsDir = given.models_dir();
+    if (!va::engine::applyAudioConfig(config.audio(), options.inputAudio, options.outputAudio, options.frameSize, &reason))
+        return failWith(error, label + ": " + reason, static_cast<vasdk_session*>(nullptr));
+    if (!sixteenBitMono(options.inputAudio, options.outputAudio))
+        return failWith(error, label + ": audio: the C API takes and gives 16-bit mono PCM",
+                        static_cast<vasdk_session*>(nullptr));
+    auto session = prepare(given, agent, options);
+    session->inputRate = static_cast<int>(options.inputAudio.sampleRate);
+    session->outputRate = static_cast<int>(options.outputAudio.sampleRate);
+    session->engine = va::VAEngine::create(config, providers->registry, options, &reason);
+    if (!session->engine) return failWith(error, reason, static_cast<vasdk_session*>(nullptr));
+    return finish(std::move(session));
+}
+
+vasdk_session* createRuntimeSession(vasdk_runtime* runtime, const vasdk_agent* agent, const vasdk::engine::SessionOptions& given,
+                                    char** error) {
+    const auto& audio = runtime->runtime->options();
+    va::engine::Session::Options options;
+    auto session = prepare(given, agent, options);
+    session->inputRate = static_cast<int>(audio.inputAudio.sampleRate);
+    session->outputRate = static_cast<int>(audio.outputAudio.sampleRate);
+    // A transport the config names (a webrtc peer, the device's audio) wins over the app's
+    bool sendAllFrames = false;
+    std::string reason;
+    if (auto named = runtime->runtime->configTransport(&sendAllFrames, &reason)) {
+        options.transport = std::move(named);
+        options.sendAllFramesToTransport = sendAllFrames;
+    } else if (!reason.empty()) {
+        return failWith(error, reason, static_cast<vasdk_session*>(nullptr));
+    }
+    session->engine = runtime->runtime->createSession(std::move(options), &reason);
+    if (!session->engine) return failWith(error, reason, static_cast<vasdk_session*>(nullptr));
+    return finish(std::move(session));
+}
+
+// A config read from a file (label: its path) or built by the app (label: "config").
+vasdk_runtime* createRuntime(const vasdk::engine::EngineConfig& config, const std::string& label, const vasdk_providers* providers,
+                             const char* models_dir, int max_sessions, char** error) {
+    std::string reason;
+    va::engine::Runtime::Options options;
+    if (models_dir) options.modelsDir = models_dir;
+    options.maxSessions = max_sessions > 0 ? static_cast<size_t>(max_sessions) : 0;
+    auto runtime = va::engine::Runtime::create(config, providers->registry, options, &reason);
+    if (!runtime) return failWith(error, reason, static_cast<vasdk_runtime*>(nullptr));
+    if (!sixteenBitMono(runtime->options().inputAudio, runtime->options().outputAudio))
+        return failWith(error, label + ": audio: the C API takes and gives 16-bit mono PCM", static_cast<vasdk_runtime*>(nullptr));
+    return new vasdk_runtime{std::move(runtime)};
+}
+
+// An app's audio callback at AFTER_INPUT (the microphone's, read from the ring buffer the frame
+// points into) or BEFORE_OUTPUT (the reply's, carried by the frame, changed in place).
+class AppAudioProcessor : public va::pipeline::FrameProcessor {
+public:
+    AppAudioProcessor(vasdk_slot slot, std::shared_ptr<va::AudioRingBuffer> ringBuffer, int sampleRate,
+                      vasdk_audio_processor_fn callback, void* user)
+        : _slot(slot), _ringBuffer(std::move(ringBuffer)), _sampleRate(sampleRate), _callback(callback), _user(user) {}
+    std::string getName() const override { return "AppAudioProcessor"; }
+    void processFrame(std::shared_ptr<va::transport::Frame> frame, va::pipeline::FlowDirection direction) override {
+        if (direction == va::pipeline::FlowDirection::DOWNSTREAM) {
+            if (_slot == VASDK_SLOT_AFTER_INPUT && frame->getType() == va::transport::FrameType::AUDIO && _ringBuffer) {
+                auto audio = std::static_pointer_cast<va::transport::AudioFrame>(frame);
+                _scratch.resize(audio->numSamples);
+                if (_ringBuffer->readAbsolute(static_cast<long>(audio->ringbufferOffset), reinterpret_cast<char*>(_scratch.data()), 0,
+                                              static_cast<int>(audio->numSamples)) >= 0)
+                    _callback(_scratch.data(), _scratch.size(), _sampleRate, _user);
+            } else if (_slot == VASDK_SLOT_BEFORE_OUTPUT && frame->getType() == va::transport::FrameType::SYNTHESIS) {
+                auto speech = std::static_pointer_cast<va::transport::SynthesisFrame>(frame);
+                if (speech->audioData.size() >= sizeof(short))
+                    _callback(reinterpret_cast<short*>(speech->audioData.data()), speech->audioData.size() / sizeof(short), _sampleRate, _user);
+            }
+            pushDownstream(frame);
+        } else {
+            pushUpstream(frame);
+        }
+    }
+
+private:
+    vasdk_slot _slot;
+    std::shared_ptr<va::AudioRingBuffer> _ringBuffer;
+    int _sampleRate;
+    vasdk_audio_processor_fn _callback;
+    void* _user;
+    std::vector<short> _scratch;
+};
+
+// An app's text callback: final transcripts at AFTER_TRANSCRIPTION, reply parts at BEFORE_SYNTHESIS.
+class AppTextProcessor : public va::pipeline::FrameProcessor {
+public:
+    AppTextProcessor(vasdk_slot slot, vasdk_text_processor_fn callback, void* user) : _slot(slot), _callback(callback), _user(user) {}
+    std::string getName() const override { return "AppTextProcessor"; }
+    void processFrame(std::shared_ptr<va::transport::Frame> frame, va::pipeline::FlowDirection direction) override {
+        if (direction != va::pipeline::FlowDirection::DOWNSTREAM) {
+            pushUpstream(frame);
+            return;
+        }
+        std::string* text = nullptr;
+        if (_slot == VASDK_SLOT_AFTER_TRANSCRIPTION && frame->getType() == va::transport::FrameType::TRANSCRIPTION) {
+            auto transcript = std::static_pointer_cast<va::transport::TranscriptionFrame>(frame);
+            if (transcript->isFinal) text = &transcript->transcriptionResult.text;
+        } else if (_slot == VASDK_SLOT_BEFORE_SYNTHESIS && frame->getType() == va::transport::FrameType::TEXT) {
+            text = &std::static_pointer_cast<va::transport::TextFrame>(frame)->text;
+        }
+        if (text) {
+            vasdk_result result;
+            _callback(text->c_str(), &result, _user);
+            if (result.set && !result.failed) {
+                if (result.json.empty()) return;   // dropped
+                *text = result.json;
+            }
+        }
+        pushDownstream(frame);
+    }
+
+private:
+    vasdk_slot _slot;
+    vasdk_text_processor_fn _callback;
+    void* _user;
+};
+
+std::optional<va::engine::Session::Slot> slotOf(vasdk_slot slot) {
+    switch (slot) {
+    case VASDK_SLOT_AFTER_INPUT: return va::engine::Session::Slot::AfterInput;
+    case VASDK_SLOT_AFTER_TRANSCRIPTION: return va::engine::Session::Slot::AfterTranscription;
+    case VASDK_SLOT_BEFORE_SYNTHESIS: return va::engine::Session::Slot::BeforeSynthesis;
+    case VASDK_SLOT_BEFORE_OUTPUT: return va::engine::Session::Slot::BeforeOutput;
+    }
+    return std::nullopt;
 }
 
 } // namespace
@@ -384,5 +572,86 @@ int vasdk_session_set_context_message(vasdk_session* session, const void* contex
     for (const auto& [key, value] : values.items()) session->context->setValue(key, value);
     return 1;
 }
+
+void vasdk_session_on_context(vasdk_session* session, vasdk_context_fn on_context, void* user) {
+    if (!session) return;
+    session->context->onContext = on_context;
+    session->context->contextUser = user;
+}
+
+char* vasdk_session_describe(vasdk_session* session) { return copyText(session ? session->engine->describe() : std::string()); }
+
+int vasdk_session_using_fallbacks(vasdk_session* session) { return session && session->engine->usingFallbacks() ? 1 : 0; }
+
+void* vasdk_session_speakers_message(vasdk_session* session, vasdk_format format, size_t* length) {
+    vasdk::engine::VoicePrints prints;
+    if (session)
+        for (const auto& [speakerId, embedding] : session->engine->speakers()) {
+            auto* print = prints.add_speakers();
+            print->set_speaker_id(speakerId);
+            print->mutable_embedding()->Add(embedding.begin(), embedding.end());
+        }
+    return vasdk_c::writtenCopy(prints, format, length);
+}
+
+long long vasdk_session_next_scheduled_trigger_ms(vasdk_session* session) {
+    const auto next = session ? session->engine->nextScheduledTrigger() : std::nullopt;
+    if (!next) return -1;
+    return std::chrono::duration_cast<std::chrono::milliseconds>(next->time_since_epoch()).count();
+}
+
+char* vasdk_session_trigger_state(vasdk_session* session) { return copyText(session ? session->engine->triggerState() : std::string()); }
+
+void vasdk_session_restore_trigger_state(vasdk_session* session, const char* state_json) {
+    if (session && state_json) session->engine->restoreTriggerState(state_json);
+}
+
+int vasdk_session_add_audio_processor(vasdk_session* session, vasdk_slot slot, vasdk_audio_processor_fn processor, void* user) {
+    if (!session || !processor || (slot != VASDK_SLOT_AFTER_INPUT && slot != VASDK_SLOT_BEFORE_OUTPUT)) return 0;
+    const int rate = slot == VASDK_SLOT_AFTER_INPUT ? session->inputRate : session->outputRate;
+    auto added = std::make_shared<AppAudioProcessor>(slot, session->engine->inputRingBuffer(), rate, processor, user);
+    return session->engine->addProcessor(*slotOf(slot), std::move(added)) ? 1 : 0;
+}
+
+int vasdk_session_add_text_processor(vasdk_session* session, vasdk_slot slot, vasdk_text_processor_fn processor, void* user) {
+    if (!session || !processor || (slot != VASDK_SLOT_AFTER_TRANSCRIPTION && slot != VASDK_SLOT_BEFORE_SYNTHESIS)) return 0;
+    return session->engine->addProcessor(*slotOf(slot), std::make_shared<AppTextProcessor>(slot, processor, user)) ? 1 : 0;
+}
+
+//  Runtime
+
+vasdk_runtime* vasdk_runtime_create(const char* config_path, const vasdk_providers* providers, const char* models_dir,
+                                    int max_sessions, char** error) {
+    if (!config_path || !providers) return failWith(error, "no config path or providers", static_cast<vasdk_runtime*>(nullptr));
+    vasdk::engine::EngineConfig config;
+    std::string reason;
+    if (!va::engine::loadEngineConfig(config_path, config, &reason)) return failWith(error, reason, static_cast<vasdk_runtime*>(nullptr));
+    return createRuntime(config, config_path, providers, models_dir, max_sessions, error);
+}
+
+vasdk_runtime* vasdk_runtime_create_config(const void* config, size_t config_length, vasdk_format config_format,
+                                           const vasdk_providers* providers, const char* models_dir, int max_sessions, char** error) {
+    if (!config || config_length == 0 || !providers) return failWith(error, "no config or providers", static_cast<vasdk_runtime*>(nullptr));
+    vasdk::engine::EngineConfig engineConfig;
+    std::string reason;
+    if (!vasdk_c::read(config, config_length, config_format, engineConfig, &reason))
+        return failWith(error, "EngineConfig: " + reason, static_cast<vasdk_runtime*>(nullptr));
+    return createRuntime(engineConfig, "config", providers, models_dir, max_sessions, error);
+}
+
+void vasdk_runtime_free(vasdk_runtime* runtime) { delete runtime; }
+
+vasdk_session* vasdk_runtime_session_create(vasdk_runtime* runtime, const vasdk_agent* agent, const void* options, size_t length,
+                                            vasdk_format format, char** error) {
+    if (!runtime) return failWith(error, "no runtime", static_cast<vasdk_session*>(nullptr));
+    vasdk::engine::SessionOptions parsed;
+    std::string reason;
+    if (!vasdk_c::read(options, length, format, parsed, &reason))
+        return failWith(error, "SessionOptions: " + reason, static_cast<vasdk_session*>(nullptr));
+    return createRuntimeSession(runtime, agent, parsed, error);
+}
+
+size_t vasdk_runtime_active_sessions(const vasdk_runtime* runtime) { return runtime ? runtime->runtime->activeSessions() : 0; }
+size_t vasdk_runtime_idle_provider_sets(const vasdk_runtime* runtime) { return runtime ? runtime->runtime->idleProviderSets() : 0; }
 
 } // extern "C"

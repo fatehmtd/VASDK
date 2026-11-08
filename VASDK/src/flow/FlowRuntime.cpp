@@ -190,6 +190,8 @@ bool TurnContext::apply(const vasdk::flow::StepOutcome& outcome, std::string* er
     if (!outcome.goto_().empty() && !_runtime.toTarget(outcome.goto_(), "goto").moves())
         return refuse("unknown target \"" + outcome.goto_() + "\"");
     for (const auto& text : outcome.say()) append(_reply, text);
+    if (outcome.has_ask())
+        ask(outcome.ask().question(), {outcome.ask().choices().begin(), outcome.ask().choices().end()}, outcome.ask().expect());
     if (!outcome.goto_().empty()) _target = outcome.goto_();
     return true;
 }

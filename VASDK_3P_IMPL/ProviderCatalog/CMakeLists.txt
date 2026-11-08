@@ -5,6 +5,7 @@ add_library(vasdk_provider_catalog STATIC
     ProviderCatalogC.cpp
     proto/vasdk/providers/options.proto
 )
+file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/proto)   # protoc doesn't create its output folder
 protobuf_generate(TARGET vasdk_provider_catalog
     IMPORT_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/proto
     PROTOC_OUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/proto)
@@ -40,6 +41,11 @@ set(_vasdk_catalog_providers
     vasdk_minilm_nlu      MINILM_NLU
     vasdk_gliner_ner      GLINER_NER
     vasdk_libdatachannel_webrtc LIBDATACHANNEL_WEBRTC
+    vasdk_miniaudio_audio MINIAUDIO
+    vasdk_aaudio          AAUDIO
+    vasdk_llamacpp        LLAMACPP
+    vasdk_rnnoise         RNNOISE
+    vasdk_pyannote_speaker PYANNOTE_SPEAKER
 )
 list(LENGTH _vasdk_catalog_providers _count)
 math(EXPR _last "${_count} - 1")
@@ -69,12 +75,49 @@ if(_vasdk_library_type STREQUAL "SHARED_LIBRARY")
     vasdk_test_dlls(vasdk_providers)   # VASDK.dll, onnxruntime.dll and the rest beside it, on Windows
 endif()
 
+# The providers' options as Python messages, vasdk.providers.options_pb2, next to VASDK's own
+# (VASDK/CMakeLists.txt, vasdk_python_protos): a config built in code in bindings/python.
+if(NOT ANDROID AND (TARGET protobuf::protoc OR Protobuf_PROTOC_EXECUTABLE))
+    if(TARGET protobuf::protoc)
+        set(_catalog_protoc $<TARGET_FILE:protobuf::protoc>)
+    else()
+        set(_catalog_protoc ${Protobuf_PROTOC_EXECUTABLE})
+    endif()
+    set(_catalog_python_out ${CMAKE_BINARY_DIR}/bindings/python/vasdk/providers)
+    file(MAKE_DIRECTORY ${_catalog_python_out})
+    if(NOT EXISTS ${_catalog_python_out}/__init__.py)
+        file(WRITE ${_catalog_python_out}/__init__.py "")
+    endif()
+    add_custom_command(OUTPUT ${_catalog_python_out}/options_pb2.py
+        COMMAND ${_catalog_protoc} --python_out=${CMAKE_BINARY_DIR}/bindings/python --pyi_out=${CMAKE_BINARY_DIR}/bindings/python
+                -I ${CMAKE_CURRENT_SOURCE_DIR}/proto vasdk/providers/options.proto
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/proto
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/proto/vasdk/providers/options.proto
+        COMMENT "Python messages for the providers' options"
+        VERBATIM)
+    add_custom_target(vasdk_provider_options_python ALL DEPENDS ${_catalog_python_out}/options_pb2.py)
+endif()
+
 # A cloud STT or TTS with no API key gives no provider, so its fallback starts (every one built).
 if(VASDK_BUILD_TESTS)
     add_executable(vasdk_cloud_key_test cloud_key_test.cpp)
     target_link_libraries(vasdk_cloud_key_test PRIVATE vasdk_provider_catalog)
     add_test(NAME vasdk_cloud_key COMMAND vasdk_cloud_key_test)
     vasdk_test_dlls(vasdk_cloud_key_test)
+
+    # A local voice's pre-buffer: its own prebuffer_ms, else audio.tts_prebuffer_ms, else 250 ms.
+    add_executable(vasdk_tts_prebuffer_test tts_prebuffer_test.cpp)
+    target_link_libraries(vasdk_tts_prebuffer_test PRIVATE vasdk_provider_catalog)
+    add_test(NAME vasdk_tts_prebuffer COMMAND vasdk_tts_prebuffer_test)
+    set_tests_properties(vasdk_tts_prebuffer PROPERTIES SKIP_RETURN_CODE 77)
+    vasdk_test_dlls(vasdk_tts_prebuffer_test)
+
+    # Every provider takes its own options message, and the older shared ones still (every one built).
+    add_executable(vasdk_provider_options_test provider_options_test.cpp)
+    target_link_libraries(vasdk_provider_options_test PRIVATE vasdk_provider_catalog)
+    add_test(NAME vasdk_provider_options COMMAND vasdk_provider_options_test)
+    set_tests_properties(vasdk_provider_options PROPERTIES SKIP_RETURN_CODE 77)
+    vasdk_test_dlls(vasdk_provider_options_test)
 endif()
 
 # A spoken conversation with no network, through the C API: VAD, STT and TTS on this machine.
@@ -85,6 +128,15 @@ if(VASDK_BUILD_TESTS AND TARGET vasdk_silero_vad AND TARGET vasdk_whistle_stt AN
              COMMAND vasdk_offline_conversation_test ${CMAKE_CURRENT_BINARY_DIR}/../models)
     set_tests_properties(vasdk_offline_conversation PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 600)
     vasdk_test_dlls(vasdk_offline_conversation_test)
+endif()
+
+# The audio DSP and speaker embedding picked by config id (rnnoise, pyannote), and a session with both.
+if(VASDK_BUILD_TESTS AND TARGET vasdk_pyannote_speaker)
+    add_executable(vasdk_dsp_speaker_test dsp_speaker_test.cpp)
+    target_link_libraries(vasdk_dsp_speaker_test PRIVATE vasdk_provider_catalog)
+    add_test(NAME vasdk_dsp_speaker COMMAND vasdk_dsp_speaker_test ${CMAKE_CURRENT_BINARY_DIR}/../models)
+    set_tests_properties(vasdk_dsp_speaker PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 120)
+    vasdk_test_dlls(vasdk_dsp_speaker_test)
 endif()
 
 # A spoken conversation over WebRTC, as a browser has it: the config's webrtc peer, called by a

@@ -17,9 +17,9 @@ description: Speaker identification in VASDK - voice prints with pyannote (WeSpe
 
 | Backend | Folder | Kind |
 | --- | --- | --- |
-| pyannote (WeSpeaker ResNet34-LM) | `VASDK_3P_IMPL/PyannoteSpeaker/` | local ONNX, 16 kHz mono, Kaldi fbank front end matched to torchaudio, on by default, `va::thirdparty::speaker` |
+| pyannote (WeSpeaker ResNet34-LM) | `VASDK_3P_IMPL/PyannoteSpeaker/`; config id `pyannote` | local ONNX, 16 kHz mono, Kaldi fbank front end matched to torchaudio, on by default, `va::thirdparty::speaker` |
 
-Speaker identification is not yet selectable in the engine config: there is no `providers.speaker` spec. Adding one is core work ([vasdk-core-component](../vasdk-core-component/SKILL.md)), not part of a new provider.
+A session runs it from the engine config: `providers { speaker_embedding { id: "pyannote" } }`, tuned by `speaker_identification { threshold min_speech_seconds }` ([engine config](../../docs/reference/engine-config.md#speaker-identification)). Each utterance ends in a `speaker_identified` event; the `enroll_speaker` and `add_speaker` commands, and `Session::speakers()`, manage the voice prints, in C, Python and Kotlin too. A new provider registers in the catalog as `SpeakerEmbeddingProvider` with an options message (`PyannoteOptions` is the template); an app can write one in C, Python or Kotlin (`vasdk_providers_add_speaker_embedding`).
 
 ## Contract pitfalls
 
@@ -36,7 +36,7 @@ Speaker identification is not yet selectable in the engine config: there is no `
 ## Tests
 
 - Unit: like `pyannote_fbank_parity` (`VASDK_3P_IMPL/PyannoteSpeaker/tests/`): features match the reference, the same speaker's utterances score above the threshold and different speakers below it. Skip without the model.
-- Integration: a session with `SpeakerIdentificationProcessor` in the `AfterTranscription` slot, two voices of a local TTS enrolled, then each recognized.
+- Integration: a session whose config names it (`vasdk_dsp_speaker` in `VASDK_3P_IMPL/ProviderCatalog/dsp_speaker_test.cpp` is the template); the enroll-then-identify flow is covered with an app-written provider in `VASDK/tests/c_providers_test.cpp` and both bindings' provider tests.
 
 ## Done when
 

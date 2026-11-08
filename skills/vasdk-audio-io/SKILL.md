@@ -13,19 +13,19 @@ description: Audio in and out of VASDK - microphone sources and speaker sinks (M
 | DSP | `VASDK/include/VASDK/GenericAudioDSPProvider.h`, `VASDK/include/VASDK/AudioDSPProcessor.h`, [contract](../../docs/reference/providers.md#genericaudiodspprovider) |
 | Formats | `AudioConfig` in `VASDK/include/VASDK/CommonAudioUtils.h`; [the ring buffer](../../docs/reference/frames.md#the-audio-ring-buffer) |
 | Transport | `VASDK/include/VASDK/LocalTransport.h`, [notes](../../docs/reference/transports.md#localtransport) |
-| Config | `audio { input output }`, [engine config](../../docs/reference/engine-config.md#audio) |
+| Config | `audio { input output }`, [engine config](../../docs/reference/engine-config.md#audio); the device itself: `providers { audio_input { id: "miniaudio" } audio_output { id: "miniaudio" } }`, so a session (and the C API's) opens the mic and speaker; DSP: `providers { audio_dsp { id: "rnnoise" } }`, whose output every stage hears |
 
 ## Built in
 
 | Backend | Folder | Kind |
 | --- | --- | --- |
-| MiniAudio | `VASDK_3P_IMPL/MiniAudio/` | mic + speaker, macOS/Linux/Windows, on by default |
+| MiniAudio | `VASDK_3P_IMPL/MiniAudio/`; config id `miniaudio` | mic + speaker, macOS/Linux/Windows, on by default |
 | SDL3 | `VASDK_3P_IMPL/SDL/` | mic + speaker |
 | FFmpeg | `VASDK_3P_IMPL/FFmpegAudio/` (`-DVASDK_BUILD_FFMPEG_AUDIO=ON`) | file source and a file transport for batch audio; turned off with a warning when FFmpeg isn't found, and on Android |
-| AAudio | `VASDK_ANDROID/app/src/main/cpp/audio_source/`, `VASDK_ANDROID/app/src/main/cpp/audio_sink/` | Android mic + speaker |
-| RNNoise | `VASDK_3P_IMPL/RNNoise/` | noise suppression DSP, on by default; off with a warning on Android |
+| AAudio | `VASDK_3P_IMPL/AAudio/` (`-DVASDK_BUILD_AAUDIO=ON`, on for Android); config id `aaudio` | Android mic + speaker; off with a warning elsewhere |
+| RNNoise | `VASDK_3P_IMPL/RNNoise/`; config id `rnnoise` | noise suppression DSP, on by default; off with a warning on Android |
 
-These are not in the provider catalog: an app constructs them and hands them to `LocalTransport` (see `VASDK_APP/main_pipeline.cpp`).
+SDL3 and FFmpeg are not in the provider catalog: an app constructs them and hands them to `LocalTransport` (see `VASDK_APP/main_pipeline.cpp`). A DSP registers in the catalog as `GenericAudioDSPProvider` with an options message (`RNNoiseOptions` is the template); the runtime calls its `initialize()` with the session's input format, and an app can write one in C, Python or Kotlin (`vasdk_providers_add_audio_dsp`).
 
 ## Contract pitfalls
 
@@ -44,7 +44,7 @@ These are not in the provider catalog: an app constructs them and hands them to 
 ## Tests
 
 - Unit: in `VASDK_3P_IMPL/<Name>/tests/`. For a sink, feed a known signal through a null or loopback device (skip with 77 when there is no audio device, as on CI), and check `flushAudio()`, the resume position after `holdPlayback()`, and `getPendingAudioBytes()` reaching 0. For DSP, check the sample count is kept and a noisy tone comes out with less noise.
-- Integration: a pipeline with `MockTransport` and `AudioDSPProcessor` for DSP ([testing without a microphone](../../docs/examples/testing-with-mock-transport.md)); `vasdk_backchannel` for hold behaviour; a run of `VASDK_Pipeline` with the backend for a device backend.
+- Integration: a session whose config names the DSP (`vasdk_dsp_speaker`), or a pipeline with `MockTransport` and `AudioDSPProcessor` ([testing without a microphone](../../docs/examples/testing-with-mock-transport.md)); `vasdk_backchannel` for hold behaviour; a run of `VASDK_Pipeline` with the backend for a device backend.
 
 ## Done when
 

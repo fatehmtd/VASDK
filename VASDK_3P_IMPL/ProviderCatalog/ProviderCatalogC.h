@@ -11,6 +11,9 @@ extern "C" {
 
 /* Adds every provider va::thirdparty::registerAllProviders() registers. */
 void vasdk_providers_add_all(vasdk_providers* providers);
+/* The shared vasdk_providers library only: how much its providers log, as vasdk_set_log_level
+ * (its own logger, apart from VASDK's). 0 for a level it doesn't know. */
+int vasdk_providers_set_log_level(const char* level);
 
 #ifdef __cplusplus
 }

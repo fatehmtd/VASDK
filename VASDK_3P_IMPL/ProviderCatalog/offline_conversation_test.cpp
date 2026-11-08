@@ -219,9 +219,13 @@ int main(int argc, char** argv) {
     std::filesystem::create_directories(dir);
     const auto configPath = (dir / "engine.txtpb").string();
     const std::string assistantVoice = argc > 2 ? argv[2] : "pocket";   // offline_conversation_test <models> phonon
+    // The voice through its own options message, the STT through the shared one older configs use: both paths.
+    const std::string voiceOptions = assistantVoice == "phonon" ? "PhononOptions" : "PocketOptions";
     std::ofstream(configPath) << "models_dir: \"" << models.generic_string() << "\"\n"
-                              << "providers { vad { id: \"silero\" } stt { id: \"" << stt << "\" } tts { id: \"" << assistantVoice
-                              << "\" } }\n";
+                              << "providers { vad { id: \"silero\" }\n"
+                              << "  stt { id: \"" << stt << "\" options { [type.googleapis.com/vasdk.providers.LocalSttOptions] { idle_timeout_ms: 550 } } }\n"
+                              << "  tts { id: \"" << assistantVoice << "\" options { [type.googleapis.com/vasdk.providers." << voiceOptions
+                              << "] { prebuffer_ms: 250 silence_duration_seconds: 0.3 } } } }\n";
     std::printf("STT: %s, the assistant's voice: %s\n", stt.c_str(), assistantVoice.c_str());
     char* error = nullptr;
     vasdk_agent* agent = vasdk_agent_parse(kAgent, std::strlen(kAgent), VASDK_FORMAT_TEXT, nullptr, &error);

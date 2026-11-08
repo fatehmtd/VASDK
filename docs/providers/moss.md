@@ -23,15 +23,24 @@ In C++, `va::thirdparty::tts::MossVoiceSynthesisOptions` (in [`MossVoiceSynthesi
 | `maxNewFrames` | `0` | Cap on generated frames per text chunk, 12.5 frames a second; 0 is the manifest's 375. |
 | `maxChunkTokens` | `75` | SentencePiece tokens per synthesis chunk; longer text splits at sentence or clause ends. |
 | `textNormalization` | `true` | Spell numbers, dates, times, money, units and abbreviations out before synthesis (English, Chinese or Japanese, by script). Off: only markdown markers are stripped. |
-| `prebufferMs` | `0` | Audio made before playback starts, against generation jitter on slow CPUs; 0 streams at once (QueuedVoiceSynthesisProvider::setPreBufferedSamplesMS). |
+| `prebufferMs` | `250` | Audio made before playback starts, against generation jitter on slow CPUs; 0 streams at once (QueuedVoiceSynthesisProvider::setPreBufferedSamplesMS). |
+| `pauseShortSeconds` | `0.40f` | Pause between text chunks after a short phrase (4 words or fewer). |
+| `pauseLongSeconds` | `0.24f` | Pause between longer text chunks. |
 
-In an engine config, the catalog's `LocalTtsOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) fills them: a field the config leaves unset falls back to its environment variable, then to the struct's default.
+In an engine config, its own `MossOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) fills them: a field the config leaves unset falls back to its environment variable, then to the struct's default. The shared `LocalTtsOptions` of configs written before it had its own message is still accepted.
 
 | Config field | Environment variable | Sets |
 | --- | --- | --- |
 | `model_dir` | - | `modelDir` |
 | `voice` | `MOSS_TTS_VOICE` | `voice` |
-| `prebuffer_ms` | - | `prebufferMs` |
+| `prebuffer_ms`, else the engine's `audio.tts_prebuffer_ms` | - | `prebufferMs` |
+| `threads` | - | `threads` |
+| `silence_duration_seconds` | - | `silenceDurationSeconds` |
+| `max_new_frames` | - | `maxNewFrames` |
+| `max_chunk_tokens` | - | `maxChunkTokens` |
+| `text_normalization` | - | `textNormalization` |
+| `pause_short_seconds` | - | `pauseShortSeconds` |
+| `pause_long_seconds` | - | `pauseLongSeconds` |
 
 `setVoice()` switches voices while running.
 
@@ -54,7 +63,7 @@ From an engine config:
 providers {
   tts {
     id: "moss"
-    options { [type.googleapis.com/vasdk.providers.LocalTtsOptions] { voice: "Bella" } }
+    options { [type.googleapis.com/vasdk.providers.MossOptions] { voice: "Bella" } }
     fallback: "pocket"
   }
 }

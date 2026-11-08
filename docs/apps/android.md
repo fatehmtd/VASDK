@@ -27,11 +27,11 @@ flowchart TB
 ```
 
 The native side is the same CMake tree as the desktop build (`externalNativeBuild` points at [`CMakeLists.txt`](../../VASDK_ANDROID/CMakeLists.txt), with `-DVASDK_BUILD_APP=OFF` so only the library and providers are compiled). It runs on [VAEngine](../reference/engine.md), as the desktop app does:
-- `VasdkEngine` builds an [engine config](../reference/engine-config.md) from the settings: which providers, their keys and model folders, audio formats, always-on listening, turn-taking and the cloud LLM.
-- `nativeInit` parses it (text proto, full protobuf).
+- `VasdkEngine` builds an [engine config](../reference/engine-config.md) from the settings, as the generated protobuf messages (`vasdk.engine` and `vasdk.providers`, Kotlin lite): which providers, their keys and model folders, audio formats, always-on listening, turn-taking and the cloud LLM.
+- `nativeInit` receives it serialized and parses it (binary, full protobuf).
 - It creates the providers by id from the shared provider catalog, plus the app's own `voz` ([`VozProvider.cpp`](../../VASDK_ANDROID/app/src/main/cpp/VozProvider.cpp)).
 - It runs one `Session`. Events from the session feed the `Listener`.
-- It adds the local LLM (llama.cpp), the Android tools, speaker tracking and the visualiser to the session. ABIs are `arm64-v8a` and `x86_64`; `armeabi-v7a` was dropped because llama.cpp's NEON fallback collides with the NDK's `arm_neon.h` on the 32-bit target, and no realistic test device is armv7-only.
+- The local LLM (llama.cpp, `providers.llm` with `LlamaCppOptions`) and speaker tracking (`providers.speaker_embedding` with `PyannoteOptions`) are in the config, so the runtime makes them as it does the other providers. It adds the Android tools and the visualiser to the session; mic and speaker are AAudio, set up by hand for the visualiser's playback hook. ABIs are `arm64-v8a` and `x86_64`; `armeabi-v7a` was dropped because llama.cpp's NEON fallback collides with the NDK's `arm_neon.h` on the 32-bit target, and no realistic test device is armv7-only.
 
 ## The Kotlin API surface
 
@@ -205,7 +205,7 @@ stateDiagram-v2
 
 ## Local LLM on-device
 
-The app runs GGUF models on-device through llama.cpp. Models aren't bundled in the APK; `ModelDownloadService` (a foreground service with notification progress) downloads them on first run, driven by `VasdkEngine`'s download callbacks, alongside the on-device STT (Parakeet/Whistle) and TTS (PocketTTS/Phonon/MOSS) model files and the pyannote speaker-embedding model (`pyannote/`, always on: `SpeakerIdentificationProcessor` logs SAME/NEW speaker per utterance) - VAD (Silero) and turn detection (SmartTurn v3) ship embedded as raw resources instead and are extracted to disk at `init()`. The default model is `LFM2_5Meta` (LFM2.5 230M, chat format `"lfm2.5"`); `Llama-3.2-1B-Instruct` (`"llama3"`), `Qwen2.5-1.5B-Instruct` (`"chatml"`), and `google_gemma-3-1b-it` (`"gemma"`) are also declared as presets in `VasdkEngine.Companion`. The engine needs to know the model's chat format so the native side renders prompts and tool descriptions correctly for that model; cloud mode (`useLocalLLM = false`) always reports `"openai"` regardless of the actual backing model.
+The app runs GGUF models on-device through llama.cpp. Models aren't bundled in the APK; `ModelDownloadService` (a foreground service with notification progress) downloads them on first run, driven by `VasdkEngine`'s download callbacks, alongside the on-device STT (Parakeet/Whistle) and TTS (PocketTTS/Phonon/MOSS) model files and the pyannote speaker-embedding model (`pyannote/`, always on once downloaded: `engineConfig()` names it, and the session's `SpeakerIdentificationProcessor` logs SAME/NEW speaker per utterance) - VAD (Silero) and turn detection (SmartTurn v3) ship embedded as raw resources instead and are extracted to disk at `init()`. The default model is `LFM2_5Meta` (LFM2.5 230M, chat format `"lfm2.5"`); `Llama-3.2-1B-Instruct` (`"llama3"`), `Qwen2.5-1.5B-Instruct` (`"chatml"`), and `google_gemma-3-1b-it` (`"gemma"`) are also declared as presets in `VasdkEngine.Companion`. The engine needs to know the model's chat format (`LlamaCppOptions.chat_format` in the config) so it renders prompts and tool descriptions correctly for that model; cloud mode (`useLocalLLM = false`) always reports `"openai"` regardless of the actual backing model.
 
 ## Building
 
@@ -253,6 +253,18 @@ For the cloud STT/TTS providers (Soniox, Deepgram, Gladia, Cartesia, Fish Audio,
 Cartesia, Fish Audio and Gradium also take a voice: `CARTESIA_VOICE_ID`, `FISHAUDIO_VOICE_ID`, `GRADIUM_VOICE_ID` (or `cartesia.voiceId`, `fishaudio.voiceId`, `gradium.voiceId`).
 
 All of these are optional at build time - the providers are compiled in regardless, and a missing key only matters if that provider is actually selected at runtime. `.env.local` wins when both are present. Neither file is committed.
+
+### The Kotlin binding as an AAR
+
+The [Kotlin binding](../reference/kotlin.md) builds as an Android library, `:vasdk`: the sources of `bindings/kotlin`, VASDK's messages, JNA, and `libVASDK.so` (the C API and every provider) per ABI. It's optional, and this app doesn't use it yet:
+
+```bash
+cd VASDK_ANDROID
+./gradlew -Pvasdk.kotlinBinding=true :vasdk:assembleRelease          # vasdk/build/outputs/aar/vasdk-release.aar
+./gradlew -Pvasdk.kotlinBinding=true :vasdk:connectedAndroidTest     # the JVM tests, on a device or emulator
+```
+
+An app depends on the AAR and names the device's audio in its engine config (`providers { audio_input { id: "aaudio" } audio_output { id: "aaudio" } }`), or pushes its own. On a device the garage test is skipped: the agent's files aren't there.
 
 ### Tests on a device
 

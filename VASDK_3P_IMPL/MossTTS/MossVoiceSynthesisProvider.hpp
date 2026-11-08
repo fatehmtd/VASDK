@@ -31,7 +31,11 @@ struct MossVoiceSynthesisOptions {
     bool textNormalization = true;
     /** Audio made before playback starts, against generation jitter on slow CPUs; 0 streams at once
      *  (QueuedVoiceSynthesisProvider::setPreBufferedSamplesMS). */
-    int prebufferMs = 0;
+    int prebufferMs = 250;
+    /** Pause between text chunks after a short phrase (4 words or fewer). */
+    float pauseShortSeconds = 0.40f;
+    /** Pause between longer text chunks. */
+    float pauseLongSeconds = 0.24f;
 };
 
 /**

@@ -20,7 +20,7 @@ In C++, `va::thirdparty::stt::MoonshineSttOptions` (in [`MoonshineSttProvider.hp
 | `idleTimeoutMs` | `350` | Silence on the input that finalizes the utterance. |
 | `partialIntervalMs` | `160` | Shortest time between two partial decodes. |
 
-In an engine config, the catalog's `LocalSttOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) fills them: a field the config leaves unset falls back to its environment variable, then to the struct's default.
+In an engine config, its own `MoonshineOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) fills them: a field the config leaves unset falls back to its environment variable, then to the struct's default. The shared `LocalSttOptions` of configs written before it had its own message is still accepted.
 
 | Config field | Environment variable | Sets |
 | --- | --- | --- |
@@ -46,7 +46,7 @@ From an engine config:
 providers {
   stt {
     id: "moonshine"
-    options { [type.googleapis.com/vasdk.providers.LocalSttOptions] { idle_timeout_ms: 600 } }
+    options { [type.googleapis.com/vasdk.providers.MoonshineOptions] { idle_timeout_ms: 600 } }
     fallback: "whistle"
   }
 }

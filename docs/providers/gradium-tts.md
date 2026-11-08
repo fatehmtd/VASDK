@@ -20,12 +20,13 @@ In C++, `va::thirdparty::tts::GradiumppVoiceSynthesisOptions` (in [`GradiumppVoi
 | `voiceId` | `""` | Voice to speak with; empty uses the service default. |
 | `model` | `gradium::tts::models::default_model` | Model to use. |
 
-In an engine config, the catalog's `CloudOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) fills them: a field the config leaves unset falls back to its environment variable, then to the struct's default.
+In an engine config, its own `GradiumTtsOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) fills them: a field the config leaves unset falls back to its environment variable, then to the struct's default. The shared `CloudOptions` of configs written before it had its own message is still accepted.
 
 | Config field | Environment variable | Sets |
 | --- | --- | --- |
 | `api_key` | `GRADIUM_API_KEY` | `apiKey` |
 | `voice_id` | `GRADIUM_VOICE_ID` | `voiceId` |
+| `model` | - | `model` |
 
 ## Models and licenses
 
@@ -41,7 +42,7 @@ From an engine config:
 providers {
   tts {
     id: "gradium"
-    options { [type.googleapis.com/vasdk.providers.CloudOptions] { api_key: "${GRADIUM_API_KEY}" } }
+    options { [type.googleapis.com/vasdk.providers.GradiumTtsOptions] { api_key: "${GRADIUM_API_KEY}" } }
     fallback: "pocket"
   }
 }

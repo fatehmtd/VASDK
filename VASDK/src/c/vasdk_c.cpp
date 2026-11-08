@@ -9,14 +9,18 @@
 #include "flow/FlowRegistry.h"
 #include "flow/FlowRuntime.h"
 #include "flow/FlowTestRunner.h"
+#include "vasdk/engine/events.pb.h"
 #include "vasdk/flow/conversation.pb.h"
+#include "vasdk/flow/snapshot.pb.h"
 #include "vasdk/flow/step_outcome.pb.h"
+#include "vasdk/flow/test_case.pb.h"
 
 #include <google/protobuf/text_format.h>
 #include <google/protobuf/util/json_util.h>
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <memory>
@@ -33,8 +37,11 @@ struct vasdk_agent {
     std::shared_ptr<const va::flow::CompiledAgent> agent;
 };
 struct vasdk_conversation {
-    explicit vasdk_conversation(std::shared_ptr<const va::flow::CompiledAgent> agent) : runtime(std::move(agent)) {}
+    explicit vasdk_conversation(std::shared_ptr<const va::flow::CompiledAgent> agent) : runtime(std::move(agent)) {
+        runtime.setContextSource([this] { return context; });
+    }
     va::flow::FlowRuntime runtime;
+    google::protobuf::Struct context;   // vasdk_conversation_set_context_message
 };
 struct vasdk_turn {
     va::flow::TurnContext& context;
@@ -233,6 +240,15 @@ void vasdk_result_set(vasdk_result* result, const char* json) {
     if (!result) return;
     result->json = json ? json : "null";
     result->failed = false;
+    result->set = true;
+}
+
+void vasdk_result_set_floats(vasdk_result* result, const float* values, size_t count) {
+    if (!result) return;
+    result->floats.assign(values, values ? values + count : values);
+    result->hasFloats = true;
+    result->failed = false;
+    result->set = true;
 }
 
 void vasdk_result_fail(vasdk_result* result, const char* error) {
@@ -382,6 +398,19 @@ int vasdk_turn_apply(vasdk_turn* turn, const void* outcome, size_t length, vasdk
     return 1;
 }
 
+void vasdk_turn_set_text(vasdk_turn* turn, const char* text) {
+    if (turn && text) turn->context.setText(text);
+}
+
+char* vasdk_turn_render(vasdk_turn* turn, const char* text) {
+    return copy(turn && text ? turn->context.render(text) : std::string());
+}
+
+const char* vasdk_turn_reply_text(vasdk_turn* turn) { return turn ? turn->context.replyText().c_str() : ""; }
+
+char* vasdk_turn_flow(vasdk_turn* turn) { return copy(turn ? turn->context.flowName() : std::string()); }
+char* vasdk_turn_page(vasdk_turn* turn) { return copy(turn ? turn->context.pageName() : std::string()); }
+
 //  Agents
 
 vasdk_agent* vasdk_agent_load(const char* path, const vasdk_registry* registry, char** error) {
@@ -484,6 +513,8 @@ void* vasdk_conversation_send(vasdk_conversation* conversation, const void* inpu
         if (parsed.fire_trigger().name().empty()) return fail(error, "fire_trigger: no name", static_cast<void*>(nullptr));
         reply = runtime.fireTrigger(parsed.fire_trigger().name(), parsed.fire_trigger().payload());
         break;
+    case vasdk::flow::ConversationInput::kCheckTriggers: reply = runtime.checkTriggers(); break;
+    case vasdk::flow::ConversationInput::kDeliverQueued: reply = runtime.deliverQueued(); break;
     case vasdk::flow::ConversationInput::KIND_NOT_SET:
         return fail(error, "ConversationInput: empty", static_cast<void*>(nullptr));
     }
@@ -510,7 +541,82 @@ void* vasdk_conversation_lookup_message(vasdk_conversation* conversation, const 
     return vasdk_c::writtenCopy(value, format, length);
 }
 
+void* vasdk_conversation_snapshot_message(vasdk_conversation* conversation, vasdk_format format, size_t* length) {
+    const auto snapshot = conversation ? conversation->runtime.snapshot() : vasdk::flow::ConversationSnapshot();
+    return vasdk_c::writtenCopy(snapshot, format, length);
+}
+
+void* vasdk_conversation_resume_message(vasdk_conversation* conversation, const void* snapshot, size_t length,
+                                        vasdk_format format, size_t* reply_length, int* resumed, char** error) {
+    if (reply_length) *reply_length = 0;
+    if (resumed) *resumed = 0;
+    if (!conversation) return fail(error, "no conversation", static_cast<void*>(nullptr));
+    vasdk::flow::ConversationSnapshot parsed;
+    std::string reason;
+    if (!vasdk_c::read(snapshot, length, format, parsed, &reason))
+        return fail(error, "ConversationSnapshot: " + reason, static_cast<void*>(nullptr));
+    bool fitted = false;
+    const auto reply = conversation->runtime.resume(parsed, &fitted);
+    if (resumed) *resumed = fitted ? 1 : 0;
+    return vasdk_c::writtenCopy(replyMessage(reply, conversation->runtime), format, reply_length);
+}
+
+int vasdk_conversation_set_entity_values_message(vasdk_conversation* conversation, const void* values, size_t length,
+                                                 vasdk_format format, char** error) {
+    if (!conversation) return fail(error, "no conversation", 0);
+    vasdk::engine::EntityValuesCommand parsed;
+    std::string reason;
+    if (!vasdk_c::read(values, length, format, parsed, &reason)) return fail(error, "EntityValuesCommand: " + reason, 0);
+    if (!conversation->runtime.setEntityValues(parsed.name(), {parsed.values().begin(), parsed.values().end()}, &reason))
+        return fail(error, reason, 0);
+    return 1;
+}
+
+int vasdk_conversation_set_context_message(vasdk_conversation* conversation, const void* context, size_t length,
+                                           vasdk_format format, char** error) {
+    if (!conversation) return fail(error, "no conversation", 0);
+    google::protobuf::Struct parsed;
+    std::string reason;
+    if (!vasdk_c::read(context, length, format, parsed, &reason)) return fail(error, "Struct: " + reason, 0);
+    for (const auto& [key, value] : parsed.fields()) (*conversation->context.mutable_fields())[key] = value;
+    return 1;
+}
+
+void vasdk_conversation_reply_interrupted(vasdk_conversation* conversation) {
+    if (conversation) conversation->runtime.replyInterrupted();
+}
+
+int vasdk_conversation_no_input_ms(vasdk_conversation* conversation) { return conversation ? conversation->runtime.noInputMs() : 0; }
+
+long long vasdk_conversation_next_scheduled_trigger_ms(vasdk_conversation* conversation) {
+    const auto next = conversation ? conversation->runtime.nextScheduledTrigger() : std::nullopt;
+    if (!next) return -1;
+    return std::chrono::duration_cast<std::chrono::milliseconds>(next->time_since_epoch()).count();
+}
+
+char* vasdk_conversation_trigger_state(vasdk_conversation* conversation) {
+    return copy(conversation ? conversation->runtime.triggerState() : std::string());
+}
+
+int vasdk_conversation_restore_trigger_state(vasdk_conversation* conversation, const char* state_json) {
+    return conversation && state_json && conversation->runtime.restoreTriggerState(state_json) ? 1 : 0;
+}
+
 //  Tests
+
+int vasdk_run_test_message(const vasdk_agent* agent, const void* test_case, size_t length, vasdk_format format, char** report) {
+    if (!agent || !test_case) return fail(report, "no agent or test case", 0);
+    vasdk::flow::FlowTestCase parsed;
+    std::string reason;
+    if (!vasdk_c::read(test_case, length, format, parsed, &reason)) return fail(report, "FlowTestCase: " + reason + "\n", 0);
+    const auto result = va::flow::runFlowTest(agent->agent, parsed);
+    if (report) {
+        std::string lines;
+        for (const auto& failure : result.failures) lines += failure + "\n";
+        *report = copy(lines);
+    }
+    return result.passed() ? 1 : 0;
+}
 
 int vasdk_run_test_file(const vasdk_agent* agent, const char* path, char** report) {
     if (!agent || !path) return fail(report, "no agent or path", 0);

@@ -3,11 +3,10 @@
 #include <algorithm>
 #include <cstring>
 
-namespace va {
-namespace android {
+namespace va::thirdparty::audio {
 
-AAudioSink::AAudioSink() {
-    _fifo.resize(kFifoCapacity);
+AAudioSink::AAudioSink(AAudioSinkOptions options) : _fifoCapacity(std::max<size_t>(options.bufferBytes, 4096)) {
+    _fifo.resize(_fifoCapacity);
 }
 
 AAudioSink::~AAudioSink() {
@@ -115,16 +114,16 @@ int AAudioSink::writeAudio(const char* buffer, int offset, int length) {
     // TTS thread is throttled to real-time playback speed.
     while (written < bytes && _started.load()) {
         std::lock_guard<std::mutex> lock(_fifoMutex);
-        size_t available = kFifoCapacity - _fifoSize;
+        size_t available = _fifoCapacity - _fifoSize;
         if (available == 0) continue;
 
         size_t toWrite = std::min(bytes - written, available);
         const char* from = src + written;
-        size_t seg1 = std::min(toWrite, kFifoCapacity - _fifoWritePos);
+        size_t seg1 = std::min(toWrite, _fifoCapacity - _fifoWritePos);
         std::memcpy(_fifo.data() + _fifoWritePos, from, seg1);
         if (toWrite > seg1)
             std::memcpy(_fifo.data(), from + seg1, toWrite - seg1);
-        _fifoWritePos = (_fifoWritePos + toWrite) % kFifoCapacity;
+        _fifoWritePos = (_fifoWritePos + toWrite) % _fifoCapacity;
         _fifoSize    += toWrite;
         written      += toWrite;
     }
@@ -175,11 +174,11 @@ void AAudioSink::onPlayback(void* audioData, int32_t numFrames) {
         std::lock_guard<std::mutex> lock(_fifoMutex);
         bytesToRead = std::min(bytesNeeded, _fifoSize);
 
-        size_t seg1 = std::min(bytesToRead, kFifoCapacity - _fifoReadPos);
+        size_t seg1 = std::min(bytesToRead, _fifoCapacity - _fifoReadPos);
         std::memcpy(dst, _fifo.data() + _fifoReadPos, seg1);
         if (bytesToRead > seg1)
             std::memcpy(dst + seg1, _fifo.data(), bytesToRead - seg1);
-        _fifoReadPos = (_fifoReadPos + bytesToRead) % kFifoCapacity;
+        _fifoReadPos = (_fifoReadPos + bytesToRead) % _fifoCapacity;
         _fifoSize   -= bytesToRead;
     }
 
@@ -206,5 +205,4 @@ void AAudioSink::setPlaybackCallback(PlaybackCallback cb) {
     _playbackCallback = std::move(cb);
 }
 
-} // namespace android
-} // namespace va
+} // namespace va::thirdparty::audio

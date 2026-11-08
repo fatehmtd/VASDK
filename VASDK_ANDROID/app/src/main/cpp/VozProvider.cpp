@@ -5,14 +5,17 @@
 #ifdef VASDK_HAS_VOZ_STT
 #include "VozSTT/VozTranscriptionProvider.hpp"
 #include <nlohmann/json.hpp>
+#include <vasdk/providers/options.pb.h>
+#include <algorithm>
 #include <cmath>
 #include <stdexcept>
 #endif
 
 void registerVozProvider(va::engine::ProviderRegistry &registry, JavaVM *javaVm) {
 #if defined(VASDK_HAS_VOZ_STT)
-    registry.add<va::audio::GenericTranscriptionProvider>("voz",
-        [javaVm](const va::engine::ProviderContext &context) -> std::shared_ptr<va::audio::GenericTranscriptionProvider> {
+    registry.add<va::audio::GenericTranscriptionProvider, vasdk::providers::VozOptions>("voz",
+        [javaVm](const vasdk::providers::VozOptions &options,
+                 const va::engine::ProviderContext &context) -> std::shared_ptr<va::audio::GenericTranscriptionProvider> {
         // Resolve the Kotlin wrapper here, on the nativeInit (Java) thread: FindClass from the
         // provider's native inference thread would only see the system class loader.
         JNIEnv *env = nullptr;
@@ -90,6 +93,12 @@ void registerVozProvider(va::engine::ProviderRegistry &registry, JavaVM *javaVm)
         };
             va::thirdparty::stt::VozTranscriptionOptions vozOptions;
             vozOptions.recognizer = recognizer;
+            if (options.has_idle_timeout_ms()) vozOptions.idleTimeoutMs = options.idle_timeout_ms();
+            if (options.has_partial_interval_ms()) vozOptions.partialIntervalMs = options.partial_interval_ms();
+            if (options.has_min_new_samples_for_partial())
+                vozOptions.minNewSamplesForPartial = static_cast<size_t>(std::max(0, options.min_new_samples_for_partial()));
+            if (options.has_min_new_samples_for_final())
+                vozOptions.minNewSamplesForFinal = static_cast<size_t>(std::max(0, options.min_new_samples_for_final()));
             auto voz = std::make_shared<va::thirdparty::stt::VozTranscriptionProvider>(vozOptions);
             voz->setAudioConfiguration(context.audio);
             spdlog::info("[VASDK] Voz STT provider configured");
