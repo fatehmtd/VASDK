@@ -18,13 +18,19 @@ In C++, `va::thirdparty::stt::GladiaPPTranscriptionOptions` (in [`GladiaPPTransc
 | --- | --- | --- |
 | `apiKey` | `""` | API key of the service; required (the catalog falls back to the service's *_API_KEY variable). |
 | `caBundlePath` | `""` | PEM file of certificates to trust; empty uses the TLS library's own (Android's mbedTLS can't read the system store). |
+| `region` | `"us-west"` | Where the audio is processed: "us-west" or "eu-west". |
+| `endpointingSeconds` | `0.01` | Silence, in seconds, that ends an utterance. |
+| `maxDurationWithoutEndpointingSeconds` | `5` | An utterance is cut after this many seconds without an endpoint. |
 
-In an engine config, the catalog's `CloudOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) fills them: a field the config leaves unset falls back to its environment variable, then to the struct's default.
+In an engine config, its own `GladiaOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) fills them: a field the config leaves unset falls back to its environment variable, then to the struct's default. The shared `CloudOptions` of configs written before it had its own message is still accepted.
 
 | Config field | Environment variable | Sets |
 | --- | --- | --- |
 | `api_key` | `GLADIA_API_KEY` | `apiKey` |
 | `ca_bundle_path` | `VASDK_CA_BUNDLE` | `caBundlePath` |
+| `region` (`US_WEST`, `EU_WEST`) | - | `region` |
+| `endpointing_seconds` | - | `endpointingSeconds` |
+| `max_duration_without_endpointing_seconds` | - | `maxDurationWithoutEndpointingSeconds` |
 
 Known build issue: on desktop, `gladiapp` fetches its own copy of dotenv-cpp, which clashes with VASDK's, so configuring with `-DVASDK_BUILD_GLADIAPP=ON` fails there today. The Android build, which doesn't fetch dotenv-cpp, isn't affected.
 
@@ -42,7 +48,7 @@ From an engine config:
 providers {
   stt {
     id: "gladia"
-    options { [type.googleapis.com/vasdk.providers.CloudOptions] { api_key: "${GLADIA_API_KEY}" } }
+    options { [type.googleapis.com/vasdk.providers.GladiaOptions] { api_key: "${GLADIA_API_KEY}" } }
     fallback: "whistle"
   }
 }

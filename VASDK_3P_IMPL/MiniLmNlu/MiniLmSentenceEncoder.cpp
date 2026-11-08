@@ -4,6 +4,7 @@
 #include <onnxruntime_cxx_api.h>
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
 #include <array>
 #include <cctype>
 #include <cmath>
@@ -20,7 +21,7 @@ struct MiniLmSentenceEncoder::Model {
 };
 
 MiniLmSentenceEncoder::MiniLmSentenceEncoder(MiniLmSentenceEncoderOptions options)
-    : _modelDir(std::move(options.modelDir)) {}
+    : _modelDir(std::move(options.modelDir)), _threads(std::max(1, options.threads)) {}
 MiniLmSentenceEncoder::~MiniLmSentenceEncoder() = default;
 
 bool MiniLmSentenceEncoder::initialize() {
@@ -37,7 +38,7 @@ bool MiniLmSentenceEncoder::initialize() {
     try {
         _model = std::make_unique<Model>();
         Ort::SessionOptions options;
-        options.SetIntraOpNumThreads(1);
+        options.SetIntraOpNumThreads(_threads);
         const std::string path = _modelDir + "/model.onnx";
 #ifdef _WIN32
         const std::wstring widePath(path.begin(), path.end());

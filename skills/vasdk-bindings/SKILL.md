@@ -36,6 +36,7 @@ The bindings are optional and off by default: configure with `-DVASDK_BUILD_PYTH
 
 - Callbacks from C arrive on SDK threads: Python callbacks take the GIL (ctypes does it per call), Kotlin must hop to its own dispatcher before touching UI.
 - Strings are UTF-8 both ways; lengths are explicit where binary data crosses.
+- A provider setting needs no new function: it goes in the provider's options message (`VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto`), and every binding sets it in an engine config built in code (`vasdk_session_create_config`, Python `vasdk.Session(EngineConfig)`, Kotlin `Session(EngineConfig)` with `toAny()`).
 - A feature that can't work on a platform (a device API missing on desktop, say) states so in its docs and logs a warning when used there.
 
 ## Tests

@@ -85,8 +85,34 @@ int main() {
     check(!registry.create<Speech>(optionsForPlain, context, &error) && error.find("takes no options") != std::string::npos,
           "options on a provider without options fail");
 
+    // A provider with its own message that still takes an older, shared one, converted.
+    registry.add<Speech, StringValue, google::protobuf::Int32Value>("versioned",
+        [](const StringValue& options, const ProviderContext&) { return make("versioned:" + options.value()); },
+        [](const google::protobuf::Int32Value& shared) {
+            StringValue converted;
+            converted.set_value("shared " + std::to_string(shared.value()));
+            return converted;
+        });
+    auto own = spec("versioned");
+    own.mutable_options()->PackFrom(voice);
+    created = registry.create<Speech>(own, context, &error);
+    check(created && created->name == "versioned:jean", "its own message reaches the factory");
+    auto older = spec("versioned");
+    google::protobuf::Int32Value seven;
+    seven.set_value(7);
+    older.mutable_options()->PackFrom(seven);
+    created = registry.create<Speech>(older, context, &error);
+    check(created && created->name == "versioned:shared 7", "the shared message is converted first");
+    created = registry.create<Speech>(spec("versioned"), context, &error);
+    check(created && created->name == "versioned:", "no options: its own message's defaults");
+    auto neither = spec("versioned");
+    neither.mutable_options()->PackFrom(google::protobuf::BoolValue());
+    check(!registry.create<Speech>(neither, context, &error) && error.find("google.protobuf.StringValue") != std::string::npos
+              && error.find("google.protobuf.Int32Value") != std::string::npos,
+          "another type fails, naming both accepted types");
+
     auto ids = registry.ids<Speech>();
-    check(ids == std::vector<std::string>({"voiced", "plain", "broken"}), "ids in registration order");
+    check(ids == std::vector<std::string>({"voiced", "plain", "broken", "versioned"}), "ids in registration order");
     check(registry.ids<Listener>() == std::vector<std::string>({"ear"}), "interfaces are separate");
     check(registry.create<Listener>(spec(""), context) != nullptr, "second interface creates");
 

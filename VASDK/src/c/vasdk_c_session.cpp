@@ -151,6 +151,10 @@ namespace {
 
 vasdk_session* createSession(const char* config_path, const vasdk_providers* providers, const vasdk_agent* agent,
                              const vasdk::engine::SessionOptions& given, char** error);
+vasdk_session* createSession(const vasdk::engine::EngineConfig& config, const std::string& label, const vasdk_providers* providers,
+                             const vasdk_agent* agent, const vasdk::engine::SessionOptions& given, char** error);
+vasdk_runtime* createRuntime(const vasdk::engine::EngineConfig& config, const std::string& label, const vasdk_providers* providers,
+                             const char* models_dir, int max_sessions, char** error);
 vasdk_session* createRuntimeSession(vasdk_runtime* runtime, const vasdk_agent* agent, const vasdk::engine::SessionOptions& given,
                                     char** error);
 
@@ -208,6 +212,20 @@ vasdk_session* vasdk_session_create_message(const char* config_path, const vasdk
     return createSession(config_path, providers, agent, parsed, error);
 }
 
+vasdk_session* vasdk_session_create_config(const void* config, size_t config_length, vasdk_format config_format,
+                                           const vasdk_providers* providers, const vasdk_agent* agent,
+                                           const void* options, size_t length, vasdk_format format, char** error) {
+    if (!config || config_length == 0 || !providers) return failWith(error, "no config or providers", static_cast<vasdk_session*>(nullptr));
+    vasdk::engine::EngineConfig engineConfig;
+    std::string reason;
+    if (!vasdk_c::read(config, config_length, config_format, engineConfig, &reason))
+        return failWith(error, "EngineConfig: " + reason, static_cast<vasdk_session*>(nullptr));
+    vasdk::engine::SessionOptions parsed;
+    if (!vasdk_c::read(options, length, format, parsed, &reason))
+        return failWith(error, "SessionOptions: " + reason, static_cast<vasdk_session*>(nullptr));
+    return createSession(engineConfig, "config", providers, agent, parsed, error);
+}
+
 } // extern "C"
 
 namespace {
@@ -253,13 +271,19 @@ vasdk_session* createSession(const char* config_path, const vasdk_providers* pro
     std::string reason;
     if (!va::engine::loadEngineConfig(config_path, config, &reason))
         return failWith(error, reason, static_cast<vasdk_session*>(nullptr));
+    return createSession(config, config_path, providers, agent, given, error);
+}
 
+// A config read from a file (label: its path) or built by the app (label: "config").
+vasdk_session* createSession(const vasdk::engine::EngineConfig& config, const std::string& label, const vasdk_providers* providers,
+                             const vasdk_agent* agent, const vasdk::engine::SessionOptions& given, char** error) {
+    std::string reason;
     va::VAEngine::Options options;
     options.modelsDir = given.models_dir();
     if (!va::engine::applyAudioConfig(config.audio(), options.inputAudio, options.outputAudio, options.frameSize, &reason))
-        return failWith(error, std::string(config_path) + ": " + reason, static_cast<vasdk_session*>(nullptr));
+        return failWith(error, label + ": " + reason, static_cast<vasdk_session*>(nullptr));
     if (!sixteenBitMono(options.inputAudio, options.outputAudio))
-        return failWith(error, std::string(config_path) + ": audio: the C API takes and gives 16-bit mono PCM",
+        return failWith(error, label + ": audio: the C API takes and gives 16-bit mono PCM",
                         static_cast<vasdk_session*>(nullptr));
     auto session = prepare(given, agent, options);
     session->inputRate = static_cast<int>(options.inputAudio.sampleRate);
@@ -288,6 +312,20 @@ vasdk_session* createRuntimeSession(vasdk_runtime* runtime, const vasdk_agent* a
     session->engine = runtime->runtime->createSession(std::move(options), &reason);
     if (!session->engine) return failWith(error, reason, static_cast<vasdk_session*>(nullptr));
     return finish(std::move(session));
+}
+
+// A config read from a file (label: its path) or built by the app (label: "config").
+vasdk_runtime* createRuntime(const vasdk::engine::EngineConfig& config, const std::string& label, const vasdk_providers* providers,
+                             const char* models_dir, int max_sessions, char** error) {
+    std::string reason;
+    va::engine::Runtime::Options options;
+    if (models_dir) options.modelsDir = models_dir;
+    options.maxSessions = max_sessions > 0 ? static_cast<size_t>(max_sessions) : 0;
+    auto runtime = va::engine::Runtime::create(config, providers->registry, options, &reason);
+    if (!runtime) return failWith(error, reason, static_cast<vasdk_runtime*>(nullptr));
+    if (!sixteenBitMono(runtime->options().inputAudio, runtime->options().outputAudio))
+        return failWith(error, label + ": audio: the C API takes and gives 16-bit mono PCM", static_cast<vasdk_runtime*>(nullptr));
+    return new vasdk_runtime{std::move(runtime)};
 }
 
 // An app's audio callback at AFTER_INPUT (the microphone's, read from the ring buffer the frame
@@ -588,15 +626,17 @@ vasdk_runtime* vasdk_runtime_create(const char* config_path, const vasdk_provide
     vasdk::engine::EngineConfig config;
     std::string reason;
     if (!va::engine::loadEngineConfig(config_path, config, &reason)) return failWith(error, reason, static_cast<vasdk_runtime*>(nullptr));
-    va::engine::Runtime::Options options;
-    if (models_dir) options.modelsDir = models_dir;
-    options.maxSessions = max_sessions > 0 ? static_cast<size_t>(max_sessions) : 0;
-    auto runtime = va::engine::Runtime::create(config, providers->registry, options, &reason);
-    if (!runtime) return failWith(error, reason, static_cast<vasdk_runtime*>(nullptr));
-    if (!sixteenBitMono(runtime->options().inputAudio, runtime->options().outputAudio))
-        return failWith(error, std::string(config_path) + ": audio: the C API takes and gives 16-bit mono PCM",
-                        static_cast<vasdk_runtime*>(nullptr));
-    return new vasdk_runtime{std::move(runtime)};
+    return createRuntime(config, config_path, providers, models_dir, max_sessions, error);
+}
+
+vasdk_runtime* vasdk_runtime_create_config(const void* config, size_t config_length, vasdk_format config_format,
+                                           const vasdk_providers* providers, const char* models_dir, int max_sessions, char** error) {
+    if (!config || config_length == 0 || !providers) return failWith(error, "no config or providers", static_cast<vasdk_runtime*>(nullptr));
+    vasdk::engine::EngineConfig engineConfig;
+    std::string reason;
+    if (!vasdk_c::read(config, config_length, config_format, engineConfig, &reason))
+        return failWith(error, "EngineConfig: " + reason, static_cast<vasdk_runtime*>(nullptr));
+    return createRuntime(engineConfig, "config", providers, models_dir, max_sessions, error);
 }
 
 void vasdk_runtime_free(vasdk_runtime* runtime) { delete runtime; }

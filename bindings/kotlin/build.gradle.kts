@@ -23,7 +23,8 @@ dependencies {
     testImplementation(kotlin("test"))
 }
 
-sourceSets.main { proto { srcDir("../../VASDK/proto") } }
+// VASDK's messages, and the providers' options (vasdk.providers.PhononOptions, ...) for a config built in code
+sourceSets.main { proto { srcDir("../../VASDK/proto"); srcDir("../../VASDK_3P_IMPL/ProviderCatalog/proto") } }
 
 protobuf {
     protoc { artifact = "com.google.protobuf:protoc:$protobufVersion" }

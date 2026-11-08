@@ -18,7 +18,7 @@ In C++, `va::thirdparty::audio::MiniAudioSourceOptions` (in [`MiniAudioSource.h`
 | --- | --- | --- |
 | `bufferSeconds` | `30` | Captured audio the source can hold before the oldest is overwritten, in seconds of the configured format. Several seconds absorb a stalled reader. |
 
-`MiniAudioSink` takes no options.
+`MiniAudioSink` takes no options. In an engine config, `audio_input`'s `MiniAudioOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) sets `buffer_seconds` (`bufferSeconds`).
 
 ## Models and licenses
 

@@ -22,15 +22,19 @@ In C++, `va::thirdparty::tts::PocketVoiceSynthesisOptions` (in [`PocketVoiceSynt
 | `temperature` | `0.7f` | Sampling temperature; the flow's noise is sqrt(temperature). |
 | `silenceDurationSeconds` | `0.3f` | Silence after each utterance. |
 | `prebufferMs` | `250` | Audio made before playback starts, against choppy starts on throttled phones (QueuedVoiceSynthesisProvider::setPreBufferedSamplesMS). |
+| `decoderBatchFrames` | `12` | Latent frames decoded to audio at a time: fewer start speech sooner, more decode faster. |
 
-In an engine config, the catalog's `LocalTtsOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) fills them: a field the config leaves unset falls back to its environment variable, then to the struct's default.
+In an engine config, its own `PocketOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) fills them: a field the config leaves unset falls back to its environment variable, then to the struct's default. The shared `LocalTtsOptions` of configs written before it had its own message is still accepted.
 
 | Config field | Environment variable | Sets |
 | --- | --- | --- |
 | `model_dir` | - | `modelDir` |
 | `voice` | `POCKET_TTS_VOICE` | `voice` |
 | `steps` | - | `lsdSteps` |
-| `prebuffer_ms` | - | `prebufferMs` |
+| `prebuffer_ms`, else the engine's `audio.tts_prebuffer_ms` | - | `prebufferMs` |
+| `temperature` | - | `temperature` |
+| `silence_duration_seconds` | - | `silenceDurationSeconds` |
+| `decoder_batch_frames` | - | `decoderBatchFrames` |
 
 `setVoice()` switches voices while running.
 
@@ -52,7 +56,7 @@ From an engine config:
 providers {
   tts {
     id: "pocket"
-    options { [type.googleapis.com/vasdk.providers.LocalTtsOptions] { voice: "jean" } }
+    options { [type.googleapis.com/vasdk.providers.PocketOptions] { voice: "jean" } }
     fallback: "phonon"
   }
 }

@@ -8,9 +8,6 @@
 #include <VASDK/engine/Session.h>
 #include <VASDK/llm/LLMTransport.h>
 #include <VASDK/llm/ToolDispatchProcessor.h>
-#ifdef VASDK_HAS_PYANNOTE_SPEAKER
-#include <VASDK/SpeakerIdentificationProcessor.h>
-#endif
 
 #include <jni.h>
 #include <memory>
@@ -32,9 +29,6 @@ struct VasdkSession {
     // The base instruction text before tool descriptions are appended (see nativeInit) -
     // kept separately so the "model info" screen can show it apart from the tools list.
     std::string baseSystemPrompt;
-#ifdef VASDK_HAS_PYANNOTE_SPEAKER
-    std::shared_ptr<va::pipeline::SpeakerIdentificationProcessor> speakerIdProcessor;
-#endif
 #ifdef VASDK_HAS_VIZANIM
     std::shared_ptr<va::thirdparty::audio::AudioInputVizAnimFrameProcessor> micAnimProcessor;
     std::shared_ptr<AudioFeatureSinkProcessor> audioFeaturesProcessor;

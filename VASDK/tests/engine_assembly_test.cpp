@@ -153,6 +153,28 @@ int main() {
     check(!VAEngine::create(badAudio, registry, options, &error) && contains(error, "audio.input.sample_rate"),
           "an impossible sample rate is reported with its field");
 
+    // audio.tts_prebuffer_ms reaches the TTS factory; unset is -1, the voice's own default.
+    {
+        int seenPrebufferMs = -2;
+        auto probing = makeRegistry(tts);
+        probing.add<audio::GenericVoiceSynthesisProvider>("probe", [tts, &seenPrebufferMs](const engine::ProviderContext& context) {
+            seenPrebufferMs = context.ttsPrebufferMs;
+            return tts;
+        });
+        vasdk::engine::EngineConfig prebuffer;
+        prebuffer.mutable_providers()->mutable_tts()->set_id("probe");
+        options.transport = std::make_shared<FakeTransport>();
+        check(VAEngine::create(prebuffer, probing, options, &error) && seenPrebufferMs == -1,
+              "tts_prebuffer_ms unset: the voice's default");
+        prebuffer.mutable_audio()->set_tts_prebuffer_ms(400);
+        options.transport = std::make_shared<FakeTransport>();
+        check(VAEngine::create(prebuffer, probing, options, &error) && seenPrebufferMs == 400,
+              "tts_prebuffer_ms reaches the TTS");
+        prebuffer.mutable_audio()->set_tts_prebuffer_ms(6000);
+        check(!VAEngine::create(prebuffer, probing, options, &error) && contains(error, "audio.tts_prebuffer_ms"),
+              "an out-of-range tts_prebuffer_ms is reported with its field");
+    }
+
     // The config's webrtc: a browser brings the audio, through the registry's peer; no app transport needed.
     {
         auto peer = std::make_shared<FakePeer>();

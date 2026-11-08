@@ -26,6 +26,8 @@ struct PocketVoiceSynthesisOptions {
     /** Audio made before playback starts, against choppy starts on throttled phones
      *  (QueuedVoiceSynthesisProvider::setPreBufferedSamplesMS). */
     int prebufferMs = 250;
+    /** Latent frames decoded to audio at a time: fewer start speech sooner, more decode faster. */
+    int decoderBatchFrames = 12;
 };
 
 /**

@@ -17,12 +17,14 @@ In C++, `va::thirdparty::nlu::MiniLmSentenceEncoderOptions` (in [`MiniLmSentence
 | Field | Default | Meaning |
 | --- | --- | --- |
 | `modelDir` | `""` | Folder holding model.onnx and vocab.txt (VASDK_3P_IMPL/cmake/DownloadMiniLmModel.cmake). |
+| `threads` | `1` | ONNX Runtime threads. |
 
-In an engine config, the catalog's `MiniLmOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) fills them: a field the config leaves unset falls back to its environment variable, then to the struct's default.
+In an engine config, its own `MiniLmOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) fills them: a field the config leaves unset falls back to its environment variable, then to the struct's default.
 
 | Config field | Environment variable | Sets |
 | --- | --- | --- |
 | `model_dir` | - | `modelDir` |
+| `threads` | - | `threads` |
 
 ## Models and licenses
 

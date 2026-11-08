@@ -14,6 +14,7 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import vasdk.engine.EngineConfigOuterClass.AudioFormat
 import vasdk.engine.EngineConfigOuterClass.Backchannel
 import vasdk.flow.TestCase.FlowTestCase
 import vasdk.flow.TestCase.TestTurn
@@ -325,5 +326,35 @@ class ProvidersTest {
         assertTrue(Vasdk.version().isNotEmpty())
         assertFailsWith<VasdkException> { Vasdk.setLogLevel("loud") }
         assertTrue(File(Lib.path).exists() || Lib.path == "VASDK")
+    }
+
+    @Test
+    fun aSessionFromAConfigBuiltInCode() {
+        Providers(builtIn = false).use { providers ->
+            register(providers)
+            // A provider's own options message, packed with toAny() (here a built-in voice's, as a fallback).
+            val phonon = vasdk.providers.phononOptions { temperature = 0.4f; prebufferMs = 0 }.toAny()
+            assertEquals("type.googleapis.com/vasdk.providers.PhononOptions", phonon.typeUrl)
+            val built = vasdk.engine.engineConfig {
+                this.providers = vasdk.engine.providers {
+                    vad = vasdk.engine.providerSpec { id = "kotlin" }
+                    stt = vasdk.engine.providerSpec { id = "kotlin" }
+                    tts = vasdk.engine.providerSpec { id = "kotlin"; fallback += "phonon"; fallbackOptions.put("phonon", phonon) }
+                    llm = vasdk.engine.providerSpec { id = "kotlin" }
+                }
+            }
+            Session(built, providers).use { session ->
+                session.start()
+                session.injectText("hello")
+                assertTrue(waitFor { spoken.any { "hello" in it } }, "spoken: $spoken")
+            }
+            Runtime(built, providers, maxSessions = 1).use { runtime -> runtime.session().close() }
+            val floatAudio = vasdk.engine.engineConfig {
+                this.providers = built.providers
+                audio = vasdk.engine.audio { output = vasdk.engine.audioFormat { encoding = AudioFormat.Encoding.FLOAT_32 } }
+            }
+            val error = assertFailsWith<VasdkException> { Session(floatAudio, providers) }
+            assertTrue("config: audio" in (error.message ?: ""), error.message)
+        }
     }
 }

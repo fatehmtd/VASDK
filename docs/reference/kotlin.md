@@ -69,6 +69,8 @@ Session("engine.txtpb", providers, agent, options).use { session ->
 }
 ```
 
+The config is a file's path, or an `EngineConfig` built in code (`Session(config, providers, ...)`, `Runtime(config, ...)`), each provider's settings its own message from [options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto) packed with `toAny()`: `tts = providerSpec { id = "phonon"; options = phononOptions { temperature = 0.4f }.toAny() }`.
+
 `session.events` is a `SharedFlow<Event>` of the same events, for coroutines. Callbacks run on VASDK's threads: keep them quick, and hop to your own dispatcher before touching UI.
 
 | | |

@@ -6,8 +6,8 @@
 
 namespace va::thirdparty::audio {
 
-AAudioSource::AAudioSource() {
-    _fifo.resize(kFifoCapacity);
+AAudioSource::AAudioSource(AAudioSourceOptions options) : _fifoCapacity(std::max<size_t>(options.bufferBytes, 4096)) {
+    _fifo.resize(_fifoCapacity);
 }
 
 AAudioSource::~AAudioSource() {
@@ -147,11 +147,11 @@ int AAudioSource::readAudio(char* buffer, int offset, int length) {
             });
             chunk = std::min(bytesNeeded - totalRead, _fifoSize);
             if (chunk > 0) {
-                size_t seg1 = std::min(chunk, kFifoCapacity - _fifoReadPos);
+                size_t seg1 = std::min(chunk, _fifoCapacity - _fifoReadPos);
                 std::memcpy(dst + totalRead, _fifo.data() + _fifoReadPos, seg1);
                 if (chunk > seg1)
                     std::memcpy(dst + totalRead + seg1, _fifo.data(), chunk - seg1);
-                _fifoReadPos = (_fifoReadPos + chunk) % kFifoCapacity;
+                _fifoReadPos = (_fifoReadPos + chunk) % _fifoCapacity;
                 _fifoSize   -= chunk;
                 totalRead   += chunk;
             }
@@ -187,9 +187,9 @@ void AAudioSource::onCapture(const void* audioData, int32_t numFrames) {
     std::lock_guard<std::mutex> lock(_fifoMutex);
 
     // Drop oldest data on overflow rather than blocking the audio thread
-    if (_fifoSize + bytes > kFifoCapacity) {
-        size_t toDrop = (_fifoSize + bytes) - kFifoCapacity;
-        _fifoReadPos  = (_fifoReadPos + toDrop) % kFifoCapacity;
+    if (_fifoSize + bytes > _fifoCapacity) {
+        size_t toDrop = (_fifoSize + bytes) - _fifoCapacity;
+        _fifoReadPos  = (_fifoReadPos + toDrop) % _fifoCapacity;
         _fifoSize    -= toDrop;
         _droppedBytes += toDrop;
         ++_overflowEvents;
@@ -199,11 +199,11 @@ void AAudioSource::onCapture(const void* audioData, int32_t numFrames) {
         }
     }
 
-    size_t seg1 = std::min(bytes, kFifoCapacity - _fifoWritePos);
+    size_t seg1 = std::min(bytes, _fifoCapacity - _fifoWritePos);
     std::memcpy(_fifo.data() + _fifoWritePos, src, seg1);
     if (bytes > seg1)
         std::memcpy(_fifo.data(), src + seg1, bytes - seg1);
-    _fifoWritePos = (_fifoWritePos + bytes) % kFifoCapacity;
+    _fifoWritePos = (_fifoWritePos + bytes) % _fifoCapacity;
     _fifoSize    += bytes;
     _dataReady.notify_one();
 }

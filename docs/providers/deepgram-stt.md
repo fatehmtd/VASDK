@@ -20,15 +20,25 @@ In C++, `va::thirdparty::stt::DeepgramppTranscriptionOptions` (in [`DeepgramppTr
 | `model` | `deepgram::listen::models::nova_3::GENERAL` | Model to use. |
 | `language` | `deepgram::listen::languages::nova_3::MULTILINGUAL` | Language code; empty lets the service detect it or use its default. |
 | `caBundlePath` | `""` | PEM file of certificates to trust; empty uses the TLS library's own (Android's mbedTLS can't read the system store). |
+| `interimResults` | `true` | Streaming: send partial results as the user speaks. |
+| `smartFormat` | `true` | Punctuation, numbers and casing in the transcript (streaming and whole segments). |
+| `endpointingMs` | `300` | Streaming: silence, in ms, after which the service ends an utterance. |
+| `utteranceEndMs` | `1000` | Streaming: gap in words, in ms, after which the service sends UtteranceEnd. |
 
-In an engine config, the catalog's `CloudOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) fills them: a field the config leaves unset falls back to its environment variable, then to the struct's default.
+In an engine config, its own `DeepgramSttOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) fills them: a field the config leaves unset falls back to its environment variable, then to the struct's default. The shared `CloudOptions` of configs written before it had its own message is still accepted.
 
 | Config field | Environment variable | Sets |
 | --- | --- | --- |
 | `api_key` | `DEEPGRAM_API_KEY` | `apiKey` |
 | `ca_bundle_path` | `VASDK_CA_BUNDLE` | `caBundlePath` |
+| `model` | - | `model` |
+| `language` | - | `language` |
+| `interim_results` | - | `interimResults` |
+| `smart_format` | - | `smartFormat` |
+| `endpointing_ms` | - | `endpointingMs` |
+| `utterance_end_ms` | - | `utteranceEndMs` |
 
-The engine config sets the key and the certificate bundle; `model` and `language` are set in C++.
+The engine config sets every field, through `DeepgramSttOptions`.
 
 ## Models and licenses
 
@@ -44,7 +54,7 @@ From an engine config:
 providers {
   stt {
     id: "deepgram"
-    options { [type.googleapis.com/vasdk.providers.CloudOptions] { api_key: "${DEEPGRAM_API_KEY}" } }
+    options { [type.googleapis.com/vasdk.providers.DeepgramSttOptions] { api_key: "${DEEPGRAM_API_KEY}" } }
     fallback: "whistle"
   }
 }

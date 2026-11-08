@@ -17,6 +17,10 @@ struct SonioxppTranscriptionOptions {
     std::string apiKey;
     /** PEM file of certificates to trust; empty uses the TLS library's own (Android's mbedTLS can't read the system store). */
     std::string caBundlePath;
+    /** Model to use. */
+    std::string model = soniox::stt::models::realtime_v5;
+    /** Streaming: the service marks where speech ends (whole segments never ask for it). */
+    bool endpointDetection = true;
 };
 
 /**
@@ -60,6 +64,8 @@ private:
 private:
     std::string _apiKey;
     std::string _caFilePath;
+    std::string _model;
+    bool _endpointDetection;
     std::unique_ptr<soniox::SttRealtimeClient> _client;
     va::audio::AudioConfig _audioConfig{};
     va::audio::TranscriptionResultListener* _listener = nullptr;

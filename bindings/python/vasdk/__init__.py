@@ -88,6 +88,7 @@ _find_messages()
 from .engine import engine_config_pb2, events_pb2, session_pb2  # noqa: E402
 from .flow import conversation_pb2, snapshot_pb2, step_outcome_pb2, test_case_pb2, trigger_pb2  # noqa: E402
 from .nlu import entity_pb2, language_pb2  # noqa: E402
+from .providers import options_pb2  # noqa: E402,F401  the providers' options: vasdk.providers.options_pb2.PhononOptions, ...
 
 Event = events_pb2.Event
 Command = events_pb2.Command
@@ -95,6 +96,7 @@ ConversationInput = conversation_pb2.ConversationInput
 ConversationReply = conversation_pb2.ConversationReply
 StepOutcome = step_outcome_pb2.StepOutcome
 SessionOptions = session_pb2.SessionOptions
+EngineConfig = engine_config_pb2.EngineConfig   # a config built in code, for Session() and Runtime()
 ToolDeclaration = session_pb2.ToolDeclaration
 ToolParameter = session_pb2.ToolParameter
 TriggerDecision = trigger_pb2.TriggerDecision   # TriggerFired.decision, ConversationReply.Trigger.decision
@@ -236,6 +238,7 @@ _run_test_file = _declare("vasdk_run_test_file", _i, _p, _s, _error)
 _providers_create = _declare("vasdk_providers_create", _p)
 _providers_free = _declare("vasdk_providers_free", None, _p)
 _session_create = _declare("vasdk_session_create_message", _p, _s, _p, _p, _s, _n, _i, _error)
+_session_create_config = _declare("vasdk_session_create_config", _p, _s, _n, _i, _p, _p, _s, _n, _i, _error)
 _session_free = _declare("vasdk_session_free", None, _p)
 _session_on_event = _declare("vasdk_session_on_event_message", None, _p, _MESSAGE, _i, _p)
 _session_on_audio = _declare("vasdk_session_on_audio", None, _p, _AUDIO, _p)
@@ -276,6 +279,7 @@ _session_restore_triggers = _declare("vasdk_session_restore_trigger_state", None
 _session_add_audio_processor = _declare("vasdk_session_add_audio_processor", _i, _p, _i, _AUDIO_PROCESSOR, _p)
 _session_add_text_processor = _declare("vasdk_session_add_text_processor", _i, _p, _i, _TEXT_PROCESSOR, _p)
 _runtime_create = _declare("vasdk_runtime_create", _p, _s, _p, _s, _i, _error)
+_runtime_create_config = _declare("vasdk_runtime_create_config", _p, _s, _n, _i, _p, _s, _i, _error)
 _runtime_free = _declare("vasdk_runtime_free", None, _p)
 _runtime_session_create = _declare("vasdk_runtime_session_create", _p, _p, _p, _s, _n, _i, _error)
 _runtime_active_sessions = _declare("vasdk_runtime_active_sessions", _n, _p)
@@ -1080,9 +1084,15 @@ class Runtime:
     Free the sessions (close()) before the runtime."""
 
     def __init__(self, config, providers, models_dir=None, max_sessions=0):
+        """config: an engine config file's path, or a vasdk.EngineConfig built in code."""
         error = ctypes.c_void_p()
-        handle = _runtime_create(_encode(str(config)), providers._handle, _encode(str(models_dir)) if models_dir else None,
-                                 int(max_sessions), ctypes.byref(error))
+        models = _encode(str(models_dir)) if models_dir else None
+        if isinstance(config, EngineConfig):
+            built = config.SerializeToString()
+            handle = _runtime_create_config(built, len(built), _BINARY, providers._handle, models, int(max_sessions),
+                                            ctypes.byref(error))
+        else:
+            handle = _runtime_create(_encode(str(config)), providers._handle, models, int(max_sessions), ctypes.byref(error))
         if not handle:
             raise VasdkError(_take(error.value))
         self._handle, self._providers = handle, providers
@@ -1139,7 +1149,9 @@ class Session:
 
     def __init__(self, config, providers, agent=None, id=None, models_dir=None, system_prompt=None, format_instruction=None,
                  options=None):
-        """system_prompt: the LLM's instructions ({context} in them is set_context's state);
+        """config: an engine config file's path, or a vasdk.EngineConfig built in code, its
+        providers' options their own messages (vasdk.providers.options_pb2.PhononOptions, ...);
+        system_prompt: the LLM's instructions ({context} in them is set_context's state);
         format_instruction: how its replies must be formatted, appended to every request.
         options: a vasdk.SessionOptions instead of the keyword arguments."""
         if options is None:
@@ -1147,8 +1159,14 @@ class Session:
                                      system_prompt=system_prompt or "", format_instruction=format_instruction or "")
         data = options.SerializeToString()
         error = ctypes.c_void_p()
-        handle = _session_create(_encode(str(config)), providers._handle, agent._handle if agent else None, data, len(data),
-                                 _BINARY, ctypes.byref(error))
+        agent_handle = agent._handle if agent else None
+        if isinstance(config, EngineConfig):
+            built = config.SerializeToString()
+            handle = _session_create_config(built, len(built), _BINARY, providers._handle, agent_handle, data, len(data),
+                                            _BINARY, ctypes.byref(error))
+        else:
+            handle = _session_create(_encode(str(config)), providers._handle, agent_handle, data, len(data), _BINARY,
+                                     ctypes.byref(error))
         if not handle:
             raise VasdkError(_take(error.value))
         self._adopt(handle, providers, agent)

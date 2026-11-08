@@ -56,6 +56,17 @@ session.fire_trigger("timer-done", {"label": "pasta"})   # one of the agent's ap
 session.set_context({"kitchen": {...}})  # $context.kitchen, and {context} in the system prompt
 ```
 
+The config can also be built in code, each provider's settings its own message (`vasdk.providers.options_pb2`):
+
+```python
+from vasdk.providers.options_pb2 import PhononOptions
+
+config = vasdk.EngineConfig()
+config.providers.vad.id, config.providers.stt.id, config.providers.tts.id = "silero", "whistle", "phonon"
+config.providers.tts.options.Pack(PhononOptions(voice="Zoey", temperature=0.4))
+session = vasdk.Session(config, providers, agent, models_dir="models")   # vasdk.Runtime(config, ...) too
+```
+
 | | |
 | --- | --- |
 | `Providers()` | Loads the `vasdk_providers` library (`VASDK_PROVIDERS_LIBRARY`, else beside VASDK or in the build tree). It's built when VASDK is a shared library. |

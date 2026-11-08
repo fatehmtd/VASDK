@@ -12,7 +12,7 @@ providers {
   stt { id: "whistle" fallback: ["parakeet"] }
   tts {
     id: "cartesia"
-    options { [type.googleapis.com/vasdk.providers.CloudOptions] { api_key: "${CARTESIA_API_KEY}" } }
+    options { [type.googleapis.com/vasdk.providers.CartesiaTtsOptions] { api_key: "${CARTESIA_API_KEY}" } }
     fallback: ["pocket"]
   }
 }
@@ -44,15 +44,37 @@ Each `ProviderSpec` has:
 
   | Message | Providers | Fields |
   | --- | --- | --- |
-  | `vasdk.providers.CloudOptions` | cloud STT/TTS (`gladia`: STT only) | `api_key`, `voice_id`, `ca_bundle_path` (certificates to trust; Android's TLS can't read the system store) |
-  | `vasdk.providers.SileroOptions` | `silero` | `model_path`, `threshold` (speech probability a frame needs, 0–1; default 0.75) |
-  | `vasdk.providers.LocalSttOptions` | `whistle`, `moonshine`, `parakeet` | `model_dir`, `idle_timeout_ms`, `partial_interval_ms`, `language` |
-  | `vasdk.providers.LocalTtsOptions` | `supertonic`, `moss`, `phonon`, `pocket` | `model_dir`, `voice`, `language`, `steps`, `prebuffer_ms` (pocket, moss: audio made before playback starts, against stalls on slow phones) |
-  | `vasdk.providers.SmartTurnOptions` | `smartturn-v3` | `model_path` |
+  | `vasdk.providers.SileroOptions` | `silero` | `model_path`, `threshold`, `window_frame_size_ms`, `min_silence_duration_ms`, `speech_pad_ms`, `min_speech_duration_ms` ([Silero](../providers/silero.md#options)) |
+  | `vasdk.providers.GradiumSttOptions` | `gradium` (STT) | `api_key`, `model`, `language` |
+  | `vasdk.providers.SonioxSttOptions` | `soniox` (STT) | `api_key`, `ca_bundle_path`, `model`, `endpoint_detection` |
+  | `vasdk.providers.DeepgramSttOptions` | `deepgram` (STT) | `api_key`, `ca_bundle_path`, `model`, `language`, `interim_results`, `smart_format`, `endpointing_ms`, `utterance_end_ms` |
+  | `vasdk.providers.CartesiaSttOptions` | `cartesia` (STT) | `api_key`, `ca_bundle_path`, `model`, `language` |
+  | `vasdk.providers.FishAudioSttOptions` | `fishaudio` (STT) | `api_key`, `ca_bundle_path`, `language` |
+  | `vasdk.providers.GladiaOptions` | `gladia` | `api_key`, `ca_bundle_path`, `region`, `endpointing_seconds`, `max_duration_without_endpointing_seconds` |
+  | `vasdk.providers.WhistleOptions` | `whistle` | `model_dir`, `idle_timeout_ms`, `partial_interval_ms`, `language`, `engine_path`, `keywords`, `word_timestamps`, `min_new_samples_for_partial`, `min_new_samples_for_final` |
+  | `vasdk.providers.MoonshineOptions` | `moonshine` | `model_dir`, `idle_timeout_ms`, `partial_interval_ms` |
+  | `vasdk.providers.ParakeetOptions` | `parakeet` | `model_dir`, timings, and the decoder's tuning ([Parakeet](../providers/parakeet.md#options)) |
+  | `vasdk.providers.VozOptions` | `voz` (the Android app's) | `idle_timeout_ms`, `partial_interval_ms`, `min_new_samples_for_partial`, `min_new_samples_for_final` |
+  | `vasdk.providers.GradiumTtsOptions` | `gradium` (TTS) | `api_key`, `voice_id`, `model` |
+  | `vasdk.providers.SonioxTtsOptions` | `soniox` (TTS) | `api_key`, `voice`, `ca_bundle_path`, `language` |
+  | `vasdk.providers.DeepgramTtsOptions` | `deepgram` (TTS) | `api_key`, `model` (the voice), `ca_bundle_path` |
+  | `vasdk.providers.CartesiaTtsOptions` | `cartesia` (TTS) | `api_key`, `voice_id`, `ca_bundle_path`, `model`, `language` |
+  | `vasdk.providers.FishAudioTtsOptions` | `fishaudio` (TTS) | `api_key`, `reference_id`, `ca_bundle_path`, `model` |
+  | `vasdk.providers.SupertonicOptions` | `supertonic` | `model_dir`, `voice`, `language`, `steps`, `prebuffer_ms`, `speed`, `silence_duration_seconds`, `trim_margin` |
+  | `vasdk.providers.MossOptions` | `moss` | `model_dir`, `voice`, `prebuffer_ms`, `threads`, `silence_duration_seconds`, `max_new_frames`, `max_chunk_tokens`, `text_normalization`, `pause_short_seconds`, `pause_long_seconds` |
+  | `vasdk.providers.PhononOptions` | `phonon` | `model_dir`, `voice`, `language`, `prebuffer_ms`, `normalization_rules`, `temperature`, `duration_delta`, `stream_chunk_frames`, `max_tokens_per_chunk`, `silence_duration_seconds` |
+  | `vasdk.providers.PocketOptions` | `pocket` | `model_dir`, `voice`, `steps`, `prebuffer_ms`, `temperature`, `silence_duration_seconds`, `decoder_batch_frames` |
+  | `vasdk.providers.SmartTurnOptions` | `smartturn-v3` | `model_path`, `threshold`, `max_audio_duration_seconds`, `post_audio_frames`, `evaluate_on_pause`, `pause_threshold` |
+  | `vasdk.providers.MiniLmOptions` | `minilm` (`sentence_encoder`) | `model_dir`, `threads` |
+  | `vasdk.providers.GlinerOptions` | `gliner` (`entity_model`) | `model_dir`, `threshold`, `threads` |
   | `vasdk.providers.LibDataChannelWebRtcOptions` | `libdatachannel` (`webrtc`) | `ice_servers`, `port` (8080), `host`, `page` ([WebRTC](../providers/webrtc.md#options)) |
+  | `vasdk.providers.MiniAudioOptions` | `miniaudio` (`audio_input`) | `buffer_seconds` |
+  | `vasdk.providers.AAudioOptions` | `aaudio` (`audio_input`, `audio_output`) | `buffer_bytes` |
   | `vasdk.providers.RNNoiseOptions` | `rnnoise` (`audio_dsp`) | `model_path`, `vad_threshold`, `normalize_output`, `normalization_multiplier` ([RNNoise](../providers/rnnoise.md#options)) |
   | `vasdk.providers.PyannoteOptions` | `pyannote` (`speaker_embedding`) | `model_path` |
-  | `vasdk.providers.LlamaCppOptions` | `llamacpp` (`llm`) | `model_path`, `chat_format`, `context_tokens`, `max_tokens`, sampling (`temperature`, `top_p`, `top_k`, `min_p`, `repetition_penalty`), `threads`, `gpu_layers`, `native_library_dir` (Android), `answer_agent` ([llama.cpp](../providers/llamacpp.md#options)) |
+  | `vasdk.providers.LlamaCppOptions` | `llamacpp` (`llm`) | `model_path`, `chat_format`, `context_tokens`, `max_tokens`, sampling (`temperature`, `top_p`, `top_k`, `min_p`, `repetition_penalty`), `threads`, `gpu_layers`, `batch_tokens`, `chunker`, `chunker_min_bytes`, `native_library_dir` (Android), `answer_agent` ([llama.cpp](../providers/llamacpp.md#options)) |
+
+  Each provider's page lists what every field does. The shared messages of configs written before each provider had its own, `CloudOptions` (cloud STT/TTS), `LocalSttOptions` (`whistle`, `moonshine`, `parakeet`) and `LocalTtsOptions` (`supertonic`, `moss`, `phonon`, `pocket`), are still accepted. A config built in code (C++, [C](c-api.md), Python, Kotlin) packs the same messages.
 
   A recognizer's or voice's `language` is the provider's own setting: set it to match the agent's `locale` ([Languages](languages.md)), which the providers don't read.
 
@@ -61,7 +83,7 @@ Each `ProviderSpec` has:
 - `llm` (a stage of its own): the conversation's LLM from a provider instead of the [`llm`](#llm) endpoint: [`llamacpp`](../providers/llamacpp.md) on the device, or one an app wrote (the C API's `vasdk_providers_add_llm`, Python's `Providers.llm`, Kotlin's `Providers.llm`). Each session gets its own. When the provider also answers one-shot asks (llamacpp with `answer_agent`, every app-written one), it answers the agent's too. The `llm` block's other settings (`history`, `tool_filler_phrases`, `failure_replies`) still apply.
 - `audio_dsp` (a stage of its own): processes the microphone's audio before anything hears it: noise suppression, echo cancellation. Every stage after it (wake word, VAD, turn model, STT, speaker identification) and the `AfterInput` processors hear its output. [`rnnoise`](../providers/rnnoise.md) (not on Android), or one an app wrote (the C API's `vasdk_providers_add_audio_dsp`, Python's `Providers.audio_dsp`, Kotlin's `Providers.audioDsp`). Each session gets its own. Unset: the audio as it comes.
 - `speaker_embedding` (a stage of its own): who is speaking. Each utterance's voice print is matched against the enrolled speakers, and the result is a `speaker_identified` event ([Speaker identification](#speaker-identification)). [`pyannote`](../providers/pyannote.md), or one an app wrote (`vasdk_providers_add_speaker_embedding`, `Providers.speaker_embedding`, `Providers.speakerEmbedding`). Unset: no speaker identification.
-- `fallback`: ids to try, in order, when `id` is not built into the binary or fails to start (a missing model file, or a cloud provider with no API key, for example), and to switch to when the network drops ([When the network drops](engine.md#when-the-network-drops)). `options` apply to `id`; a fallback gets its `fallback_options` entry (`fallback_options { key: "parakeet" value { [type.googleapis.com/vasdk.providers.LocalSttOptions] { model_dir: "models/parakeet" } } }`), or starts with its defaults. The log shows which provider was used and why the others were skipped.
+- `fallback`: ids to try, in order, when `id` is not built into the binary or fails to start (a missing model file, or a cloud provider with no API key, for example), and to switch to when the network drops ([When the network drops](engine.md#when-the-network-drops)). `options` apply to `id`; a fallback gets its `fallback_options` entry (`fallback_options { key: "parakeet" value { [type.googleapis.com/vasdk.providers.ParakeetOptions] { model_dir: "models/parakeet" } } }`), or starts with its defaults. The log shows which provider was used and why the others were skipped.
 
 ## Activation
 
@@ -159,10 +181,13 @@ audio {
   input  { sample_rate: 16000 encoding: PCM_16 channels: 1 }   # what the VAD, turn model, wake word and STT receive
   output { sample_rate: 24000 encoding: PCM_16 channels: 1 }   # what the TTS produces
   frame_ms: 100                                                 # the grid VAD and turn decisions run on
+  tts_prebuffer_ms: 250                                         # TTS audio gathered before each text plays
 }
 ```
 
-These replace `Runtime::Options` / `VAEngine::Options` `inputAudio`, `outputAudio` and `frameSize`, value by value. Encodings: `PCM_16` (default), `PCM_8`, `PCM_32`, `FLOAT_32`. Providers resample from their own model rates to these, and the transport is configured with them. Changing only the input rate keeps the frame's duration. Out-of-range values (a rate outside 8000–192000 Hz, 0 channels, `frame_ms` outside 10–1000) fail `create()` with the field's name.
+`tts_prebuffer_ms` is how much audio a local voice (pocket, moss, phonon, supertonic) makes before each text starts playing, so a slow piece isn't heard as a gap: more is smoother on a slow CPU, less starts speaking sooner. Unset, each voice uses its own default of 250 ms; 0 plays at once. A voice's own `prebuffer_ms` (in its options message) overrides it. Cloud voices ignore it: they play audio as it arrives.
+
+These replace `Runtime::Options` / `VAEngine::Options` `inputAudio`, `outputAudio` and `frameSize`, value by value. Encodings: `PCM_16` (default), `PCM_8`, `PCM_32`, `FLOAT_32`. Providers resample from their own model rates to these, and the transport is configured with them. Changing only the input rate keeps the frame's duration. Out-of-range values (a rate outside 8000–192000 Hz, 0 channels, `frame_ms` outside 10–1000, `tts_prebuffer_ms` outside 0–5000) fail `create()` with the field's name.
 
 An app that opens its audio devices before creating the engine calls `va::engine::applyAudioConfig(config.audio(), ...)` first, so the devices use the same formats; VASDK_Pipeline does.
 
@@ -312,7 +337,17 @@ registry.add<va::audio::GenericVoiceSynthesisProvider, acme::MyTtsOptions>("acme
     });
 ```
 
-The options message has to be compiled into the binary, so the loader can resolve its `[type.googleapis.com/acme.MyTtsOptions]` name. Use `loadProtoFile()` for other messages; it expands `${...}` only when asked.
+The options message has to be compiled into the binary, so the loader can resolve its `[type.googleapis.com/acme.MyTtsOptions]` name.
+
+A provider that moves to a message of its own can keep taking the older one: give `add` a third type and a converter, and a config with either works (the catalog does this for the shared `CloudOptions`, `LocalSttOptions` and `LocalTtsOptions`):
+
+```cpp
+registry.add<va::audio::GenericVoiceSynthesisProvider, acme::MyTtsOptions, acme::OldTtsOptions>("acme",
+    [](const acme::MyTtsOptions& options, const va::engine::ProviderContext& context) { /* as above */ },
+    [](const acme::OldTtsOptions& old) { acme::MyTtsOptions own; own.set_voice(old.voice()); return own; });
+```
+
+A config built in code instead of read from a file goes to `VAEngine::create` / `Runtime::create` as it is; a provider's options are its own message packed into the spec (`spec.mutable_options()->PackFrom(phonon)`). Use `loadProtoFile()` for other messages; it expands `${...}` only when asked.
 
 ## Build
 

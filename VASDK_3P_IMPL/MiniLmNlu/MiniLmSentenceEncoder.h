@@ -15,6 +15,8 @@ namespace thirdparty::nlu {
 struct MiniLmSentenceEncoderOptions {
     /** Folder holding model.onnx and vocab.txt (VASDK_3P_IMPL/cmake/DownloadMiniLmModel.cmake). */
     std::string modelDir;
+    /** ONNX Runtime threads. */
+    int threads = 1;
 };
 
 /**
@@ -42,6 +44,7 @@ private:
     // The model's last hidden state for `ids`: tokens × size, row after row; empty on failure.
     std::vector<float> hidden(const std::vector<int64_t>& ids, size_t& size) const;
     std::string _modelDir;
+    int _threads;
     std::map<std::string, int64_t> _vocabulary;
     std::unique_ptr<Model> _model;
     mutable std::mutex _mutex;   // one inference at a time

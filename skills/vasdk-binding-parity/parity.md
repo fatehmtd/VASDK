@@ -74,8 +74,8 @@ Rules for a row:
 | `Session::id` | — | — | — | C++ only: the app sets it (SessionOptions.id) and every event carries it (Event.session_id) |
 | `Session::hasLLM` | — | — | — | C++ only: describe() says which LLM the session has |
 | `Session::inputRingBuffer`, `Session::llmTransport`, `Session::toolDispatcher`, `Session::pipeline` | — | — | — | C++ only: the pipeline's internals; app-written processors and providers cover what apps do with them |
-| `VAEngine::create` | `vasdk_session_create_message` | `Session.__init__` | `Session` | one session with its own providers |
-| `Runtime::create` | `vasdk_runtime_create` | `Runtime.__init__` | `Runtime` | |
+| `VAEngine::create` | `vasdk_session_create_message`, `vasdk_session_create_config` | `Session.__init__` | `Session` | one session with its own providers; a config file's path, or an EngineConfig built in code |
+| `Runtime::create` | `vasdk_runtime_create`, `vasdk_runtime_create_config` | `Runtime.__init__` | `Runtime` | a config file's path, or an EngineConfig built in code |
 | `Runtime::createSession` | `vasdk_runtime_session_create` | `Runtime.session` | `Runtime.session` | |
 | `Runtime::activeSessions` | `vasdk_runtime_active_sessions` | `Runtime.active_sessions` | `Runtime.activeSessions` | |
 | `Runtime::idleProviderSets` | `vasdk_runtime_idle_provider_sets` | `Runtime.idle_provider_sets` | `Runtime.idleProviderSets` | |

@@ -26,7 +26,7 @@ In C++, `va::thirdparty::stt::WhistleTranscriptionOptions` (in [`WhistleTranscri
 | `keywords` | `{}` | Names, product words and jargon to favour (keyword biasing). |
 | `wordTimestamps` | `true` | Word timings and probabilities; also what the result confidence is averaged from. |
 
-In an engine config, the catalog's `LocalSttOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) fills them: a field the config leaves unset falls back to its environment variable, then to the struct's default.
+In an engine config, its own `WhistleOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) fills them: a field the config leaves unset falls back to its environment variable, then to the struct's default. The shared `LocalSttOptions` of configs written before it had its own message is still accepted.
 
 | Config field | Environment variable | Sets |
 | --- | --- | --- |
@@ -34,6 +34,11 @@ In an engine config, the catalog's `LocalSttOptions` message ([options.proto](..
 | `idle_timeout_ms` | - | `idleTimeoutMs` |
 | `partial_interval_ms` | - | `partialIntervalMs` |
 | `language` | `WHISTLE_LANGUAGE` | `language` |
+| `engine_path` | - | `enginePath` |
+| `keywords` | - | `keywords` |
+| `word_timestamps` | - | `wordTimestamps` |
+| `min_new_samples_for_partial` | - | `minNewSamplesForPartial` |
+| `min_new_samples_for_final` | - | `minNewSamplesForFinal` |
 
 The engine holds one speech model per process and isn't thread-safe, so every instance shares one `NeedleEngine` and their calls are serialised: the one process-wide object in `VASDK_3P_IMPL/` (see `VASDK_3P_IMPL/check_rules.py`). Configure warns where no prebuilt engine exists, and stops on 32-bit Windows. The catalog derives `minNewSamplesForPartial` (a quarter second) and `minNewSamplesForFinal` (one pipeline frame) from the pipeline's audio format.
 
@@ -54,7 +59,7 @@ From an engine config:
 providers {
   stt {
     id: "whistle"
-    options { [type.googleapis.com/vasdk.providers.LocalSttOptions] { idle_timeout_ms: 600 } }
+    options { [type.googleapis.com/vasdk.providers.WhistleOptions] { idle_timeout_ms: 600 } }
     fallback: "parakeet"
   }
 }

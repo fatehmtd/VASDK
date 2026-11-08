@@ -102,9 +102,14 @@ google::protobuf::Struct car(const std::string& name) {
 } // namespace
 
 int main() {
-    // Noon today, local time: the quiet hours are later.
-    auto now = std::chrono::system_clock::now();
-    now += std::chrono::hours(12) - std::chrono::minutes(localMinuteOfDay(now));
+    // 2026-11-05, noon, local time: the quiet hours are later.
+    std::tm noon{};
+    noon.tm_year = 2026 - 1900;
+    noon.tm_mon = 10;
+    noon.tm_mday = 5;
+    noon.tm_hour = 12;
+    noon.tm_isdst = -1;
+    auto now = std::chrono::system_clock::from_time_t(std::mktime(&noon));
     std::string error;
     auto agent = compile(agentText(now), &error);
     check(agent != nullptr, "the agent compiles");

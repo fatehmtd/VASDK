@@ -26,7 +26,7 @@ PACKAGE = Path(__file__).resolve().parent / "vasdk"
 PATTERNS = {"win32": ["*.dll"], "darwin": ["*.dylib"]}.get(sys.platform, ["*.so", "*.so.*"])
 LIBRARY = {"win32": "VASDK.dll", "darwin": "libVASDK.dylib"}.get(sys.platform, "libVASDK.so")
 PROVIDERS = {"win32": "vasdk_providers.dll", "darwin": "libvasdk_providers.dylib"}.get(sys.platform, "libvasdk_providers.so")
-MESSAGES = ["engine", "flow", "goal", "nlu"]   # the proto packages, as vasdk.<name>
+MESSAGES = ["engine", "flow", "goal", "nlu", "providers"]   # the proto packages, as vasdk.<name>
 
 
 def clean():

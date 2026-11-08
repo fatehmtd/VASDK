@@ -23,12 +23,16 @@ In C++, `va::thirdparty::vad::SileroVADOptions` (in [`SileroVAD.h`](../../VASDK_
 | `speechPadMs` | `30` | Padding added before and after each speech segment. |
 | `minSpeechDurationMs` | `150` | Shorter segments are dropped as clicks. |
 
-In an engine config, the catalog's `SileroOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) fills them: a field the config leaves unset falls back to its environment variable, then to the struct's default.
+In an engine config, its own `SileroOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) fills them: a field the config leaves unset falls back to its environment variable, then to the struct's default.
 
 | Config field | Environment variable | Sets |
 | --- | --- | --- |
 | `model_path` | - | `modelPath` |
 | `threshold` | - | `threshold` |
+| `window_frame_size_ms` | - | `windowFrameSizeMs` |
+| `min_silence_duration_ms` | - | `minSilenceDurationMs` |
+| `speech_pad_ms` | - | `speechPadMs` |
+| `min_speech_duration_ms` | - | `minSpeechDurationMs` |
 
 ## Models and licenses
 

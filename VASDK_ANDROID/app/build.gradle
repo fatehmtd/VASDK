@@ -124,6 +124,8 @@ android {
 // VASDK's messages for Kotlin (vasdk.engine.Event, ...), from the same .proto files as the native
 // side, as lite classes: VasdkEngine.events gives each event as its message.
 android.sourceSets.main.proto.srcDir '../../VASDK/proto'
+// The providers' options (vasdk.providers.LocalTtsOptions, ...), for the engine config VasdkEngine builds.
+android.sourceSets.main.proto.srcDir '../../VASDK_3P_IMPL/ProviderCatalog/proto'
 protobuf {
     protoc { artifact = 'com.google.protobuf:protoc:4.29.5' }
     generateProtoTasks {

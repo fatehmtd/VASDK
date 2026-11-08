@@ -14,7 +14,13 @@ AAudio is part of Android only. Elsewhere CMake turns the option off with `AAudi
 
 ## Options
 
-None: `AAudioSource` and `AAudioSink` open the device in the session's audio format (`audio { input output }`). The app needs the `RECORD_AUDIO` permission.
+`AAudioSource` and `AAudioSink` open the device in the session's audio format (`audio { input output }`). The app needs the `RECORD_AUDIO` permission. In C++, `AAudioSourceOptions` and `AAudioSinkOptions` (in [`AAudioSource.h`](../../VASDK_3P_IMPL/AAudio/AAudioSource.h), [`AAudioSink.h`](../../VASDK_3P_IMPL/AAudio/AAudioSink.h)):
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `bufferBytes` | `1024 * 1024` (source), `8 * 1024 * 1024` (sink) | The FIFO between the device callback and the pipeline, in bytes (at least 4096). |
+
+In an engine config, the `AAudioOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) sets `buffer_bytes` (`bufferBytes`), for `audio_input` and `audio_output` each.
 
 ## Models and licenses
 

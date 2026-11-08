@@ -16,6 +16,8 @@ struct GlinerEntityExtractorOptions {
     std::string modelDir;
     /** A span's score (0-1) must reach it to be kept. */
     float threshold = 0.5f;
+    /** ONNX Runtime threads. */
+    int threads = 2;
 };
 
 /**
@@ -38,6 +40,7 @@ private:
     struct Model;
     std::string _modelDir;
     float _threshold;
+    int _threads;
     std::unique_ptr<Model> _model;
     mutable std::mutex _mutex;   // one inference at a time
 };

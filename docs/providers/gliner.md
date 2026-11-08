@@ -18,13 +18,15 @@ In C++, `va::thirdparty::nlu::GlinerEntityExtractorOptions` (in [`GlinerEntityEx
 | --- | --- | --- |
 | `modelDir` | `""` | Folder holding model.onnx, spm.model, added_tokens.json and gliner_config.json (VASDK_3P_IMPL/cmake/DownloadGlinerModel.cmake). |
 | `threshold` | `0.5f` | A span's score (0-1) must reach it to be kept. |
+| `threads` | `2` | ONNX Runtime threads. |
 
-In an engine config, the catalog's `GlinerOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) fills them: a field the config leaves unset falls back to its environment variable, then to the struct's default.
+In an engine config, its own `GlinerOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) fills them: a field the config leaves unset falls back to its environment variable, then to the struct's default.
 
 | Config field | Environment variable | Sets |
 | --- | --- | --- |
 | `model_dir` | - | `modelDir` |
 | `threshold` | - | `threshold` |
+| `threads` | - | `threads` |
 
 ## Models and licenses
 

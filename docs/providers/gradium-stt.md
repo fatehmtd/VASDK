@@ -20,11 +20,13 @@ In C++, `va::thirdparty::stt::GradiumppTranscriptionOptions` (in [`GradiumppTran
 | `model` | `gradium::asr::models::default_model` | Model to use. |
 | `language` | `""` | Language code; empty lets the service detect it or use its default. |
 
-In an engine config, the catalog's `CloudOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) fills them: a field the config leaves unset falls back to its environment variable, then to the struct's default.
+In an engine config, its own `GradiumSttOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) fills them: a field the config leaves unset falls back to its environment variable, then to the struct's default. The shared `CloudOptions` of configs written before it had its own message is still accepted.
 
 | Config field | Environment variable | Sets |
 | --- | --- | --- |
 | `api_key` | `GRADIUM_API_KEY` | `apiKey` |
+| `model` | - | `model` |
+| `language` | - | `language` |
 
 The client doesn't take a certificate bundle, so `ca_bundle_path` doesn't apply.
 
@@ -42,7 +44,7 @@ From an engine config:
 providers {
   stt {
     id: "gradium"
-    options { [type.googleapis.com/vasdk.providers.CloudOptions] { api_key: "${GRADIUM_API_KEY}" } }
+    options { [type.googleapis.com/vasdk.providers.GradiumSttOptions] { api_key: "${GRADIUM_API_KEY}" } }
     fallback: "whistle"
   }
 }

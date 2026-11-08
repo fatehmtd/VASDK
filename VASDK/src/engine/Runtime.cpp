@@ -65,6 +65,10 @@ bool applyFormat(const vasdk::engine::AudioFormat& config, const char* name, aud
     return true;
 }
 
+int ttsPrebufferMs(const vasdk::engine::Audio& config) {
+    return config.has_tts_prebuffer_ms() ? config.tts_prebuffer_ms() : -1;
+}
+
 } // namespace
 
 bool applyAudioConfig(const vasdk::engine::Audio& config, audio::AudioConfig& inputAudio,
@@ -81,6 +85,10 @@ bool applyAudioConfig(const vasdk::engine::Audio& config, audio::AudioConfig& in
         frameSize = static_cast<int>(static_cast<int64_t>(inputAudio.sampleRate) * config.frame_ms() / 1000);
     } else if (inputAudio.sampleRate != inputRate && frameMs > 0) {
         frameSize = static_cast<int>(static_cast<int64_t>(inputAudio.sampleRate) * frameMs / 1000);  // same duration
+    }
+    if (config.has_tts_prebuffer_ms() && (config.tts_prebuffer_ms() < 0 || config.tts_prebuffer_ms() > 5000)) {
+        if (error) *error = "audio.tts_prebuffer_ms: " + std::to_string(config.tts_prebuffer_ms()) + " is outside 0-5000";
+        return false;
     }
     return true;
 }
@@ -193,7 +201,8 @@ std::shared_ptr<Runtime::ProviderSet> Runtime::createProviderSet(std::string* er
         set->processedRingBuffer = std::make_shared<AudioRingBuffer>(set->ringBuffer->getCapacity(), _options.inputAudio.getSampleSizeInBytes());
     }
     const ProviderContext input{_options.modelsDir, _options.inputAudio, _options.frameSize, set->processedRingBuffer};
-    const ProviderContext output{_options.modelsDir, _options.outputAudio, _options.frameSize, set->processedRingBuffer};
+    const ProviderContext output{_options.modelsDir, _options.outputAudio, _options.frameSize, set->processedRingBuffer,
+                                 ttsPrebufferMs(_config.audio())};
 
     set->vad = _registry.create<audio::VADProvider>(providers.vad(), input, &reason);
     if (!set->vad) return fail("VAD: " + reason);
@@ -243,7 +252,8 @@ vasdk::engine::ProviderSpec fallbacksAfter(const vasdk::engine::ProviderSpec& sp
 
 bool Runtime::loadFallbacks(ProviderSet& set, std::string* error) const {
     const ProviderContext input{_options.modelsDir, _options.inputAudio, _options.frameSize, set.processedRingBuffer};
-    const ProviderContext output{_options.modelsDir, _options.outputAudio, _options.frameSize, set.processedRingBuffer};
+    const ProviderContext output{_options.modelsDir, _options.outputAudio, _options.frameSize, set.processedRingBuffer,
+                                 ttsPrebufferMs(_config.audio())};
     std::string reasons;
     if (!set.sttFallback) {
         const auto spec = fallbacksAfter(_config.providers().stt(), set.sttId);

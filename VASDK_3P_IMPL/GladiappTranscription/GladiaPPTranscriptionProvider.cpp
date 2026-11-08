@@ -10,7 +10,10 @@ namespace thirdparty::stt {
 
 GladiaPPTranscriptionProvider::GladiaPPTranscriptionProvider(GladiaPPTranscriptionOptions options)
     : _apiKey(std::move(options.apiKey)),
-      _caFilePath(std::move(options.caBundlePath))
+      _caFilePath(std::move(options.caBundlePath)),
+      _region(std::move(options.region)),
+      _endpointingSeconds(options.endpointingSeconds),
+      _maxDurationWithoutEndpointingSeconds(options.maxDurationWithoutEndpointingSeconds)
 {
 }
 
@@ -136,8 +139,8 @@ gladiapp::v2::ws::request::InitializeSessionRequest GladiaPPTranscriptionProvide
 {
     gladiapp::v2::ws::request::InitializeSessionRequest initRequest;
     initRequest.channels = _audioConfig.channels;
-    initRequest.endpointing = 0.01;
-    initRequest.maximum_duration_without_endpointing = 5;
+    initRequest.endpointing = _endpointingSeconds;
+    initRequest.maximum_duration_without_endpointing = _maxDurationWithoutEndpointingSeconds;
 
     gladiapp::v2::ws::request::InitializeSessionRequest::MessagesConfig messagesConfig;
     messagesConfig.receive_partial_transcripts = true;
@@ -168,7 +171,8 @@ gladiapp::v2::ws::request::InitializeSessionRequest GladiaPPTranscriptionProvide
         break;
     }
 
-    initRequest.region = request::InitializeSessionRequest::Region::US_WEST;
+    initRequest.region = _region == "eu-west" ? request::InitializeSessionRequest::Region::EU_WEST
+                                              : request::InitializeSessionRequest::Region::US_WEST;
     switch (_audioConfig.format)
     {
     case va::audio::AudioFormat::BYTE:

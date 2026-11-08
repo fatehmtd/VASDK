@@ -144,6 +144,8 @@ internal interface VasdkLibrary : Library {
 
     fun vasdk_session_create_message(configPath: String, providers: Pointer, agent: Pointer?, options: ByteArray, length: SizeT, format: Int,
                                      error: PointerByReference): Pointer?
+    fun vasdk_session_create_config(config: ByteArray, configLength: SizeT, configFormat: Int, providers: Pointer, agent: Pointer?,
+                                    options: ByteArray, length: SizeT, format: Int, error: PointerByReference): Pointer?
     fun vasdk_session_free(session: Pointer)
     fun vasdk_session_on_event_message(session: Pointer, onEvent: MessageFn, format: Int, user: Pointer?)
     fun vasdk_session_on_audio(session: Pointer, onAudio: AudioFn, user: Pointer?)
@@ -170,6 +172,8 @@ internal interface VasdkLibrary : Library {
     fun vasdk_session_add_text_processor(session: Pointer, slot: Int, processor: TextProcessorFn, user: Pointer?): Int
 
     fun vasdk_runtime_create(configPath: String, providers: Pointer, modelsDir: String?, maxSessions: Int, error: PointerByReference): Pointer?
+    fun vasdk_runtime_create_config(config: ByteArray, configLength: SizeT, configFormat: Int, providers: Pointer, modelsDir: String?,
+                                    maxSessions: Int, error: PointerByReference): Pointer?
     fun vasdk_runtime_free(runtime: Pointer)
     fun vasdk_runtime_session_create(runtime: Pointer, agent: Pointer?, options: ByteArray, length: SizeT, format: Int,
                                      error: PointerByReference): Pointer?

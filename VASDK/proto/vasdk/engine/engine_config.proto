@@ -193,6 +193,10 @@ message Audio {
   AudioFormat input = 1;               // mic: what the VAD, turn model, wake word and STT receive
   AudioFormat output = 2;              // speaker: what the TTS produces
   optional int32 frame_ms = 3;         // input frame length: the grid VAD and turn decisions run on
+  // TTS audio gathered before each text starts playing, so a slow piece isn't heard as a gap;
+  // unset: each voice's own (250 for the local voices); 0: play at once. A voice's own prebuffer_ms
+  // overrides it; cloud voices ignore it and play audio as it arrives.
+  optional int32 tts_prebuffer_ms = 4;
 }
 
 // When the assistant listens.

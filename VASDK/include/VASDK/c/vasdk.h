@@ -263,6 +263,12 @@ VASDK_EXPORT vasdk_session* vasdk_session_create(const char* config_path, const 
 VASDK_EXPORT vasdk_session* vasdk_session_create_message(const char* config_path, const vasdk_providers* providers,
                                                          const vasdk_agent* agent, const void* options, size_t length,
                                                          vasdk_format format, char** error);
+/* The same, from an engine config the app built: a vasdk.engine.EngineConfig (vasdk/engine/engine_config.proto)
+ * in `config_format`, its providers' options their own messages (vasdk/providers/options.proto). Unlike a
+ * config file, nothing in it is expanded (${ENV}): it holds its values already. */
+VASDK_EXPORT vasdk_session* vasdk_session_create_config(const void* config, size_t config_length, vasdk_format config_format,
+                                                        const vasdk_providers* providers, const vasdk_agent* agent,
+                                                        const void* options, size_t length, vasdk_format format, char** error);
 VASDK_EXPORT void vasdk_session_free(vasdk_session* session);   /* stops it first */
 /* Before vasdk_session_start. */
 VASDK_EXPORT void vasdk_session_on_event(vasdk_session* session, vasdk_event_fn on_event, void* user);
@@ -368,6 +374,10 @@ typedef struct vasdk_runtime vasdk_runtime;
  * NULL): used when the config has none. max_sessions: sessions running at once; 0, no limit. */
 VASDK_EXPORT vasdk_runtime* vasdk_runtime_create(const char* config_path, const vasdk_providers* providers, const char* models_dir,
                                                  int max_sessions, char** error);
+/* The same, from an engine config the app built (as vasdk_session_create_config). */
+VASDK_EXPORT vasdk_runtime* vasdk_runtime_create_config(const void* config, size_t config_length, vasdk_format config_format,
+                                                        const vasdk_providers* providers, const char* models_dir,
+                                                        int max_sessions, char** error);
 /* After every session made from it is freed. */
 VASDK_EXPORT void vasdk_runtime_free(vasdk_runtime* runtime);
 /* A session over the runtime's providers, as vasdk_session_create_message (options: a

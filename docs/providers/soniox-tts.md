@@ -21,15 +21,16 @@ In C++, `va::thirdparty::tts::SonioxppVoiceSynthesisOptions` (in [`SonioxppVoice
 | `voice` | `"Adrian"` | Voice to speak with. |
 | `caBundlePath` | `""` | PEM file of certificates to trust; empty uses the TLS library's own (Android's mbedTLS can't read the system store). |
 
-In an engine config, the catalog's `CloudOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) fills them: a field the config leaves unset falls back to its environment variable, then to the struct's default.
+In an engine config, its own `SonioxTtsOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) fills them: a field the config leaves unset falls back to its environment variable, then to the struct's default. The shared `CloudOptions` of configs written before it had its own message is still accepted.
 
 | Config field | Environment variable | Sets |
 | --- | --- | --- |
 | `api_key` | `SONIOX_API_KEY` | `apiKey` |
-| `voice_id` | `SONIOX_VOICE_ID` | `voice` |
+| `voice` | `SONIOX_VOICE_ID` | `voice` |
 | `ca_bundle_path` | `VASDK_CA_BUNDLE` | `caBundlePath` |
+| `language` | - | `language` |
 
-The engine config sets the key, the voice and the certificate bundle; `language` is set in C++. Without a key (neither `api_key` nor `SONIOX_API_KEY`) the catalog makes no provider, so the spec's `fallback` starts instead.
+The engine config sets every field, through `SonioxTtsOptions`. Without a key (neither `api_key` nor `SONIOX_API_KEY`) the catalog makes no provider, so the spec's `fallback` starts instead.
 
 ## Models and licenses
 
@@ -45,7 +46,7 @@ From an engine config:
 providers {
   tts {
     id: "soniox"
-    options { [type.googleapis.com/vasdk.providers.CloudOptions] { api_key: "${SONIOX_API_KEY}" } }
+    options { [type.googleapis.com/vasdk.providers.SonioxTtsOptions] { api_key: "${SONIOX_API_KEY}" } }
     fallback: "pocket"
   }
 }

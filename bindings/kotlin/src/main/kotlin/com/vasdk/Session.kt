@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import vasdk.engine.EngineConfigOuterClass.Backchannel
+import vasdk.engine.EngineConfigOuterClass.EngineConfig
 import vasdk.engine.Events.Command
 import vasdk.engine.Events.EntityValuesCommand
 import vasdk.engine.Events.Event
@@ -62,6 +63,10 @@ class Session private constructor(private var handle: Pointer?, private val owne
     constructor(configPath: String, providers: Providers, agent: Agent? = null, options: SessionOptions = SessionOptions.getDefaultInstance())
         : this(create(configPath, providers, agent, options), providers, agent)
 
+    /** From an engine config built in code; its providers' options are their own messages, packed with toAny(). */
+    constructor(config: EngineConfig, providers: Providers, agent: Agent? = null, options: SessionOptions = SessionOptions.getDefaultInstance())
+        : this(create(config, providers, agent, options), providers, agent)
+
     init {
         val onEvent = keep(MessageFn { data, length, _ ->
             val event = guarded<Event?>("event", null) { Event.parseFrom(bytesAt(data, length)) } ?: return@MessageFn
@@ -78,6 +83,16 @@ class Session private constructor(private var handle: Pointer?, private val owne
             val error = PointerByReference()
             return Lib.vasdk.vasdk_session_create_message(configPath, providers.handle ?: throw VasdkException("providers closed"),
                                                           agent?.handle, bytes, size(bytes), FORMAT_BINARY, error)
+                ?: throw VasdkException(taken(error.value))
+        }
+
+        fun create(config: EngineConfig, providers: Providers, agent: Agent?, options: SessionOptions): Pointer {
+            val built = config.toByteArray()
+            val bytes = options.toByteArray()
+            val error = PointerByReference()
+            return Lib.vasdk.vasdk_session_create_config(built, size(built), FORMAT_BINARY,
+                                                         providers.handle ?: throw VasdkException("providers closed"),
+                                                         agent?.handle, bytes, size(bytes), FORMAT_BINARY, error)
                 ?: throw VasdkException(taken(error.value))
         }
 
@@ -257,12 +272,25 @@ class Session private constructor(private var handle: Pointer?, private val owne
  * What many sessions share: the engine config and its providers, loaded once per session running
  * at the same time (a call center's lines), not once per conversation. Close the sessions first.
  */
-class Runtime(configPath: String, private val providers: Providers, modelsDir: String? = null, maxSessions: Int = 0) : Closeable {
-    private var handle: Pointer? = run {
-        val error = PointerByReference()
-        Lib.vasdk.vasdk_runtime_create(configPath, providers.handle ?: throw VasdkException("providers closed"), modelsDir, maxSessions, error)
-            ?: throw VasdkException(taken(error.value))
+class Runtime private constructor(created: Pointer, private val providers: Providers) : Closeable {
+    constructor(configPath: String, providers: Providers, modelsDir: String? = null, maxSessions: Int = 0)
+        : this(create(providers) { live, error -> Lib.vasdk.vasdk_runtime_create(configPath, live, modelsDir, maxSessions, error) }, providers)
+
+    /** From an engine config built in code; its providers' options are their own messages, packed with toAny(). */
+    constructor(config: EngineConfig, providers: Providers, modelsDir: String? = null, maxSessions: Int = 0)
+        : this(create(providers) { live, error ->
+            val built = config.toByteArray()
+            Lib.vasdk.vasdk_runtime_create_config(built, size(built), FORMAT_BINARY, live, modelsDir, maxSessions, error)
+        }, providers)
+
+    private companion object {
+        fun create(providers: Providers, call: (Pointer, PointerByReference) -> Pointer?): Pointer {
+            val error = PointerByReference()
+            return call(providers.handle ?: throw VasdkException("providers closed"), error) ?: throw VasdkException(taken(error.value))
+        }
     }
+
+    private var handle: Pointer? = created
     private val live: Pointer get() = handle ?: throw VasdkException("runtime closed")
 
     /** A session over the runtime's providers; fails at maxSessions. */

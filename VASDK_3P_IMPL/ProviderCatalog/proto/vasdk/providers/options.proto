@@ -1,11 +1,16 @@
 // Options for the providers in VASDK_3P_IMPL, set in an engine config with the Any syntax:
-//   stt { id: "soniox" options { [type.googleapis.com/vasdk.providers.CloudOptions] { api_key: "${SONIOX_API_KEY}" } } }
-// Every field is optional: unset falls back to the provider's environment variable, then its default.
+//   tts { id: "phonon" options { [type.googleapis.com/vasdk.providers.PhononOptions] { voice: "Zoey" temperature: 0.4 } } }
+// Each provider has its own message, with every setting of its C++ options struct. Every field is
+// optional: unset falls back to the provider's environment variable (where it has one), then to
+// the struct's default. The shared CloudOptions, LocalSttOptions and LocalTtsOptions are still
+// accepted, for configs written before each provider had its own message.
 syntax = "proto3";
 
 package vasdk.providers;
 
-// Cloud STT/TTS: gradium, soniox, deepgram, cartesia, fishaudio, gladia (STT).
+// ---------------------------------------------------------------- Shared (older configs)
+
+// Cloud STT/TTS: gradium, soniox, deepgram, cartesia, fishaudio, gladia (STT). Each now has its own message.
 message CloudOptions {
   string api_key = 1;            // unset: <PROVIDER>_API_KEY, e.g. SONIOX_API_KEY
   string voice_id = 2;           // TTS only; unset: <PROVIDER>_VOICE_ID, then the service default
@@ -14,13 +19,7 @@ message CloudOptions {
   string ca_bundle_path = 3;
 }
 
-// VAD: silero.
-message SileroOptions {
-  string model_path = 1;         // unset: <models_dir>/silero_vad.onnx
-  optional float threshold = 2;  // speech probability (0-1) a frame needs to count as voice; unset: 0.75
-}
-
-// Local STT: whistle, moonshine, parakeet.
+// Local STT: whistle, moonshine, parakeet. Each now has its own message.
 message LocalSttOptions {
   string model_dir = 1;          // unset: <models_dir>/<id>
   int32 idle_timeout_ms = 2;     // 0: the provider's tuned default
@@ -28,29 +27,256 @@ message LocalSttOptions {
   string language = 4;           // whistle only; unset: WHISTLE_LANGUAGE
 }
 
-// Local TTS: supertonic, moss, phonon, pocket.
+// Local TTS: supertonic, moss, phonon, pocket. Each now has its own message.
 message LocalTtsOptions {
   string model_dir = 1;          // unset: the provider's folder under <models_dir>
   string voice = 2;              // unset: <PROVIDER>_TTS_VOICE, then the provider default
   string language = 3;           // supertonic, phonon; unset: <PROVIDER>_TTS_LANG, then "en"
   int32 steps = 4;               // supertonic diffusion steps, pocket LSD steps; 0: default
-  int32 prebuffer_ms = 5;        // pocket, moss: audio made before playback starts, against stalls on slow phones; 0: default (pocket 250)
+  int32 prebuffer_ms = 5;        // this voice only, overrides the engine's audio.tts_prebuffer_ms; 0: that setting, then 250
 }
 
-message SmartTurnOptions {
-  string model_path = 1;   // default: <models_dir>/smart_turn_v3.onnx
+// ---------------------------------------------------------------- VAD
+
+// silero.
+message SileroOptions {
+  string model_path = 1;                     // unset: <models_dir>/silero_vad.onnx
+  optional float threshold = 2;              // speech probability (0-1) a window needs to count as voice; unset: 0.75
+  optional int32 window_frame_size_ms = 3;   // the window the model scores; unset: 32
+  optional int32 min_silence_duration_ms = 4;  // silence that ends a segment inside one buffer; unset: 100
+  optional int32 speech_pad_ms = 5;          // padding kept before and after a segment; unset: 30
+  optional int32 min_speech_duration_ms = 6; // shorter segments are dropped as clicks; unset: 150
 }
+
+// ---------------------------------------------------------------- STT, cloud
+
+// gradium. It has no ca_bundle_path: its client uses the TLS library's own certificates.
+message GradiumSttOptions {
+  string api_key = 1;    // unset: GRADIUM_API_KEY
+  string model = 4;      // unset: the service's default model
+  string language = 5;   // unset: the service detects it
+}
+
+// soniox.
+message SonioxSttOptions {
+  string api_key = 1;                   // unset: SONIOX_API_KEY
+  string ca_bundle_path = 3;            // unset: VASDK_CA_BUNDLE (see CloudOptions)
+  string model = 4;                     // unset: stt-rt-v5
+  optional bool endpoint_detection = 5; // streaming: the service marks where speech ends; unset: true
+}
+
+// deepgram.
+message DeepgramSttOptions {
+  string api_key = 1;                  // unset: DEEPGRAM_API_KEY
+  string ca_bundle_path = 3;           // unset: VASDK_CA_BUNDLE
+  string model = 4;                    // unset: nova-3-general
+  string language = 5;                 // unset: multi
+  optional bool interim_results = 6;   // streaming: partial results; unset: true
+  optional bool smart_format = 7;      // punctuation, numbers and casing; unset: true
+  optional int32 endpointing_ms = 8;   // streaming: silence that ends an utterance; unset: 300
+  optional int32 utterance_end_ms = 9; // streaming: gap that sends UtteranceEnd; unset: 1000
+}
+
+// cartesia.
+message CartesiaSttOptions {
+  string api_key = 1;          // unset: CARTESIA_API_KEY
+  string ca_bundle_path = 3;   // unset: VASDK_CA_BUNDLE
+  string model = 4;            // unset: ink-whisper
+  string language = 5;         // unset: the service detects it
+}
+
+// fishaudio.
+message FishAudioSttOptions {
+  string api_key = 1;          // unset: FISHAUDIO_API_KEY
+  string ca_bundle_path = 3;   // unset: VASDK_CA_BUNDLE
+  string language = 5;         // unset: the service detects it
+}
+
+// gladia.
+message GladiaOptions {
+  enum Region {
+    US_WEST = 0;
+    EU_WEST = 1;
+  }
+  string api_key = 1;                                       // unset: GLADIA_API_KEY
+  string ca_bundle_path = 3;                                // unset: VASDK_CA_BUNDLE
+  optional Region region = 4;                               // where the audio is processed; unset: US_WEST
+  optional double endpointing_seconds = 5;                  // silence that ends an utterance; unset: 0.01
+  optional int32 max_duration_without_endpointing_seconds = 6;  // an utterance is cut after this; unset: 5
+}
+
+// ---------------------------------------------------------------- STT, local
+
+// whistle.
+message WhistleOptions {
+  string model_dir = 1;                       // the folder holding whistle.cact, or a .cact path; unset: <models_dir>/whistle
+  optional int32 idle_timeout_ms = 2;         // silence that ends the utterance without an end-of-speech; unset: 550
+  optional int32 partial_interval_ms = 3;     // time between partials; unset: 250
+  string language = 4;                        // en, de, fr, es, it, nl, pl, or auto; unset: WHISTLE_LANGUAGE, then auto
+  string engine_path = 5;                     // the engine library (desktop); unset: next to the model, then the system's search path
+  repeated string keywords = 6;               // names and jargon to favour
+  optional bool word_timestamps = 7;          // word timings, which the confidence is averaged from; unset: true
+  optional int32 min_new_samples_for_partial = 8;  // new audio before another partial; unset: a quarter second
+  optional int32 min_new_samples_for_final = 9;    // new audio before the final pass runs again; unset: one pipeline frame
+}
+
+// moonshine.
+message MoonshineOptions {
+  string model_dir = 1;                    // the .ort graphs, streaming_config.json, tokenizer.bin; unset: <models_dir>/moonshine
+  optional int32 idle_timeout_ms = 2;      // silence that finalizes the utterance; unset: 350
+  optional int32 partial_interval_ms = 3;  // shortest time between partial decodes; unset: 160
+}
+
+// parakeet.
+message ParakeetOptions {
+  string model_dir = 1;                              // the Parakeet ONNX files; unset: <models_dir>/parakeet
+  optional int32 idle_timeout_ms = 2;                // silence that finalizes without end-of-speech; unset: 550
+  optional int32 partial_interval_ms = 3;            // shortest time between partials; unset: 250
+  optional bool incremental_partials = 4;            // partials decode only the new audio; unset: false
+  optional int32 min_new_samples_for_partial = 5;    // new audio before another partial; unset: half a second
+  optional int32 min_new_samples_for_final = 6;      // the final pass is skipped below this much new audio; unset: one second
+  optional int32 high_confidence_shortcut_samples = 7;   // a confident partial becomes final without a new pass when at most this much audio followed it; 0: off; unset: 16000
+  optional float high_confidence_shortcut_threshold = 8; // the confidence (0-1) that shortcut needs; unset: 0.85
+  optional int32 context_samples = 9;                // tail of the previous utterance given as context; unset: half a second
+  optional int32 context_boundary_tolerance_ms = 10; // words starting this close to the context's end are dropped; keep under the VAD's end silence; unset: 100
+  optional float max_buffer_seconds = 11;            // the audio buffer's capacity; unset: 90
+  optional float silence_padding_seconds = 12;       // silence added after each chunk, for the decoder; unset: 1
+  optional int32 overlap_boundary_tolerance_ms = 13; // words at chunk boundaries; above context_boundary_tolerance_ms; unset: 1000
+  optional int32 end_padding_tolerance_ms = 14;      // words at the end of the last chunk; unset: 1000
+}
+
+// voz (the Android app's own STT, VASDK_ANDROID). Its recognizer is the app's; these are its timings.
+message VozOptions {
+  optional int32 idle_timeout_ms = 2;              // silence that finalizes without end-of-speech; unset: 500
+  optional int32 partial_interval_ms = 3;          // time between partials; 0: none; unset: 0
+  optional int32 min_new_samples_for_partial = 4;  // new audio before another partial; unset: 8000
+  optional int32 min_new_samples_for_final = 5;    // new audio before the final pass runs again; unset: 1600
+}
+
+// ---------------------------------------------------------------- TTS, cloud
+
+// gradium. It has no ca_bundle_path (see GradiumSttOptions).
+message GradiumTtsOptions {
+  string api_key = 1;    // unset: GRADIUM_API_KEY
+  string voice_id = 2;   // unset: GRADIUM_VOICE_ID, then the service's default voice
+  string model = 4;      // unset: the service's default model
+}
+
+// soniox.
+message SonioxTtsOptions {
+  string api_key = 1;          // unset: SONIOX_API_KEY
+  string voice = 2;            // unset: SONIOX_VOICE_ID, then Adrian
+  string ca_bundle_path = 3;   // unset: VASDK_CA_BUNDLE
+  string language = 4;         // unset: en
+}
+
+// deepgram. In Aura the model is the voice, e.g. aura-2-thalia-en.
+message DeepgramTtsOptions {
+  string api_key = 1;          // unset: DEEPGRAM_API_KEY
+  string model = 2;            // unset: DEEPGRAM_VOICE_ID, then aura-2-thalia-en
+  string ca_bundle_path = 3;   // unset: VASDK_CA_BUNDLE
+}
+
+// cartesia.
+message CartesiaTtsOptions {
+  string api_key = 1;          // unset: CARTESIA_API_KEY
+  string voice_id = 2;         // unset: CARTESIA_VOICE_ID, then the service's default voice
+  string ca_bundle_path = 3;   // unset: VASDK_CA_BUNDLE
+  string model = 4;            // unset: sonic-3.5
+  string language = 5;         // unset: the service detects it
+}
+
+// fishaudio.
+message FishAudioTtsOptions {
+  string api_key = 1;          // unset: FISHAUDIO_API_KEY
+  string reference_id = 2;     // the voice; unset: FISHAUDIO_VOICE_ID, then Ethan
+  string ca_bundle_path = 3;   // unset: VASDK_CA_BUNDLE
+  string model = 4;            // unset: s1
+}
+
+// ---------------------------------------------------------------- TTS, local
+// prebuffer_ms: audio made before each text starts playing, this voice only; it overrides the
+// engine's audio.tts_prebuffer_ms; unset: that setting, then 250; 0: play at once.
+
+// supertonic.
+message SupertonicOptions {
+  string model_dir = 1;                         // onnx/ and voice_styles/; unset: <models_dir>/supertonic3
+  string voice = 2;                             // a voice style under voice_styles/; unset: SUPERTONIC_TTS_VOICE, then M1
+  string language = 3;                          // any of its 31 codes; unset: SUPERTONIC_TTS_LANG, then en
+  optional int32 steps = 4;                     // diffusion steps, time grows about linearly with them; unset: SUPERTONIC_TTS_STEPS, then 10
+  optional int32 prebuffer_ms = 5;
+  optional float speed = 6;                     // 1.0 is natural; unset: 1.05
+  optional float silence_duration_seconds = 7;  // after each chunk; below about 0.1 chunks join with hard cuts; unset: 0.3
+  optional float trim_margin = 8;               // above 0, each chunk is cut to its predicted length times (1 + this); unset: 0 (off)
+}
+
+// moss.
+message MossOptions {
+  string model_dir = 1;                         // unset: <models_dir>/moss_tts
+  string voice = 2;                             // a built-in voice (Ava, Bella, Adam, ...); unset: MOSS_TTS_VOICE, then Ava
+  optional int32 prebuffer_ms = 5;
+  optional int32 threads = 6;                   // ONNX Runtime threads per session; unset: 4
+  optional float silence_duration_seconds = 7;  // after each utterance; unset: 0.3
+  optional int32 max_new_frames = 8;            // frames per text chunk, 12.5 a second; 0: the manifest's 375; unset: 0
+  optional int32 max_chunk_tokens = 9;          // tokens per synthesis chunk; unset: 75
+  optional bool text_normalization = 10;        // spell numbers, dates and units out first; unset: true
+  optional float pause_short_seconds = 11;      // between chunks after a short phrase (4 words or fewer); unset: 0.40
+  optional float pause_long_seconds = 12;       // between longer chunks; unset: 0.24
+}
+
+// phonon.
+message PhononOptions {
+  string model_dir = 1;                         // unset: <models_dir>/phonon_tts
+  string voice = 2;                             // a file stem under voices/, or "default"; unset: PHONON_TTS_VOICE, then Easton
+  string language = 3;                          // text normalization: en, fr, de, es, pt, or none; unset: PHONON_TTS_LANG, then en
+  optional int32 prebuffer_ms = 5;
+  string normalization_rules = 6;               // default, all, none, or rule names, comma-separated; unset: PHONON_TTS_RULES, then default
+  optional float temperature = 7;               // sampling; 0 is deterministic; unset: 0.3
+  optional float duration_delta = 8;            // speaking rate of the 40m checkpoints, negative is faster; unset: 0
+  optional int32 stream_chunk_frames = 9;       // largest audio chunk, in 80 ms frames; unset: 12
+  optional int32 max_tokens_per_chunk = 10;     // sentences grouped up to this many tokens; unset: 50
+  optional float silence_duration_seconds = 11; // after each completed sequence; unset: 0.3
+}
+
+// pocket.
+message PocketOptions {
+  string model_dir = 1;                         // unset: <models_dir>/pocket_tts
+  string voice = 2;                             // a voice in voices.bin; unset: POCKET_TTS_VOICE, then jean
+  optional int32 steps = 4;                     // flow-matching steps, 1 to 10; unset: 4
+  optional int32 prebuffer_ms = 5;
+  optional float temperature = 6;               // sampling; unset: 0.7
+  optional float silence_duration_seconds = 7;  // after each utterance; unset: 0.3
+  optional int32 decoder_batch_frames = 8;      // latent frames decoded to audio at a time; unset: 12
+}
+
+// ---------------------------------------------------------------- Turn detection
+
+// smartturn-v3.
+message SmartTurnOptions {
+  string model_path = 1;                         // unset: <models_dir>/smart_turn_v3.onnx
+  optional float threshold = 2;                  // end-of-turn probability (0-1) that ends the turn; unset: 0.5
+  optional float max_audio_duration_seconds = 3; // the longest stretch of the turn, from its end, the model looks at; unset: 8
+  optional int32 post_audio_frames = 4;          // frames after the VAD's end before the last evaluation; unset: 3
+  optional bool evaluate_on_pause = 5;           // also evaluate during pauses, so a finished turn ends at the pause; unset: true
+  optional float pause_threshold = 6;            // the probability a pause needs to end the turn; unset: 0.85
+}
+
+// ---------------------------------------------------------------- Understanding
 
 // Sentence encoder: minilm.
 message MiniLmOptions {
-  string model_dir = 1;   // model.onnx and vocab.txt; unset: <models_dir>/minilm
+  string model_dir = 1;      // model.onnx and vocab.txt; unset: <models_dir>/minilm
+  optional int32 threads = 2;  // ONNX Runtime threads; unset: 1
 }
 
 // Entity model: gliner.
 message GlinerOptions {
   string model_dir = 1;             // model.onnx, spm.model, added_tokens.json, gliner_config.json; unset: <models_dir>/gliner
   optional float threshold = 2;     // a span's score must reach it, 0 to 1; unset: 0.5
+  optional int32 threads = 3;       // ONNX Runtime threads; unset: 2
 }
+
+// ---------------------------------------------------------------- Network, audio devices
 
 // WebRTC: libdatachannel. The peer serves its signaling (POST /offer) and a page over HTTP.
 message LibDataChannelWebRtcOptions {
@@ -60,8 +286,24 @@ message LibDataChannelWebRtcOptions {
   string page = 4;                  // the HTML served at GET /; unset: VASDK_WEBRTC_PAGE, then VASDK's demo page (assets/webrtc/index.html)
 }
 
+// Microphone: miniaudio (providers.audio_input).
+message MiniAudioOptions {
+  optional int32 buffer_seconds = 1;  // captured audio held before the oldest is overwritten; unset: 30
+}
+
+// Microphone and speaker on Android: aaudio (providers.audio_input, providers.audio_output).
+message AAudioOptions {
+  optional int32 buffer_bytes = 1;    // the device FIFO; unset: 1 MB for the microphone, 8 MB for the speaker
+}
+
+// ---------------------------------------------------------------- LLM
+
 // LLM on the device: llamacpp (providers.llm). Unset sampling fields: va::llm::LLMConfig's defaults.
 message LlamaCppOptions {
+  enum Chunker {
+    NO_CHUNKING = 0;   // the reply goes to the TTS whole
+    PUNCTUATION = 1;   // cut at sentence punctuation, so speech starts before the reply ends
+  }
   string model_path = 1;                   // the GGUF file; unset: LLAMACPP_MODEL, then <models_dir>/LFM2.5-1.2B-Instruct-Q4_K_M.gguf
   string chat_format = 2;                  // the GGUF's: chatml, llama3, llama2, mistral, gemma, phi3, lfm2, lfm2.5; unset: LLAMACPP_CHAT_FORMAT, then the transport's
   optional int32 context_tokens = 3;       // the context window
@@ -77,7 +319,12 @@ message LlamaCppOptions {
   // Also answer the agent's one-shot asks (understanding, llm steps, generative pages). It loads
   // the model a second time: twice the memory. Unset: false, those steps run their offline steps.
   bool answer_agent = 13;
+  optional int32 batch_tokens = 14;        // tokens decoded per batch; unset: 512
+  optional Chunker chunker = 15;           // unset: NO_CHUNKING
+  optional int32 chunker_min_bytes = 16;   // PUNCTUATION: the shortest piece cut off; unset: 8
 }
+
+// ---------------------------------------------------------------- Audio DSP, speaker
 
 // Audio DSP: rnnoise (providers.audio_dsp), noise suppression at any input rate.
 message RNNoiseOptions {

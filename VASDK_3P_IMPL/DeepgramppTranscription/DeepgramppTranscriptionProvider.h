@@ -22,6 +22,14 @@ struct DeepgramppTranscriptionOptions {
     std::string language = deepgram::listen::languages::nova_3::MULTILINGUAL;
     /** PEM file of certificates to trust; empty uses the TLS library's own (Android's mbedTLS can't read the system store). */
     std::string caBundlePath;
+    /** Streaming: send partial results as the user speaks. */
+    bool interimResults = true;
+    /** Punctuation, numbers and casing in the transcript (streaming and whole segments). */
+    bool smartFormat = true;
+    /** Streaming: silence, in ms, after which the service ends an utterance. */
+    int endpointingMs = 300;
+    /** Streaming: gap in words, in ms, after which the service sends UtteranceEnd. */
+    int utteranceEndMs = 1000;
 };
 
 /**
@@ -64,6 +72,10 @@ private:
     std::string _model;
     std::string _language;
     std::string _caFilePath;
+    bool _interimResults;
+    bool _smartFormat;
+    int _endpointingMs;
+    int _utteranceEndMs;
 
     std::unique_ptr<deepgram::listen::ListenWebsocketClient> _client;
     va::audio::AudioConfig _audioConfig{};

@@ -339,6 +339,30 @@ def test_speakers_and_dsp(folder):
     assert session.speakers() == {}
     session.close()
 
+    # The same config built in code, no file: a Session and a Runtime from a vasdk.EngineConfig.
+    built = vasdk.EngineConfig()
+    for stage in (built.providers.vad, built.providers.stt, built.providers.tts):
+        stage.id = "python"
+    # A provider's own options message (here a built-in voice's), packed as the config file's Any syntax writes it.
+    built.providers.tts.fallback.append("phonon")
+    built.providers.tts.fallback_options["phonon"].Pack(vasdk.options_pb2.PhononOptions(temperature=0.4, prebuffer_ms=0))
+    assert built.providers.tts.fallback_options["phonon"].TypeName() == "vasdk.providers.PhononOptions"
+    session = vasdk.Session(built, providers)
+    session.start()
+    session.stop()
+    session.close()
+    runtime = vasdk.Runtime(built, providers, max_sessions=1)
+    runtime.session().close()
+    runtime.close()
+    float_audio = vasdk.EngineConfig()
+    float_audio.CopyFrom(built)
+    float_audio.audio.output.encoding = vasdk.engine_config_pb2.AudioFormat.FLOAT_32
+    try:
+        vasdk.Session(float_audio, providers)
+        raise AssertionError("a built config with float audio")
+    except vasdk.VasdkError as error:
+        assert "config: audio" in str(error), error
+
 
 def main():
     vasdk.set_log_level("warn")

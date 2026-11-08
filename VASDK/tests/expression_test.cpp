@@ -41,16 +41,6 @@ Value lookup(const Path& path) {
     return found == session.end() ? nullValue() : valueAt(found->second, path, 2);
 }
 
-bool holds(const std::string& text) {
-    std::string error;
-    auto expression = Expression::parse(text, &error);
-    if (!expression) {
-        std::fprintf(stderr, "  parse error in %s: %s\n", text.c_str(), error.c_str());
-        return false;
-    }
-    return expression->test(lookup);
-}
-
 // 2026-11-05 (a Thursday), noon, local time.
 TimePoint thursdayNoon() {
     std::tm local{};
@@ -60,6 +50,16 @@ TimePoint thursdayNoon() {
     local.tm_hour = 12;
     local.tm_isdst = -1;
     return std::chrono::system_clock::from_time_t(std::mktime(&local));
+}
+
+bool holds(const std::string& text) {
+    std::string error;
+    auto expression = Expression::parse(text, &error);
+    if (!expression) {
+        std::fprintf(stderr, "  parse error in %s: %s\n", text.c_str(), error.c_str());
+        return false;
+    }
+    return expression->test(lookup, thursdayNoon());
 }
 
 Value valueOf(const std::string& text) {

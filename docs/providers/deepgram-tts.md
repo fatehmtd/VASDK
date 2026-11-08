@@ -20,14 +20,15 @@ In C++, `va::thirdparty::tts::DeepgramppVoiceSynthesisOptions` (in [`DeepgramppV
 | `model` | `deepgram::speak::models::aura_2::en::THALIA` | Model to use. |
 | `caBundlePath` | `""` | PEM file of certificates to trust; empty uses the TLS library's own (Android's mbedTLS can't read the system store). |
 
-In an engine config, the catalog's `CloudOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) fills them: a field the config leaves unset falls back to its environment variable, then to the struct's default.
+In an engine config, its own `DeepgramTtsOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) fills them: a field the config leaves unset falls back to its environment variable, then to the struct's default. The shared `CloudOptions` of configs written before it had its own message is still accepted.
 
 | Config field | Environment variable | Sets |
 | --- | --- | --- |
 | `api_key` | `DEEPGRAM_API_KEY` | `apiKey` |
+| `model` | `DEEPGRAM_VOICE_ID` | `model` |
 | `ca_bundle_path` | `VASDK_CA_BUNDLE` | `caBundlePath` |
 
-The engine config sets the key and the certificate bundle; `model` (the voice) is set in C++.
+In Aura the model is the voice (e.g. `aura-2-orion-en`): the config's `model`, else `DEEPGRAM_VOICE_ID`. An older config's `CloudOptions.voice_id` sets it too.
 
 ## Models and licenses
 
@@ -43,7 +44,7 @@ From an engine config:
 providers {
   tts {
     id: "deepgram"
-    options { [type.googleapis.com/vasdk.providers.CloudOptions] { api_key: "${DEEPGRAM_API_KEY}" } }
+    options { [type.googleapis.com/vasdk.providers.DeepgramTtsOptions] { api_key: "${DEEPGRAM_API_KEY}" } }
     fallback: "pocket"
   }
 }

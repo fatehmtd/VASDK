@@ -22,13 +22,15 @@ In C++, `va::thirdparty::tts::CartesiappVoiceSynthesisOptions` (in [`CartesiappV
 | `language` | `""` | Language code; empty lets the service detect it or use its default. |
 | `caBundlePath` | `""` | PEM file of certificates to trust; empty uses the TLS library's own (Android's mbedTLS can't read the system store). |
 
-In an engine config, the catalog's `CloudOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) fills them: a field the config leaves unset falls back to its environment variable, then to the struct's default.
+In an engine config, its own `CartesiaTtsOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) fills them: a field the config leaves unset falls back to its environment variable, then to the struct's default. The shared `CloudOptions` of configs written before it had its own message is still accepted.
 
 | Config field | Environment variable | Sets |
 | --- | --- | --- |
 | `api_key` | `CARTESIA_API_KEY` | `apiKey` |
 | `voice_id` | `CARTESIA_VOICE_ID` | `voiceId` |
 | `ca_bundle_path` | `VASDK_CA_BUNDLE` | `caBundlePath` |
+| `model` | - | `model` |
+| `language` | - | `language` |
 
 ## Models and licenses
 
@@ -44,7 +46,7 @@ From an engine config:
 providers {
   tts {
     id: "cartesia"
-    options { [type.googleapis.com/vasdk.providers.CloudOptions] { api_key: "${CARTESIA_API_KEY}" } }
+    options { [type.googleapis.com/vasdk.providers.CartesiaTtsOptions] { api_key: "${CARTESIA_API_KEY}" } }
     fallback: "pocket"
   }
 }

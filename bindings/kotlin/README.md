@@ -13,6 +13,19 @@ Session("engine.txtpb", Providers(), agent).use { session ->
 }
 ```
 
+The config can also be built in code, each provider's settings its own message, packed with `toAny()`:
+
+```kotlin
+val config = vasdk.engine.engineConfig {
+    providers = vasdk.engine.providers {
+        vad = vasdk.engine.providerSpec { id = "silero" }
+        stt = vasdk.engine.providerSpec { id = "whistle" }
+        tts = vasdk.engine.providerSpec { id = "phonon"; options = vasdk.providers.phononOptions { voice = "Zoey"; temperature = 0.4f }.toAny() }
+    }
+}
+Session(config, Providers(), agent).use { it.start() }   // Runtime(config, ...) too
+```
+
 Build and test it against a VASDK build (it needs VASDK as a shared library):
 
 ```bash

@@ -22,6 +22,8 @@ From an engine config, `providers { llm { id: "llamacpp" options { [type.googlea
 | `temperature`, `top_p`, `top_k`, `min_p`, `repetition_penalty` | - | `LLMConfig`'s | Sampling. |
 | `threads`, `gpu_layers` | - | llama.cpp's choice, 99 | CPU threads, layers offloaded to the GPU. |
 | `native_library_dir` | - | - | Android: the app's `nativeLibraryDir`, where ggml's backends are. |
+| `batch_tokens` | - | 512 | Tokens decoded per batch. |
+| `chunker`, `chunker_min_bytes` | - | `NO_CHUNKING`, 8 | `PUNCTUATION` cuts the reply at sentence punctuation (pieces of at least `chunker_min_bytes`), so speech starts before the reply ends. |
 | `answer_agent` | - | `false` | Also answer the agent's one-shot asks (understanding, `llm` steps, generative pages) with a `LlamaCppCompletion`. It loads the model a second time: twice the memory. |
 
 The session gives it the system prompt and, at start, the tools' descriptions in its chat format (llama.cpp renders requests with the GGUF's own template). In C++, construct `LlamaCppTransport` and `LlamaCppCompletion` from an `LLMConfig`, as below.

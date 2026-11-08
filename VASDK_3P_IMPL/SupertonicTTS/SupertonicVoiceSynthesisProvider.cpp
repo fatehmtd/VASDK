@@ -19,6 +19,7 @@ SupertonicVoiceSynthesisProvider::SupertonicVoiceSynthesisProvider(SupertonicVoi
     params.silenceDuration = std::max(0.0f, options.silenceDurationSeconds);
     params.trimMargin      = std::max(0.0f, options.trimMargin);
     impl_->setParams(params);
+    setPreBufferedSamplesMS(std::max(0, options.prebufferMs));
 }
 
 SupertonicVoiceSynthesisProvider::~SupertonicVoiceSynthesisProvider() {

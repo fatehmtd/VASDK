@@ -45,6 +45,7 @@ android {
         main {
             kotlin.srcDir '../../bindings/kotlin/src/main/kotlin'
             proto.srcDir '../../VASDK/proto'
+            proto.srcDir '../../VASDK_3P_IMPL/ProviderCatalog/proto'   // the providers' options, for a config built in code
         }
         // The JVM tests, on a device: they write their engine configs to the cache folder
         androidTest.kotlin.srcDir '../../bindings/kotlin/src/test/kotlin'
