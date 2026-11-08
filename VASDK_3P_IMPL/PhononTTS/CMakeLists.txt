@@ -15,6 +15,7 @@ if(NOT TARGET ggml)
         GIT_REPOSITORY https://github.com/ggml-org/ggml.git
         GIT_TAG        v0.27.0
         GIT_SHALLOW    ON
+        ${VASDK_FETCH_EXCLUDE}   # its own install rules stay out of VASDK's
     )
     FetchContent_MakeAvailable(ggml)
 endif()
@@ -109,7 +110,7 @@ endif()
 
 #  Install
 
-install(TARGETS vasdk_phonon_tts
+install(TARGETS vasdk_phonon_tts COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -117,8 +118,10 @@ install(TARGETS vasdk_phonon_tts
 
 install(FILES PhononVoiceSynthesisProvider.hpp
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/PhononTTS
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )
 
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/vasdk_phonon_tts_export.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/PhononTTS
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )

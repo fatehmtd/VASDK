@@ -21,7 +21,7 @@ target_link_libraries(vasdk_rnnoise
     PUBLIC  VASDK
 )
 
-install(TARGETS vasdk_rnnoise
+install(TARGETS vasdk_rnnoise COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -29,10 +29,12 @@ install(TARGETS vasdk_rnnoise
 
 install(FILES RNNoiseDSPProvider.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/RNNoise
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )
 
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/vasdk_rnnoise_export.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/RNNoise
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )
 
 if(VASDK_BUILD_TESTS)

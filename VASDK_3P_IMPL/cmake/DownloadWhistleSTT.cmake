@@ -139,21 +139,24 @@ endfunction()
 # ---------------------------------------------------------------------------
 # Downloads
 # ---------------------------------------------------------------------------
+# The engine's C header, which the provider compiles against: a build input, so fetched even with
+# the model downloads off. It is identical in every platform folder.
+whistle_download("${_whistle_engine_base}/linux-x86_64/needle.h"
+                 "${WHISTLE_ENGINE_DIR}/include/needle.h"
+                 "a27dac4b3239eead91d124b7f7dbce5495c13019903fd817b68c16d39b055a99" _ok)
+# Android links the engine in: a build input too
+if(_whistle_engine_kind STREQUAL "static")
+    whistle_download("${_whistle_engine_base}/${_whistle_engine_file}"
+                     "${WHISTLE_ENGINE_DIR}/libneedle.a"
+                     "${_whistle_engine_sha}" _ok)
+endif()
+
 if(VASDK_DOWNLOAD_WHISTLE_STT_MODEL)
     whistle_download("${_whistle_model_base}/whistle.cact"
                      "${WHISTLE_STT_MODEL_DIR}/whistle.cact"
                      "b6e02f048568ac5d01a2042556c658061e699acbc0aa2a1439f52f3d461dffeb" _ok)
 
-    # The header is identical in every platform folder.
-    whistle_download("${_whistle_engine_base}/linux-x86_64/needle.h"
-                     "${WHISTLE_ENGINE_DIR}/include/needle.h"
-                     "a27dac4b3239eead91d124b7f7dbce5495c13019903fd817b68c16d39b055a99" _ok)
-
-    if(_whistle_engine_kind STREQUAL "static")
-        whistle_download("${_whistle_engine_base}/${_whistle_engine_file}"
-                         "${WHISTLE_ENGINE_DIR}/libneedle.a"
-                         "${_whistle_engine_sha}" _ok)
-    elseif(_whistle_engine_kind STREQUAL "wheel")
+    if(_whistle_engine_kind STREQUAL "wheel")
         set(_wheel "cactus_needle-${WHISTLE_ENGINE_VERSION}-py3-none-${_whistle_engine_file}.whl")
         set(_wheel_path "${WHISTLE_ENGINE_DIR}/${_wheel}")
         whistle_download("${_whistle_engine_base}/python/${_wheel}" "${_wheel_path}"

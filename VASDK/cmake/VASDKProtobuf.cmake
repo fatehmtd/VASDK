@@ -60,6 +60,7 @@ else()
         GIT_REPOSITORY https://github.com/protocolbuffers/protobuf.git
         GIT_TAG        v${VASDK_PROTOBUF_VERSION}
         GIT_SHALLOW    TRUE
+        ${VASDK_FETCH_EXCLUDE}   # its own install rules stay out of VASDK's
     )
     fetchcontent_makeavailable(protobuf)
     include(${protobuf_SOURCE_DIR}/cmake/protobuf-generate.cmake)

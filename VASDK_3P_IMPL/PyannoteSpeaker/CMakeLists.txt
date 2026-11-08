@@ -4,8 +4,8 @@ if(NOT TARGET PFFFT)
     fetchcontent_declare(
         pffft
         GIT_REPOSITORY https://github.com/marton78/pffft.git
-        GIT_TAG        master
-        GIT_SHALLOW    ON
+        GIT_TAG        237ffa283b17e5ef88ef8198b465f41b0268011d   # no release tags: a commit, for reproducible builds
+        ${VASDK_FETCH_EXCLUDE}   # its own install rules stay out of VASDK's
     )
     fetchcontent_makeavailable(pffft)
 endif()
@@ -47,7 +47,7 @@ if(VASDK_BUILD_TESTS)
              COMMAND pyannote_fbank_test ${CMAKE_CURRENT_SOURCE_DIR}/tests/golden/fbank_golden.txt)
 endif()
 
-install(TARGETS vasdk_pyannote_speaker
+install(TARGETS vasdk_pyannote_speaker COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -55,4 +55,5 @@ install(TARGETS vasdk_pyannote_speaker
 
 install(FILES PyannoteEmbeddingProvider.h ${CMAKE_CURRENT_BINARY_DIR}/vasdk_pyannote_speaker_export.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/PyannoteSpeaker
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )

@@ -112,23 +112,34 @@ VoicePrint = events_pb2.VoicePrint   # Session.add_speaker()
 AFTER_INPUT, AFTER_TRANSCRIPTION, BEFORE_SYNTHESIS, BEFORE_OUTPUT = 0, 1, 2, 3
 
 
+# The C library, vasdk_c: the C API and every provider in one (docs/integrating.md). A shared
+# VASDK (VASDK_SHARED) is looked for after it, with its providers in vasdk_providers.
+_C_LIBRARY_NAMES = {"darwin": ["libvasdk_c.dylib", "libvasdk_c.1.dylib", "libVASDK.dylib"],
+                    "win32": ["vasdk_c.dll", "VASDK.dll"]}.get(sys.platform, ["libvasdk_c.so", "libvasdk_c.so.1", "libVASDK.so"])
+
+
 def _find_library():
     explicit = os.environ.get("VASDK_LIBRARY")
     if explicit:
         return explicit
-    names = {"darwin": ["libVASDK.dylib"], "win32": ["VASDK.dll"]}.get(sys.platform, ["libVASDK.so"])
     here = Path(__file__).resolve().parent
     folders = [here]   # installed from a wheel: bundled in the package
-    builds = [Path.cwd() / "build" / "VASDK"]
+    roots = [Path.cwd() / "build"]
     if len(here.parents) > 2:
-        builds.append(here.parents[2] / "build" / "VASDK")   # the source tree's build
-    for build in builds:
-        folders += [build, build / "Release"]
-    for folder in folders:
-        for name in names:
+        roots.append(here.parents[2] / "build")   # the source tree's build
+    for root in roots:
+        for build in [root / "cmake" / "c_library", root / "VASDK"]:
+            folders += [build, build / "Release", build / "RelWithDebInfo", build / "Debug"]
+    for name in _C_LIBRARY_NAMES:
+        for folder in folders:
             if (folder / name).exists():
                 return str(folder / name)
-    raise VasdkError("libVASDK not found: set VASDK_LIBRARY to its path")
+    raise VasdkError("VASDK's C library (vasdk_c) not found: set VASDK_LIBRARY to its path")
+
+
+def _has_providers(path):
+    """The C library holds the providers itself; a shared VASDK has them in vasdk_providers beside it."""
+    return "vasdk_c" in Path(path).name
 
 
 def _library_name(stem):
@@ -139,6 +150,8 @@ def _find_providers_library(vasdk_path):
     explicit = os.environ.get("VASDK_PROVIDERS_LIBRARY")
     if explicit:
         return explicit
+    if _has_providers(vasdk_path):
+        return vasdk_path
     name = _library_name("vasdk_providers")
     here = Path(__file__).resolve().parent
     folders = [Path(vasdk_path).resolve().parent, here]

@@ -1,0 +1,10 @@
+prefix=@VASDK_PC_PREFIX@
+libdir=${prefix}/@CMAKE_INSTALL_LIBDIR@
+includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@
+
+Name: vasdk
+Description: VASDK voice assistant SDK: the C library (VAD, STT, TTS, turn detection, agents)
+URL: https://vasdk.com
+Version: @PROJECT_VERSION@
+Libs: -L${libdir} -lvasdk_c
+Cflags: -I${includedir}

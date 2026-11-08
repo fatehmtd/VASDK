@@ -41,18 +41,18 @@ if(VASDK_ENABLE_ENGINE_CONFIG AND TARGET VASDK)
         # Intent accuracy and entity F1 on what callers say, misspellings included
         # The same suite from Python, its C++ step, envelope and tool written in Python (the C API)
         find_package(Python3 COMPONENTS Interpreter QUIET)
-        if(VASDK_BUILD_PYTHON_BINDING AND Python3_Interpreter_FOUND)
+        if(VASDK_BUILD_PYTHON_BINDING AND Python3_Interpreter_FOUND AND TARGET vasdk_c)
             add_test(NAME vasdk_python_garage
-                     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/bindings/python/tests/test_garage.py ${GARAGE_DIR})
-            set_tests_properties(vasdk_python_garage PROPERTIES ENVIRONMENT "VASDK_LIBRARY=$<TARGET_FILE:VASDK>")
+                     COMMAND ${Python3_EXECUTABLE} ${VASDK_ROOT_DIR}/bindings/python/tests/test_garage.py ${GARAGE_DIR})
+            set_tests_properties(vasdk_python_garage PROPERTIES ENVIRONMENT "VASDK_LIBRARY=$<TARGET_FILE:vasdk_c>")
             # A page type and an entity extractor written in Python
             add_test(NAME vasdk_python_extensions
-                     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/bindings/python/tests/test_extensions.py)
-            set_tests_properties(vasdk_python_extensions PROPERTIES ENVIRONMENT "VASDK_LIBRARY=$<TARGET_FILE:VASDK>")
+                     COMMAND ${Python3_EXECUTABLE} ${VASDK_ROOT_DIR}/bindings/python/tests/test_extensions.py)
+            set_tests_properties(vasdk_python_extensions PROPERTIES ENVIRONMENT "VASDK_LIBRARY=$<TARGET_FILE:vasdk_c>")
             # Providers, processors, a runtime, and the conversation's controls, written in Python
             add_test(NAME vasdk_python_providers
-                     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/bindings/python/tests/test_providers.py)
-            set_tests_properties(vasdk_python_providers PROPERTIES ENVIRONMENT "VASDK_LIBRARY=$<TARGET_FILE:VASDK>" TIMEOUT 120)
+                     COMMAND ${Python3_EXECUTABLE} ${VASDK_ROOT_DIR}/bindings/python/tests/test_providers.py)
+            set_tests_properties(vasdk_python_providers PROPERTIES ENVIRONMENT "VASDK_LIBRARY=$<TARGET_FILE:vasdk_c>" TIMEOUT 120)
         endif()
         add_test(NAME vasdk_agent_garage_menu_nlu
                  COMMAND garage_agentc eval ${GARAGE_DIR}/agent.txtpb ${GARAGE_DIR}/nlu_eval.txtpb --min-accuracy 0.9)
@@ -128,7 +128,7 @@ endif()
 if(VASDK_BUILD_LIBDATACHANNEL_WEBRTC AND TARGET vasdk_libdatachannel_webrtc)
     target_link_libraries(VASDK_Pipeline PRIVATE vasdk_libdatachannel_webrtc)
     target_compile_definitions(VASDK_Pipeline PRIVATE VASDK_HAS_LIBDATACHANNEL_WEBRTC
-        VASDK_WEBRTC_DEMO_PAGE="${CMAKE_SOURCE_DIR}/assets/webrtc/index.html")
+        VASDK_WEBRTC_DEMO_PAGE="${VASDK_ROOT_DIR}/assets/webrtc/index.html")
 endif()
 
 # VAD, STT and TTS providers: every one built in this tree, picked by id from --config
@@ -231,23 +231,25 @@ if(VASDK_ENABLE_CTRACK AND TARGET vasdk_ctrack_iface)
     target_link_libraries(VASDK_Pipeline PRIVATE vasdk_ctrack_iface)
 endif()
 
-install(TARGETS VASDK_Pipeline
+install(TARGETS VASDK_Pipeline COMPONENT apps EXCLUDE_FROM_ALL
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 
 # Install model files to the installation directory
-install(DIRECTORY "${CMAKE_BINARY_DIR}/models/"
+install(DIRECTORY "${VASDK_ROOT_BINARY_DIR}/models/"
     DESTINATION "bin/models/"
-    OPTIONAL)
+    OPTIONAL
+    COMPONENT apps EXCLUDE_FROM_ALL
+)
 
 # Post-build step to copy all shared libraries to the install directory
 install(CODE "
     # Find and install all shared libraries in build directories
     file(GLOB_RECURSE SHARED_LIBS
-        \"${CMAKE_BINARY_DIR}/*.dll\"
-        \"${CMAKE_BINARY_DIR}/*.so\"
-        \"${CMAKE_BINARY_DIR}/*.dylib\"
+        \"${VASDK_ROOT_BINARY_DIR}/*.dll\"
+        \"${VASDK_ROOT_BINARY_DIR}/*.so\"
+        \"${VASDK_ROOT_BINARY_DIR}/*.dylib\"
     )
     foreach(lib \${SHARED_LIBS})
         get_filename_component(lib_name \${lib} NAME)
@@ -257,4 +259,6 @@ install(CODE "
             file(INSTALL \${lib} DESTINATION \"\${CMAKE_INSTALL_PREFIX}/bin\")
         endif()
     endforeach()
-")
+"
+    COMPONENT apps EXCLUDE_FROM_ALL
+)

@@ -4,6 +4,7 @@
 // ProviderCatalog's vasdk_providers_add_all uses it, and so can an app with providers of its own.
 
 #include "vasdk.h"
+#include <VASDK/vasdk_export.h>
 #include "../engine/ProviderRegistry.h"
 #include "../flow/CompiledAgent.h"
 

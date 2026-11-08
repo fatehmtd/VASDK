@@ -23,7 +23,7 @@ target_link_libraries(vasdk_whispercpp
 
 include(GNUInstallDirs)
 
-install(TARGETS vasdk_whispercpp
+install(TARGETS vasdk_whispercpp COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -31,8 +31,10 @@ install(TARGETS vasdk_whispercpp
 
 install(FILES WhisperCppTranscriptionProvider.hpp
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/WhisperCpp
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )
 
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/vasdk_whispercpp_export.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/WhisperCpp
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )

@@ -38,14 +38,32 @@ VASDK took shape while I was designing a production in-vehicle voice assistant. 
 
 The project is young and moving fast, with no tagged releases yet; see [what's mature and what's moving](docs/overview.md#whats-mature-and-whats-moving). Treat headers as the source of truth over the docs.
 
+## Use it in your project
+
+VASDK ships as a C library, `vasdk_c`. It is one shared library with the stable [C API](docs/reference/c-api.md) and the providers built in, and exports nothing else. The full C++ API comes from source. [Using VASDK in your project](docs/integrating.md) covers each path: targets, flavors, options and packages.
+
+```cmake
+# From source: the C++ API (VASDK::VASDK, VASDK::providers) or the C library (VASDK::c)
+include(FetchContent)
+FetchContent_Declare(VASDK GIT_REPOSITORY https://github.com/fatehmtd/VASDK.git GIT_TAG master)
+FetchContent_MakeAvailable(VASDK)
+target_link_libraries(my_app PRIVATE VASDK::VASDK VASDK::providers)
+
+# Installed (cmake --install, a release archive): the C library
+find_package(VASDK 1.0 REQUIRED)
+target_link_libraries(my_app PRIVATE VASDK::c)
+```
+
+pkg-config (`pkg-config --cflags --libs vasdk`) works too. Release archives, vcpkg, Conan, Homebrew, PyPI and Maven Central (`com.vasdk`) are on the way ([Packages](docs/integrating.md#packages)).
+
 ## Quick start
 
-You need CMake 3.16+, a C++17 compiler, git and a network connection. Everything else (C++ dependencies, libcurl and protobuf if they aren't installed, model files) is fetched at configure time. Details: [Building VASDK](docs/building.md).
+You need CMake 3.21+, a C++17 compiler, git and a network connection. Everything else (C++ dependencies, libcurl and protobuf if they aren't installed, model files) is fetched at configure time. Details: [Building VASDK](docs/building.md).
 
 ```bash
 git clone https://github.com/fatehmtd/VASDK.git
 cd VASDK
-cmake -B build -S .
+cmake -B build -S . -DVASDK_BUILD_APPS=ON      # the SDK alone without the flag; the sample apps are optional
 cmake --build build --config Release
 ```
 
@@ -60,7 +78,7 @@ cp .env.example .env   # fill in LLM_API_KEY (or OPENROUTER_API_KEY / OPENAI_API
 
 Set `LLM_MODEL` too, not only the key: the default endpoint is OpenRouter, which expects `provider/model` names (`openai/gpt-4o`, `anthropic/claude-sonnet-4-5`, …). Without it the app starts but fails on the first LLM request. To stay fully offline, build llama.cpp instead and pass `--llm-model-path` ([VASDK_Pipeline guide](docs/apps/pipeline.md)).
 
-That's a full voice loop: mic in, VAD, speaker tracking, transcription, LLM turn with tool calling, synthesis, speaker out. The repository has five apps to run and copy from:
+That's a full voice loop: mic in, VAD, speaker tracking, transcription, LLM turn with tool calling, synthesis, speaker out. The repository has five apps to run and copy from. The three C++ ones build with `-DVASDK_BUILD_APPS=ON` (or `cmake --preset apps`) and are never part of a plain build or install:
 
 | App | What it is | Run |
 | --- | --- | --- |
@@ -72,7 +90,7 @@ That's a full voice loop: mic in, VAD, speaker tracking, transcription, LLM turn
 
 With Visual Studio or Xcode, binaries land under an extra `Release/` folder (e.g. `./build/VASDK_APP/Release/VASDK_Pipeline`).
 
-Beyond C++, the [C API](docs/reference/c-api.md) has [Python](bindings/python/README.md) and [Kotlin](bindings/kotlin/README.md) (JVM and Android) bindings, level with the C++ API: agents, spoken sessions, every control, and providers and processors written in them. Both are optional and off by default: `-DVASDK_BUILD_PYTHON_BINDING=ON`, `-DVASDK_BUILD_KOTLIN_BINDING=ON`.
+Beyond C++, the [C API](docs/reference/c-api.md) has [Python](bindings/python/README.md) and [Kotlin](bindings/kotlin/README.md) (JVM and Android) bindings, level with the C++ API: agents, spoken sessions, every control, and providers and processors written in them. Both load the C library and are optional and off by default: `-DVASDK_BUILD_PYTHON_BINDING=ON`, `-DVASDK_BUILD_KOTLIN_BINDING=ON`.
 
 ## Architecture at a glance
 

@@ -26,7 +26,12 @@
 
 #include <stddef.h>
 
-#include "../vasdk_export.h"
+#include "vasdk_c_export.h"
+
+/* The C API's binary interface: a release raises it only when a function changes or goes away,
+ * which never happens within a major version (docs/reference/c-api.md, "Stability"). The C
+ * library's soname is this number: libvasdk_c.so.1. */
+#define VASDK_C_API_VERSION 1
 
 #ifdef __cplusplus
 extern "C" {
@@ -48,42 +53,42 @@ typedef struct vasdk_result vasdk_result;              /* what a tool returns */
 typedef void (*vasdk_message_fn)(const void* data, size_t length, void* user);
 
 /* Frees the text and the messages VASDK returned. */
-VASDK_EXPORT void vasdk_free(void* text);
-VASDK_EXPORT const char* vasdk_version(void);
+VASDK_C_API void vasdk_free(void* text);
+VASDK_C_API const char* vasdk_version(void);
 /* How much VASDK logs, to the console: "trace", "debug", "info" (the default), "warn", "error" or "off".
  * 0 for a level it doesn't know. */
-VASDK_EXPORT int vasdk_set_log_level(const char* level);
+VASDK_C_API int vasdk_set_log_level(const char* level);
 
 /* ---- Registry: what agents can name, written in C. The callbacks and their `user` must
  *      outlive every agent loaded with the registry. ---- */
 
-VASDK_EXPORT vasdk_registry* vasdk_registry_create(void);
-VASDK_EXPORT void vasdk_registry_free(vasdk_registry* registry);
+VASDK_C_API vasdk_registry* vasdk_registry_create(void);
+VASDK_C_API void vasdk_registry_free(vasdk_registry* registry);
 
 /* A step for `custom { [type.googleapis.com/<params_type>] { ... } }`: gets its params as JSON.
  * The params type must be known to the agent (proto_imports). */
 typedef void (*vasdk_step_fn)(const char* params_json, vasdk_turn* turn, void* user);
-VASDK_EXPORT int vasdk_registry_add_step(vasdk_registry* registry, const char* params_type, vasdk_step_fn step, void* user);
+VASDK_C_API int vasdk_registry_add_step(vasdk_registry* registry, const char* params_type, vasdk_step_fn step, void* user);
 /* The same, its params as the message itself, in `format`. */
 typedef void (*vasdk_step_message_fn)(const void* params, size_t length, vasdk_turn* turn, void* user);
-VASDK_EXPORT int vasdk_registry_add_step_message(vasdk_registry* registry, const char* params_type, vasdk_format format,
+VASDK_C_API int vasdk_registry_add_step_message(vasdk_registry* registry, const char* params_type, vasdk_format format,
                                                  vasdk_step_message_fn step, void* user);
 
 /* A tool for call_tool steps: gets the step's args as a JSON object, and sets its result
  * (vasdk_result_set) or fails it (vasdk_result_fail: tool-error). It may block. */
 typedef void (*vasdk_tool_fn)(const char* args_json, vasdk_result* result, void* user);
-VASDK_EXPORT int vasdk_registry_add_tool(vasdk_registry* registry, const char* name, const char* description,
+VASDK_C_API int vasdk_registry_add_tool(vasdk_registry* registry, const char* name, const char* description,
                                          vasdk_tool_fn tool, void* user);
-VASDK_EXPORT void vasdk_result_set(vasdk_result* result, const char* json);
-VASDK_EXPORT void vasdk_result_fail(vasdk_result* result, const char* error);
+VASDK_C_API void vasdk_result_set(vasdk_result* result, const char* json);
+VASDK_C_API void vasdk_result_fail(vasdk_result* result, const char* error);
 /* Sets a vector of `count` floats: what a speaker or sentence encoder provider gives. */
-VASDK_EXPORT void vasdk_result_set_floats(vasdk_result* result, const float* values, size_t count);
+VASDK_C_API void vasdk_result_set_floats(vasdk_result* result, const float* values, size_t count);
 
 /* An envelope for `envelopes: ["<name>"]`: `before` runs before the page's routes and returns
  * nonzero when it answered the turn; `after` runs once the reply is ready. Either may be NULL. */
 typedef int (*vasdk_envelope_before_fn)(vasdk_turn* turn, void* user);
 typedef void (*vasdk_envelope_after_fn)(vasdk_turn* turn, void* user);
-VASDK_EXPORT int vasdk_registry_add_envelope(vasdk_registry* registry, const char* name, vasdk_envelope_before_fn before,
+VASDK_C_API int vasdk_registry_add_envelope(vasdk_registry* registry, const char* name, vasdk_envelope_before_fn before,
                                              vasdk_envelope_after_fn after, void* user);
 
 /* A page type for pages with `type: "<name>"`, their params (`params { [type.googleapis.com/<params_type>]
@@ -93,12 +98,12 @@ VASDK_EXPORT int vasdk_registry_add_envelope(vasdk_registry* registry, const cha
  * Targets a C page type goes to aren't checked when the agent loads. */
 typedef void (*vasdk_page_enter_fn)(const char* params_json, vasdk_turn* turn, void* user);
 typedef int (*vasdk_page_turn_fn)(const char* params_json, vasdk_turn* turn, void* user);
-VASDK_EXPORT int vasdk_registry_add_page_type(vasdk_registry* registry, const char* name, const char* params_type,
+VASDK_C_API int vasdk_registry_add_page_type(vasdk_registry* registry, const char* name, const char* params_type,
                                               vasdk_page_enter_fn on_enter, vasdk_page_turn_fn on_turn, void* user);
 /* The same, its params as the message itself, in `format` (a type without params: 0 bytes). */
 typedef void (*vasdk_page_enter_message_fn)(const void* params, size_t length, vasdk_turn* turn, void* user);
 typedef int (*vasdk_page_turn_message_fn)(const void* params, size_t length, vasdk_turn* turn, void* user);
-VASDK_EXPORT int vasdk_registry_add_page_type_message(vasdk_registry* registry, const char* name, const char* params_type,
+VASDK_C_API int vasdk_registry_add_page_type_message(vasdk_registry* registry, const char* name, const char* params_type,
                                                       vasdk_format format, vasdk_page_enter_message_fn on_enter,
                                                       vasdk_page_turn_message_fn on_turn, void* user);
 
@@ -109,118 +114,118 @@ VASDK_EXPORT int vasdk_registry_add_page_type_message(vasdk_registry* registry, 
  * start and length index the words; spoken and attributes may be left out. Called on the
  * conversation's thread each time the entity is looked for: it should be quick. */
 typedef void (*vasdk_entity_extractor_fn)(const char* request_json, vasdk_result* result, void* user);
-VASDK_EXPORT int vasdk_registry_add_entity_extractor(vasdk_registry* registry, const char* name,
+VASDK_C_API int vasdk_registry_add_entity_extractor(vasdk_registry* registry, const char* name,
                                                      vasdk_entity_extractor_fn extractor, void* user);
 
 /* A language agents may name in locale or languages: a vasdk.nlu.Language pack
  * (vasdk/nlu/language.proto) in `format`, `length` bytes; one of the same code replaces it. 1 when
  * it checks; 0, with *error set, when it doesn't. A pack the agent lists in language_files needs
  * no call. vasdk_language_builtin gives VASDK's own en-US pack, to start one from. */
-VASDK_EXPORT int vasdk_registry_add_language(vasdk_registry* registry, const void* pack, size_t length, vasdk_format format,
+VASDK_C_API int vasdk_registry_add_language(vasdk_registry* registry, const void* pack, size_t length, vasdk_format format,
                                              char** error);
 /* VASDK's built-in en-US pack in `format`, *length bytes long. Free it with vasdk_free. */
-VASDK_EXPORT void* vasdk_language_builtin(vasdk_format format, size_t* length);
+VASDK_C_API void* vasdk_language_builtin(vasdk_format format, size_t* length);
 
 /* ---- Turn: only inside a step's or envelope's callback. ---- */
 
 /* What the user said this turn; valid until the callback returns. */
-VASDK_EXPORT const char* vasdk_turn_text(vasdk_turn* turn);
+VASDK_C_API const char* vasdk_turn_text(vasdk_turn* turn);
 /* The value a reference holds now ("$session.tier", "$form.day"), as JSON; "null" when unknown. */
-VASDK_EXPORT char* vasdk_turn_lookup(vasdk_turn* turn, const char* reference);
+VASDK_C_API char* vasdk_turn_lookup(vasdk_turn* turn, const char* reference);
 /* The same, a google.protobuf.Value in `format`, *length bytes long. Free it with vasdk_free. */
-VASDK_EXPORT void* vasdk_turn_lookup_message(vasdk_turn* turn, const char* reference, vasdk_format format, size_t* length);
-VASDK_EXPORT void vasdk_turn_say(vasdk_turn* turn, const char* text);
-VASDK_EXPORT void vasdk_turn_goto(vasdk_turn* turn, const char* target);
+VASDK_C_API void* vasdk_turn_lookup_message(vasdk_turn* turn, const char* reference, vasdk_format format, size_t* length);
+VASDK_C_API void vasdk_turn_say(vasdk_turn* turn, const char* text);
+VASDK_C_API void vasdk_turn_goto(vasdk_turn* turn, const char* target);
 /* Applies a vasdk.flow.StepOutcome: values to set and unset, texts to say, a question to ask, a
  * target. Keys other than $session.<declared>, $page.locals.<name> and $form.<slot> fail it, and
  * nothing applies. */
-VASDK_EXPORT int vasdk_turn_apply(vasdk_turn* turn, const void* outcome, size_t length, vasdk_format format, char** error);
+VASDK_C_API int vasdk_turn_apply(vasdk_turn* turn, const void* outcome, size_t length, vasdk_format format, char** error);
 /* Changes what the rest of the turn reads as the user's words (an envelope's before: redact them). */
-VASDK_EXPORT void vasdk_turn_set_text(vasdk_turn* turn, const char* text);
+VASDK_C_API void vasdk_turn_set_text(vasdk_turn* turn, const char* text);
 /* A template with its references filled in ("Welcome back, $session.name."), as a say does. Free it with vasdk_free. */
-VASDK_EXPORT char* vasdk_turn_render(vasdk_turn* turn, const char* text);
+VASDK_C_API char* vasdk_turn_render(vasdk_turn* turn, const char* text);
 /* What the reply says so far; valid until the callback returns. */
-VASDK_EXPORT const char* vasdk_turn_reply_text(vasdk_turn* turn);
+VASDK_C_API const char* vasdk_turn_reply_text(vasdk_turn* turn);
 /* The flow and the page the turn is on. Free them with vasdk_free. */
-VASDK_EXPORT char* vasdk_turn_flow(vasdk_turn* turn);
-VASDK_EXPORT char* vasdk_turn_page(vasdk_turn* turn);
+VASDK_C_API char* vasdk_turn_flow(vasdk_turn* turn);
+VASDK_C_API char* vasdk_turn_page(vasdk_turn* turn);
 
 /* ---- Agents ---- */
 
 /* An agent file (.txtpb, .json or .pb; its imports and goal files beside it). registry may be NULL. */
-VASDK_EXPORT vasdk_agent* vasdk_agent_load(const char* path, const vasdk_registry* registry, char** error);
+VASDK_C_API vasdk_agent* vasdk_agent_load(const char* path, const vasdk_registry* registry, char** error);
 /* The .proto files of the agent's proto_imports and those they import, dependencies first, as a
  * serialized google.protobuf.FileDescriptorSet: for a language that builds its message classes at
  * run time, to read the agent's own types as messages. Its size in *length; empty without proto_imports. */
-VASDK_EXPORT void* vasdk_agent_proto_files(const vasdk_agent* agent, size_t* length);
+VASDK_C_API void* vasdk_agent_proto_files(const vasdk_agent* agent, size_t* length);
 /* A vasdk.flow.Agent from memory. */
-VASDK_EXPORT vasdk_agent* vasdk_agent_parse(const void* data, size_t length, vasdk_format format,
+VASDK_C_API vasdk_agent* vasdk_agent_parse(const void* data, size_t length, vasdk_format format,
                                             const vasdk_registry* registry, char** error);
-VASDK_EXPORT void vasdk_agent_free(vasdk_agent* agent);
+VASDK_C_API void vasdk_agent_free(vasdk_agent* agent);
 
 /* ---- Conversations, by text. Each returns the reply as JSON:
  *   {"text", "segments": [{"text", "interruptible"}], "choices": [{"label", "value"}], "matched",
  *    "intent", "event", "expects_reply", "ends_session", "flow", "page",
  *    "tool_calls": [{"name", "arguments", "result", "ok"}], "triggers": [{"name", "decision"}]} ---- */
 
-VASDK_EXPORT vasdk_conversation* vasdk_conversation_create(const vasdk_agent* agent);
-VASDK_EXPORT void vasdk_conversation_free(vasdk_conversation* conversation);
-VASDK_EXPORT char* vasdk_conversation_start(vasdk_conversation* conversation);
-VASDK_EXPORT char* vasdk_conversation_say(vasdk_conversation* conversation, const char* text);
-VASDK_EXPORT char* vasdk_conversation_no_input(vasdk_conversation* conversation);
-VASDK_EXPORT char* vasdk_conversation_select_choice(vasdk_conversation* conversation, int index);
-VASDK_EXPORT char* vasdk_conversation_fire_trigger(vasdk_conversation* conversation, const char* name, const char* payload_json);
+VASDK_C_API vasdk_conversation* vasdk_conversation_create(const vasdk_agent* agent);
+VASDK_C_API void vasdk_conversation_free(vasdk_conversation* conversation);
+VASDK_C_API char* vasdk_conversation_start(vasdk_conversation* conversation);
+VASDK_C_API char* vasdk_conversation_say(vasdk_conversation* conversation, const char* text);
+VASDK_C_API char* vasdk_conversation_no_input(vasdk_conversation* conversation);
+VASDK_C_API char* vasdk_conversation_select_choice(vasdk_conversation* conversation, int index);
+VASDK_C_API char* vasdk_conversation_fire_trigger(vasdk_conversation* conversation, const char* name, const char* payload_json);
 /* Sets a declared session param from a JSON value ("\"gold\"", "3", "true"). */
-VASDK_EXPORT int vasdk_conversation_set_param(vasdk_conversation* conversation, const char* name, const char* value_json,
+VASDK_C_API int vasdk_conversation_set_param(vasdk_conversation* conversation, const char* name, const char* value_json,
                                               char** error);
 /* The value a reference holds now, as JSON. */
-VASDK_EXPORT char* vasdk_conversation_lookup(vasdk_conversation* conversation, const char* reference);
+VASDK_C_API char* vasdk_conversation_lookup(vasdk_conversation* conversation, const char* reference);
 
 /* Every turn of a conversation, as protos (vasdk/flow/conversation.proto): `input`, a
  * vasdk.flow.ConversationInput in `format` (start, text, no_input, select_choice, fire_trigger,
  * check_triggers, deliver_queued),
  * gets the vasdk.flow.ConversationReply in the same format, *reply_length bytes long. Free it
  * with vasdk_free. NULL, with `error` set, for an input that doesn't parse or is empty. */
-VASDK_EXPORT void* vasdk_conversation_send(vasdk_conversation* conversation, const void* input, size_t length,
+VASDK_C_API void* vasdk_conversation_send(vasdk_conversation* conversation, const void* input, size_t length,
                                            vasdk_format format, size_t* reply_length, char** error);
 /* Sets a declared session param from a google.protobuf.Value in `format`. */
-VASDK_EXPORT int vasdk_conversation_set_param_message(vasdk_conversation* conversation, const char* name, const void* value,
+VASDK_C_API int vasdk_conversation_set_param_message(vasdk_conversation* conversation, const char* name, const void* value,
                                                       size_t length, vasdk_format format, char** error);
 /* The value a reference holds now, a google.protobuf.Value in `format`. Free it with vasdk_free. */
-VASDK_EXPORT void* vasdk_conversation_lookup_message(vasdk_conversation* conversation, const char* reference,
+VASDK_C_API void* vasdk_conversation_lookup_message(vasdk_conversation* conversation, const char* reference,
                                                      vasdk_format format, size_t* length);
 /* Where the conversation is, to pick it up later: a vasdk.flow.ConversationSnapshot in `format`
  * (sensitive slots and params left out; its flow empty when not started or ended). Free it with vasdk_free. */
-VASDK_EXPORT void* vasdk_conversation_snapshot_message(vasdk_conversation* conversation, vasdk_format format, size_t* length);
+VASDK_C_API void* vasdk_conversation_snapshot_message(vasdk_conversation* conversation, vasdk_format format, size_t* length);
 /* Starts the conversation where a snapshot left it, instead of start: gives the ConversationReply
  * in `format`, *reply_length bytes. *resumed (may be NULL): 0 when the snapshot didn't fit the agent
  * and the conversation started over. NULL, with `error` set, for a snapshot that doesn't parse. */
-VASDK_EXPORT void* vasdk_conversation_resume_message(vasdk_conversation* conversation, const void* snapshot, size_t length,
+VASDK_C_API void* vasdk_conversation_resume_message(vasdk_conversation* conversation, const void* snapshot, size_t length,
                                                      vasdk_format format, size_t* reply_length, int* resumed, char** error);
 /* Replaces a dynamic entity's values for this conversation: a vasdk.engine.EntityValuesCommand
  * (vasdk/engine/events.proto: name, values) in `format`. 0, with `error` set, for an entity that isn't a dynamic list. */
-VASDK_EXPORT int vasdk_conversation_set_entity_values_message(vasdk_conversation* conversation, const void* values,
+VASDK_C_API int vasdk_conversation_set_entity_values_message(vasdk_conversation* conversation, const void* values,
                                                               size_t length, vasdk_format format, char** error);
 /* The app's state, a google.protobuf.Struct in `format`: what $context.* reads. Each top-level key
  * replaces the one before. */
-VASDK_EXPORT int vasdk_conversation_set_context_message(vasdk_conversation* conversation, const void* context, size_t length,
+VASDK_C_API int vasdk_conversation_set_context_message(vasdk_conversation* conversation, const void* context, size_t length,
                                                         vasdk_format format, char** error);
 /* The user cut the last reply off: a read-back cut off isn't confirmed by a plain "yes". */
-VASDK_EXPORT void vasdk_conversation_reply_interrupted(vasdk_conversation* conversation);
+VASDK_C_API void vasdk_conversation_reply_interrupted(vasdk_conversation* conversation);
 /* How long to wait for an answer before a no_input, from the page's settings; 0: never. */
-VASDK_EXPORT int vasdk_conversation_no_input_ms(vasdk_conversation* conversation);
+VASDK_C_API int vasdk_conversation_no_input_ms(vasdk_conversation* conversation);
 /* When the next schedule trigger is due, in milliseconds since the epoch; -1 for none. */
-VASDK_EXPORT long long vasdk_conversation_next_scheduled_trigger_ms(vasdk_conversation* conversation);
+VASDK_C_API long long vasdk_conversation_next_scheduled_trigger_ms(vasdk_conversation* conversation);
 /* What the triggers have seen, as JSON, to keep reminders across restarts; free it with vasdk_free.
  * restore: 0 for text it can't read. */
-VASDK_EXPORT char* vasdk_conversation_trigger_state(vasdk_conversation* conversation);
-VASDK_EXPORT int vasdk_conversation_restore_trigger_state(vasdk_conversation* conversation, const char* state_json);
+VASDK_C_API char* vasdk_conversation_trigger_state(vasdk_conversation* conversation);
+VASDK_C_API int vasdk_conversation_restore_trigger_state(vasdk_conversation* conversation, const char* state_json);
 
 /* ---- Tests: plays a vasdk.flow.FlowTestCase file. 1 when it passed; `report` (may be NULL)
  *      gets what differed, one line each. ---- */
-VASDK_EXPORT int vasdk_run_test_file(const vasdk_agent* agent, const char* path, char** report);
+VASDK_C_API int vasdk_run_test_file(const vasdk_agent* agent, const char* path, char** report);
 /* The same, a vasdk.flow.FlowTestCase (vasdk/flow/test_case.proto) from memory, in `format`. */
-VASDK_EXPORT int vasdk_run_test_message(const vasdk_agent* agent, const void* test_case, size_t length, vasdk_format format,
+VASDK_C_API int vasdk_run_test_message(const vasdk_agent* agent, const void* test_case, size_t length, vasdk_format format,
                                         char** report);
 
 /* ---- Sessions: a spoken conversation, with the speech providers an engine config names
@@ -243,8 +248,8 @@ typedef struct vasdk_providers vasdk_providers;   /* the providers a config can 
 typedef struct vasdk_session vasdk_session;
 
 /* Empty; vasdk_providers_add_all (ProviderCatalog) adds every provider built into the binary. */
-VASDK_EXPORT vasdk_providers* vasdk_providers_create(void);
-VASDK_EXPORT void vasdk_providers_free(vasdk_providers* providers);
+VASDK_C_API vasdk_providers* vasdk_providers_create(void);
+VASDK_C_API void vasdk_providers_free(vasdk_providers* providers);
 
 /* Each event, a vasdk.engine.Event as JSON (vasdk/engine/events.proto), on the session's event thread. */
 typedef void (*vasdk_event_fn)(const char* event_json, void* user);
@@ -257,95 +262,95 @@ typedef void (*vasdk_audio_fn)(const short* pcm, size_t samples, void* user);
  * The config's audio must be 16-bit PCM (the default). providers and agent must outlive it.
  * A config whose providers name a webrtc peer talks to a browser instead: the pushed audio and
  * the audio callback then go unused, and the page shows the session's state. */
-VASDK_EXPORT vasdk_session* vasdk_session_create(const char* config_path, const vasdk_providers* providers,
+VASDK_C_API vasdk_session* vasdk_session_create(const char* config_path, const vasdk_providers* providers,
                                                  const vasdk_agent* agent, const char* options_json, char** error);
 /* The same, its options a vasdk.engine.SessionOptions (vasdk/engine/session.proto) in `format`; options may be NULL. */
-VASDK_EXPORT vasdk_session* vasdk_session_create_message(const char* config_path, const vasdk_providers* providers,
+VASDK_C_API vasdk_session* vasdk_session_create_message(const char* config_path, const vasdk_providers* providers,
                                                          const vasdk_agent* agent, const void* options, size_t length,
                                                          vasdk_format format, char** error);
 /* The same, from an engine config the app built: a vasdk.engine.EngineConfig (vasdk/engine/engine_config.proto)
  * in `config_format`, its providers' options their own messages (vasdk/providers/options.proto). Unlike a
  * config file, nothing in it is expanded (${ENV}): it holds its values already. */
-VASDK_EXPORT vasdk_session* vasdk_session_create_config(const void* config, size_t config_length, vasdk_format config_format,
+VASDK_C_API vasdk_session* vasdk_session_create_config(const void* config, size_t config_length, vasdk_format config_format,
                                                         const vasdk_providers* providers, const vasdk_agent* agent,
                                                         const void* options, size_t length, vasdk_format format, char** error);
-VASDK_EXPORT void vasdk_session_free(vasdk_session* session);   /* stops it first */
+VASDK_C_API void vasdk_session_free(vasdk_session* session);   /* stops it first */
 /* Before vasdk_session_start. */
-VASDK_EXPORT void vasdk_session_on_event(vasdk_session* session, vasdk_event_fn on_event, void* user);
+VASDK_C_API void vasdk_session_on_event(vasdk_session* session, vasdk_event_fn on_event, void* user);
 /* Each event as the vasdk.engine.Event itself, in `format`: instead of vasdk_session_on_event. */
-VASDK_EXPORT void vasdk_session_on_event_message(vasdk_session* session, vasdk_message_fn on_event, vasdk_format format,
+VASDK_C_API void vasdk_session_on_event_message(vasdk_session* session, vasdk_message_fn on_event, vasdk_format format,
                                                  void* user);
-VASDK_EXPORT void vasdk_session_on_audio(vasdk_session* session, vasdk_audio_fn on_audio, void* user);
+VASDK_C_API void vasdk_session_on_audio(vasdk_session* session, vasdk_audio_fn on_audio, void* user);
 /* The agent's greeting picks up where a vasdk_session_snapshot left it. */
-VASDK_EXPORT void vasdk_session_resume(vasdk_session* session, const char* snapshot_json);
+VASDK_C_API void vasdk_session_resume(vasdk_session* session, const char* snapshot_json);
 /* The same, from a vasdk.flow.ConversationSnapshot (vasdk/flow/snapshot.proto) in `format`. 0, with *error set, when it doesn't parse. */
-VASDK_EXPORT int vasdk_session_resume_message(vasdk_session* session, const void* snapshot, size_t length, vasdk_format format,
+VASDK_C_API int vasdk_session_resume_message(vasdk_session* session, const void* snapshot, size_t length, vasdk_format format,
                                               char** error);
-VASDK_EXPORT int vasdk_session_start(vasdk_session* session, char** error);
-VASDK_EXPORT void vasdk_session_stop(vasdk_session* session);
+VASDK_C_API int vasdk_session_start(vasdk_session* session, char** error);
+VASDK_C_API void vasdk_session_stop(vasdk_session* session);
 /* Sample rates, in Hz, of the audio pushed in and given out (the config's audio, default 16000). */
-VASDK_EXPORT int vasdk_session_input_rate(const vasdk_session* session);
-VASDK_EXPORT int vasdk_session_output_rate(const vasdk_session* session);
+VASDK_C_API int vasdk_session_input_rate(const vasdk_session* session);
+VASDK_C_API int vasdk_session_output_rate(const vasdk_session* session);
 /* The user's audio, as it comes: any number of samples. Thread-safe. */
-VASDK_EXPORT void vasdk_session_push_audio(vasdk_session* session, const short* pcm, size_t samples);
+VASDK_C_API void vasdk_session_push_audio(vasdk_session* session, const short* pcm, size_t samples);
 /* A user turn, as if spoken; words the assistant says. Thread-safe. */
-VASDK_EXPORT void vasdk_session_inject_text(vasdk_session* session, const char* text);
-VASDK_EXPORT void vasdk_session_say(vasdk_session* session, const char* text);
+VASDK_C_API void vasdk_session_inject_text(vasdk_session* session, const char* text);
+VASDK_C_API void vasdk_session_say(vasdk_session* session, const char* text);
 /* Sets a declared agent session param from a JSON value. Thread-safe. */
-VASDK_EXPORT int vasdk_session_set_param(vasdk_session* session, const char* name, const char* value_json, char** error);
+VASDK_C_API int vasdk_session_set_param(vasdk_session* session, const char* name, const char* value_json, char** error);
 /* Does what a vasdk.engine.Command in `format` asks (vasdk/engine/events.proto): inject_text,
  * select_choice, fire_trigger, say, interrupt, set_session_param, reset_conversation,
  * push_to_talk, follow_up_listen_ms, set_entity_values, set_backchannel, enroll_speaker,
  * add_speaker. 0, with `error` set, for one that doesn't parse, is empty, or the session can't do
  * (enroll_speaker without providers.speaker_embedding). Thread-safe. */
-VASDK_EXPORT int vasdk_session_send(vasdk_session* session, const void* command, size_t length, vasdk_format format,
+VASDK_C_API int vasdk_session_send(vasdk_session* session, const void* command, size_t length, vasdk_format format,
                                     char** error);
 /* Nonzero: the network is up. Down: local fallbacks speak and listen, and the LLM rests. Thread-safe. */
-VASDK_EXPORT void vasdk_session_set_network_available(vasdk_session* session, int available);
+VASDK_C_API void vasdk_session_set_network_available(vasdk_session* session, int available);
 /* Where the agent's conversation is, to resume it later ("" when there's nothing to resume): the
  * JSON form of a vasdk.flow.ConversationSnapshot. */
-VASDK_EXPORT char* vasdk_session_snapshot(vasdk_session* session);
+VASDK_C_API char* vasdk_session_snapshot(vasdk_session* session);
 /* The same, the ConversationSnapshot itself in `format` (its flow empty when there's nothing to resume); its size in *length. */
-VASDK_EXPORT void* vasdk_session_snapshot_message(vasdk_session* session, vasdk_format format, size_t* length);
+VASDK_C_API void* vasdk_session_snapshot_message(vasdk_session* session, vasdk_format format, size_t* length);
 
 /* A tool the session's LLM may call, written by the app. parameters_json (may be NULL) is a JSON
  * array of {"name", "description", "type": "string" | "number" | "integer" | "boolean", "required"}.
  * The callback gets the LLM's arguments as JSON, and sets the result (vasdk_result_set) or fails
  * it (vasdk_result_fail: the LLM is told the error). It runs on a pipeline thread and may block.
  * Before vasdk_session_start. For an agent's call_tool steps, register tools with the registry. */
-VASDK_EXPORT int vasdk_session_add_tool(vasdk_session* session, const char* name, const char* description,
+VASDK_C_API int vasdk_session_add_tool(vasdk_session* session, const char* name, const char* description,
                                         const char* parameters_json, vasdk_tool_fn tool, void* user, char** error);
 /* The same, declared by a vasdk.engine.ToolDeclaration (vasdk/engine/session.proto) in `format`. */
-VASDK_EXPORT int vasdk_session_add_tool_message(vasdk_session* session, const void* declaration, size_t length,
+VASDK_C_API int vasdk_session_add_tool_message(vasdk_session* session, const void* declaration, size_t length,
                                                 vasdk_format format, vasdk_tool_fn tool, void* user, char** error);
 /* Fires one of the agent's app_event triggers by its event name; payload_json (a JSON object, may
  * be NULL) is $trigger.payload. Its delivery decides when it's said. Thread-safe. */
-VASDK_EXPORT int vasdk_session_fire_trigger(vasdk_session* session, const char* name, const char* payload_json, char** error);
+VASDK_C_API int vasdk_session_fire_trigger(vasdk_session* session, const char* name, const char* payload_json, char** error);
 /* The app's state, a JSON object: what the agent's $context.* reads (and its context_change
  * triggers watch), and {context} in the system prompt. Each top-level key replaces the one before. Thread-safe. */
-VASDK_EXPORT int vasdk_session_set_context(vasdk_session* session, const char* context_json, char** error);
+VASDK_C_API int vasdk_session_set_context(vasdk_session* session, const char* context_json, char** error);
 /* The same, from a google.protobuf.Struct in `format`. */
-VASDK_EXPORT int vasdk_session_set_context_message(vasdk_session* session, const void* context, size_t length,
+VASDK_C_API int vasdk_session_set_context_message(vasdk_session* session, const void* context, size_t length,
                                                    vasdk_format format, char** error);
 /* The app's state, asked for each time the agent ($context.*, context_change triggers) or the LLM
  * ({context}) reads it: the callback sets a JSON object with vasdk_result_set, whose keys win over
  * set_context's. On the conversation's and the LLM's threads: keep it quick. Before vasdk_session_start. */
 typedef void (*vasdk_context_fn)(vasdk_result* context, void* user);
-VASDK_EXPORT void vasdk_session_on_context(vasdk_session* session, vasdk_context_fn on_context, void* user);
+VASDK_C_API void vasdk_session_on_context(vasdk_session* session, vasdk_context_fn on_context, void* user);
 
 /* What the session runs: its providers, its LLM, its stages. Free it with vasdk_free. */
-VASDK_EXPORT char* vasdk_session_describe(vasdk_session* session);
+VASDK_C_API char* vasdk_session_describe(vasdk_session* session);
 /* Nonzero: the network is down and the local fallbacks speak and listen. */
-VASDK_EXPORT int vasdk_session_using_fallbacks(vasdk_session* session);
+VASDK_C_API int vasdk_session_using_fallbacks(vasdk_session* session);
 /* The enrolled speakers' voice prints (providers.speaker_embedding), a vasdk.engine.VoicePrints in
  * `format`, to keep and give back with an add_speaker command; its size in *length. Free it with vasdk_free. */
-VASDK_EXPORT void* vasdk_session_speakers_message(vasdk_session* session, vasdk_format format, size_t* length);
+VASDK_C_API void* vasdk_session_speakers_message(vasdk_session* session, vasdk_format format, size_t* length);
 /* When the agent's next schedule trigger is due, in milliseconds since the epoch, for an app that
  * must wake up for it (Android's AlarmManager); -1 for none. */
-VASDK_EXPORT long long vasdk_session_next_scheduled_trigger_ms(vasdk_session* session);
+VASDK_C_API long long vasdk_session_next_scheduled_trigger_ms(vasdk_session* session);
 /* What the agent's triggers have seen, as JSON: save it to keep reminders across restarts. Free it with vasdk_free. */
-VASDK_EXPORT char* vasdk_session_trigger_state(vasdk_session* session);
-VASDK_EXPORT void vasdk_session_restore_trigger_state(vasdk_session* session, const char* state_json);
+VASDK_C_API char* vasdk_session_trigger_state(vasdk_session* session);
+VASDK_C_API void vasdk_session_restore_trigger_state(vasdk_session* session, const char* state_json);
 
 /* ---- Processors written in the app, at a slot of the session's pipeline (engine/Session.h), in
  *      the order added. Before vasdk_session_start. 0 for a slot the kind doesn't take, or once started. ---- */
@@ -358,13 +363,13 @@ typedef enum vasdk_slot {
 /* Audio as it passes, 16-bit mono at the slot's rate. AFTER_INPUT: the microphone's, to read (a
  * recorder, a level meter). BEFORE_OUTPUT: the reply's, which the callback may change in place. On a pipeline thread. */
 typedef void (*vasdk_audio_processor_fn)(short* pcm, size_t samples, int sample_rate, void* user);
-VASDK_EXPORT int vasdk_session_add_audio_processor(vasdk_session* session, vasdk_slot slot, vasdk_audio_processor_fn processor,
+VASDK_C_API int vasdk_session_add_audio_processor(vasdk_session* session, vasdk_slot slot, vasdk_audio_processor_fn processor,
                                                    void* user);
 /* Text as it passes: AFTER_TRANSCRIPTION each final transcript, BEFORE_SYNTHESIS each part of a
  * reply. The callback leaves `result` alone to pass it on, sets new text with vasdk_result_set
  * (plain text, not JSON), or sets "" to drop it. On a pipeline thread. */
 typedef void (*vasdk_text_processor_fn)(const char* text, vasdk_result* result, void* user);
-VASDK_EXPORT int vasdk_session_add_text_processor(vasdk_session* session, vasdk_slot slot, vasdk_text_processor_fn processor,
+VASDK_C_API int vasdk_session_add_text_processor(vasdk_session* session, vasdk_slot slot, vasdk_text_processor_fn processor,
                                                   void* user);
 
 /* ---- Runtime: what many sessions share, the providers loaded once per conversation running at
@@ -372,22 +377,22 @@ VASDK_EXPORT int vasdk_session_add_text_processor(vasdk_session* session, vasdk_
 typedef struct vasdk_runtime vasdk_runtime;
 /* An engine config file and the providers it names (both must outlive it). models_dir (may be
  * NULL): used when the config has none. max_sessions: sessions running at once; 0, no limit. */
-VASDK_EXPORT vasdk_runtime* vasdk_runtime_create(const char* config_path, const vasdk_providers* providers, const char* models_dir,
+VASDK_C_API vasdk_runtime* vasdk_runtime_create(const char* config_path, const vasdk_providers* providers, const char* models_dir,
                                                  int max_sessions, char** error);
 /* The same, from an engine config the app built (as vasdk_session_create_config). */
-VASDK_EXPORT vasdk_runtime* vasdk_runtime_create_config(const void* config, size_t config_length, vasdk_format config_format,
+VASDK_C_API vasdk_runtime* vasdk_runtime_create_config(const void* config, size_t config_length, vasdk_format config_format,
                                                         const vasdk_providers* providers, const char* models_dir,
                                                         int max_sessions, char** error);
 /* After every session made from it is freed. */
-VASDK_EXPORT void vasdk_runtime_free(vasdk_runtime* runtime);
+VASDK_C_API void vasdk_runtime_free(vasdk_runtime* runtime);
 /* A session over the runtime's providers, as vasdk_session_create_message (options: a
  * vasdk.engine.SessionOptions, may be NULL; its models_dir is the runtime's). NULL, with `error`
  * set, at max_sessions. Freeing the session hands its providers back for the next one. */
-VASDK_EXPORT vasdk_session* vasdk_runtime_session_create(vasdk_runtime* runtime, const vasdk_agent* agent, const void* options,
+VASDK_C_API vasdk_session* vasdk_runtime_session_create(vasdk_runtime* runtime, const vasdk_agent* agent, const void* options,
                                                          size_t length, vasdk_format format, char** error);
-VASDK_EXPORT size_t vasdk_runtime_active_sessions(const vasdk_runtime* runtime);
+VASDK_C_API size_t vasdk_runtime_active_sessions(const vasdk_runtime* runtime);
 /* Provider sets loaded and waiting for a session. */
-VASDK_EXPORT size_t vasdk_runtime_idle_provider_sets(const vasdk_runtime* runtime);
+VASDK_C_API size_t vasdk_runtime_idle_provider_sets(const vasdk_runtime* runtime);
 
 /* ---- Providers written in the app: added to a vasdk_providers by id, and named by an engine
  *      config like a built-in one (providers { stt { id: "my-stt" } }). Each session gets its own
@@ -403,14 +408,14 @@ typedef void (*vasdk_provider_destroy_fn)(void* instance);
 
 /* What a provider gives back. Text: an STT's transcripts (is_final 0 for a partial). Audio: a
  * TTS's speech, in order, then done once the text is all said. Error: what went wrong. */
-VASDK_EXPORT void vasdk_sink_text(vasdk_sink* sink, const char* text, int is_final);
-VASDK_EXPORT void vasdk_sink_audio(vasdk_sink* sink, const short* pcm, size_t samples);
-VASDK_EXPORT void vasdk_sink_done(vasdk_sink* sink);
-VASDK_EXPORT void vasdk_sink_error(vasdk_sink* sink, const char* message);
+VASDK_C_API void vasdk_sink_text(vasdk_sink* sink, const char* text, int is_final);
+VASDK_C_API void vasdk_sink_audio(vasdk_sink* sink, const short* pcm, size_t samples);
+VASDK_C_API void vasdk_sink_done(vasdk_sink* sink);
+VASDK_C_API void vasdk_sink_error(vasdk_sink* sink, const char* message);
 
 /* VAD: the chance, 0 to 1, that the audio is speech; 0.5 and above counts as speech. */
 typedef float (*vasdk_vad_fn)(void* instance, const short* pcm, size_t samples);
-VASDK_EXPORT int vasdk_providers_add_vad(vasdk_providers* providers, const char* id, vasdk_provider_create_fn create,
+VASDK_C_API int vasdk_providers_add_vad(vasdk_providers* providers, const char* id, vasdk_provider_create_fn create,
                                          vasdk_provider_destroy_fn destroy, vasdk_vad_fn detect, void* user);
 
 /* STT. With the config's turn_taking.streaming_transcription off (the default), `write` gets a
@@ -420,7 +425,7 @@ VASDK_EXPORT int vasdk_providers_add_vad(vasdk_providers* providers, const char*
  * whenever ready, from any thread. `start` and `stop` (may be NULL) bracket the session. */
 typedef void (*vasdk_stt_event_fn)(void* instance);
 typedef void (*vasdk_stt_write_fn)(void* instance, const short* pcm, size_t samples);
-VASDK_EXPORT int vasdk_providers_add_stt(vasdk_providers* providers, const char* id, vasdk_provider_create_fn create,
+VASDK_C_API int vasdk_providers_add_stt(vasdk_providers* providers, const char* id, vasdk_provider_create_fn create,
                                          vasdk_provider_destroy_fn destroy, vasdk_stt_event_fn start, vasdk_stt_write_fn write,
                                          vasdk_stt_event_fn end_of_speech, vasdk_stt_event_fn stop, void* user);
 
@@ -429,34 +434,34 @@ VASDK_EXPORT int vasdk_providers_add_stt(vasdk_providers* providers, const char*
  * being said and queued, at a barge-in. */
 typedef int (*vasdk_tts_synthesize_fn)(void* instance, const char* text);
 typedef void (*vasdk_tts_cancel_fn)(void* instance);
-VASDK_EXPORT int vasdk_providers_add_tts(vasdk_providers* providers, const char* id, vasdk_provider_create_fn create,
+VASDK_C_API int vasdk_providers_add_tts(vasdk_providers* providers, const char* id, vasdk_provider_create_fn create,
                                          vasdk_provider_destroy_fn destroy, vasdk_tts_synthesize_fn synthesize,
                                          vasdk_tts_cancel_fn cancel, void* user);
 
 /* End of turn: the user's audio since they began speaking; the chance, 0 to 1, that they're done.
  * Asked after they stop (and during pauses when the config's turn-taking asks for it). */
 typedef float (*vasdk_turn_fn)(void* instance, const short* pcm, size_t samples);
-VASDK_EXPORT int vasdk_providers_add_turn(vasdk_providers* providers, const char* id, vasdk_provider_create_fn create,
+VASDK_C_API int vasdk_providers_add_turn(vasdk_providers* providers, const char* id, vasdk_provider_create_fn create,
                                           vasdk_provider_destroy_fn destroy, vasdk_turn_fn evaluate, void* user);
 
 /* Wake word: every frame of the microphone's audio, in order. When it completes the phrase, the
  * callback sets the phrase heard with vasdk_result_set (plain text) and returns its confidence (0 to 1). */
 typedef float (*vasdk_wake_word_fn)(void* instance, const short* pcm, size_t samples, vasdk_result* phrase);
-VASDK_EXPORT int vasdk_providers_add_wake_word(vasdk_providers* providers, const char* id, vasdk_provider_create_fn create,
+VASDK_C_API int vasdk_providers_add_wake_word(vasdk_providers* providers, const char* id, vasdk_provider_create_fn create,
                                                vasdk_provider_destroy_fn destroy, vasdk_wake_word_fn process, void* user);
 
 /* Audio DSP (providers.audio_dsp): every frame of the microphone's audio, in order, before
  * anything hears it; the callback writes as many samples to `output` (which starts as a copy of
  * the input), e.g. with the noise taken out. */
 typedef void (*vasdk_audio_dsp_fn)(void* instance, const short* input, short* output, size_t samples);
-VASDK_EXPORT int vasdk_providers_add_audio_dsp(vasdk_providers* providers, const char* id, vasdk_provider_create_fn create,
+VASDK_C_API int vasdk_providers_add_audio_dsp(vasdk_providers* providers, const char* id, vasdk_provider_create_fn create,
                                                vasdk_provider_destroy_fn destroy, vasdk_audio_dsp_fn process, void* user);
 
 /* Speaker embedding (providers.speaker_embedding): one utterance's audio; the callback sets its
  * voice print with vasdk_result_set_floats, the same length for every utterance (the session
  * normalizes it and matches it to the enrolled speakers'); nothing set: it can't be identified. */
 typedef void (*vasdk_speaker_embedding_fn)(void* instance, const short* pcm, size_t samples, vasdk_result* voice_print);
-VASDK_EXPORT int vasdk_providers_add_speaker_embedding(vasdk_providers* providers, const char* id, vasdk_provider_create_fn create,
+VASDK_C_API int vasdk_providers_add_speaker_embedding(vasdk_providers* providers, const char* id, vasdk_provider_create_fn create,
                                                        vasdk_provider_destroy_fn destroy, vasdk_speaker_embedding_fn embed,
                                                        void* user);
 
@@ -464,7 +469,7 @@ VASDK_EXPORT int vasdk_providers_add_speaker_embedding(vasdk_providers* provider
  * runtime, called from several threads): the sentence's vector, normalized to length 1, with
  * vasdk_result_set_floats; nothing set: it can't be encoded. */
 typedef void (*vasdk_encoder_fn)(void* instance, const char* sentence, vasdk_result* vector);
-VASDK_EXPORT int vasdk_providers_add_sentence_encoder(vasdk_providers* providers, const char* id, vasdk_provider_create_fn create,
+VASDK_C_API int vasdk_providers_add_sentence_encoder(vasdk_providers* providers, const char* id, vasdk_provider_create_fn create,
                                                       vasdk_provider_destroy_fn destroy, vasdk_encoder_fn encode, void* user);
 
 /* Entity model (providers.entity_model; one instance, shared, from several threads): gets
@@ -473,7 +478,7 @@ VASDK_EXPORT int vasdk_providers_add_sentence_encoder(vasdk_providers* providers
  *   [{"entity": "service", "start": 2, "length": 2, "score": 0.9}]
  * start and length index the words. A sensitive request may hold a secret: don't send it off the device. */
 typedef void (*vasdk_entity_model_fn)(void* instance, const char* request_json, vasdk_result* spans);
-VASDK_EXPORT int vasdk_providers_add_entity_model(vasdk_providers* providers, const char* id, vasdk_provider_create_fn create,
+VASDK_C_API int vasdk_providers_add_entity_model(vasdk_providers* providers, const char* id, vasdk_provider_create_fn create,
                                                   vasdk_provider_destroy_fn destroy, vasdk_entity_model_fn extract, void* user);
 
 /* LLM (providers.llm): gets {"messages": [{"role": "system" | "user" | "assistant" | "tool", "content": "..."}]}
@@ -483,7 +488,7 @@ VASDK_EXPORT int vasdk_providers_add_entity_model(vasdk_providers* providers, co
  * `cancel` (may be NULL) gives up the request in flight, from another thread, at a barge-in. */
 typedef void (*vasdk_llm_fn)(void* instance, const char* request_json, vasdk_result* reply);
 typedef void (*vasdk_llm_cancel_fn)(void* instance);
-VASDK_EXPORT int vasdk_providers_add_llm(vasdk_providers* providers, const char* id, vasdk_provider_create_fn create,
+VASDK_C_API int vasdk_providers_add_llm(vasdk_providers* providers, const char* id, vasdk_provider_create_fn create,
                                          vasdk_provider_destroy_fn destroy, vasdk_llm_fn complete, vasdk_llm_cancel_fn cancel,
                                          void* user);
 

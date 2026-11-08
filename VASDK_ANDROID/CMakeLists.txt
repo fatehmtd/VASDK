@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 3.22)
-project(VASDK_Android VERSION 1.0.0 LANGUAGES C CXX)
+file(STRINGS ${CMAKE_CURRENT_SOURCE_DIR}/../VERSION VASDK_VERSION LIMIT_COUNT 1)   # the SDK's one version
+project(VASDK_Android VERSION ${VASDK_VERSION} LANGUAGES C CXX)
+
+# The repository's root and its build (VASDK/ and VASDK_3P_IMPL/ find their files from these)
+get_filename_component(VASDK_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/.. ABSOLUTE)
+set(VASDK_ROOT_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

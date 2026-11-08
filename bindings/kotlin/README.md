@@ -26,13 +26,13 @@ val config = vasdk.engine.engineConfig {
 Session(config, Providers(), agent).use { it.start() }   // Runtime(config, ...) too
 ```
 
-Build and test it against a VASDK build (it needs VASDK as a shared library):
+Build and test it against a VASDK build (it loads the C library, `vasdk_c`):
 
 ```bash
 cmake -B build -S . -DVASDK_BUILD_TESTS=ON -DVASDK_BUILD_KOTLIN_BINDING=ON && cmake --build build -j
 ctest --test-dir build -R vasdk_kotlin
 # or by hand
-VASDK_LIBRARY=$PWD/../../build/VASDK/libVASDK.dylib gradle test
+VASDK_LIBRARY=$PWD/../../build/cmake/c_library/libvasdk_c.dylib gradle test
 ```
 
 Its dependencies, and their licenses (all in [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md)): JNA (Apache 2.0 / LGPL 2.1), protobuf-kotlin-lite (BSD 3-Clause), kotlinx.coroutines and kotlinx.serialization (Apache 2.0).

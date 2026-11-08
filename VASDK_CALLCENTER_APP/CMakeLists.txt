@@ -107,7 +107,7 @@ endif()
 if(VASDK_BUILD_LIBDATACHANNEL_WEBRTC AND TARGET vasdk_libdatachannel_webrtc)
     target_link_libraries(VASDK_CallCenter PRIVATE vasdk_libdatachannel_webrtc)
     target_compile_definitions(VASDK_CallCenter PRIVATE VASDK_HAS_LIBDATACHANNEL_WEBRTC
-        VASDK_WEBRTC_DEMO_PAGE="${CMAKE_SOURCE_DIR}/assets/webrtc/index.html")
+        VASDK_WEBRTC_DEMO_PAGE="${VASDK_ROOT_DIR}/assets/webrtc/index.html")
 endif()
 
 # VAD, STT, TTS and turn detection: every provider built in this tree; the call takes the first of each
@@ -184,6 +184,6 @@ endif()
 
 #  Install 
 
-install(TARGETS VASDK_CallCenter
+install(TARGETS VASDK_CallCenter COMPONENT apps EXCLUDE_FROM_ALL
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )

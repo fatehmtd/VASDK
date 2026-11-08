@@ -1,0 +1,105 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "dev",
+      "inherits": "base",
+      "displayName": "Development",
+      "description": "The SDK, the sample apps and the tests, with the models downloaded",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "VASDK_BUILD_TESTS": "ON",
+        "VASDK_BUILD_APPS": "ON"
+      }
+    },
+    {
+      "name": "apps",
+      "inherits": "base",
+      "displayName": "Sample apps",
+      "description": "The SDK and the sample apps (pipeline, call center, car), with the models downloaded",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "VASDK_BUILD_APPS": "ON"
+      }
+    },
+    {
+      "name": "ci",
+      "inherits": "base",
+      "displayName": "Continuous integration",
+      "description": "Everything CI checks: the tests, the sample apps and the Python binding",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "VASDK_BUILD_TESTS": "ON",
+        "VASDK_BUILD_APPS": "ON",
+        "VASDK_BUILD_PYTHON_BINDING": "ON"
+      }
+    },
+    {
+      "name": "release",
+      "inherits": "base",
+      "displayName": "Release (default flavor)",
+      "description": "The C library as the release archives and packages ship it: default providers, no models, runs on any x86_64 CPU",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "VASDK_FLAVOR": "default",
+        "VASDK_DOWNLOAD_MODELS": "OFF",
+        "VASDK_ENABLE_AVX2": "OFF",
+        "VASDK_BUILD_TESTS": "OFF"
+      }
+    },
+    {
+      "name": "release-core",
+      "inherits": "release",
+      "displayName": "Release (core flavor)",
+      "description": "The C library with no provider: the app brings its own",
+      "cacheVariables": { "VASDK_FLAVOR": "core" }
+    },
+    {
+      "name": "release-full",
+      "inherits": "release",
+      "displayName": "Release (full flavor)",
+      "description": "The C library with every portable provider: local LLM, larger models, cloud clients",
+      "cacheVariables": { "VASDK_FLAVOR": "full" }
+    },
+    {
+      "name": "system-deps",
+      "inherits": "release",
+      "displayName": "Release from installed dependencies",
+      "description": "As package managers build it (vcpkg, Conan): every dependency from find_package, nothing downloaded",
+      "cacheVariables": { "VASDK_DEPENDENCY_SOURCE": "SYSTEM" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "dev", "configurePreset": "dev", "configuration": "RelWithDebInfo" },
+    { "name": "apps", "configurePreset": "apps", "configuration": "Release" },
+    { "name": "ci", "configurePreset": "ci", "configuration": "Release" },
+    { "name": "release", "configurePreset": "release", "configuration": "Release" },
+    { "name": "release-core", "configurePreset": "release-core", "configuration": "Release" },
+    { "name": "release-full", "configurePreset": "release-full", "configuration": "Release" },
+    { "name": "system-deps", "configurePreset": "system-deps", "configuration": "Release" }
+  ],
+  "testPresets": [
+    {
+      "name": "dev",
+      "configurePreset": "dev",
+      "configuration": "RelWithDebInfo",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "ci",
+      "configurePreset": "ci",
+      "configuration": "Release",
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error" }
+    }
+  ]
+}

@@ -7,7 +7,7 @@
 #include <vector>
 #include <chrono>
 
-#include "vasdk_export.h"
+#include <VASDK/vasdk_export.h>
 #include "GenericTranscriptionProvider.h"
 
 namespace va {

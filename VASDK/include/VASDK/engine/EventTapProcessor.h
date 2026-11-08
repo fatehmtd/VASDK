@@ -1,6 +1,6 @@
 #pragma once
 
-#include "vasdk_export.h"
+#include <VASDK/vasdk_export.h>
 #include "../FrameProcessor.h"
 
 #include <condition_variable>

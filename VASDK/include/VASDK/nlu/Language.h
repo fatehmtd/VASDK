@@ -1,6 +1,6 @@
 #pragma once
 
-#include "vasdk_export.h"
+#include <VASDK/vasdk_export.h>
 #include "Calendar.h"
 #include "vasdk/nlu/language.pb.h"
 

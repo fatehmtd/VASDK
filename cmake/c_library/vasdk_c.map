@@ -1,0 +1,7 @@
+/* The C library's exports on Linux and Android: the C API, nothing else (cmake/c_library). */
+{
+  global:
+    vasdk_*;
+  local:
+    *;
+};

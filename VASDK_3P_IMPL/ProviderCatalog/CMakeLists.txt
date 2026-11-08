@@ -15,6 +15,7 @@ target_include_directories(vasdk_provider_catalog PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/proto>
 )
 target_link_libraries(vasdk_provider_catalog PUBLIC VASDK)
+add_library(VASDK::providers ALIAS vasdk_provider_catalog)   # every provider built, for a project that adds VASDK from source
 
 # target  ->  define the catalog uses to register it
 set(_vasdk_catalog_providers
@@ -60,11 +61,16 @@ foreach(_index RANGE 0 ${_last} 2)
     if(TARGET ${_target})
         target_link_libraries(vasdk_provider_catalog PUBLIC ${_target})
         target_compile_definitions(vasdk_provider_catalog PRIVATE VASDK_HAS_${_define})
+        # One provider on its own: VASDK::silero_vad, VASDK::whistle_stt, ...
+        string(REGEX REPLACE "^vasdk_" "" _alias ${_target})
+        if(NOT TARGET VASDK::${_alias})
+            add_library(VASDK::${_alias} ALIAS ${_target})
+        endif()
     endif()
 endforeach()
 # The page a config-created WebRTC peer serves when its options name none.
 target_compile_definitions(vasdk_provider_catalog PRIVATE
-    VASDK_WEBRTC_DEMO_PAGE="${CMAKE_SOURCE_DIR}/assets/webrtc/index.html")
+    VASDK_WEBRTC_DEMO_PAGE="${VASDK_ROOT_DIR}/assets/webrtc/index.html")
 
 # The providers as a shared library beside a shared VASDK, for code that loads them at run time:
 # Python's vasdk.Providers (bindings/python). Exports vasdk_providers_add_all.
@@ -83,13 +89,13 @@ if(NOT ANDROID AND (TARGET protobuf::protoc OR Protobuf_PROTOC_EXECUTABLE))
     else()
         set(_catalog_protoc ${Protobuf_PROTOC_EXECUTABLE})
     endif()
-    set(_catalog_python_out ${CMAKE_BINARY_DIR}/bindings/python/vasdk/providers)
+    set(_catalog_python_out ${VASDK_ROOT_BINARY_DIR}/bindings/python/vasdk/providers)
     file(MAKE_DIRECTORY ${_catalog_python_out})
     if(NOT EXISTS ${_catalog_python_out}/__init__.py)
         file(WRITE ${_catalog_python_out}/__init__.py "")
     endif()
     add_custom_command(OUTPUT ${_catalog_python_out}/options_pb2.py
-        COMMAND ${_catalog_protoc} --python_out=${CMAKE_BINARY_DIR}/bindings/python --pyi_out=${CMAKE_BINARY_DIR}/bindings/python
+        COMMAND ${_catalog_protoc} --python_out=${VASDK_ROOT_BINARY_DIR}/bindings/python --pyi_out=${VASDK_ROOT_BINARY_DIR}/bindings/python
                 -I ${CMAKE_CURRENT_SOURCE_DIR}/proto vasdk/providers/options.proto
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/proto
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/proto/vasdk/providers/options.proto

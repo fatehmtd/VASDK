@@ -1,6 +1,6 @@
 #pragma once
 
-#include "vasdk_export.h"
+#include <VASDK/vasdk_export.h>
 #include "CompiledAgent.h"
 #include "FlowRuntime.h"
 #include "vasdk/flow/test_case.pb.h"

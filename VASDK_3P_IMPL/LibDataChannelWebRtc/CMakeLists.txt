@@ -82,7 +82,7 @@ if(VASDK_BUILD_TESTS)
     add_test(NAME vasdk_webrtc_provider COMMAND vasdk_webrtc_provider_test)
 endif()
 
-install(TARGETS vasdk_libdatachannel_webrtc
+install(TARGETS vasdk_libdatachannel_webrtc COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -91,4 +91,5 @@ install(TARGETS vasdk_libdatachannel_webrtc
 install(FILES LibDataChannelWebRtcProvider.h
               ${CMAKE_CURRENT_BINARY_DIR}/vasdk_libdatachannel_webrtc_export.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/LibDataChannelWebRtc
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )

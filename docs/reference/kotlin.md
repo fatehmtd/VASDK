@@ -7,10 +7,10 @@ The Kotlin binding gives a JVM app (macOS, Linux, Windows) or an Android app wha
 ```mermaid
 flowchart LR
     App["Kotlin app"] --> Binding["com.vasdk<br/>Session, Agent, Providers"]
-    Binding -- "JNA" --> CApi["libVASDK<br/>C API (vasdk.h)"]
+    Binding -- "JNA" --> CApi["vasdk_c, the C library<br/>C API (vasdk.h)"]
     CApi --> Core["C++ core<br/>Session, FlowRuntime"]
     Core -- "callbacks: events, audio,<br/>tools, providers, processors" --> Binding
-    Core --> Catalog["built-in providers<br/>(vasdk_providers)"]
+    Core --> Catalog["built-in providers<br/>(in vasdk_c)"]
 ```
 
 ## Building
@@ -19,11 +19,11 @@ It's optional: `-DVASDK_BUILD_KOTLIN_BINDING=ON` (off by default) registers `vas
 
 ```bash
 cd bindings/kotlin
-VASDK_LIBRARY=$PWD/../../build/VASDK/libVASDK.dylib gradle test     # .so on Linux, VASDK.dll on Windows
+VASDK_LIBRARY=$PWD/../../build/cmake/c_library/libvasdk_c.dylib gradle test   # .so on Linux, vasdk_c.dll on Windows
 gradle jar                                                          # build/libs/vasdk-1.0.0.jar
 ```
 
-On Android it's the `:vasdk` AAR ([Android](../apps/android.md#the-kotlin-binding-as-an-aar)). The library is found through `VASDK_LIBRARY` (a path), the `vasdk.library` system property, or `VASDK` on the library path (Android: `libVASDK.so` in the AAR). The built-in providers come from `VASDK_PROVIDERS_LIBRARY`, the build tree beside VASDK, `vasdk_providers` on the library path, or VASDK itself.
+On Android it's the `:vasdk` AAR ([Android](../apps/android.md#the-kotlin-binding-as-an-aar)). The library is found through `VASDK_LIBRARY` (a path), the `vasdk.library` system property, or `vasdk_c` on the library path, then `VASDK` (Android: `libVASDK.so` in the AAR). The built-in providers come from the C library itself; with a shared VASDK instead, from `VASDK_PROVIDERS_LIBRARY`, the build tree beside VASDK, `vasdk_providers` on the library path, or VASDK itself.
 
 ## Agents and conversations
 
@@ -55,7 +55,7 @@ Values cross as [kotlinx.serialization](https://github.com/Kotlin/kotlinx.serial
 ## Spoken sessions
 
 ```kotlin
-val providers = Providers()                     // every provider built into vasdk_providers
+val providers = Providers()                     // every provider built into the C library
 val options = vasdk.engine.Session.SessionOptions.newBuilder().setId("kitchen")
     .setSystemPrompt("You're a kitchen assistant. The kitchen: {context}").build()
 Session("engine.txtpb", providers, agent, options).use { session ->

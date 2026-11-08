@@ -46,7 +46,7 @@ target_link_libraries(vasdk_pocket_tts
 
 #  Install 
 
-install(TARGETS vasdk_pocket_tts
+install(TARGETS vasdk_pocket_tts COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -54,8 +54,10 @@ install(TARGETS vasdk_pocket_tts
 
 install(FILES PocketVoiceSynthesisProvider.hpp
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/PocketTTS
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )
 
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/vasdk_pocket_tts_export.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/PocketTTS
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )

@@ -26,7 +26,7 @@ target_link_libraries(vasdk_llamacpp
     PRIVATE nlohmann_json::nlohmann_json
 )
 
-install(TARGETS vasdk_llamacpp
+install(TARGETS vasdk_llamacpp COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -34,10 +34,12 @@ install(TARGETS vasdk_llamacpp
 
 install(FILES LlamaCppTransport.h LlamaCppCompletion.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/LlamaCpp
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )
 
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/vasdk_llamacpp_export.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/LlamaCpp
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )
 
 # The completion on a real model: VASDK_LLAMACPP_TEST_MODEL (a GGUF path), else the downloaded one.

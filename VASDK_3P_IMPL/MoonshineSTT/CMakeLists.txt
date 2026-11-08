@@ -69,7 +69,7 @@ if(VASDK_BUILD_TESTS)
     set_tests_properties(moonshine_stt_stream PROPERTIES SKIP_RETURN_CODE 77)
 endif()
 
-install(TARGETS vasdk_moonshine_stt
+install(TARGETS vasdk_moonshine_stt COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -77,8 +77,10 @@ install(TARGETS vasdk_moonshine_stt
 
 install(FILES MoonshineSttProvider.hpp
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/MoonshineSTT
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )
 
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/vasdk_moonshine_stt_export.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/MoonshineSTT
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )

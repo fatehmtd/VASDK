@@ -1,6 +1,6 @@
 #pragma once
 
-#include "vasdk_export.h"
+#include <VASDK/vasdk_export.h>
 #include "../CommonAudioUtils.h"
 #include "ProviderRegistry.h"
 #include "Session.h"

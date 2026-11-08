@@ -3,7 +3,7 @@
 #include <string>
 #include <map>
 #include <cstdint>
-#include "vasdk_export.h"
+#include <VASDK/vasdk_export.h>
 
 namespace va {
 namespace llm {

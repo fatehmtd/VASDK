@@ -1,7 +1,7 @@
 #ifndef CONTEXTPROVIDER_H
 #define CONTEXTPROVIDER_H
 
-#include "vasdk_export.h"
+#include <VASDK/vasdk_export.h>
 #include <nlohmann/json.hpp>
 #include <mutex>
 

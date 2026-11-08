@@ -1,7 +1,7 @@
 #pragma once
 
 #include <VASDK/llm/LLMTypes.h>
-#include "vasdk_export.h"
+#include <VASDK/vasdk_export.h>
 #include <memory>
 #include <optional>
 #include <stdexcept>

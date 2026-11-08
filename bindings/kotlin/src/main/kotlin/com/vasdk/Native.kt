@@ -9,6 +9,7 @@ import com.sun.jna.CallbackThreadInitializer
 import com.sun.jna.IntegerType
 import com.sun.jna.Library
 import com.sun.jna.Native
+import com.sun.jna.NativeLibrary
 import com.sun.jna.Pointer
 import com.sun.jna.ptr.ByReference
 import com.sun.jna.ptr.IntByReference
@@ -190,17 +191,31 @@ internal interface ProvidersLibrary : Library {
 internal object Lib {
     private val options = mapOf(Library.OPTION_STRING_ENCODING to "UTF-8")
 
-    /** VASDK_LIBRARY (a path), else the system property vasdk.library, else "VASDK" on the library path (Android: libVASDK.so). */
-    val path: String = System.getenv("VASDK_LIBRARY")?.takeIf { it.isNotEmpty() } ?: System.getProperty("vasdk.library") ?: "VASDK"
+    /**
+     * VASDK_LIBRARY (a path), else the system property vasdk.library, else the C library on the
+     * library path: "vasdk_c" (libvasdk_c.so, vasdk_c.dll), else "VASDK" (a shared VASDK, Android's libVASDK.so).
+     */
+    val path: String = System.getenv("VASDK_LIBRARY")?.takeIf { it.isNotEmpty() } ?: System.getProperty("vasdk.library") ?: defaultLibrary()
+
+    private fun defaultLibrary(): String = try {
+        NativeLibrary.getInstance("vasdk_c", options)
+        "vasdk_c"
+    } catch (missing: UnsatisfiedLinkError) {
+        "VASDK"
+    }
 
     val vasdk: VasdkLibrary by lazy { Native.load(path, VasdkLibrary::class.java, options) }
 
     /**
-     * VASDK_PROVIDERS_LIBRARY, else beside VASDK in a build tree, else "vasdk_providers" on the
-     * library path, else VASDK itself (Android's libVASDK.so holds the providers too).
+     * VASDK_PROVIDERS_LIBRARY, else the C library itself (vasdk_c holds the providers), else beside
+     * a shared VASDK in a build tree, else "vasdk_providers" on the library path, else VASDK itself
+     * (Android's libVASDK.so holds the providers too).
      */
     val providers: ProvidersLibrary by lazy {
         val explicit = System.getenv("VASDK_PROVIDERS_LIBRARY")?.takeIf { it.isNotEmpty() }
+        if (explicit == null && File(path).name.contains("vasdk_c")) {
+            return@lazy Native.load(path, ProvidersLibrary::class.java, options)
+        }
         val beside = File(path).absoluteFile.parentFile?.parentFile
             ?.let { File(it, "VASDK_3P_IMPL/ProviderCatalog/" + System.mapLibraryName("vasdk_providers")) }
         val name = explicit ?: beside?.takeIf { it.exists() }?.path ?: "vasdk_providers"

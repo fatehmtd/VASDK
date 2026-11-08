@@ -1,10 +1,19 @@
-cmake_minimum_required(VERSION 3.16...4.0)
+cmake_minimum_required(VERSION 3.21...4.0)
 
-project(VASDK_Project VERSION 1.0.0 LANGUAGES C CXX)
+# The one version of the SDK, the C library and every binding: the VERSION file (docs/releasing.md)
+file(STRINGS ${CMAKE_CURRENT_SOURCE_DIR}/VERSION VASDK_VERSION LIMIT_COUNT 1)
+project(VASDK_Project VERSION ${VASDK_VERSION} LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+# The repository's root, wherever VASDK sits: on its own, or inside another project by
+# add_subdirectory or FetchContent (docs/integrating.md). Never CMAKE_SOURCE_DIR: that's the outer
+# project's.
+set(VASDK_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+set(VASDK_ROOT_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
 include(GNUInstallDirs)
 include(FetchContent)
@@ -23,70 +32,78 @@ if(VASDK_LIBIDN2_LIBRARY)
 endif()
 
 option(VASDK_BUILD_EXAMPLES "Build examples" OFF)
-option(VASDK_BUILD_APP "Build VASDK application" ON)
+# The sample apps are optional: a default build is the SDK alone (docs/apps). VASDK_BUILD_APPS
+# turns on all three; each has its own switch too.
+option(VASDK_BUILD_APPS "Build every sample app (pipeline, call center, car)" OFF)
+option(VASDK_BUILD_APP "Build the pipeline sample app (VASDK_APP)" OFF)
 option(VASDK_BUILD_THIRDPARTY_IMPL "Build third-party provider implementations" ON)
 option(VASDK_THIRDPARTY_SHARED_LIBS "Build third-party provider libraries as shared (ON) or static (OFF)" OFF)
 option(VASDK_BUILD_TESTS "Build unit tests (run with ctest)" OFF)
-# The language bindings over the C API, off by default: they need VASDK as a shared library
+# The C library (VASDK::c): the C API and the providers in one shared library with nothing but
+# vasdk_* exported. What the bindings load and what the release archives and packages ship.
+option(VASDK_BUILD_C_LIBRARY "Build the C library, vasdk_c (VASDK::c)" ON)
+# The language bindings over the C library, off by default
 option(VASDK_BUILD_PYTHON_BINDING "Python binding (bindings/python): its tests and the Python app's" OFF)
 option(VASDK_BUILD_KOTLIN_BINDING "Kotlin binding (bindings/kotlin): the JVM library and its tests" OFF)
+# Models are fetched at configure time for a source build; a project that embeds VASDK, and every
+# package, gets them at run time instead (docs/integrating.md)
+option(VASDK_DOWNLOAD_MODELS "Download the enabled providers' models at configure time" ${PROJECT_IS_TOP_LEVEL})
+option(VASDK_INSTALL "Generate install rules (find_package(VASDK), pkg-config)" ON)
 if(VASDK_BUILD_TESTS)
     enable_testing()
 endif()
 
 #  Common dependencies 
 
+include(VASDKDependencies)
+
 option(VASDK_ENABLE_HIGHWAY "Enable Google Highway SIMD acceleration" ON)
 
 if(VASDK_ENABLE_HIGHWAY)
-    fetchcontent_declare(
-        highway
-        GIT_REPOSITORY https://github.com/google/highway.git
-        GIT_TAG        "1.2.0"
-        GIT_SHALLOW    TRUE
-    )
     set(HWY_ENABLE_TESTS    OFF CACHE BOOL "" FORCE)
     set(HWY_ENABLE_EXAMPLES OFF CACHE BOOL "" FORCE)
     set(HWY_ENABLE_CONTRIB  OFF CACHE BOOL "" FORCE)
-    fetchcontent_makeavailable(highway)
+    set(HWY_ENABLE_INSTALL  OFF CACHE BOOL "" FORCE)
+    vasdk_dependency(hwy TARGET hwy::hwy
+        FIND CONFIG
+        DECLARE GIT_REPOSITORY https://github.com/google/highway.git
+                GIT_TAG        "1.2.0"
+                GIT_SHALLOW    TRUE)
+    if(NOT TARGET hwy::hwy AND TARGET hwy)
+        add_library(hwy::hwy ALIAS hwy)
+    endif()
 endif()
 
 # spdlog (used by VASDK core and providers)
-fetchcontent_declare(
-    spdlog
-    GIT_REPOSITORY https://github.com/gabime/spdlog.git
-    GIT_TAG "v1.15.0"
-    OVERRIDE_FIND_PACKAGE
-)
-fetchcontent_makeavailable(spdlog)
-
-# CLI11 (command-line argument parsing for CLI tools)
-fetchcontent_declare(
-    CLI11
-    GIT_REPOSITORY https://github.com/CLIUtils/CLI11.git
-    GIT_TAG        "v2.4.2"
-)
-fetchcontent_makeavailable(CLI11)
+vasdk_dependency(spdlog TARGET spdlog::spdlog
+    FIND CONFIG
+    DECLARE GIT_REPOSITORY https://github.com/gabime/spdlog.git
+            GIT_TAG "v1.15.0"
+            OVERRIDE_FIND_PACKAGE)
 
 # nlohmann_json (used by VASDK core, gladiapp, deepgrampp, supertonic)
-fetchcontent_declare(
-    nlohmann_json
-    GIT_REPOSITORY https://github.com/nlohmann/json.git
-    GIT_TAG        v3.11.3  # pinned for reproducible builds
-    OVERRIDE_FIND_PACKAGE
-)
-fetchcontent_makeavailable(nlohmann_json)
+vasdk_dependency(nlohmann_json TARGET nlohmann_json::nlohmann_json
+    FIND CONFIG
+    DECLARE GIT_REPOSITORY https://github.com/nlohmann/json.git
+            GIT_TAG        v3.11.3  # pinned for reproducible builds
+            OVERRIDE_FIND_PACKAGE)
 
-# dotenv-cpp (loads .env files into process environment at startup)
-fetchcontent_declare(
-    dotenv_cpp
-    GIT_REPOSITORY https://github.com/laserpants/dotenv-cpp.git
-    GIT_TAG        master
-    GIT_SHALLOW    TRUE
-)
-set(BUILD_DOCS  OFF CACHE BOOL "" FORCE)
-set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
-fetchcontent_makeavailable(dotenv_cpp)
+# The sample apps' own: CLI11 (command-line arguments) and dotenv-cpp (.env files into the environment)
+if(VASDK_BUILD_APP OR VASDK_BUILD_APPS OR VASDK_BUILD_CALLCENTER OR VASDK_BUILD_CAR)
+    vasdk_dependency(CLI11 TARGET CLI11::CLI11
+        FIND CONFIG
+        DECLARE GIT_REPOSITORY https://github.com/CLIUtils/CLI11.git
+                GIT_TAG        "v2.4.2")
+    set(BUILD_DOCS  OFF CACHE BOOL "" FORCE)
+    set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    fetchcontent_declare(
+        dotenv_cpp
+        GIT_REPOSITORY https://github.com/laserpants/dotenv-cpp.git
+        GIT_TAG        9275210b8abf1a551fb81e0ba45866286d764acd   # master, pinned
+        ${VASDK_FETCH_EXCLUDE}   # its own install rules stay out of VASDK's
+    )
+    fetchcontent_makeavailable(dotenv_cpp)
+endif()
 
 # FTXUI (terminal UI - optional, enabled by VASDK_BUILD_TUI)
 option(VASDK_BUILD_TUI "Build FTXUI terminal UI for the pipeline app" OFF)
@@ -96,6 +113,7 @@ if(VASDK_BUILD_TUI)
         GIT_REPOSITORY https://github.com/ArthurSonzogni/FTXUI.git
         GIT_TAG        "v6.0.2"
         GIT_SHALLOW    TRUE
+        ${VASDK_FETCH_EXCLUDE}   # its own install rules stay out of VASDK's
     )
     set(FTXUI_BUILD_DOCS    OFF CACHE BOOL "" FORCE)
     set(FTXUI_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
@@ -111,6 +129,7 @@ if(VASDK_ENABLE_CTRACK)
         GIT_REPOSITORY https://github.com/Compaile/ctrack.git
         GIT_TAG        v1.1.0
         GIT_SHALLOW    ON
+        ${VASDK_FETCH_EXCLUDE}   # its own install rules stay out of VASDK's
     )
     set(DISABLE_EXAMPLES ON CACHE BOOL "" FORCE)
     set(DISABLE_TESTS    ON CACHE BOOL "" FORCE)
@@ -129,40 +148,47 @@ endif()
 
 add_subdirectory(VASDK)
 
-#  Third-party provider implementations 
+#  Third-party provider implementations: which ones, by flavor (core, default, full) or one by one
+
+include(VASDKFlavors)
 
 if(VASDK_BUILD_THIRDPARTY_IMPL)
     add_subdirectory(VASDK_3P_IMPL)
 endif()
 
-#  Application 
+#  The C library: vasdk_c (VASDK::c), the C API and every provider built in
 
-if(VASDK_BUILD_APP)
+if(VASDK_BUILD_C_LIBRARY)
+    add_subdirectory(cmake/c_library)
+endif()
+
+#  The sample apps, optional (VASDK_BUILD_APPS, or each one's switch). Never installed by default:
+#  cmake --install <build> --component apps
+
+option(VASDK_BUILD_CALLCENTER "Build the goal-oriented call center sample app" OFF)
+option(VASDK_BUILD_CAR "Build the in-car assistant sample app" OFF)
+
+if(VASDK_BUILD_APP OR VASDK_BUILD_APPS)
     add_subdirectory(VASDK_APP)
 endif()
 
 #  Call center voice AI showcase
 
-option(VASDK_BUILD_CALLCENTER "Build goal-oriented call center pipeline showcase" ON)
-if(VASDK_BUILD_CALLCENTER)
+if(VASDK_BUILD_CALLCENTER OR VASDK_BUILD_APPS)
     add_subdirectory(VASDK_CALLCENTER_APP)
 endif()
 
 #  In-car assistant showcase: climate, media and phone, with a live dashboard
 
-option(VASDK_BUILD_CAR "Build the in-car assistant showcase" ON)
-if(VASDK_BUILD_CAR)
+if(VASDK_BUILD_CAR OR VASDK_BUILD_APPS)
     add_subdirectory(VASDK_CAR_APP)
 endif()
 
-#  The bindings load VASDK at run time: it must be a shared library
+#  The bindings load the C library at run time
 
-if(VASDK_BUILD_PYTHON_BINDING OR VASDK_BUILD_KOTLIN_BINDING)
-    get_target_property(_vasdk_library_type VASDK TYPE)
-    if(NOT _vasdk_library_type STREQUAL "SHARED_LIBRARY")
-        message(FATAL_ERROR "VASDK_BUILD_PYTHON_BINDING and VASDK_BUILD_KOTLIN_BINDING load VASDK at run time: "
-                            "build it as a shared library (VASDK is ${_vasdk_library_type})")
-    endif()
+if((VASDK_BUILD_PYTHON_BINDING OR VASDK_BUILD_KOTLIN_BINDING) AND NOT TARGET vasdk_c)
+    message(FATAL_ERROR "VASDK_BUILD_PYTHON_BINDING and VASDK_BUILD_KOTLIN_BINDING load the C library: "
+                        "turn on VASDK_BUILD_C_LIBRARY and VASDK_ENABLE_ENGINE_CONFIG")
 endif()
 
 #  Kitchen assistant in Python, on the C API's binding: tests only (the app is Python)
@@ -184,10 +210,12 @@ endif()
 if(VASDK_BUILD_TESTS)
     find_package(Python3 COMPONENTS Interpreter QUIET)
     if(Python3_Interpreter_FOUND)
-        add_test(NAME vasdk_skills COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/skills/check_skills.py)
-        add_test(NAME vasdk_skills_self_test COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/skills/check_skills.py --self-test)
-        add_test(NAME vasdk_thirdparty_rules COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/VASDK_3P_IMPL/check_rules.py)
-        add_test(NAME vasdk_thirdparty_rules_self_test COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/VASDK_3P_IMPL/check_rules.py --self-test)
+        add_test(NAME vasdk_skills COMMAND ${Python3_EXECUTABLE} ${VASDK_ROOT_DIR}/skills/check_skills.py)
+        add_test(NAME vasdk_skills_self_test COMMAND ${Python3_EXECUTABLE} ${VASDK_ROOT_DIR}/skills/check_skills.py --self-test)
+        add_test(NAME vasdk_thirdparty_rules COMMAND ${Python3_EXECUTABLE} ${VASDK_ROOT_DIR}/VASDK_3P_IMPL/check_rules.py)
+        add_test(NAME vasdk_thirdparty_rules_self_test COMMAND ${Python3_EXECUTABLE} ${VASDK_ROOT_DIR}/VASDK_3P_IMPL/check_rules.py --self-test)
+        # Every place stating the version agrees with the VERSION file (docs/releasing.md)
+        add_test(NAME vasdk_versions COMMAND ${Python3_EXECUTABLE} ${VASDK_ROOT_DIR}/cmake/check_versions.py)
         # C and the bindings that are on level with the C++ API (skills/vasdk-binding-parity)
         if(VASDK_BUILD_PYTHON_BINDING OR VASDK_BUILD_KOTLIN_BINDING)
             set(_vasdk_parity_bindings c)
@@ -198,10 +226,10 @@ if(VASDK_BUILD_TESTS)
                 string(APPEND _vasdk_parity_bindings ",kotlin")
             endif()
             add_test(NAME vasdk_binding_parity
-                     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/skills/vasdk-binding-parity/check_parity.py
+                     COMMAND ${Python3_EXECUTABLE} ${VASDK_ROOT_DIR}/skills/vasdk-binding-parity/check_parity.py
                              --bindings ${_vasdk_parity_bindings})
             add_test(NAME vasdk_binding_parity_self_test
-                     COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/skills/vasdk-binding-parity/check_parity.py --self-test)
+                     COMMAND ${Python3_EXECUTABLE} ${VASDK_ROOT_DIR}/skills/vasdk-binding-parity/check_parity.py --self-test)
         else()
             message(WARNING "VASDK_BUILD_PYTHON_BINDING and VASDK_BUILD_KOTLIN_BINDING are off: the binding parity "
                             "checks (vasdk_binding_parity) are not registered, so a C++ API the bindings don't follow "
@@ -221,4 +249,24 @@ if(VASDK_BUILD_TESTS)
     else()
         message(WARNING "Python 3 not found: the vasdk_skills and vasdk_thirdparty_rules tests are not registered")
     endif()
+endif()
+
+#  find_package(VASDK), pkg-config and the version header's install (docs/integrating.md)
+
+if(VASDK_INSTALL)
+    include(VASDKInstall)
+endif()
+
+#  Another project's view: a C program built against this build's install prefix and its build
+#  tree with find_package(VASDK) (tests/consumer)
+
+if(VASDK_BUILD_TESTS AND VASDK_INSTALL AND TARGET vasdk_c)
+    foreach(_mode install build_tree)
+        add_test(NAME vasdk_consumer_${_mode}
+                 COMMAND ${CMAKE_COMMAND} -DMODE=${_mode} -DVASDK_BUILD_DIR=${VASDK_ROOT_BINARY_DIR} -DCONFIG=$<CONFIG>
+                         "-DGENERATOR=${CMAKE_GENERATOR}" "-DPLATFORM=${CMAKE_GENERATOR_PLATFORM}"
+                         -DWORK_DIR=${VASDK_ROOT_BINARY_DIR}/consumer_${_mode}
+                         -P ${VASDK_ROOT_DIR}/tests/consumer/run_consumer_test.cmake)
+        set_tests_properties(vasdk_consumer_${_mode} PROPERTIES TIMEOUT 600 RESOURCE_LOCK vasdk_consumer)
+    endforeach()
 endif()

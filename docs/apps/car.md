@@ -28,6 +28,7 @@
 ## Running it
 
 ```bash
+cmake -B build -S . -DVASDK_BUILD_CAR=ON                                 # the sample apps are off by default
 cmake --build build --config Release --target VASDK_Car
 ./build/VASDK_CAR_APP/Release/VASDK_Car                                  # this machine's mic and speaker
 ./build/VASDK_CAR_APP/Release/VASDK_Car --webrtc --env-file .env.local   # talk from the browser, with an LLM

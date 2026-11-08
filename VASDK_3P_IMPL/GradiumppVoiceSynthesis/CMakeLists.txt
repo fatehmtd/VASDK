@@ -21,7 +21,7 @@ target_link_libraries(vasdk_gradiumpp_tts
     PRIVATE cppcodec
 )
 
-install(TARGETS vasdk_gradiumpp_tts
+install(TARGETS vasdk_gradiumpp_tts COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -29,8 +29,10 @@ install(TARGETS vasdk_gradiumpp_tts
 
 install(FILES GradiumppVoiceSynthesisProvider.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/GradiumppVoiceSynthesis
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )
 
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/vasdk_gradiumpp_tts_export.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/GradiumppVoiceSynthesis
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )

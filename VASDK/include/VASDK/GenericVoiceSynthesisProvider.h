@@ -1,6 +1,6 @@
 #pragma once
 #include "TypeName.h"
-#include "vasdk_export.h"
+#include <VASDK/vasdk_export.h>
 #include <string>
 #include "CommonAudioUtils.h"
 

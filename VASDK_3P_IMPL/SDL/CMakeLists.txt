@@ -21,7 +21,7 @@ target_link_libraries(vasdk_sdl_audio
     PUBLIC VASDK
 )
 
-install(TARGETS vasdk_sdl_audio
+install(TARGETS vasdk_sdl_audio COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -29,8 +29,10 @@ install(TARGETS vasdk_sdl_audio
 
 install(FILES SDLAudioSource.h SDLAudioSink.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/SDL
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )
 
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/vasdk_sdl_audio_export.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/SDL
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )

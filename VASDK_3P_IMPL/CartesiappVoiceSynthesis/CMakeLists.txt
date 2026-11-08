@@ -21,7 +21,7 @@ target_link_libraries(vasdk_cartesiapp_tts
     PRIVATE nlohmann_json::nlohmann_json
 )
 
-install(TARGETS vasdk_cartesiapp_tts
+install(TARGETS vasdk_cartesiapp_tts COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -29,8 +29,10 @@ install(TARGETS vasdk_cartesiapp_tts
 
 install(FILES CartesiappVoiceSynthesisProvider.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/CartesiappVoiceSynthesis
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )
 
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/vasdk_cartesiapp_tts_export.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/CartesiappVoiceSynthesis
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )

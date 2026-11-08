@@ -1,6 +1,6 @@
 #pragma once
 #include "GenericVoiceSynthesisProvider.h"
-#include "vasdk_export.h"
+#include <VASDK/vasdk_export.h>
 
 #include <atomic>
 #include <condition_variable>

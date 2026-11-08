@@ -1,7 +1,7 @@
 #pragma once
 
 #include "CommonAudioUtils.h"
-#include "vasdk_export.h"
+#include <VASDK/vasdk_export.h>
 #include <cstddef>
 #include <string>
 

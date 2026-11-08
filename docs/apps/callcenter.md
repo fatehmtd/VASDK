@@ -40,6 +40,7 @@ See [Different LLMs for different tasks](../reference/engine-config.md#different
 The calls in [`agents/callcenter/tests/`](../../VASDK_CALLCENTER_APP/agents/callcenter/tests/) run by text, with no audio and no LLM, in `ctest`. They run twice: offline (`vasdk_agent_callcenter`), and with an LLM after the rules (`vasdk_agent_callcenter_with_llm`). The same suite passes both ways.
 
 ```bash
+cmake -B build -S . -DVASDK_BUILD_CALLCENTER=ON && cmake --build build --config Release   # the sample apps are off by default
 ./build/VASDK_CALLCENTER_APP/callcenter_agentc test VASDK_CALLCENTER_APP/agents/callcenter/agent.txtpb VASDK_CALLCENTER_APP/agents/callcenter/tests/*.txtpb
 ./build/VASDK_CALLCENTER_APP/callcenter_agentc chat VASDK_CALLCENTER_APP/agents/callcenter/agent.txtpb --session caller=555-1234
 # the same calls with your LLM after the rules (LLM_ENDPOINT, LLM_MODEL, LLM_API_KEY)

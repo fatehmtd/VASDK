@@ -40,7 +40,10 @@ With `--agent`, the agent's pages answer what they understand (booking, prices, 
 
 ## Running
 
+Build it with the sample apps on (`-DVASDK_BUILD_APPS=ON`, or `-DVASDK_BUILD_APP=ON` for this one alone):
+
 ```bash
+cmake -B build -S . -DVASDK_BUILD_APP=ON && cmake --build build --config Release
 # Cloud LLM: put a key in .env (LLM_API_KEY / OPENROUTER_API_KEY / OPENAI_API_KEY)
 ./build/VASDK_APP/VASDK_Pipeline
 

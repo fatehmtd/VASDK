@@ -46,7 +46,7 @@ public:
     AudioConfig getAudioConfig() const { return _audioConfig; }
 
 protected:
-    AudioConfig _audioConfig;
+    AudioConfig _audioConfig{};   // set by initialize(); zero until then
 };
 } // namespace audio
 } // namespace va

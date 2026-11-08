@@ -98,8 +98,20 @@ if(VASDK_NEEDS_ONNXRUNTIME)
     include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindONNXRuntime.cmake)
 endif()
 
-# Model downloads
-if(VASDK_BUILD_SILERO_VAD)
+# Model downloads, at configure time. VASDK_DOWNLOAD_MODELS off (a project that embeds VASDK, a
+# package): none, each provider's own switch follows it, and models come at run time instead
+# (docs/integrating.md, "Models"). The scripts still run: they set the paths the tests use.
+set(_vasdk_fetch_models ON)
+if(DEFINED VASDK_DOWNLOAD_MODELS AND NOT VASDK_DOWNLOAD_MODELS)
+    set(_vasdk_fetch_models OFF)
+    foreach(_switch LLAMACPP_MODEL MOONSHINE_MODEL MOSS_TTS_MODELS PARAKEET_MODEL PHONON_TTS_MODEL
+                    POCKET_TTS_MODELS SUPERTONIC_MODELS WHISPERCPP_MODEL WHISTLE_STT_MODEL SMARTTURN_V3_MODEL)
+        set(VASDK_DOWNLOAD_${_switch} OFF)
+    endforeach()
+    message(STATUS "VASDK: VASDK_DOWNLOAD_MODELS is off: no model is downloaded at configure time")
+endif()
+
+if(VASDK_BUILD_SILERO_VAD AND _vasdk_fetch_models)
     include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/DownloadSileroVADModel.cmake)
 endif()
 
@@ -169,19 +181,27 @@ if(VASDK_BUILD_WHISTLE_STT)
 endif()
 
 if(VASDK_BUILD_MINILM_NLU AND NOT ANDROID)
-    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/DownloadMiniLmModel.cmake)
+    if(_vasdk_fetch_models)
+        include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/DownloadMiniLmModel.cmake)
+    else()
+        set(MINILM_MODEL_DIR "${CMAKE_CURRENT_BINARY_DIR}/models/minilm")
+    endif()
 endif()
 
 if(VASDK_BUILD_GLINER_NER AND NOT ANDROID)
-    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/DownloadGlinerModel.cmake)
+    if(_vasdk_fetch_models)
+        include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/DownloadGlinerModel.cmake)
+    else()
+        set(GLINER_MODEL_DIR "${CMAKE_CURRENT_BINARY_DIR}/models/gliner")
+    endif()
 endif()
 
-if(VASDK_BUILD_SMART_TURN_V3 AND NOT ANDROID)
+if(VASDK_BUILD_SMART_TURN_V3 AND NOT ANDROID AND _vasdk_fetch_models)
     set(VASDK_DOWNLOAD_SMARTTURN_V3_MODEL ON CACHE BOOL "Download SmartTurn V3 ONNX model file")
     include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/DownloadSmartTurnModel.cmake)
 endif()
 
-if(VASDK_BUILD_PYANNOTE_SPEAKER AND NOT ANDROID)
+if(VASDK_BUILD_PYANNOTE_SPEAKER AND NOT ANDROID AND _vasdk_fetch_models)
     include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/DownloadPyannoteEmbeddingModel.cmake)
 endif()
 
@@ -192,17 +212,17 @@ endif()
 # miniaudio (single-header cross-platform audio I/O)
 # Download only the single header - no git clone needed.
 if(VASDK_BUILD_MINIAUDIO)
-    set(_miniaudio_header "${CMAKE_BINARY_DIR}/_deps/miniaudio-src/miniaudio.h")
+    set(_miniaudio_header "${VASDK_ROOT_BINARY_DIR}/_deps/miniaudio-src/miniaudio.h")
     if(NOT EXISTS "${_miniaudio_header}")
         message(STATUS "Downloading miniaudio.h 0.11.21")
-        file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/_deps/miniaudio-src")
+        file(MAKE_DIRECTORY "${VASDK_ROOT_BINARY_DIR}/_deps/miniaudio-src")
         file(DOWNLOAD
             "https://raw.githubusercontent.com/mackron/miniaudio/0.11.21/miniaudio.h"
             "${_miniaudio_header}"
             SHOW_PROGRESS
         )
     endif()
-    set(miniaudio_SOURCE_DIR "${CMAKE_BINARY_DIR}/_deps/miniaudio-src" CACHE PATH "" FORCE)
+    set(miniaudio_SOURCE_DIR "${VASDK_ROOT_BINARY_DIR}/_deps/miniaudio-src" CACHE PATH "" FORCE)
 endif()
 
 # SDL3 (audio I/O)
@@ -211,51 +231,50 @@ if(VASDK_BUILD_SDL)
         SDL3
         GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
         GIT_TAG "release-3.2.16"
+        ${VASDK_FETCH_EXCLUDE}   # its own install rules stay out of VASDK's
     )
     fetchcontent_makeavailable(SDL3)
 endif()
 
 # gladiapp (Gladia STT WebSocket client)
 if(VASDK_BUILD_GLADIAPP)
-    # TODO: Pin GIT_TAG to a specific commit SHA before release for reproducibility
     fetchcontent_declare(
         gladiapp
         GIT_REPOSITORY https://github.com/fatehmtd/gladiapp.git
-        GIT_SHALLOW    ON
+        GIT_TAG        ae1607b2b084745418b6d0d3d5928332bb2b2d93   # no release tags: a commit, for reproducible builds
+        ${VASDK_FETCH_EXCLUDE}   # its own install rules stay out of VASDK's
     )
     fetchcontent_makeavailable(gladiapp)
 endif()
 
 # deepgrampp (Deepgram STT/TTS WebSocket client)
 if(VASDK_BUILD_DEEPGRAMPP_STT OR VASDK_BUILD_DEEPGRAMPP_TTS)
-    # TODO: Pin GIT_TAG to a specific commit SHA before release for reproducibility
     set(DEEPGRAMPP_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
     fetchcontent_declare(
         deepgrampp
         GIT_REPOSITORY https://github.com/fatehmtd/deepgrampp.git
-        GIT_TAG        main
-        GIT_SHALLOW    ON
+        GIT_TAG        d8ad481de5e1ab22d8a2d0f09d92ae7df3d267b9   # no release tags: a commit, for reproducible builds
+        ${VASDK_FETCH_EXCLUDE}   # its own install rules stay out of VASDK's
     )
     fetchcontent_makeavailable(deepgrampp)
 endif()
 
 # sonioxpp (Soniox STT/TTS WebSocket clients)
 if(VASDK_BUILD_SONIOXPP_STT OR VASDK_BUILD_SONIOXPP_TTS)
-    # TODO: Pin GIT_TAG to a specific commit SHA before release for reproducibility
     set(SONIOX_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
     fetchcontent_declare(
         sonioxpp
         GIT_REPOSITORY https://github.com/fatehmtd/SonioxPP.git
-        GIT_TAG        main
-        GIT_SHALLOW    ON
+        GIT_TAG        60959d861cf45a25e9d0f84d716b2b49e69752c5   # no release tags: a commit, for reproducible builds
+        ${VASDK_FETCH_EXCLUDE}   # its own install rules stay out of VASDK's
     )
     fetchcontent_makeavailable(sonioxpp)
 
     fetchcontent_declare(
         cppcodec
         GIT_REPOSITORY https://github.com/tplgy/cppcodec.git
-        GIT_TAG        master
-        GIT_SHALLOW    ON
+        GIT_TAG        8019b8b580f8573c33c50372baec7039dfe5a8ce   # no release tags: a commit, for reproducible builds
+        ${VASDK_FETCH_EXCLUDE}   # its own install rules stay out of VASDK's
     )
     fetchcontent_getproperties(cppcodec)
     if(NOT cppcodec_POPULATED)
@@ -265,26 +284,24 @@ endif()
 
 # cartesiapp (Cartesia STT/TTS REST + WebSocket client)
 if(VASDK_BUILD_CARTESIAPP_STT OR VASDK_BUILD_CARTESIAPP_TTS)
-    # TODO: Pin GIT_TAG to a specific commit SHA before release for reproducibility
     set(CARTESIAPP_BUILD_SAMPLES OFF CACHE BOOL "" FORCE)
     fetchcontent_declare(
         cartesiapp
         GIT_REPOSITORY https://github.com/fatehmtd/CartesiaPP.git
-        GIT_TAG        main
-        GIT_SHALLOW    ON
+        GIT_TAG        77573b692cf60a743cbebeb71382e6ae37a1f4f0   # no release tags: a commit, for reproducible builds
+        ${VASDK_FETCH_EXCLUDE}   # its own install rules stay out of VASDK's
     )
     fetchcontent_makeavailable(cartesiapp)
 endif()
 
 # fishaudiopp (Fish Audio STT/TTS REST + WebSocket client)
 if(VASDK_BUILD_FISHAUDIOPP_STT OR VASDK_BUILD_FISHAUDIOPP_TTS)
-    # TODO: Pin GIT_TAG to a specific commit SHA before release for reproducibility
     set(FISHAUDIOPP_BUILD_SAMPLES OFF CACHE BOOL "" FORCE)
     fetchcontent_declare(
         fishaudiopp
         GIT_REPOSITORY https://github.com/fatehmtd/fishaudiopp.git
-        GIT_TAG        master
-        GIT_SHALLOW    ON
+        GIT_TAG        f699a1dc21670b75194d9b72e871896c19a040ac   # no release tags: a commit, for reproducible builds
+        ${VASDK_FETCH_EXCLUDE}   # its own install rules stay out of VASDK's
     )
     fetchcontent_makeavailable(fishaudiopp)
 endif()
@@ -296,14 +313,13 @@ endif()
 # first, GradiumPP's fetch calls become no-ops that reuse the already-populated
 # (mbedTLS-backed) targets instead of building a second, OpenSSL-backed copy.
 if(VASDK_BUILD_GRADIUMPP_STT OR VASDK_BUILD_GRADIUMPP_TTS)
-    # TODO: Pin GIT_TAG to a specific commit SHA before release for reproducibility
     set(GRADIUM_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
     fetchcontent_declare(
         gradiumpp
         GIT_REPOSITORY https://github.com/fatehmtd/GradiumPP.git
-        GIT_TAG        master
-        GIT_SHALLOW    ON
+        GIT_TAG        2cf6ec2e07c71e802660303950babb87bedf173f   # no release tags: a commit, for reproducible builds
         PATCH_COMMAND  ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/patch-gradiumpp-cppcodec-guard.cmake
+        ${VASDK_FETCH_EXCLUDE}   # its own install rules stay out of VASDK's
     )
     fetchcontent_makeavailable(gradiumpp)
 endif()
@@ -314,6 +330,7 @@ if(VASDK_BUILD_MOONSHINE_STT)
         moonshine_core
         GIT_REPOSITORY https://github.com/moonshine-ai/moonshine.git
         GIT_TAG        234f60faa0eb388b01cdf7e60aca232af37aefda
+        ${VASDK_FETCH_EXCLUDE}   # its own install rules stay out of VASDK's
     )
     fetchcontent_getproperties(moonshine_core)
     if(NOT moonshine_core_POPULATED)
@@ -328,6 +345,7 @@ if(VASDK_BUILD_SUPERTONIC_TTS)
         supertonic
         GIT_REPOSITORY https://github.com/supertone-inc/supertonic.git
         GIT_TAG        1e9799e964ea4c0dad7cde993b65c3c813a7b373
+        ${VASDK_FETCH_EXCLUDE}   # its own install rules stay out of VASDK's
     )
     fetchcontent_getproperties(supertonic)
     if(NOT supertonic_POPULATED)
@@ -347,6 +365,7 @@ if(VASDK_BUILD_LLAMACPP)
         llamacpp
         GIT_REPOSITORY https://github.com/ggml-org/llama.cpp.git
         GIT_TAG        b9384
+        ${VASDK_FETCH_EXCLUDE}   # its own install rules stay out of VASDK's
     )
 
     fetchcontent_getproperties(llamacpp)
@@ -369,8 +388,11 @@ if(VASDK_BUILD_LLAMACPP)
     # the executable.  Set this immediately before add_subdirectory so it
     # only affects llama.cpp and its sub-dependencies (pffft etc.), not any
     # previously configured targets such as SDL3.
-    set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    # A normal variable, saved and put back, so the outer project's cache is left alone.
+    set(_vasdk_saved_shared_libs ${BUILD_SHARED_LIBS})
+    set(BUILD_SHARED_LIBS OFF)
     add_subdirectory(${llamacpp_SOURCE_DIR} ${llamacpp_BINARY_DIR})
+    set(BUILD_SHARED_LIBS ${_vasdk_saved_shared_libs})
 endif()
 
 # whisper.cpp (local Whisper STT)
@@ -380,6 +402,8 @@ endif()
 # BUILD_SHARED_LIBS may be ON at this point (e.g. set by SDL3), so we
 # override it explicitly for whisper.cpp's configuration.
 if(VASDK_BUILD_WHISPERCPP)
+    set(_vasdk_saved_shared_libs ${BUILD_SHARED_LIBS})
+    set(BUILD_SHARED_LIBS OFF)
     set(WHISPER_BUILD_TESTS   OFF CACHE BOOL "" FORCE)
     set(WHISPER_BUILD_SERVER  OFF CACHE BOOL "" FORCE)
     set(GGML_BUILD_TESTS      OFF CACHE BOOL "" FORCE)
@@ -387,8 +411,10 @@ if(VASDK_BUILD_WHISPERCPP)
         whispercpp
         GIT_REPOSITORY https://github.com/ggerganov/whisper.cpp.git
         GIT_TAG        v1.7.4  # pinned for reproducible builds; update to upgrade
+        ${VASDK_FETCH_EXCLUDE}   # its own install rules stay out of VASDK's
     )
     fetchcontent_makeavailable(whispercpp)
+    set(BUILD_SHARED_LIBS ${_vasdk_saved_shared_libs})
 endif()
 
 # Propagate key variables to parent scope for DLL copy steps in consumer targets

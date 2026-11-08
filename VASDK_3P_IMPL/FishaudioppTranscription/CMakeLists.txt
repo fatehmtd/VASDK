@@ -20,7 +20,7 @@ target_link_libraries(vasdk_fishaudiopp_stt
     PUBLIC VASDK
 )
 
-install(TARGETS vasdk_fishaudiopp_stt
+install(TARGETS vasdk_fishaudiopp_stt COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -28,8 +28,10 @@ install(TARGETS vasdk_fishaudiopp_stt
 
 install(FILES FishaudioppTranscriptionProvider.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/FishaudioppTranscription
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )
 
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/vasdk_fishaudiopp_stt_export.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/FishaudioppTranscription
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )

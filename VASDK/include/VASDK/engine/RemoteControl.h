@@ -1,6 +1,6 @@
 #pragma once
 
-#include "vasdk_export.h"
+#include <VASDK/vasdk_export.h>
 #include "vasdk/engine/engine_config.pb.h"
 #include "vasdk/engine/events.pb.h"
 

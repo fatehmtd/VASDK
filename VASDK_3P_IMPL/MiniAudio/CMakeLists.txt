@@ -38,7 +38,7 @@ elseif(WIN32)
     target_link_libraries(vasdk_miniaudio_audio PRIVATE winmm ole32)
 endif()
 
-install(TARGETS vasdk_miniaudio_audio
+install(TARGETS vasdk_miniaudio_audio COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -46,8 +46,10 @@ install(TARGETS vasdk_miniaudio_audio
 
 install(FILES MiniAudioSource.h MiniAudioSink.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/MiniAudio
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )
 
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/vasdk_miniaudio_export.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/MiniAudio
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )

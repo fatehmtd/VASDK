@@ -63,6 +63,7 @@ FetchContent_Declare(
     curl
     URL      https://github.com/curl/curl/archive/refs/tags/curl-8_21_0.tar.gz
     URL_HASH SHA256=ec753aa6f408a3ca9f0d6d5f7a77417aecd1544db13c03ae5d443612bf367364
+    ${VASDK_FETCH_EXCLUDE}   # its own install rules stay out of VASDK's
 )
 FetchContent_MakeAvailable(curl)
 unset(BUILD_SHARED_LIBS)

@@ -39,7 +39,7 @@ Every integration in `VASDK_3P_IMPL/` follows rules 1 to 3, so any of them is a 
 | --- | --- | --- |
 | 1 | `VASDK_3P_IMPL/<Name>/` | `CMakeLists.txt` (target `vasdk_<name>`, links `VASDK`), `<Name>Provider.h/.cpp`, `tests/` |
 | 2 | `VASDK_3P_IMPL/CMakeLists.txt` | `option(VASDK_BUILD_<NAME> "..." OFF)`, its dependencies (`FetchContent`, pinned to a tag or commit), `add_subdirectory(<Name>)` |
-| 3 | `VASDK_3P_IMPL/cmake/Download<Name>Model.cmake` | Local models only: a `VASDK_DOWNLOAD_<NAME>_MODELS` switch, a pinned revision, files under `models/<name>/`; copy `VASDK_3P_IMPL/cmake/DownloadSupertonicModels.cmake`. Include it from `VASDK_3P_IMPL/CMakeLists.txt` with `NOT ANDROID` |
+| 3 | `VASDK_3P_IMPL/cmake/Download<Name>Model.cmake` | Local models only: a `VASDK_DOWNLOAD_<NAME>_MODELS` switch, a pinned revision, files under `models/<name>/`; copy `VASDK_3P_IMPL/cmake/DownloadSupertonicModels.cmake`. Include it from `VASDK_3P_IMPL/CMakeLists.txt` with `NOT ANDROID`, and add the switch to the list `VASDK_DOWNLOAD_MODELS` turns off there. A file the build compiles against (a header) is no model: fetch it regardless |
 | 4 | `VASDK_3P_IMPL/ProviderCatalog/CMakeLists.txt` | Add `vasdk_<name>  <NAME>` to `_vasdk_catalog_providers` (defines `VASDK_HAS_<NAME>`) |
 | 5 | `VASDK_3P_IMPL/ProviderCatalog/ProviderCatalog.cpp` | `#ifdef VASDK_HAS_<NAME>` include, and `registry.add<Interface, providers::<Name>Options>("<id>", ...)` building the provider from the options, using `orEnvironment`, `modelDir` and `configured`. The order of registration is the default preference |
 | 6 | `VASDK_3P_IMPL/ProviderCatalog/ProviderCatalog.h` | The id in the comment's list |
@@ -53,6 +53,7 @@ Every integration in `VASDK_3P_IMPL/` follows rules 1 to 3, so any of them is a 
 | 14 | `docs/reference/engine-config.md` | The id in the "Providers" order list, the options message in its table |
 | 15 | `README.md` | The provider table, and "On by default" if it is |
 | 16 | `THIRD_PARTY_NOTICES.md` | The library (code table) and every model (model table), with source and license; a restrictive license (non-commercial, OpenRAIL) gets its note |
+| 17 | `cmake/VASDKFlavors.cmake` | Its flavor ([Flavors](../../docs/integrating.md#flavors)): `default` only when it builds on every desktop platform with no system library and its code and default model are permissively licensed; `full` otherwise; neither when it needs a platform SDK or system library (say why in the comment). The catalog gives it the target `VASDK::<name>` and a `find_package(VASDK COMPONENTS <name>)` component by itself |
 
 Real examples of the whole list: `git show --stat 2a31dc4` (three cloud STT/TTS pairs), and `git grep -il supertonic` (a local TTS with model downloads).
 

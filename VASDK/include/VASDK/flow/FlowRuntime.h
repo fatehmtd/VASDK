@@ -1,6 +1,6 @@
 #pragma once
 
-#include "vasdk_export.h"
+#include <VASDK/vasdk_export.h>
 #include "CompiledAgent.h"
 #include "Tools.h"
 #include "../llm/Completion.h"
