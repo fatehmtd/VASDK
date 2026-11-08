@@ -2,7 +2,7 @@
 
 VASDK itself is licensed under the Apache License 2.0 (see [LICENSE](LICENSE)). The models it runs are not. This file lists every model the project uses, where it comes from, and the license it is distributed under.
 
-Two model files are bundled directly in this repository (for the Android app). Everything else is downloaded from its upstream source at CMake configure time by the scripts in `VASDK_3P_IMPL/cmake/`; The Android app downloads its models at runtime from the same upstream sources. Neither path redistributes those files here, but their licenses still govern how you may use and ship them.
+Two model files are bundled directly in this repository (for the Android app). Everything else is downloaded from its upstream source at CMake configure time by the scripts in `VASDK_3P_IMPL/cmake/`, or at run time by the model store from the pinned list in `VASDK_3P_IMPL/models/manifest.json` ([Models](docs/models.md)); The Android app downloads its models at runtime from the same upstream sources. Neither path redistributes those files here, but their licenses still govern how you may use and ship them.
 
 Library and provider dependencies (spdlog, nlohmann/json, llama.cpp, whisper.cpp, ONNX Runtime, CLI11, and the rest) are fetched from their upstream repositories at build time under their own licenses and are not redistributed in this repository. They're itemized in [Provider and library dependencies](#provider-and-library-dependencies) below.
 

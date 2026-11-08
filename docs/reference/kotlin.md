@@ -48,7 +48,7 @@ val (passed, report) = Vasdk.runTestFile(agent, "VASDK_APP/agents/garage-menu/te
 | `Turn` | `text`, `lookup`, `say`, `ask`, `goTo`, `setText`, `render`, `replyText`, `flow`, `page`, `apply(StepOutcome)`. |
 | `Agent` | `load(path)`, `parse(text)`, `protoFiles()`, `conversation()`. |
 | `Conversation` | `start`, `say`, `noInput`, `selectChoice`, `fireTrigger`, `checkTriggers`, `deliverQueued`, `send(ConversationInput)`, `setParam`, `lookup`, `snapshot` / `resume`, `setEntityValues`, `setContext`, `replyInterrupted`, `noInputMs`, `nextScheduledTrigger`, `triggerState` / `restoreTriggerState`, `speakers` (the enrolled voice prints, to give back with `addSpeaker`). |
-| `Vasdk` | `version`, `setLogLevel`, `builtinLanguage`, `runTestFile`, `runTest(FlowTestCase)`. |
+| `Vasdk` | `version`, `apiVersion` (the library's `VASDK_C_API_VERSION`), `setLogLevel`, `builtinLanguage`, `runTestFile`, `runTest(FlowTestCase)`. |
 
 Values cross as [kotlinx.serialization](https://github.com/Kotlin/kotlinx.serialization) JSON: tool arguments and results, `lookup`'s values, the context. `jsonOf(value)` turns Kotlin values (maps, lists, strings, numbers) into it.
 
@@ -82,6 +82,18 @@ The config is a file's path, or an `EngineConfig` built in code (`Session(config
 
 With `providers { audio_input { id: "miniaudio" } audio_output { id: "miniaudio" } }` (`aaudio` on Android) the session opens the microphone and speaker itself, and `pushAudio` / `onAudio` go unused. With `providers { llm { id: "llamacpp" } }` it runs a local LLM.
 
+## Models
+
+`Models` is the model store ([Models](../models.md)): it downloads the files local providers load, checks their SHA-256, and keeps them where a session with no models directory looks. On Android give it a directory (`filesDir`), and call `pull` off the main thread.
+
+| Call | What |
+| --- | --- |
+| `Models(directory, manifestPath, token, offline)` | A store; every argument optional |
+| `list()` | `Models.Model`s: `id`, `license`, `size`, `status` (`present`, `partial`, `missing`), `requiresAcceptance`... |
+| `forConfig(path)` | The ids an engine config's providers load |
+| `pull(id, acceptLicense, progress)` | Downloads what is missing, resuming; `progress` returning false stops it |
+| `verify`, `remove`, `status`, `Models.defaultDirectory()` | |
+
 ## Providers written in Kotlin
 
 ```kotlin
@@ -102,4 +114,4 @@ Each session makes its own instance from the factory, with its `Sink` (transcrip
 
 ## Tests
 
-`vasdk_kotlin` ([`bindings/kotlin/src/test/kotlin/com/vasdk/`](../../bindings/kotlin/src/test/kotlin/com/vasdk/)): the garage agent's whole suite through its step, tool and envelope written in Kotlin; a spoken session on providers and processors written in Kotlin, with no models; a runtime with a Kotlin sentence encoder and entity model; a text conversation's controls, a page type's turn, an entity extractor, a language and a test case from memory. On Android the same tests run with `:vasdk:connectedAndroidTest`.
+`vasdk_kotlin` ([`bindings/kotlin/src/test/kotlin/com/vasdk/`](../../bindings/kotlin/src/test/kotlin/com/vasdk/)): the garage agent's whole suite through its step, tool and envelope written in Kotlin; a spoken session on providers and processors written in Kotlin, with no models; a runtime with a Kotlin sentence encoder and entity model; a text conversation's controls, a page type's turn, an entity extractor, a language and a test case from memory; the model store against a manifest of its own (`ModelsTest`). On Android the same tests run with `:vasdk:connectedAndroidTest`.

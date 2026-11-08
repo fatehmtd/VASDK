@@ -50,10 +50,30 @@ if(VASDK_SHARED)
     endif()
 endif()
 
+# The model manifest (VASDK_3P_IMPL/models/manifest.json), built in: what ModelStore downloads
+# when it is given no other. Its bytes, like the language pack below.
+set(_vasdk_model_manifest ${VASDK_ROOT_DIR}/VASDK_3P_IMPL/models/manifest.json)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${_vasdk_model_manifest})
+file(READ ${_vasdk_model_manifest} _vasdk_model_manifest_hex HEX)
+string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," _vasdk_model_manifest_bytes "${_vasdk_model_manifest_hex}")
+file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/generated/ModelManifest.cpp.in
+    "// Generated from VASDK_3P_IMPL/models/manifest.json by CMake: edit that file (generate_manifest.py).\n"
+    "#include <VASDK/ModelStore.h>\n"
+    "namespace va {\n"
+    "std::string builtinModelManifest() {\n"
+    "    const unsigned char bytes[] = {${_vasdk_model_manifest_bytes}};\n"
+    "    return std::string(reinterpret_cast<const char*>(bytes), sizeof(bytes));\n"
+    "}\n"
+    "}\n")
+configure_file(${CMAKE_CURRENT_BINARY_DIR}/generated/ModelManifest.cpp.in
+               ${CMAKE_CURRENT_BINARY_DIR}/generated/ModelManifest.cpp COPYONLY)
+
 add_library(VASDK ${VASDK_LIBRARY_TYPE}
     # Core sources
     ./src/AudioRingBuffer.cpp
     ./src/AudioSIMD.cpp
+    ./src/ModelStore.cpp
+    ${CMAKE_CURRENT_BINARY_DIR}/generated/ModelManifest.cpp
     # Transport infrastructure
     ./src/Transport.cpp
     ./src/HttpTransport.cpp
@@ -256,6 +276,7 @@ if(VASDK_ENABLE_ENGINE_CONFIG)
         ./src/c/vasdk_c.cpp
         ./src/c/vasdk_c_session.cpp
         ./src/c/vasdk_c_providers.cpp
+        ./src/c/vasdk_c_models.cpp
         ./src/engine/RemoteControl.cpp
         ./proto/vasdk/engine/engine_config.proto
         ./proto/vasdk/engine/events.proto
@@ -550,6 +571,11 @@ if(VASDK_BUILD_TESTS)
         add_executable(vasdk_c_test tests/vasdk_c_test.c)   # the C API, from C
         target_link_libraries(vasdk_c_test PRIVATE VASDK)
         add_test(NAME vasdk_c COMMAND vasdk_c_test WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+        add_executable(vasdk_model_store_test tests/model_store_test.cpp)   # ModelStore and vasdk_models_*, offline
+        target_link_libraries(vasdk_model_store_test PRIVATE VASDK nlohmann_json::nlohmann_json)
+        add_test(NAME vasdk_model_store COMMAND vasdk_model_store_test)
+        add_test(NAME vasdk_model_store_network COMMAND vasdk_model_store_test --network)
+        set_tests_properties(vasdk_model_store_network PROPERTIES SKIP_RETURN_CODE 77)
         add_executable(vasdk_c_session_test tests/c_session_test.cpp)   # spoken sessions through the C API
         target_link_libraries(vasdk_c_session_test PRIVATE VASDK nlohmann_json::nlohmann_json)
         add_test(NAME vasdk_c_session COMMAND vasdk_c_session_test)

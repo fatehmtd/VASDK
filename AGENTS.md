@@ -19,7 +19,7 @@ The sample apps are optional (`VASDK_BUILD_APPS`, off by default) and the garage
 | --- | --- |
 | `VASDK/` | Core library: frames, processors, pipeline, provider interfaces (`VASDK/include/VASDK/`), engine, agents, LLM, C API, tests (`VASDK/tests/`) |
 | `cmake/` | Packaging: the C library `vasdk_c` (`cmake/c_library/`), dependencies, flavors, `find_package(VASDK)` and pkg-config; [`CMakePresets.json`](CMakePresets.json) and [`VERSION`](VERSION) beside it |
-| `VASDK_3P_IMPL/` | Third-party integrations, one CMake target each, guarded by `VASDK_BUILD_<NAME>`; `ProviderCatalog/` registers them by config id |
+| `VASDK_3P_IMPL/` | Third-party integrations, one CMake target each, guarded by `VASDK_BUILD_<NAME>`; `ProviderCatalog/` registers them by config id; `models/manifest.json` pins every model file the model store downloads ([docs/models.md](docs/models.md)) |
 | `VASDK_APP/`, `VASDK_CALLCENTER_APP/`, `VASDK_CAR_APP/`, `VASDK_PYTHON_APP/`, `VASDK_ANDROID/` | Example apps ([docs/apps](docs/apps/README.md)) |
 | `bindings/python/` | Python binding over the C API |
 | `docs/` | Reference and guides ([index](docs/README.md)) |

@@ -92,5 +92,25 @@ if(WIN32)
         VERBATIM)
 endif()
 
+# vasdk: the command installed with the library (models list|pull|verify|remove, version), a
+# program of the C library's like any other: VASDK/c/vasdk.hpp over VASDK::c. Beside vasdk_c, so
+# it finds it in the build tree and once installed.
+if(NOT ANDROID)
+    add_executable(vasdk_command ${VASDK_ROOT_DIR}/VASDK/tools/vasdk/main.cpp)
+    target_link_libraries(vasdk_command PRIVATE vasdk_c nlohmann_json::nlohmann_json)
+    target_compile_features(vasdk_command PRIVATE cxx_std_17)
+    set_target_properties(vasdk_command PROPERTIES OUTPUT_NAME vasdk)
+    if(APPLE)
+        set_target_properties(vasdk_command PROPERTIES INSTALL_RPATH "@loader_path/../${CMAKE_INSTALL_LIBDIR}")
+    elseif(UNIX)
+        set_target_properties(vasdk_command PROPERTIES INSTALL_RPATH "\$ORIGIN/../${CMAKE_INSTALL_LIBDIR}")
+    endif()
+    if(VASDK_BUILD_TESTS)
+        add_test(NAME vasdk_command
+                 COMMAND ${CMAKE_COMMAND} -DVASDK_COMMAND=$<TARGET_FILE:vasdk_command>
+                         -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/vasdk_command_test -P ${CMAKE_CURRENT_SOURCE_DIR}/test_vasdk_command.cmake)
+    endif()
+endif()
+
 # The C library's headers, its runtime dependencies, the CMake package and pkg-config file are
 # installed by cmake/VASDKInstall.cmake.

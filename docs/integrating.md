@@ -6,7 +6,7 @@ VASDK comes in two forms:
 
 | Form | What you link | Interface | When |
 | --- | --- | --- | --- |
-| **The C library**, `vasdk_c` | `VASDK::c` | The [C API](reference/c-api.md): `vasdk.h`, `vasdk_providers.h`. Stable across releases of one major version | Prebuilt packages, other languages, and any project that wants one shared library and no C++ ABI concerns |
+| **The C library**, `vasdk_c` | `VASDK::c` | The [C API](reference/c-api.md): `vasdk.h`, `vasdk_providers.h`, and `vasdk.hpp`, its header-only C++ form. Stable across releases of one major version | Prebuilt packages, other languages, and any project that wants one shared library and no C++ ABI concerns |
 | **The C++ libraries**, from source | `VASDK::VASDK`, `VASDK::providers`, `VASDK::<provider>` | Everything: frames, processors, pipelines, providers, the engine | A C++ app that builds VASDK alongside itself and writes its own processors or providers |
 
 The C library is one shared library: the C API and every provider of its build, with their dependencies (protobuf, abseil, spdlog, curl) linked in and hidden. It exports the `vasdk_*` functions and nothing else, so it can't clash with another protobuf or spdlog in your program. This is what the Python and Kotlin bindings load, and what the release archives and packages ship. This is the pattern ONNX Runtime and sherpa-onnx follow too: a C ABI, with languages layered on top.
@@ -102,6 +102,8 @@ Each installed library has a fixed location:
 - **Linux and macOS:** the library finds ONNX Runtime beside itself (rpath `$ORIGIN`, `@loader_path`).
 - **Windows:** there is no rpath, so `vasdk_copy_runtime(<target>)` copies `vasdk_c.dll` and the DLLs it loads beside your program after each build. It works from source, from a build tree and from an install. The other way is to keep `bin/` on `PATH`.
 
+`bin/` also holds `vasdk`, the command that downloads models ([Models](#models)).
+
 On Windows, `bin/` also holds the DLLs `vasdk_c.dll` imports directly. For example, protobuf, abseil and curl, when they came from vcpkg as DLLs. It doesn't hold the DLLs those load in turn (vcpkg curl's zlib and OpenSSL). The release archives have none: they link protobuf and curl in (`VASDK_DEPENDENCY_SOURCE=FETCH`, `VASDK_FETCH_CURL=ON`).
 
 A plain install leaves out two components; install them by name:
@@ -124,7 +126,23 @@ int main(void) {
 }
 ```
 
-The [C API reference](reference/c-api.md) has the rest: agents, sessions, runtimes, and providers and processors written in C.
+The same from C++, through the header-only `vasdk.hpp` over the same library: handles that free themselves, `std::string`, `vasdk::Error` exceptions and `std::function` callbacks. It is the C API, so it keeps its stability. Build with C++17.
+
+```cpp
+#include <VASDK/c/vasdk.hpp>
+
+int main() {
+    vasdk::Registry registry;
+    registry.addTool("create_booking", "Books a slot", [](std::string_view args) { return std::string(R"({"id": 42})"); });
+    vasdk::Agent agent = vasdk::Agent::load("agent.txtpb", registry);
+    vasdk::Providers providers = vasdk::Providers::builtIn();
+    vasdk::Session session("engine.txtpb", providers, agent);
+    session.onEvent([](std::string_view event) { /* a vasdk.engine.Event as JSON */ });
+    session.start();
+}
+```
+
+The [C API reference](reference/c-api.md) has the rest: agents, sessions, runtimes, models, and providers and processors written in C.
 
 ## Flavors
 
@@ -145,10 +163,17 @@ Some rules about flavors:
 
 ## Models
 
-No package ships model files. They range from 2 MB to 700 MB and come under their own licenses.
+No package ships model files. They range from 2 MB to 1.5 GB and come under their own licenses. The model store fetches them when they're needed ([Models](models.md)):
 
-- **Source build:** the build downloads the enabled providers' models at configure time ([Building VASDK, Model files](building.md#model-files)).
-- **Embedding project or package:** VASDK doesn't download models (`VASDK_DOWNLOAD_MODELS` is off). Give the session a models directory laid out as `build/VASDK_3P_IMPL/models/`, through `models_dir` in the C API and the bindings.
+```bash
+vasdk models pull --config engine.txtpb     # what the config's providers load
+vasdk models list                           # every model, its size, license and status
+```
+
+The same from a program: `vasdk_models_pull` in C, `vasdk::Models` in C++, `vasdk.Models` in Python, `Models` in Kotlin. They download into the user's cache (`VASDK_MODELS_DIR` moves it), which is where a session looks when its config sets no `models_dir`. So pulling is the only setup.
+
+- **Source build:** the build also downloads the enabled providers' models at configure time ([Building VASDK, Model files](building.md#model-files)).
+- **Embedding project or package:** VASDK doesn't download models at build time (`VASDK_DOWNLOAD_MODELS` is off). Pull them with the model store, or give the session a models directory laid out the same way through `models_dir`.
 
 ## Options that matter to an integrator
 
@@ -178,6 +203,8 @@ The presets in [`CMakePresets.json`](../CMakePresets.json) bundle these options:
 - **One version:** the repository's [`VERSION`](../VERSION) file sets the version of the SDK, the C library and every binding. A program reads it from `<VASDK/version.h>` (`VASDK_VERSION_STRING`, `VASDK_VERSION_NUMBER`) or at run time from `vasdk_version()`.
 - **Stable C API:** `VASDK_C_API_VERSION` in `vasdk.h` is also the library's soname (`libvasdk_c.so.1`). Within one major version the C API only grows. A function never changes or goes away ([C API, Stability](reference/c-api.md#stability)), so `find_package(VASDK 1.2)` accepts any later 1.x (`SameMajorVersion`).
 - **No stability promise for the C++ API:** build it from the same source as your program.
+- **A program that loads the library at run time** (a plugin, a binding) compares `vasdk_c_api_version()` with the `VASDK_C_API_VERSION` it was built against: a lower one is an older library.
+- **Windows hosts with an older C++ runtime:** a process that loads its own older `msvcp140.dll` first (a JVM, a game engine) runs the library as well: it is built with `_DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR`, which Visual Studio 17.10 and later need for that.
 
 ## Packages
 

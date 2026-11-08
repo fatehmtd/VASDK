@@ -26,6 +26,14 @@ val config = vasdk.engine.engineConfig {
 Session(config, Providers(), agent).use { it.start() }   // Runtime(config, ...) too
 ```
 
+The model files local providers load come from the model store, which checks their SHA-256 and keeps them where a session with no models directory looks ([Models](../../docs/models.md)). On Android give it the app's files directory, and pull off the main thread:
+
+```kotlin
+Models(directory = filesDir.resolve("models").path).use { models ->
+    for (id in models.forConfig("engine.txtpb")) models.pull(id) { _, _, done, total -> println("$done/$total"); true }
+}
+```
+
 Build and test it against a VASDK build (it loads the C library, `vasdk_c`):
 
 ```bash

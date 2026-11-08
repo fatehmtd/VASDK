@@ -54,6 +54,7 @@ Every integration in `VASDK_3P_IMPL/` follows rules 1 to 3, so any of them is a 
 | 15 | `README.md` | The provider table, and "On by default" if it is |
 | 16 | `THIRD_PARTY_NOTICES.md` | The library (code table) and every model (model table), with source and license; a restrictive license (non-commercial, OpenRAIL) gets its note |
 | 17 | `cmake/VASDKFlavors.cmake` | Its flavor ([Flavors](../../docs/integrating.md#flavors)): `default` only when it builds on every desktop platform with no system library and its code and default model are permissively licensed; `full` otherwise; neither when it needs a platform SDK or system library (say why in the comment). The catalog gives it the target `VASDK::<name>` and a `find_package(VASDK COMPONENTS <name>)` component by itself |
+| 18 | `VASDK_3P_IMPL/models/generate_manifest.py` | Local models only: a `model(...)` entry (id, `<stage>/<id>` in `providers`, license, pinned revision, files at the path the provider reads under `models_dir`), then run it to rewrite `VASDK_3P_IMPL/models/manifest.json` with the sizes and SHA-256s. `requires_acceptance=True` for a non-commercial or custom license, `gated=True` when the host wants a token. The model store and `vasdk models pull` download from it ([Models](../../docs/models.md)) |
 
 Real examples of the whole list: `git show --stat 2a31dc4` (three cloud STT/TTS pairs), and `git grep -il supertonic` (a local TTS with model downloads).
 

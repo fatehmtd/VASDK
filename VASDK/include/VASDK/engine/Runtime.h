@@ -57,7 +57,7 @@ VASDK_EXPORT bool applyAudioConfig(const vasdk::engine::Audio& config, audio::Au
 class VASDK_EXPORT Runtime : public std::enable_shared_from_this<Runtime> {
 public:
     struct Options {
-        /** Used when the config's models_dir is empty. */
+        /** Used when the config's models_dir is empty; both empty: ModelStore::defaultDirectory(). */
         std::string modelsDir;
         audio::AudioConfig inputAudio{16000, audio::AudioFormat::SHORT, 1};
         audio::AudioConfig outputAudio{16000, audio::AudioFormat::SHORT, 1};

@@ -34,7 +34,12 @@ target_link_libraries(cpp_consumer PRIVATE VASDK::VASDK VASDK::providers)
 add_executable(c_consumer ${CMAKE_CURRENT_SOURCE_DIR}/../c_library/main.c)
 target_link_libraries(c_consumer PRIVATE VASDK::c)
 vasdk_copy_runtime(c_consumer)   # Windows: vasdk_c.dll and what it loads beside it (no rpath there)
+# The C library from C++, through vasdk.hpp
+add_executable(hpp_consumer ${CMAKE_CURRENT_SOURCE_DIR}/../c_library/cpp_main.cpp)
+target_link_libraries(hpp_consumer PRIVATE VASDK::c)
+vasdk_copy_runtime(hpp_consumer)
 
 enable_testing()
 add_test(NAME cpp_consumer COMMAND cpp_consumer)
 add_test(NAME c_consumer COMMAND c_consumer)
+add_test(NAME hpp_consumer COMMAND hpp_consumer)

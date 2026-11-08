@@ -30,6 +30,9 @@ class VasdkException(message: String) : RuntimeException(message)
 object Vasdk {
     fun version(): String = Lib.vasdk.vasdk_version()
 
+    /** The library's C API version (VASDK_C_API_VERSION). */
+    fun apiVersion(): Int = Lib.vasdk.vasdk_c_api_version()
+
     /**
      * How much VASDK logs to the console: "trace", "debug", "info" (the default), "warn", "error"
      * or "off". `providers`: the vasdk_providers library's too (loading it).

@@ -55,6 +55,9 @@ typedef void (*vasdk_message_fn)(const void* data, size_t length, void* user);
 /* Frees the text and the messages VASDK returned. */
 VASDK_C_API void vasdk_free(void* text);
 VASDK_C_API const char* vasdk_version(void);
+/* The library's VASDK_C_API_VERSION: a program built against a header with a higher one needs a
+ * newer library (compare it at start-up when the library is loaded at run time). */
+VASDK_C_API int vasdk_c_api_version(void);
 /* How much VASDK logs, to the console: "trace", "debug", "info" (the default), "warn", "error" or "off".
  * 0 for a level it doesn't know. */
 VASDK_C_API int vasdk_set_log_level(const char* level);
@@ -491,6 +494,56 @@ typedef void (*vasdk_llm_cancel_fn)(void* instance);
 VASDK_C_API int vasdk_providers_add_llm(vasdk_providers* providers, const char* id, vasdk_provider_create_fn create,
                                          vasdk_provider_destroy_fn destroy, vasdk_llm_fn complete, vasdk_llm_cancel_fn cancel,
                                          void* user);
+
+/* ---- Models: the model store (VASDK/ModelStore.h, docs/models.md) downloads the files local
+ *      providers load, from a manifest that pins each to a revision and a SHA-256, into the
+ *      directory a session reads when its models_dir is unset. ----
+ *
+ *   vasdk_models* models = vasdk_models_create(NULL, &error);      // VASDK_MODELS_DIR, else the user cache
+ *   char* needed = vasdk_models_for_config(models, "engine.txtpb", &error);   // ["silero_vad", ...]
+ *   if (!vasdk_models_pull(models, "silero_vad", 0, NULL, NULL, &error)) { ... }
+ *   vasdk_models_free(models);
+ */
+typedef struct vasdk_models vasdk_models;
+
+typedef enum vasdk_model_status {
+    VASDK_MODEL_UNKNOWN = -1,   /* no such model in the manifest */
+    VASDK_MODEL_MISSING = 0,
+    VASDK_MODEL_PARTIAL = 1,    /* some files, or a download that stopped: pull resumes it */
+    VASDK_MODEL_PRESENT = 2     /* every file, with its size (vasdk_models_verify checks the hashes) */
+} vasdk_model_status;
+
+/* Progress of a pull: bytes of `model` in the store so far, of `total`; `file` is the one
+ * downloading ("" once done). Return 0 to stop the pull (it fails with "cancelled" and resumes next time). */
+typedef int (*vasdk_model_progress_fn)(const char* model, const char* file, unsigned long long done,
+                                       unsigned long long total, void* user);
+
+/* options_json may be NULL: {"directory": "...", "manifest_path": "...", "token": "hf_...",
+ * "offline": false, "architecture": "arm64"}. directory unset: VASDK_MODELS_DIR, else the user cache
+ * (vasdk_models_default_directory); manifest_path unset: the manifest built into the library; token
+ * unset: HF_TOKEN, else `hf auth login`'s. NULL, with `error` set, when the manifest doesn't parse. */
+VASDK_C_API vasdk_models* vasdk_models_create(const char* options_json, char** error);
+VASDK_C_API void vasdk_models_free(vasdk_models* models);
+/* Where sessions look when models_dir is unset, and where the store downloads by default (free it) */
+VASDK_C_API char* vasdk_models_default_directory(void);
+VASDK_C_API const char* vasdk_models_directory(const vasdk_models* models);
+/* Every model of this machine, as JSON: [{"id", "description", "providers": ["vad/silero"], "license",
+ * "license_url", "revision", "gated", "requires_acceptance", "size", "status": "present"|"partial"|"missing",
+ * "files": [{"path", "url", "sha256", "size"}]}] */
+VASDK_C_API char* vasdk_models_list(const vasdk_models* models);
+/* The ids of the models an engine config's providers load, as a JSON array. NULL, with `error` set,
+ * when the config doesn't load. */
+VASDK_C_API char* vasdk_models_for_config(const vasdk_models* models, const char* config_path, char** error);
+VASDK_C_API vasdk_model_status vasdk_models_status(const vasdk_models* models, const char* id);
+/* Downloads what is missing of the model, checking each file's SHA-256. accept_license: the caller
+ * read the license of a model marked requires_acceptance (non-commercial or custom terms). 1 when
+ * every file is present; 0, with `error` set, otherwise. Blocks until done: call it off the UI thread. */
+VASDK_C_API int vasdk_models_pull(const vasdk_models* models, const char* id, int accept_license,
+                                  vasdk_model_progress_fn progress, void* user, char** error);
+/* Hashes every file of the model: 1 when all are present and match */
+VASDK_C_API int vasdk_models_verify(const vasdk_models* models, const char* id, char** error);
+/* Deletes the model's files */
+VASDK_C_API int vasdk_models_remove(const vasdk_models* models, const char* id, char** error);
 
 #ifdef __cplusplus
 }

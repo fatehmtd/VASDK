@@ -7,6 +7,11 @@ project(VASDK_Project VERSION ${VASDK_VERSION} LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+# MSVC: the C library loads into processes that bring an older C++ runtime (msvcp140.dll) of their
+# own: a JVM, a game engine. Since Visual Studio 17.10 a std::mutex built here crashes on lock
+# there; this keeps the constructor that works with every msvcp140. Here, before the dependencies
+# are added, so what is fetched and linked into vasdk_c (spdlog...) gets it too.
+add_compile_definitions($<$<CXX_COMPILER_ID:MSVC>:_DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR>)
 
 # The repository's root, wherever VASDK sits: on its own, or inside another project by
 # add_subdirectory or FetchContent (docs/integrating.md). Never CMAKE_SOURCE_DIR: that's the outer
@@ -216,6 +221,11 @@ if(VASDK_BUILD_TESTS)
         add_test(NAME vasdk_thirdparty_rules_self_test COMMAND ${Python3_EXECUTABLE} ${VASDK_ROOT_DIR}/VASDK_3P_IMPL/check_rules.py --self-test)
         # Every place stating the version agrees with the VERSION file (docs/releasing.md)
         add_test(NAME vasdk_versions COMMAND ${Python3_EXECUTABLE} ${VASDK_ROOT_DIR}/cmake/check_versions.py)
+        # The model store from Python (the other Python suites run the sample apps' agents: VASDK_APP)
+        if(VASDK_BUILD_PYTHON_BINDING)
+            add_test(NAME vasdk_python_models COMMAND ${Python3_EXECUTABLE} ${VASDK_ROOT_DIR}/bindings/python/tests/test_models.py)
+            set_tests_properties(vasdk_python_models PROPERTIES ENVIRONMENT "VASDK_LIBRARY=$<TARGET_FILE:vasdk_c>")
+        endif()
         # C and the bindings that are on level with the C++ API (skills/vasdk-binding-parity)
         if(VASDK_BUILD_PYTHON_BINDING OR VASDK_BUILD_KOTLIN_BINDING)
             set(_vasdk_parity_bindings c)

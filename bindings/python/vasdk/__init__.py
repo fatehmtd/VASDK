@@ -47,8 +47,8 @@ import sys
 import threading
 from pathlib import Path
 
-__all__ = ["Registry", "Turn", "Agent", "Conversation", "Providers", "Session", "Runtime", "Sink", "run_test_file", "run_test",
-           "words", "version", "set_log_level", "VasdkError", "Event", "Command", "ConversationInput", "ConversationReply",
+__all__ = ["Registry", "Turn", "Agent", "Conversation", "Providers", "Session", "Runtime", "Models", "Sink", "run_test_file",
+           "run_test", "words", "version", "api_version", "set_log_level", "VasdkError", "Event", "Command", "ConversationInput", "ConversationReply",
            "StepOutcome", "SessionOptions", "ToolDeclaration", "ToolParameter", "TriggerDecision", "Language",
            "builtin_language", "ConversationSnapshot", "FlowTestCase", "EntityValue", "EntityValuesCommand", "Backchannel",
            "VoicePrint",
@@ -313,6 +313,18 @@ _add_entity_model = _declare("vasdk_providers_add_entity_model", _i, _p, _s, _CR
 _add_llm = _declare("vasdk_providers_add_llm", _i, _p, _s, _CREATE, _DESTROY, _INSTANCE_TEXT, _INSTANCE, _p)
 _providers_lib = None   # vasdk_providers, loaded by the first Providers()
 _set_log_level = _declare("vasdk_set_log_level", _i, _s)
+_c_api_version = _declare("vasdk_c_api_version", _i)
+_MODEL_PROGRESS = ctypes.CFUNCTYPE(_i, _s, _s, ctypes.c_ulonglong, ctypes.c_ulonglong, _p)
+_models_create = _declare("vasdk_models_create", _p, _s, _error)
+_models_free = _declare("vasdk_models_free", None, _p)
+_models_default_directory = _declare("vasdk_models_default_directory", _p)
+_models_directory = _declare("vasdk_models_directory", _s, _p)
+_models_list = _declare("vasdk_models_list", _p, _p)
+_models_for_config = _declare("vasdk_models_for_config", _p, _p, _s, _error)
+_models_status = _declare("vasdk_models_status", _i, _p, _s)
+_models_pull = _declare("vasdk_models_pull", _i, _p, _s, _i, _MODEL_PROGRESS, _p, _error)
+_models_verify = _declare("vasdk_models_verify", _i, _p, _s, _error)
+_models_remove = _declare("vasdk_models_remove", _i, _p, _s, _error)
 _log_level = None   # set_log_level's, for the providers library when it loads
 
 
@@ -416,6 +428,11 @@ def _tool_callback(function):
 
 def version():
     return _version().decode()
+
+
+def api_version():
+    """The library's C API version (VASDK_C_API_VERSION): what this binding checks it was built for."""
+    return _c_api_version()
 
 
 def builtin_language():
@@ -1085,6 +1102,87 @@ class Providers:
             self._register(_add_llm, id, create, destroy, self._keep(_INSTANCE_TEXT(complete)), cancel)
             return cls
         return register
+
+
+class Models:
+    """The model store (docs/models.md): downloads the model files local providers load, checks
+    each against the SHA-256 the manifest pins, and puts them where a session looks when its
+    models_dir is unset (Models.default_directory()).
+
+        models = vasdk.Models()                          # VASDK_MODELS_DIR, else the user cache
+        for model_id in models.for_config("engine.txtpb"):
+            models.pull(model_id, progress=lambda model, file, done, total: print(f"{model}: {done}/{total}"))
+
+    directory: where to keep them; manifest_path: another manifest than the built-in one; token: a
+    Hugging Face token for gated models (else HF_TOKEN); offline: never download."""
+
+    _STATUSES = {-1: "unknown", 0: "missing", 1: "partial", 2: "present"}
+
+    def __init__(self, directory=None, manifest_path=None, token=None, offline=False, architecture=None):
+        options = {"directory": str(directory) if directory else None, "manifest_path": str(manifest_path) if manifest_path else None,
+                   "token": token, "offline": bool(offline) or None, "architecture": architecture}
+        options = {key: value for key, value in options.items() if value is not None}
+        error = ctypes.c_void_p()
+        handle = _models_create(_encode(json.dumps(options)) if options else None, ctypes.byref(error))
+        if not handle:
+            raise VasdkError(_take(error.value))
+        self._handle = handle
+
+    def close(self):
+        if getattr(self, "_handle", None):
+            _models_free(self._handle)
+            self._handle = None
+
+    def __del__(self):
+        self.close()
+
+    @staticmethod
+    def default_directory():
+        """Where sessions look when models_dir is unset, and where a Models() downloads."""
+        return _take(_models_default_directory())
+
+    @property
+    def directory(self):
+        return _models_directory(self._handle).decode("utf-8")
+
+    def list(self):
+        """Every model of this machine: dicts with id, description, providers, license, license_url,
+        revision, gated, requires_acceptance, size, status ("present", "partial", "missing") and files."""
+        return json.loads(_take(_models_list(self._handle)))
+
+    def for_config(self, config_path):
+        """The ids of the models an engine config's providers load."""
+        error = ctypes.c_void_p()
+        ids = _models_for_config(self._handle, _encode(str(config_path)), ctypes.byref(error))
+        if not ids:
+            raise VasdkError(_take(error.value))
+        return json.loads(_take(ids))
+
+    def status(self, model_id):
+        """"present", "partial", "missing", or "unknown" (not in the manifest)."""
+        return self._STATUSES[_models_status(self._handle, _encode(model_id))]
+
+    def pull(self, model_id, accept_license=False, progress=None):
+        """Downloads what is missing of the model, resuming a stopped download. accept_license: you read
+        the license of a model marked requires_acceptance. progress(model, file, done, total) is called as
+        bytes arrive; returning False stops the pull. Blocks until done."""
+        def call(model, file, done, total, _user):
+            try:
+                return 0 if progress(model.decode(), file.decode(), done, total) is False else 1
+            except Exception:   # noqa: BLE001 - an exception can't cross into C: stop the pull
+                return 0
+        callback = _MODEL_PROGRESS(call) if progress else _MODEL_PROGRESS()
+        error = ctypes.c_void_p()
+        _check(_models_pull(self._handle, _encode(model_id), 1 if accept_license else 0, callback, None, ctypes.byref(error)), error)
+
+    def verify(self, model_id):
+        """Hashes the model's files; raises VasdkError when one is missing or doesn't match."""
+        error = ctypes.c_void_p()
+        _check(_models_verify(self._handle, _encode(model_id), ctypes.byref(error)), error)
+
+    def remove(self, model_id):
+        error = ctypes.c_void_p()
+        _check(_models_remove(self._handle, _encode(model_id), ctypes.byref(error)), error)
 
 
 class Runtime:

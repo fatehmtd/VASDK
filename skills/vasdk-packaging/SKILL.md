@@ -28,7 +28,10 @@ flowchart LR
 | Dependencies | `cmake/VASDKDependencies.cmake`, `VASDK/cmake/VASDKProtobuf.cmake`, `VASDK/cmake/VASDKCurl.cmake`, `VASDK_3P_IMPL/cmake/FindONNXRuntime.cmake` | [Dependencies](../../docs/building.md#dependencies) |
 | Flavors | `cmake/VASDKFlavors.cmake` | [Flavors](../../docs/integrating.md#flavors) |
 | Presets | `CMakePresets.json` | [Presets](../../docs/building.md#presets) |
-| Another project's view | `tests/consumer/c_library/`, `tests/consumer/run_consumer_test.cmake` | |
+| The C API in C++ | `VASDK/include/VASDK/c/vasdk.hpp` (header-only, over `vasdk.h`) | [C API, From C++](../../docs/reference/c-api.md#from-c-vasdkhpp) |
+| Models | `VASDK/include/VASDK/ModelStore.h`, `VASDK/src/c/vasdk_c_models.cpp`, `VASDK_3P_IMPL/models/manifest.json` (built in), `VASDK_3P_IMPL/models/generate_manifest.py` | [Models](../../docs/models.md) |
+| The command | `VASDK/tools/vasdk/main.cpp` (`vasdk models ...`, installed in `bin/`), `cmake/c_library/test_vasdk_command.cmake` | [Models, The command](../../docs/models.md#the-command) |
+| Another project's view | `tests/consumer/c_library/` (C and `vasdk.hpp`), `tests/consumer/run_consumer_test.cmake` | |
 
 ## Rules
 
@@ -38,6 +41,8 @@ flowchart LR
 4. **System dependencies work.** A new library dependency goes through `vasdk_dependency()` (`FIND` and `DECLARE`), so `VASDK_DEPENDENCY_SOURCE=SYSTEM` builds with vcpkg, Conan or distro packages and never downloads.
 5. **A plain install is the SDK.** The sample apps (`COMPONENT apps`) and the C++ libraries (`COMPONENT vasdk_cpp_development`) are `EXCLUDE_FROM_ALL`. The C library, its headers and its runtime files (ONNX Runtime, DLLs it imports) are in.
 6. **One version.** Only `VERSION` holds it. CMake, `<VASDK/version.h>`, the soname and the bindings read it.
+7. **No model in a package.** Packages ship the library; models come from the model store, pinned in the manifest. A new model goes in `generate_manifest.py`, never in an archive.
+8. **Loads into any host.** On Windows the library runs in processes with an older `msvcp140.dll` of their own (a JVM): the root `CMakeLists.txt` defines `_DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR` before any dependency is added. Keep it there.
 
 ## Steps
 
@@ -49,7 +54,8 @@ flowchart LR
 
 ## Tests
 
-- **Integration:** `vasdk_consumer_install` installs this build into a fresh prefix, checks that no app is in it, and builds and runs `tests/consumer/c_library` against it with `find_package(VASDK)`. `vasdk_consumer_build_tree` does the same from the build tree (`VASDK_DIR`).
+- **Integration:** `vasdk_consumer_install` installs this build into a fresh prefix, checks that no app is in it, runs the installed `bin/vasdk`, and builds and runs `tests/consumer/c_library` (C, and C++ through `vasdk.hpp`) against it with `find_package(VASDK)`. `vasdk_consumer_build_tree` does the same from the build tree (`VASDK_DIR`).
+- **Models:** `vasdk_model_store` (offline), `vasdk_model_store_network` (skipped without network), `vasdk_command`.
 - **Exports:** `dumpbin /exports vasdk_c.dll` (Windows), `nm -D --defined-only libvasdk_c.so` (Linux) or `nm -gU libvasdk_c.dylib` (macOS) lists `vasdk_*` only.
 - **Subproject:** a FetchContent build of VASDK from another project configures with no app, test or model download.
 

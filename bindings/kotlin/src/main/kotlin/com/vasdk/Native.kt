@@ -1,5 +1,5 @@
 // The C API (VASDK/include/VASDK/c/vasdk.h) as JNA sees it: every function, every callback type.
-// The public classes (Vasdk, Registry, Agent, Conversation, Providers, Session, Runtime) wrap it.
+// The public classes (Vasdk, Registry, Agent, Conversation, Providers, Session, Runtime, Models) wrap it.
 @file:Suppress("FunctionName")
 
 package com.vasdk
@@ -57,11 +57,24 @@ internal fun interface WakeWordFn : Callback { fun invoke(instance: Pointer?, pc
 internal fun interface AudioDspFn : Callback { fun invoke(instance: Pointer?, input: Pointer?, output: Pointer?, samples: SizeT) }
 internal fun interface SpeakerEmbeddingFn : Callback { fun invoke(instance: Pointer?, pcm: Pointer?, samples: SizeT, voicePrint: Pointer) }
 internal fun interface InstanceTextFn : Callback { fun invoke(instance: Pointer?, text: Pointer, result: Pointer) }
+internal fun interface ModelProgressFn : Callback { fun invoke(model: Pointer, file: Pointer, done: Long, total: Long, user: Pointer?): Int }
 
 internal interface VasdkLibrary : Library {
     fun vasdk_free(pointer: Pointer?)
     fun vasdk_version(): String
     fun vasdk_set_log_level(level: String): Int
+    fun vasdk_c_api_version(): Int
+    fun vasdk_models_create(optionsJson: String?, error: PointerByReference): Pointer?
+    fun vasdk_models_free(models: Pointer)
+    fun vasdk_models_default_directory(): Pointer?
+    fun vasdk_models_directory(models: Pointer): String
+    fun vasdk_models_list(models: Pointer): Pointer?
+    fun vasdk_models_for_config(models: Pointer, configPath: String, error: PointerByReference): Pointer?
+    fun vasdk_models_status(models: Pointer, id: String): Int
+    fun vasdk_models_pull(models: Pointer, id: String, acceptLicense: Int, progress: ModelProgressFn?, user: Pointer?,
+                          error: PointerByReference): Int
+    fun vasdk_models_verify(models: Pointer, id: String, error: PointerByReference): Int
+    fun vasdk_models_remove(models: Pointer, id: String, error: PointerByReference): Int
 
     fun vasdk_registry_create(): Pointer
     fun vasdk_registry_free(registry: Pointer)
@@ -195,7 +208,10 @@ internal object Lib {
      * VASDK_LIBRARY (a path), else the system property vasdk.library, else the C library on the
      * library path: "vasdk_c" (libvasdk_c.so, vasdk_c.dll), else "VASDK" (a shared VASDK, Android's libVASDK.so).
      */
-    val path: String = System.getenv("VASDK_LIBRARY")?.takeIf { it.isNotEmpty() } ?: System.getProperty("vasdk.library") ?: defaultLibrary()
+    val path: String = (System.getenv("VASDK_LIBRARY")?.takeIf { it.isNotEmpty() } ?: System.getProperty("vasdk.library"))
+        // A path in the platform's form: Windows finds the DLLs a library imports beside it only
+        // when its path has backslashes (LOAD_WITH_ALTERED_SEARCH_PATH, which JNA uses)
+        ?.let { File(it).absolutePath } ?: defaultLibrary()
 
     private fun defaultLibrary(): String = try {
         NativeLibrary.getInstance("vasdk_c", options)

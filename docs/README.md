@@ -11,6 +11,7 @@ Start here and pick your path.
 | **Building an app on VASDK** | The [example apps](apps/README.md) and which to start from: [VASDK_Pipeline](apps/pipeline.md) (general assistant), [VASDK_CallCenter](apps/callcenter.md) (goal-oriented, no LLM needed), [VASDK_Car](apps/car.md) (an agent in verticals, rules and an LLM together, a model per task), [Android](apps/android.md), [VASDK_PYTHON_APP](apps/python.md) (VASDK from Python: spoken sessions, tools and triggers in Python). Then the [examples](#worked-examples). |
 | **Building from source** (prerequisites, CMake options, model downloads, air-gapped builds) | [Building VASDK](building.md). |
 | **Using VASDK from another project** (CMake, `find_package`, pkg-config, packages) | [Using VASDK in your project](integrating.md). |
+| **Getting the model files** (download, check, offline machines, licenses) | [Models](models.md). |
 | **Choosing providers** (which STT/TTS/LLM, their options, models and licenses) | [Providers](provider-catalog.md). |
 | **Implementing a provider** (new STT/TTS/VAD/LLM backend) | [Provider interfaces](reference/providers.md), especially the checklist at the end. |
 | **Extending the core** (new processor, transport, frame type) | [Processors](reference/processors.md), [Transports](reference/transports.md), [Frames](reference/frames.md) - each ends with an extension guide. |
@@ -22,6 +23,7 @@ Start here and pick your path.
 - **[Building VASDK](building.md)** - prerequisites, presets, build options, dependencies, model files, air-gapped builds.
 - **[Using VASDK in your project](integrating.md)** - the C library (`VASDK::c`) and the C++ targets, FetchContent, `find_package`, pkg-config, flavors, packages.
 - **[Releasing VASDK](releasing.md)** - the version, the release workflow, what each channel publishes.
+- **[Models](models.md)** - the model store: downloading, checking and finding the files local providers load; the `vasdk` command; licenses and gated models; offline machines.
 - **[Providers](provider-catalog.md)** - every implementation, how the apps choose between them, per-provider options, sources and licenses.
 - **[Provider pages](providers/README.md)** - one page per integration: platforms, options and defaults, models and licenses, usage, a flow diagram, tests.
 

@@ -43,6 +43,12 @@ if(MODE STREQUAL "install")
         message(FATAL_ERROR "A plain install holds more than VASDK's C library: include/ has '${_includes}', "
                             "lib/cmake/ has '${_packages}', static libraries: '${_static_libraries}'")
     endif()
+    # The installed command runs from the prefix: it finds the library (rpath, or the DLLs beside it)
+    find_program(_vasdk_command vasdk PATHS ${_prefix}/bin NO_DEFAULT_PATH)
+    if(NOT _vasdk_command)
+        message(FATAL_ERROR "A plain install has no bin/vasdk")
+    endif()
+    run(${_vasdk_command} version)
     set(_find -DCMAKE_PREFIX_PATH=${_prefix})
 elseif(MODE STREQUAL "build_tree")
     set(_find -DVASDK_DIR=${VASDK_BUILD_DIR})
@@ -56,8 +62,10 @@ run(${CMAKE_COMMAND} --build ${WORK_DIR}/consumer --config ${CONFIG})
 
 # Windows: vasdk_copy_runtime() put vasdk_c.dll and what it loads beside the program, so no PATH
 # is needed; elsewhere the rpath finds them
-find_program(_consumer vasdk_consumer PATHS ${WORK_DIR}/consumer/${CONFIG} ${WORK_DIR}/consumer NO_DEFAULT_PATH)
-if(NOT _consumer)
-    message(FATAL_ERROR "vasdk_consumer was not built")
-endif()
-run(${_consumer})
+foreach(_program vasdk_consumer vasdk_consumer_cpp)   # C, and C++ through vasdk.hpp
+    find_program(_consumer_${_program} ${_program} PATHS ${WORK_DIR}/consumer/${CONFIG} ${WORK_DIR}/consumer NO_DEFAULT_PATH)
+    if(NOT _consumer_${_program})
+        message(FATAL_ERROR "${_program} was not built")
+    endif()
+    run(${_consumer_${_program}})
+endforeach()

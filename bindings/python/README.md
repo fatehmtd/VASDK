@@ -110,6 +110,25 @@ The binding's tests run with `-DVASDK_BUILD_PYTHON_BINDING=ON` (off by default).
 
 [VASDK_PYTHON_APP](../../VASDK_PYTHON_APP/) is a whole app built this way: a kitchen assistant with a microphone, a scripted demo, and tests.
 
+## Models
+
+The model store downloads the model files local providers load, checks their SHA-256, and keeps them where a session looks when it gets no `models_dir` ([Models](../../docs/models.md)):
+
+```python
+models = vasdk.Models()                                   # directory=, manifest_path=, token=, offline=
+for model_id in models.for_config("engine.txtpb"):        # what the config's providers load
+    models.pull(model_id, progress=lambda model, file, done, total: print(f"{model}: {done * 100 // total}%"))
+session = vasdk.Session("engine.txtpb", providers, agent)   # no models_dir: the store's directory
+```
+
+| Call | What |
+| --- | --- |
+| `Models.list()` | Every model of this machine: `id`, `license`, `size`, `status` (`present`, `partial`, `missing`)... |
+| `Models.pull(model_id, accept_license=False, progress=None)` | Downloads what is missing, resuming; `progress` returning `False` stops it. `accept_license` for a non-commercial or custom license |
+| `Models.verify`, `Models.remove`, `Models.status`, `Models.default_directory()` | |
+
+`vasdk.api_version()` gives the library's `VASDK_C_API_VERSION`. Test: [`tests/test_models.py`](tests/test_models.py) (`vasdk_python_models`).
+
 ## Messages
 
 The build generates Python classes from VASDK's `.proto` files ([VASDK/proto](../../VASDK/proto/)) into `build/bindings/python/vasdk` (the `vasdk_python_protos` target), with the same `protoc` that builds the C++ ones. They are subpackages of `vasdk`: `vasdk.engine.events_pb2`, `vasdk.flow.conversation_pb2`, `vasdk.flow.agent_pb2`, ... The ones you meet most are named on the package:

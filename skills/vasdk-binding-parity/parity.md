@@ -36,6 +36,7 @@ Rules for a row:
 | `VASDK/include/VASDK/FrameProcessor.h` | `FrameProcessor` | class |
 | `VASDK/include/VASDK/GenericAudioSource.h` | `GenericAudioSource` | class |
 | `VASDK/include/VASDK/GenericAudioSink.h` | `GenericAudioSink` | class |
+| `VASDK/include/VASDK/ModelStore.h` | `ModelStore` | methods |
 
 ## Capabilities
 
@@ -82,6 +83,14 @@ Rules for a row:
 | `Runtime::config`, `Runtime::options` | — | — | — | C++ only: what the app passed in |
 | `Runtime::sentenceEncoder`, `Runtime::entityExtractor`, `Runtime::loadFallbacks`, `Runtime::acquire`, `Runtime::release`, `Runtime::configTransport`, `Runtime::createLlm` | — | — | — | C++ only: what a session asks its runtime for; bindings reach them through the engine config (webrtc, audio_input, audio_output, llm) |
 | `ProviderRegistry` | `vasdk_providers_create`, `vasdk_providers_add_all` | `Providers.__init__` | `Providers.addAll` | |
+| `ModelStore::defaultDirectory` | `vasdk_models_default_directory` | `Models.default_directory` | `Models.defaultDirectory` | where sessions look when models_dir is unset |
+| `ModelStore::directory` | `vasdk_models_create`, `vasdk_models_free`, `vasdk_models_directory` | `Models.__init__`, `Models.directory` | `Models`, `Models.directory` | a store over a directory, another manifest, a token, offline |
+| `ModelStore::models`, `ModelStore::find`, `ModelStore::status` | `vasdk_models_list`, `vasdk_models_status` | `Models.list`, `Models.status` | `Models.list`, `Models.status` | the manifest's models with their status, as JSON in C |
+| `ModelStore::modelsFor` | `vasdk_models_for_config` | `Models.for_config` | `Models.forConfig` | from an engine config file |
+| `ModelStore::pull` | `vasdk_models_pull` | `Models.pull` | `Models.pull` | progress callback; returning false stops it |
+| `ModelStore::verify` | `vasdk_models_verify` | `Models.verify` | `Models.verify` | |
+| `ModelStore::remove` | `vasdk_models_remove` | `Models.remove` | `Models.remove` | |
+| `ModelStore::valid`, `ModelStore::error`, `ModelStore::modelsForProvider` | — | — | — | C++ only: a C store that doesn't parse is never created (its error comes back); modelsFor covers what a binding needs |
 | `VADProvider` | `vasdk_providers_add_vad` | `Providers.vad` | `Providers.vad` | |
 | `GenericTranscriptionProvider` | `vasdk_providers_add_stt` | `Providers.stt` | `Providers.stt` | |
 | `GenericVoiceSynthesisProvider` | `vasdk_providers_add_tts` | `Providers.tts` | `Providers.tts` | |

@@ -2,6 +2,8 @@
 # (docs/integrating.md). The release archives and the packages are this install.
 #
 #   include/VASDK/c/vasdk.h, vasdk_providers.h, vasdk_c_export.h   the C API
+#   include/VASDK/c/vasdk.hpp                                       the C API in C++, header-only
+#   bin/vasdk                                                       the command: vasdk models pull ...
 #   include/VASDK/version.h                                         VASDK_VERSION_*
 #   lib/ (bin/ on Windows)   vasdk_c, and ONNX Runtime beside it when a provider uses it
 #   lib/cmake/VASDK/         find_package(VASDK): the target VASDK::c
@@ -43,9 +45,14 @@ if(TARGET vasdk_c)
         ${VASDK_ROOT_DIR}/VASDK/include/VASDK/c/vasdk.h
         ${VASDK_ROOT_DIR}/VASDK/include/VASDK/c/vasdk_c_export.h
         ${VASDK_ROOT_DIR}/VASDK/include/VASDK/c/vasdk_providers.h
+        ${VASDK_ROOT_DIR}/VASDK/include/VASDK/c/vasdk.hpp
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/VASDK/c COMPONENT vasdk_development)
     install(FILES ${VASDK_ROOT_BINARY_DIR}/VASDK/include/VASDK/version.h
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/VASDK COMPONENT vasdk_development)
+
+    if(TARGET vasdk_command)
+        install(TARGETS vasdk_command RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT vasdk_runtime)
+    endif()
 
     # ONNX Runtime, which the C library loads: beside it (its rpath is $ORIGIN, @loader_path)
     if(VASDK_ONNXRUNTIME_RUNTIME_FILES)
