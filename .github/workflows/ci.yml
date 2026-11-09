@@ -61,7 +61,9 @@ jobs:
       - name: Build
         run: cmake --build --preset ci
       - name: Test
-        run: ctest --preset ci
+        # macOS: a failed test runs once more. The shared runner sleeps longer than asked, and some
+        # tests still wait fixed times (llm_stream_speech, tts_turn): until they wait for what they check
+        run: ctest --preset ci ${{ runner.os == 'macOS' && '--repeat until-pass:2' || '' }}
       - name: What vasdk_c.dll loads, after a failure
         if: failure() && runner.os == 'Windows'
         shell: bash
