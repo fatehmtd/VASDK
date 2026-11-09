@@ -1,6 +1,6 @@
 # ONNX Runtime, for the providers that run ONNX models: the target onnxruntime_lib.
 #
-# An installed ONNX Runtime (vcpkg, Conan, a distro: find_package(onnxruntime)) when
+# An installed ONNX Runtime (Conan, a distro: find_package(onnxruntime)) when
 # VASDK_DEPENDENCY_SOURCE is SYSTEM or AUTO, else Microsoft's prebuilt release, pinned by SHA-256.
 # The prebuilt one is an imported shared library, so CMake sets the build tree's rpath, Windows
 # finds the DLL through $<TARGET_RUNTIME_DLLS>, and the C library's install puts it beside itself
@@ -27,7 +27,7 @@ if(DEFINED VASDK_DEPENDENCY_SOURCE AND NOT VASDK_DEPENDENCY_SOURCE STREQUAL "FET
         return()
     elseif(VASDK_DEPENDENCY_SOURCE STREQUAL "SYSTEM")
         message(FATAL_ERROR "VASDK: ONNX Runtime not found and VASDK_DEPENDENCY_SOURCE is SYSTEM: "
-                            "install onnxruntime (vcpkg, Conan) or use FETCH or AUTO")
+                            "install onnxruntime (Conan, your package manager) or use FETCH or AUTO")
     endif()
 endif()
 

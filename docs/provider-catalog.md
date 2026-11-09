@@ -32,11 +32,12 @@ The cloud STT/TTS providers (Gladia, Soniox, Deepgram, Cartesia, Fish Audio, Gra
 
 ## Per-provider notes
 
-Phonon TTS is on by default. Its default 40m multilingual models are gated on HuggingFace and licensed CC BY-NC 4.0 (non-commercial use only). Accept the terms on the [model page](https://huggingface.co/gradium/phonon-40m-multilingual) first, then export `HF_TOKEN` (or run `hf auth login`) before configuring. Without a token, configure warns and skips the download. `-DPHONON_TTS_HF_REPO=gradium/phonon-31m-en` switches to the public English-only model. The provider loads the Hugging Face checkpoint files as published (`config.json`, `tokenizer.model`, `model.q8.gguf`, voice `.safetensors`) with an in-repo C++ port of Gradium's inference on ggml: it shares llama.cpp's ggml when `VASDK_BUILD_LLAMACPP` is on and fetches a pinned ggml otherwise. In the showcase apps Gradium, Soniox, Supertonic, the other cloud TTS providers and MOSS-TTS-Nano all take priority over Phonon when built:
+Phonon TTS is on by default. Its default 40m multilingual models are gated on HuggingFace and licensed CC BY-NC 4.0 (non-commercial use only). Accept the terms on the [model page](https://huggingface.co/gradium/phonon-40m-multilingual) first, then export `HF_TOKEN` (or run `hf auth login`) before configuring. Without a token, configure warns and skips the download. `-DPHONON_TTS_MODEL=phonon_tts_en` switches to the public English-only model (Apache 2.0). The provider loads the Hugging Face checkpoint files as published (`config.json`, `tokenizer.model`, `model.q8.gguf`, voice `.safetensors`) with an in-repo C++ port of Gradium's inference on ggml: it shares llama.cpp's ggml when `VASDK_BUILD_LLAMACPP` is on and fetches a pinned ggml otherwise. In the showcase apps Gradium, Soniox, Supertonic, the other cloud TTS providers and MOSS-TTS-Nano all take priority over Phonon when built:
+
+Both checkpoints come with six voices from gradium/phonon-voices: Easton, Zoey, Augustin, Anton, Marcos and Davi.
 
 ```bash
-# Pick voices from gradium/phonon-voices (default: Easton;Zoey;Augustin;Anton;Marcos;Davi)
-cmake -B build -S . -DPHONON_TTS_VOICES="Zoey;Augustin"
+cmake -B build -S . -DPHONON_TTS_MODEL=phonon_tts_en   # the public English checkpoint
 ```
 
 At runtime, `PHONON_TTS_VOICE` (in `.env`) picks the voice and `PHONON_TTS_LANG` (`en`, `fr`, `de`, `es`, `pt` or `none`) the language text is normalized as: numbers, amounts, symbols, emails, URLs and abbreviations are spelled out exactly as Gradium's runtime does. Long replies are then split as that runtime splits them: whole sentences grouped into pieces of up to 50 tokens, with any sentence over 200 tokens cut at a clause, because the model stops early and drops words when it is given much more at once. The C++ normalizer and splitter are checked against the reference implementation by golden-file parity tests (`-DVASDK_BUILD_TESTS=ON`, then `ctest`; see `VASDK_3P_IMPL/PhononTTS/tests/golden-gen`). `PHONON_TTS_RULES=all` also reads phone numbers, times and dates, which are opt-in there too. The Android app offers Phonon with the public `gradium/phonon-31m-en` checkpoint, downloaded at runtime.

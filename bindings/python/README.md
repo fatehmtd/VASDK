@@ -181,7 +181,7 @@ A wheel carries the C library, `vasdk_c`, for one platform: the C API and every 
    python bindings/python/bundle.py build/cmake/c_library/Release    # the folder with vasdk_c.dll or libvasdk_c.so
    ```
 
-   This copies the C library and what it loads: ONNX Runtime, and, on Windows, any installed DLL it imports (protobuf, abseil, curl when they come from vcpkg). It copies the generated messages too (`engine/`, `flow/`, `goal/`, `nlu/`, `providers/`), and the wheel depends on `protobuf`. The models stay outside the wheel (`Session(models_dir=...)`).
+   This copies the C library and what it loads: ONNX Runtime, and, on Windows, any installed DLL it imports (protobuf, abseil, curl when they come from a package manager). It copies the generated messages too (`engine/`, `flow/`, `goal/`, `nlu/`, `providers/`), and the wheel depends on `protobuf`. The models stay outside the wheel (`Session(models_dir=...)`).
 
 3. Build and install the wheel, with uv or pip:
 

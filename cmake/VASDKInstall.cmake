@@ -64,9 +64,11 @@ if(TARGET vasdk_c)
         install(FILES ${VASDK_ONNXRUNTIME_RUNTIME_FILES} DESTINATION ${_vasdk_runtime_dir} COMPONENT vasdk_runtime)
     endif()
     # Windows: every DLL it imports that the build knows of (an installed protobuf, curl, abseil
-    # from vcpkg...), beside it in bin/. Elsewhere those are system libraries, or linked in when
-    # fetched (VASDK_DEPENDENCY_SOURCE FETCH, what the release archives use).
-    if(WIN32)
+    # from a package manager...), beside it in bin/. Elsewhere those are system libraries, or linked in when
+    # fetched (VASDK_DEPENDENCY_SOURCE FETCH, what the release archives use). A package manager
+    # turns this off: it ships those DLLs in their own packages.
+    option(VASDK_INSTALL_RUNTIME_DEPENDENCIES "Windows: install the DLLs vasdk_c imports beside it" ON)
+    if(WIN32 AND VASDK_INSTALL_RUNTIME_DEPENDENCIES)
         install(FILES $<TARGET_RUNTIME_DLLS:vasdk_c> DESTINATION ${CMAKE_INSTALL_BINDIR} COMPONENT vasdk_runtime)
     endif()
 

@@ -16,7 +16,8 @@
 # provider loads it with LoadLibrary/dlopen. Android's libneedle.a is NDK-built
 # (std::__ndk1) and links directly.
 #
-# Every file is pinned by HuggingFace revision and SHA-256.
+# Every file is pinned by HuggingFace revision and SHA-256: the model in the model manifest, the
+# engine here.
 #
 # Usage:
 #   cmake -DVASDK_BUILD_WHISTLE_STT=ON ..
@@ -32,11 +33,9 @@ set(WHISTLE_STT_MODEL_DIR
 
 set(WHISTLE_ENGINE_DIR "${CMAKE_CURRENT_BINARY_DIR}/_deps/needle-engine")
 
-set(WHISTLE_MODEL_REVISION  "741118687e1f008f06d1351a402a731274789790")  # Cactus-Compute/whistle
 set(WHISTLE_ENGINE_REVISION "d6c7d6a2e9655505e0f8e23339356dd1705900eb")  # Cactus-Compute/needle3
 set(WHISTLE_ENGINE_VERSION  "3.3.3")                                     # cactus-needle wheel
 
-set(_whistle_model_base  "https://huggingface.co/Cactus-Compute/whistle/resolve/${WHISTLE_MODEL_REVISION}")
 set(_whistle_engine_base "https://huggingface.co/Cactus-Compute/needle3/resolve/${WHISTLE_ENGINE_REVISION}")
 
 file(MAKE_DIRECTORY "${WHISTLE_STT_MODEL_DIR}" "${WHISTLE_ENGINE_DIR}/include")
@@ -152,9 +151,9 @@ if(_whistle_engine_kind STREQUAL "static")
 endif()
 
 if(VASDK_DOWNLOAD_WHISTLE_STT_MODEL)
-    whistle_download("${_whistle_model_base}/whistle.cact"
-                     "${WHISTLE_STT_MODEL_DIR}/whistle.cact"
-                     "b6e02f048568ac5d01a2042556c658061e699acbc0aa2a1439f52f3d461dffeb" _ok)
+    # The model: the manifest's whistle (VASDKModels.cmake). The engine below is a library, not a
+    # model, so it stays pinned here.
+    vasdk_download_model(whistle DIRECTORY "${WHISTLE_STT_MODEL_DIR}" STRIP whistle/)
 
     if(_whistle_engine_kind STREQUAL "wheel")
         set(_wheel "cactus_needle-${WHISTLE_ENGINE_VERSION}-py3-none-${_whistle_engine_file}.whl")

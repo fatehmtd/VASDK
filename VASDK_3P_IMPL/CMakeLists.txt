@@ -110,6 +110,8 @@ if(DEFINED VASDK_DOWNLOAD_MODELS AND NOT VASDK_DOWNLOAD_MODELS)
     endforeach()
     message(STATUS "VASDK: VASDK_DOWNLOAD_MODELS is off: no model is downloaded at configure time")
 endif()
+# Every Download*.cmake below fetches from the model manifest, as the model store does at run time
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/VASDKModels.cmake)
 
 if(VASDK_BUILD_SILERO_VAD AND _vasdk_fetch_models)
     include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/DownloadSileroVADModel.cmake)

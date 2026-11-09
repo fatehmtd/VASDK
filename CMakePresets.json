@@ -74,7 +74,7 @@
       "name": "system-deps",
       "inherits": "release",
       "displayName": "Release from installed dependencies",
-      "description": "As package managers build it (vcpkg, Conan): every dependency from find_package, nothing downloaded",
+      "description": "As package managers build it (Conan, distro packages): every dependency from find_package, nothing downloaded",
       "cacheVariables": { "VASDK_DEPENDENCY_SOURCE": "SYSTEM" }
     }
   ],

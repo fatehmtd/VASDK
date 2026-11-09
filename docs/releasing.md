@@ -27,7 +27,7 @@ flowchart LR
     B -->|merge| C["tag v1.2.3"]
     C --> D["release workflow<br/>archives per platform x flavor"]
     D --> E["GitHub release<br/>SHA256SUMS, SBOM, provenance"]
-    E --> F["packages<br/>vcpkg, Conan, Homebrew,<br/>PyPI, Maven Central"]
+    E --> F["packages<br/>Conan, Homebrew,<br/>PyPI, Maven Central"]
 ```
 
 1. **The release PR.** Commits on `master` follow [Conventional Commits](https://www.conventionalcommits.org) (`feat(engine): …`, `fix(tts): …`, `feat!: …` for a breaking change). [release-please](https://github.com/googleapis/release-please) keeps a pull request open with the next version in `VERSION` and `bindings/python/pyproject.toml`, and the changelog in `CHANGELOG.md` ([`release-please.yml`](../.github/workflows/release-please.yml), [`release-please-config.json`](../release-please-config.json)).
@@ -53,7 +53,6 @@ The `full` flavor carries many third-party clients. A failure there doesn't hold
 | Channel | Built from | Credentials | State |
 | --- | --- | --- | --- |
 | GitHub release | `release.yml` | `GITHUB_TOKEN` | Ready |
-| vcpkg | A port pointing at the tag's source archive, `VASDK_DEPENDENCY_SOURCE=SYSTEM` | A pull request to microsoft/vcpkg | Planned |
 | Conan Center | `conanfile.py`, a pull request to conan-center-index | None | Planned |
 | Homebrew | A formula in a tap, from the source archive | A tap repository | Planned |
 | PyPI | cibuildwheel wheels with the C library inside | Trusted publishing (OIDC), no token | Planned |

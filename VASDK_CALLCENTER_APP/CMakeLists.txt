@@ -166,7 +166,7 @@ if(WIN32)
             $<TARGET_FILE:VASDK>
             $<TARGET_FILE_DIR:VASDK_CallCenter>
     )
-    # An installed (e.g. vcpkg) libcurl is a DLL that VASDK.dll imports, along with
+    # An installed libcurl (a package manager's) is a DLL that VASDK.dll imports, along with
     # zlib; a libcurl built from source (VASDK_CURL_BUNDLED) is linked statically.
     if(VASDK_ENABLE_HTTP_TRANSPORT AND NOT VASDK_CURL_BUNDLED)
         add_custom_command(TARGET VASDK_CallCenter POST_BUILD

@@ -1,5 +1,5 @@
 # Provides protobuf::libprotobuf and protobuf_generate(): an installed protobuf (CONFIG
-# package, e.g. Homebrew or vcpkg) when there is one, otherwise built from source.
+# package, e.g. Homebrew or a distro package) when there is one, otherwise built from source.
 if(NOT TARGET protobuf::libprotobuf)
     find_package(Protobuf CONFIG QUIET)
 endif()
@@ -13,6 +13,9 @@ if(TARGET protobuf::libprotobuf)
         endif()
     endforeach()
     message(STATUS "VASDK: using installed protobuf ${Protobuf_VERSION}")
+elseif(VASDK_DEPENDENCY_SOURCE STREQUAL "SYSTEM")
+    message(FATAL_ERROR "VASDK: protobuf not found and VASDK_DEPENDENCY_SOURCE is SYSTEM: "
+                        "install it (Conan, your package manager) or use FETCH or AUTO")
 else()
     message(STATUS "VASDK: protobuf not installed - building it from source (first configure is slow)")
     include(FetchContent)

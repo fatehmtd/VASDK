@@ -1,7 +1,7 @@
 # Provides CURL::libcurl for the desktop build.
 #
 # Uses an installed libcurl when CMake can find one (system package, Homebrew,
-# or a vcpkg toolchain if the caller passes one). Otherwise curl is built from
+# or a prefix in CMAKE_PREFIX_PATH). Otherwise curl is built from
 # source as a static library, so no package manager is needed. On Windows it
 # uses Schannel, the OS TLS stack, and needs no OpenSSL. Elsewhere curl picks
 # the TLS library it finds (normally OpenSSL).
@@ -26,6 +26,10 @@ if(NOT VASDK_FETCH_CURL)
     endif()
 endif()
 
+if(VASDK_DEPENDENCY_SOURCE STREQUAL "SYSTEM")
+    message(FATAL_ERROR "VASDK: libcurl not found and VASDK_DEPENDENCY_SOURCE is SYSTEM: "
+                        "install it (Conan, your package manager) or use FETCH or AUTO")
+endif()
 message(STATUS "VASDK: building libcurl from source")
 
 include(FetchContent)

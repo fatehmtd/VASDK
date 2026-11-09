@@ -213,6 +213,11 @@ endif()
 #  rules (va::thirdparty::<category>, no static variables) on every integration in VASDK_3P_IMPL
 
 if(VASDK_BUILD_TESTS)
+    # The configure-time model downloads (VASDK_3P_IMPL/cmake/VASDKModels.cmake): offline, and every
+    # model id the build can ask for is in the manifest
+    add_test(NAME vasdk_model_downloads
+             COMMAND ${CMAKE_COMMAND} -DWORK=${CMAKE_CURRENT_BINARY_DIR}/model_downloads_test
+                     -P ${VASDK_ROOT_DIR}/VASDK_3P_IMPL/cmake/test_model_downloads.cmake)
     find_package(Python3 COMPONENTS Interpreter QUIET)
     if(Python3_Interpreter_FOUND)
         add_test(NAME vasdk_skills COMMAND ${Python3_EXECUTABLE} ${VASDK_ROOT_DIR}/skills/check_skills.py)

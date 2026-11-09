@@ -104,7 +104,7 @@ Each installed library has a fixed location:
 
 `bin/` also holds `vasdk`, the command that downloads models ([Models](#models)).
 
-On Windows, `bin/` also holds the DLLs `vasdk_c.dll` imports directly. For example, protobuf, abseil and curl, when they came from vcpkg as DLLs. It doesn't hold the DLLs those load in turn (vcpkg curl's zlib and OpenSSL). The release archives have none: they link protobuf and curl in (`VASDK_DEPENDENCY_SOURCE=FETCH`, `VASDK_FETCH_CURL=ON`).
+On Windows, `bin/` also holds the DLLs `vasdk_c.dll` imports directly. For example, protobuf, abseil and curl, when they came from a package manager as DLLs. It doesn't hold the DLLs those load in turn (such as curl's zlib and OpenSSL). The release archives have none: they link protobuf and curl in (`VASDK_DEPENDENCY_SOURCE=FETCH`, `VASDK_FETCH_CURL=ON`).
 
 A plain install leaves out two components; install them by name:
 
@@ -182,7 +182,7 @@ The same from a program: `vasdk_models_pull` in C, `vasdk::Models` in C++, `vasd
 | `VASDK_FLAVOR` | empty | `core`, `default` or `full`: see [Flavors](#flavors) |
 | `VASDK_BUILD_C_LIBRARY` | `ON` | The C library, `VASDK::c` |
 | `VASDK_SHARED` | `OFF` | The C++ core as a shared library (needs a shared protobuf). The C library is then not built: the shared core exports the C API itself |
-| `VASDK_DEPENDENCY_SOURCE` | `FETCH` | `FETCH` downloads pinned versions. `SYSTEM` uses `find_package` only (vcpkg, Conan, distro packages) and never downloads. `AUTO` tries `find_package`, then downloads |
+| `VASDK_DEPENDENCY_SOURCE` | `FETCH` | `FETCH` downloads pinned versions. `SYSTEM` uses `find_package` only (Conan, distro packages) and never downloads. `AUTO` tries `find_package`, then downloads |
 | `VASDK_DOWNLOAD_MODELS` | on when top-level | Download models at configure time |
 | `VASDK_ENABLE_AVX2` | `ON` | AVX2 and FMA on x86_64 (GCC, Clang). The release presets turn it off so the binary runs on any x86_64 CPU |
 | `VASDK_INSTALL` | `ON` | Generate the install rules, `find_package(VASDK)` and `vasdk.pc` |
@@ -215,7 +215,7 @@ Which channels publish VASDK, and their state:
 | CMake (`FetchContent`, `add_subdirectory`, CPM) | C++ API and C library from source | Available |
 | `cmake --install`, `find_package`, pkg-config | The C library | Available |
 | GitHub Releases | Archives per platform and flavor, checksums, SBOM | Planned (CI and release workflow) |
-| vcpkg, Conan | The C library from source, `SYSTEM` dependencies | Planned |
+| Conan | The C library from source, dependencies from Conan | Planned |
 | Homebrew | The C library | Planned |
 | PyPI (`pip install vasdk`) | The Python binding with the C library inside | Planned ([bindings/python](../bindings/python/README.md) builds a wheel locally today) |
 | Maven Central (`com.vasdk:vasdk-android`, `com.vasdk:vasdk-jvm`) | The Kotlin binding with the C library inside | Planned ([Android](apps/android.md#the-kotlin-binding-as-an-aar) builds the AAR locally today) |

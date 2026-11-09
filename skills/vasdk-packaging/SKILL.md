@@ -1,6 +1,6 @@
 ---
 name: vasdk-packaging
-description: Change how other projects get VASDK - the C library vasdk_c (VASDK::c), find_package(VASDK), pkg-config, CMake presets, flavors, dependency sources, the VERSION file, and the release channels (archives, vcpkg, Conan, Homebrew, PyPI, Maven Central). Use when a change touches cmake/, CMakePresets.json, install rules, a dependency's fetch, the C library's exports, or a package.
+description: Change how other projects get VASDK - the C library vasdk_c (VASDK::c), find_package(VASDK), pkg-config, CMake presets, flavors, dependency sources, the VERSION file, and the release channels (archives, Conan, Homebrew, PyPI, Maven Central). Use when a change touches cmake/, CMakePresets.json, install rules, a dependency's fetch, the C library's exports, or a package.
 ---
 
 # Packaging: how other projects get VASDK
@@ -17,7 +17,7 @@ flowchart LR
     F["cmake/VASDKFlavors.cmake<br/>core | default | full"] --> B
     B --> C["cmake/c_library<br/>vasdk_c: C API + providers"]
     C --> I["cmake/VASDKInstall.cmake<br/>find_package, pkg-config"]
-    I --> R["release archives, vcpkg, Conan,<br/>Homebrew, PyPI, Maven"]
+    I --> R["release archives, Conan,<br/>Homebrew, PyPI, Maven"]
 ```
 
 | Part | File | Reference |
@@ -29,7 +29,7 @@ flowchart LR
 | Flavors | `cmake/VASDKFlavors.cmake` | [Flavors](../../docs/integrating.md#flavors) |
 | Presets | `CMakePresets.json` | [Presets](../../docs/building.md#presets) |
 | The C API in C++ | `VASDK/include/VASDK/c/vasdk.hpp` (header-only, over `vasdk.h`) | [C API, From C++](../../docs/reference/c-api.md#from-c-vasdkhpp) |
-| Models | `VASDK/include/VASDK/ModelStore.h`, `VASDK/src/c/vasdk_c_models.cpp`, `VASDK_3P_IMPL/models/manifest.json` (built in), `VASDK_3P_IMPL/models/generate_manifest.py` | [Models](../../docs/models.md) |
+| Models | `VASDK/include/VASDK/ModelStore.h`, `VASDK/src/c/vasdk_c_models.cpp`, `VASDK_3P_IMPL/models/manifest.json` (built in), `VASDK_3P_IMPL/models/generate_manifest.py`; at configure time `VASDK_3P_IMPL/cmake/VASDKModels.cmake` (`vasdk_download_model`), which the `Download*.cmake` scripts call | [Models](../../docs/models.md) |
 | The command | `VASDK/tools/vasdk/main.cpp` (`vasdk models ...`, installed in `bin/`), `cmake/c_library/test_vasdk_command.cmake` | [Models, The command](../../docs/models.md#the-command) |
 | Another project's view | `tests/consumer/c_library/` (C and `vasdk.hpp`), `tests/consumer/run_consumer_test.cmake` | |
 
@@ -38,10 +38,10 @@ flowchart LR
 1. **Embeddable.** VASDK may be a subdirectory of another project. Paths come from `VASDK_ROOT_DIR`, `VASDK_ROOT_BINARY_DIR` or `CMAKE_CURRENT_*`, never `CMAKE_SOURCE_DIR` or `CMAKE_BINARY_DIR`. A global setting (`BUILD_SHARED_LIBS`, compile flags) is saved and put back, never forced into the cache. Apps, tests and model downloads stay off when VASDK isn't top-level.
 2. **The C library exports `vasdk_*` and nothing else.** A new C function is `VASDK_C_API` and named `vasdk_*`, or it doesn't reach a program. Dependencies are linked in hidden, so they can't clash with the program's own.
 3. **Pinned.** Every download has a tag, a commit or a SHA-256. A branch name is never enough.
-4. **System dependencies work.** A new library dependency goes through `vasdk_dependency()` (`FIND` and `DECLARE`), so `VASDK_DEPENDENCY_SOURCE=SYSTEM` builds with vcpkg, Conan or distro packages and never downloads.
+4. **System dependencies work.** A new library dependency goes through `vasdk_dependency()` (`FIND` and `DECLARE`), so `VASDK_DEPENDENCY_SOURCE=SYSTEM` builds with Conan or distro packages and never downloads.
 5. **A plain install is the SDK.** The sample apps (`COMPONENT apps`) and the C++ libraries (`COMPONENT vasdk_cpp_development`) are `EXCLUDE_FROM_ALL`. The C library, its headers and its runtime files (ONNX Runtime, DLLs it imports) are in.
-6. **One version.** Only `VERSION` holds it. CMake, `<VASDK/version.h>`, the soname and the bindings read it.
-7. **No model in a package.** Packages ship the library; models come from the model store, pinned in the manifest. A new model goes in `generate_manifest.py`, never in an archive.
+6. **One version.** Only `VERSION` holds it. CMake, `<VASDK/version.h>`, the soname and the bindings read it. A file that must state it (`pyproject.toml`) is in `release-please-config.json` and `cmake/check_versions.py`.
+7. **No model in a package.** Packages ship the library; models come from the model store, pinned in the manifest. A new model goes in `generate_manifest.py`, never in an archive. The build's own downloads read the same manifest (`vasdk_download_model`): no URL or hash in a `Download*.cmake` script.
 8. **Loads into any host.** On Windows the library runs in processes with an older `msvcp140.dll` of their own (a JVM): the root `CMakeLists.txt` defines `_DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR` before any dependency is added. Keep it there.
 
 ## Steps
@@ -55,7 +55,7 @@ flowchart LR
 ## Tests
 
 - **Integration:** `vasdk_consumer_install` installs this build into a fresh prefix, checks that no app is in it, runs the installed `bin/vasdk`, and builds and runs `tests/consumer/c_library` (C, and C++ through `vasdk.hpp`) against it with `find_package(VASDK)`. `vasdk_consumer_build_tree` does the same from the build tree (`VASDK_DIR`).
-- **Models:** `vasdk_model_store` (offline), `vasdk_model_store_network` (skipped without network), `vasdk_command`.
+- **Models:** `vasdk_model_store` (offline), `vasdk_model_store_network` (skipped without network), `vasdk_command`, `vasdk_model_downloads` (the configure-time downloads, and every id they use is in the manifest).
 - **Exports:** `dumpbin /exports vasdk_c.dll` (Windows), `nm -D --defined-only libvasdk_c.so` (Linux) or `nm -gU libvasdk_c.dylib` (macOS) lists `vasdk_*` only.
 - **Subproject:** a FetchContent build of VASDK from another project configures with no app, test or model download.
 

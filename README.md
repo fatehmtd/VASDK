@@ -54,7 +54,7 @@ find_package(VASDK 1.0 REQUIRED)
 target_link_libraries(my_app PRIVATE VASDK::c)
 ```
 
-pkg-config (`pkg-config --cflags --libs vasdk`) works too, and C++ programs on the prebuilt library use the header-only `<VASDK/c/vasdk.hpp>`. Release archives, vcpkg, Conan, Homebrew, PyPI and Maven Central (`com.vasdk`) are on the way ([Packages](docs/integrating.md#packages)).
+pkg-config (`pkg-config --cflags --libs vasdk`) works too, and C++ programs on the prebuilt library use the header-only `<VASDK/c/vasdk.hpp>`. Release archives, Conan, Homebrew, PyPI and Maven Central (`com.vasdk`) are on the way ([Packages](docs/integrating.md#packages)).
 
 No package ships model files. The `vasdk` command installed with the library downloads them, checks their SHA-256 and puts them where sessions look ([Models](docs/models.md)):
 
@@ -73,7 +73,7 @@ cmake -B build -S . -DVASDK_BUILD_APPS=ON      # the SDK alone without the flag;
 cmake --build build --config Release
 ```
 
-Phonon, the default voice, is gated on HuggingFace: before you configure, export `HF_TOKEN` after accepting the [model terms](https://huggingface.co/gradium/phonon-40m-multilingual), or pass `-DPHONON_TTS_HF_REPO=gradium/phonon-31m-en` for the public English-only model.
+Phonon, the default voice, is gated on HuggingFace: before you configure, export `HF_TOKEN` after accepting the [model terms](https://huggingface.co/gradium/phonon-40m-multilingual), or pass `-DPHONON_TTS_MODEL=phonon_tts_en` for the public English-only model.
 
 Then give it an LLM to talk to and run it:
 

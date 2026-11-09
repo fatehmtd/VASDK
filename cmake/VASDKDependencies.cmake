@@ -1,6 +1,6 @@
 # Where VASDK's libraries come from (docs/building.md, "Dependencies"):
 #   FETCH   download the pinned version and build it (the default, and what a source build has always done)
-#   SYSTEM  find_package only, never download: vcpkg, Conan, Homebrew and distro packages
+#   SYSTEM  find_package only, never download: Conan, Homebrew and distro packages
 #   AUTO    find_package, else download
 # A target the outer project already defines (spdlog::spdlog, ...) is used as is in every mode.
 set(VASDK_DEPENDENCY_SOURCE "FETCH" CACHE STRING "Where VASDK's dependencies come from: FETCH, SYSTEM or AUTO")
@@ -38,7 +38,7 @@ macro(vasdk_dependency _vasdk_dep_package)
                 message(STATUS "VASDK: ${_vasdk_dep_package} from the system (${_vasdk_dep_TARGET})")
             elseif(VASDK_DEPENDENCY_SOURCE STREQUAL "SYSTEM")
                 message(FATAL_ERROR "VASDK: ${_vasdk_dep_package} not found and VASDK_DEPENDENCY_SOURCE is SYSTEM: "
-                                    "install it (vcpkg, Conan, your package manager) or use FETCH or AUTO")
+                                    "install it (Conan, your package manager) or use FETCH or AUTO")
             endif()
         endif()
         if(NOT TARGET ${_vasdk_dep_TARGET})

@@ -1,10 +1,10 @@
 # Models
 
-*The model store: how a program gets the model files local providers load. Header [`VASDK/include/VASDK/ModelStore.h`](../VASDK/include/VASDK/ModelStore.h); manifest [`VASDK_3P_IMPL/models/manifest.json`](../VASDK_3P_IMPL/models/manifest.json), written by [`generate_manifest.py`](../VASDK_3P_IMPL/models/generate_manifest.py); C API in [`vasdk.h`](../VASDK/include/VASDK/c/vasdk.h), "Models".*
+*The model store: how a program gets the model files local providers load, and where the build gets them. Header [`VASDK/include/VASDK/ModelStore.h`](../VASDK/include/VASDK/ModelStore.h); manifest [`VASDK_3P_IMPL/models/manifest.json`](../VASDK_3P_IMPL/models/manifest.json), written by [`generate_manifest.py`](../VASDK_3P_IMPL/models/generate_manifest.py); C API in [`vasdk.h`](../VASDK/include/VASDK/c/vasdk.h), "Models".*
 
 Local providers (Silero VAD, Whistle, Pocket TTS, MiniLM...) load model files that no package ships: they weigh 2 MB to 1.5 GB each and come under their own licenses. The model store downloads them when a program needs them, checks each one, and puts it where a session looks.
 
-- **One manifest lists every model:** each file's URL, its pinned upstream revision, its size and SHA-256, the license, and the providers that load it. It is built into the library.
+- **One manifest lists every model:** each file's URL, its pinned upstream revision, its size and SHA-256, the license, and the providers that load it. It is built into the library, and the configure-time downloads of a source build read it too ([below](#at-build-time)).
 - **A file lands at `<directory>/<path>`,** the path a provider reads under `models_dir` (`silero_vad.onnx`, `pocket_tts/voices.bin`). A session whose config sets no `models_dir` reads the store's directory, so pulling is the only setup.
 - **A file is either whole or absent:** it downloads to `<file>.part`, resumes from there, and is renamed into place only once its size and SHA-256 match. A file that doesn't match is deleted.
 
@@ -105,6 +105,15 @@ Each model keeps its own license (the [model summary](../THIRD_PARTY_NOTICES.md#
 
 To serve the files from your own server, copy the manifest, change the URLs and pass it with `--manifest` or `manifest_path`. The hashes still apply.
 
+## At build time
+
+A source build that is the top-level project downloads its enabled providers' models while it configures, into `build/VASDK_3P_IMPL/models/` ([Building](building.md#model-files)). Each `VASDK_3P_IMPL/cmake/Download*.cmake` script calls `vasdk_download_model(<id> ...)` from [`VASDKModels.cmake`](../VASDK_3P_IMPL/cmake/VASDKModels.cmake), which reads the same manifest:
+
+- **Same files, same checks:** a file downloads to `<file>.part` and is renamed only once its SHA-256 matches. A file already on disk stays when its size matches and, under 32 MB, its SHA-256 too.
+- **Variants share paths:** switching `-DVASDK_GLINER_MODEL=multi`, `-DMOONSHINE_MODEL_ARCH=tiny`, `-DWHISPERCPP_MODEL=ggml-base.en.bin` or `-DPHONON_TTS_MODEL=phonon_tts_en` replaces the files of the previous choice.
+- **Gated and licensed models:** the token comes from `HF_TOKEN` or `hf auth login`. A model whose license needs reading first prints that license when it downloads; enabling its provider in the build is the acceptance.
+- **Another manifest:** `-DVASDK_MODEL_MANIFEST=<file>`, as `--manifest` at run time.
+
 ## The manifest
 
 ```json
@@ -117,6 +126,7 @@ To serve the files from your own server, copy the manifest, change the URLs and 
 - **`providers`:** `<stage>/<provider id>`, the stage as named in the engine config (`vad`, `stt`, `tts`, `turn`, `sentence_encoder`, `entity_model`, `speaker_embedding`, `llm`). A provider's first model is its default (`gliner`, not `gliner_multi`).
 - **`arch`:** a file with this field is for one CPU only (`x86_64`, `arm64`); MiniLM has one per architecture.
 - **`gated`, `requires_acceptance`:** as above.
+- **Variants:** a model that replaces another one writes the same paths (`gliner_multi`, `moonshine_tiny`, `whispercpp_base.en`, `phonon_tts_en`). It is never a provider's default, so `for_config` doesn't pick it; `vasdk models pull <id>` takes it by id.
 
 To change a model, edit [`generate_manifest.py`](../VASDK_3P_IMPL/models/generate_manifest.py) and run it. It asks the Hugging Face API for each file's size and SHA-256 at the pinned revision, so no hash is typed by hand. `--refresh` moves the repositories it follows on `main` to their current commit. A new provider adds its model there ([vasdk-provider](../skills/vasdk-provider/SKILL.md)).
 
@@ -127,5 +137,6 @@ To change a model, edit [`generate_manifest.py`](../VASDK_3P_IMPL/models/generat
 | `vasdk_model_store` | `ModelStore` and the C API, offline (`file://` sources): FIPS 180-4 hash vectors, resume, cancel, a wrong hash, the license gate, offline mode, per-CPU files, paths outside the store, configs, the built-in manifest |
 | `vasdk_model_store_network` | Silero VAD from its real host, checked against its pin. Skipped (77) without network |
 | `vasdk_command` | The `vasdk` command against a manifest of its own |
+| `vasdk_model_downloads` | The configure-time downloads (`VASDKModels.cmake`), offline: per-CPU files, files kept or replaced, a wrong hash; and every model id the build can ask for is in the manifest |
 | `vasdk_python_models`, `vasdk_kotlin` (`ModelsTest`) | The same from Python and Kotlin |
 | `vasdk_consumer_install`, `vasdk_consumer_build_tree` | `vasdk.hpp` and the installed `bin/vasdk` from another project |

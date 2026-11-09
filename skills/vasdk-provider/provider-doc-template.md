@@ -24,7 +24,7 @@ Set in an engine config (`providers { <stage> { id: "<id>" options { [type.googl
 
 | File | Source | License | Downloaded by |
 | --- | --- | --- | --- |
-| `<file>` | [<repo>](<url>) (revision `<sha>`) | <license> | `Download<Name>Model.cmake` (`VASDK_DOWNLOAD_<NAME>_MODELS`) |
+| `<file>` | [<repo>](<url>) (revision `<sha>`) | <license> | manifest id `<id>`: `Download<Name>Model.cmake` (`VASDK_DOWNLOAD_<NAME>_MODELS`), `vasdk models pull <id>` |
 
 Library: [<upstream>](<url>), <license>. Both are listed in [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md).
 

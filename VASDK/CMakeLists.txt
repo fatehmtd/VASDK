@@ -210,16 +210,11 @@ endif()
 option(VASDK_ENABLE_WEBSOCKET_SERVER "Enable WebSocket server transport via cpp-httplib" ON)
 
 if(VASDK_METRICS_PROMETHEUS OR VASDK_ENABLE_WEBSOCKET_SERVER)
-    if(NOT TARGET httplib::httplib)
-        include(FetchContent)
-        fetchcontent_declare(
-            cpp-httplib
-            GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
-            GIT_TAG        v0.18.3
-            ${VASDK_FETCH_EXCLUDE}   # its own install rules stay out of VASDK's
-        )
-        fetchcontent_makeavailable(cpp-httplib)
-    endif()
+    # An installed one under VASDK_DEPENDENCY_SOURCE SYSTEM or AUTO (Conan, distro packages), else the pinned release
+    vasdk_dependency(httplib TARGET httplib::httplib
+        FIND CONFIG
+        DECLARE GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
+                GIT_TAG        v0.18.3)
     target_link_libraries(VASDK PRIVATE httplib::httplib)
     target_compile_definitions(VASDK PRIVATE VASDK_HAS_HTTPLIB)
     message(STATUS "VASDK: cpp-httplib available (Prometheus=${VASDK_METRICS_PROMETHEUS}, WebSocket=${VASDK_ENABLE_WEBSOCKET_SERVER})")
@@ -564,7 +559,9 @@ if(VASDK_BUILD_TESTS)
         endif()
         if(TARGET httplib::httplib)
             add_executable(vasdk_remote_control_test tests/remote_control_test.cpp)
-            target_link_libraries(vasdk_remote_control_test PRIVATE VASDK httplib::httplib)
+            # httplib first: its headers must be the ones VASDK was built with, ahead of another copy
+            # on VASDK's include path (a package prefix that holds cpp-httplib too)
+            target_link_libraries(vasdk_remote_control_test PRIVATE httplib::httplib VASDK)
             add_test(NAME vasdk_remote_control COMMAND vasdk_remote_control_test)
         endif()
         enable_language(C)

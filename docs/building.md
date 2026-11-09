@@ -6,8 +6,8 @@
 
 - CMake 3.21+ (3.24+ for the C library's whole-archive link; older ones use per-platform linker flags) and a C++17 compiler.
 - Git on your `PATH` - needed both to clone the repo and by CMake's `FetchContent` to pull every C++ dependency at configure time.
-- libcurl, for every HTTP-based transport (OpenAI/Anthropic/OpenRouter LLM calls, Gladia/Deepgram/Cartesia/Fish Audio cloud STT/TTS). No install is needed: configure uses an installed libcurl when CMake finds one (system package, Homebrew, or a vcpkg toolchain if you pass one), and otherwise builds curl 8.21 from source as a static library. On Windows that build uses Schannel, the OS TLS stack, so neither vcpkg nor OpenSSL is required. Pass `-DVASDK_FETCH_CURL=ON` to always build it from source, or `-DVASDK_ENABLE_HTTP_TRANSPORT=OFF` to drop it (which also disables every cloud provider, leaving only local/offline ones). On Linux/macOS a from-source build picks up OpenSSL (`apt install libssl-dev` / `brew install openssl`). Note that CMake also reads `CMAKE_TOOLCHAIN_FILE` from the environment, so a machine-wide vcpkg setting applies to every new build directory.
-- protobuf, for engine config files. Configure uses an installed one (`brew install protobuf`, `apt install libprotobuf-dev protobuf-compiler`, or vcpkg) and otherwise builds it from source, which makes the first configure slower.
+- libcurl, for every HTTP-based transport (OpenAI/Anthropic/OpenRouter LLM calls, Gladia/Deepgram/Cartesia/Fish Audio cloud STT/TTS). No install is needed: configure uses an installed libcurl when CMake finds one (system package, Homebrew, or a prefix in `CMAKE_PREFIX_PATH`), and otherwise builds curl 8.21 from source as a static library. On Windows that build uses Schannel, the OS TLS stack, so OpenSSL isn't required. Pass `-DVASDK_FETCH_CURL=ON` to always build it from source, or `-DVASDK_ENABLE_HTTP_TRANSPORT=OFF` to drop it (which also disables every cloud provider, leaving only local/offline ones). On Linux/macOS a from-source build picks up OpenSSL (`apt install libssl-dev` / `brew install openssl`). Note that CMake also reads `CMAKE_TOOLCHAIN_FILE` from the environment, so a machine-wide toolchain file applies to every new build directory.
+- protobuf, for engine config files. Configure uses an installed one (`brew install protobuf`, `apt install libprotobuf-dev protobuf-compiler`) and otherwise builds it from source, which makes the first configure slower.
 - Python 3.8+ for the Python binding, the Python app and their tests, with the packages in [`VASDK_PYTHON_APP/pyproject.toml`](../VASDK_PYTHON_APP/pyproject.toml) (uv) or [`requirements.txt`](../VASDK_PYTHON_APP/requirements.txt) (pip); pass `-DPython3_EXECUTABLE=` to test with that environment ([docs/apps/python.md](apps/python.md#testing)). The checkers that ctest runs (`skills/check_skills.py`, `VASDK_3P_IMPL/check_rules.py`) use the standard library only. The two golden generators (`VASDK_3P_IMPL/SmartTurnV3/tests/gen_features_golden.py`, `VASDK_3P_IMPL/PyannoteSpeaker/tests/gen_fbank_golden.py`) declare their packages inline: `uv run <script>` installs them.
 - A network connection for the first configure - everything else (C++ deps and model files) is fetched for you, and re-configures skip anything already downloaded.
 
@@ -88,20 +88,20 @@ The C++ dependencies (spdlog, nlohmann/json, Highway, CLI11, ONNX Runtime) come 
 | Value | Where from |
 | --- | --- |
 | `FETCH` (default) | Downloaded at configure time, at a pinned tag, commit or SHA-256 |
-| `SYSTEM` | `find_package` only, never a download: vcpkg, Conan, Homebrew, distro packages. A missing one fails the configure |
+| `SYSTEM` | `find_package` only, never a download: Conan, Homebrew, distro packages. A missing one fails the configure |
 | `AUTO` | `find_package`, else downloaded |
 
 Every mode reuses a target the outer project already defines (`spdlog::spdlog`, …). protobuf and libcurl are always taken from an installed copy when there is one (above). A provider's own client library (llama.cpp, whisper.cpp, the cloud clients) is fetched at a pinned tag or commit.
 
 ```bash
-cmake -B build -S . -DVASDK_DEPENDENCY_SOURCE=SYSTEM -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake
+cmake -B build -S . -DVASDK_DEPENDENCY_SOURCE=SYSTEM -DCMAKE_PREFIX_PATH=<where the dependencies are installed>
 ```
 
 With multi-config generators (Visual Studio, Xcode) the binaries land one level deeper, under a `Release/` subdirectory (e.g. `./build/VASDK_APP/Release/VASDK_Pipeline`). The apps print an error and exit if they can't find the models directory or a required provider wasn't built; check the CMake configure output, which lists exactly which providers were enabled.
 
 ## Model files
 
-Model files are downloaded automatically during CMake configure, into `build/VASDK_3P_IMPL/models/`, when VASDK is the top-level project. `-DVASDK_DOWNLOAD_MODELS=OFF` turns every download off. That is the default for a project that embeds VASDK and for the release presets, which get their models at run time instead, from the model store and `vasdk models pull` ([Models](models.md)). The store's manifest pins the same files by SHA-256. Each enabled provider pulls its own files from the model's upstream release (HuggingFace for most) and skips anything already on disk, so re-configuring is cheap. At runtime, both showcase apps locate that directory by searching for `VASDK_3P_IMPL/models` upward from the executable's location, so the default build layout just works.
+Model files are downloaded automatically during CMake configure, into `build/VASDK_3P_IMPL/models/`, when VASDK is the top-level project. `-DVASDK_DOWNLOAD_MODELS=OFF` turns every download off. That is the default for a project that embeds VASDK and for the release presets, which get their models at run time instead, from the model store and `vasdk models pull` ([Models](models.md)). Both read one list, the model manifest ([`VASDK_3P_IMPL/models/manifest.json`](../VASDK_3P_IMPL/models/manifest.json)): each enabled provider pulls its model's files from their upstream host (HuggingFace for most) at a pinned revision, checks each one's SHA-256, and keeps what is already on disk and matches, so re-configuring is cheap. `-DVASDK_MODEL_MANIFEST=<file>` downloads from another manifest instead: a mirror, or models of your own. At runtime, both showcase apps locate that directory by searching for `VASDK_3P_IMPL/models` upward from the executable's location, so the default build layout just works.
 
 An enabled provider downloads its models by default. Several also have a `VASDK_DOWNLOAD_*` switch to skip that download. The exception is llama.cpp, whose model download is off by default even when the provider is built:
 
@@ -115,10 +115,13 @@ cmake -B build -S . -DVASDK_BUILD_LLAMACPP=ON -DVASDK_DOWNLOAD_LLAMACPP_MODEL=ON
 # The GLiNER entity model (off by default; 183 MB, or 349 MB with -DVASDK_GLINER_MODEL=multi)
 cmake -B build -S . -DVASDK_BUILD_GLINER_NER=ON
 
-# Swap the default llama.cpp model
+# Swap the default llama.cpp model (a file of your choice: nothing pins it)
 cmake -B build -S . -DVASDK_LLAMACPP_MODEL_URL=https://huggingface.co/.../model.gguf
+
+# Another size of a model: whisper.cpp, Moonshine, GLiNER, Phonon
+cmake -B build -S . -DWHISPERCPP_MODEL=ggml-base.en.bin -DMOONSHINE_MODEL_ARCH=tiny -DPHONON_TTS_MODEL=phonon_tts_en
 ```
 
 Per-provider model options (Phonon's gated checkpoint, MOSS-TTS-Nano, Whistle, Moonshine, Voz, GLiNER) are in [Providers, per-provider notes](provider-catalog.md#per-provider-notes).
 
-For air-gapped builds, turn the downloads off and place the files in `build/VASDK_3P_IMPL/models/` yourself; each `VASDK_3P_IMPL/cmake/Download*.cmake` script documents the exact filenames its provider expects.
+For air-gapped builds, turn the downloads off and place the files in `build/VASDK_3P_IMPL/models/` yourself, at the paths the manifest gives (or copy a directory `vasdk models pull` filled: it has the same layout).

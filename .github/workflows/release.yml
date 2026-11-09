@@ -1,6 +1,6 @@
 # A tag v<VERSION> releases VASDK (docs/releasing.md): the C library for each platform and flavor as
 # an archive of an install prefix, with SHA256SUMS, an SBOM and build provenance, on a GitHub
-# release. The package channels (vcpkg, Conan, Homebrew, PyPI, Maven Central) are built from it.
+# release. The package channels (Conan, Homebrew, PyPI, Maven Central) are built from it.
 name: Release
 
 on:

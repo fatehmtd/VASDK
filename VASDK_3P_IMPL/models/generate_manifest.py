@@ -2,8 +2,8 @@
 """Writes manifest.json: every model file a VASDK provider loads, pinned by revision and SHA-256.
 
 The manifest is the single list of models. The model store (VASDK/include/VASDK/ModelStore.h) and
-`vasdk_agentc models` download from it at run time; the build downloads from it at configure time
-(cmake/VASDKModels.cmake). Run this after changing a model below; it asks the Hugging Face API for
+the `vasdk models` command download from it at run time; the build downloads from it at configure
+time (VASDK_3P_IMPL/cmake/VASDKModels.cmake). Run this after changing a model below; it asks the Hugging Face API for
 each file's size and SHA-256 at the pinned revision (and downloads the few files the API has no
 hash for), so the hashes are never typed by hand.
 
@@ -119,6 +119,7 @@ def main():
     whisper = pinned("whispercpp", "models", "ggerganov/whisper.cpp")
     lfm = pinned("lfm2.5-1.2b-instruct", "models", "LiquidAI/LFM2.5-1.2B-Instruct-GGUF")
     phonon = "1537ce46c64f42903e0d608b132ccb073dac46d2"
+    phonon_english = "92741c5b07d085ff840e26fea8ce43110b87852f"
     phonon_voice_revision = "0ee17205f254b5abc43b266c8a0f215565c352f7"
     moonshine = "da30bae714913eb0057e733bccb4700104afb1b0"
     supertonic = "aafc6e32416a594460b32413efc49d7fe4ce6d46"
@@ -127,6 +128,18 @@ def main():
     whistle = "741118687e1f008f06d1351a402a731274789790"
     gliner_small = "8142fb00740ccea973e64b1272949ff48653df5e"
     gliner_multi = "6ddaeb9413b0e71ad8457da1aab378a165b24058"
+
+    phonon_voice_names = ["Easton", "Zoey", "Augustin", "Anton", "Marcos", "Davi"]
+    supertonic_voices = [f"voice_styles/{gender}{number}.json" for gender in "MF" for number in range(1, 6)]
+    moonshine_graphs = ("frontend.ort", "encoder.ort", "adapter.ort", "cross_kv.ort", "decoder_kv.ort", "streaming_config.json")
+    # whisper.cpp checkpoints the build offers (WHISPERCPP_MODEL); medium is the default one
+    whisper_sizes = ["tiny.en", "tiny", "base.en", "base", "small.en", "small", "medium.en", "large-v3"]
+
+    def moonshine_files(size):
+        return (hf_files("UsefulSensors/moonshine-streaming", moonshine,
+                         [(f"onnx/{size}/{name}", f"moonshine/{name}") for name in moonshine_graphs])
+                + url_files([(f"https://download.moonshine.ai/model/{size}-streaming-en/quantized/tokenizer.bin",
+                              "moonshine/tokenizer.bin")]))
 
     def model(identifier, description, providers, license, license_url, files, revision=None, **flags):
         entry = {"id": identifier, "description": description, "providers": providers,
@@ -171,11 +184,11 @@ def main():
               hf_files("Cactus-Compute/whistle", whistle, [("whistle.cact", "whistle/whistle.cact")]), revision=whistle),
         model("moonshine", "Moonshine Streaming small (English), speech-to-text", ["stt/moonshine"], "MIT",
               f"{HF}/UsefulSensors/moonshine-streaming",
-              hf_files("UsefulSensors/moonshine-streaming", moonshine,
-                       [(f"onnx/small/{name}", f"moonshine/{name}") for name in
-                        ("frontend.ort", "encoder.ort", "adapter.ort", "cross_kv.ort", "decoder_kv.ort", "streaming_config.json")])
-              + url_files([("https://download.moonshine.ai/model/small-streaming-en/quantized/tokenizer.bin", "moonshine/tokenizer.bin")]),
-              revision=moonshine),
+              moonshine_files("small"), revision=moonshine),
+        model("moonshine_tiny", "Moonshine Streaming tiny (English), speech-to-text (replaces moonshine)", [], "MIT",
+              f"{HF}/UsefulSensors/moonshine-streaming", moonshine_files("tiny"), revision=moonshine),
+        model("moonshine_medium", "Moonshine Streaming medium (English), speech-to-text (replaces moonshine)", [], "MIT",
+              f"{HF}/UsefulSensors/moonshine-streaming", moonshine_files("medium"), revision=moonshine),
         model("parakeet", "Parakeet TDT 0.6B v3 (ONNX, int8), multilingual speech-to-text", ["stt/parakeet"], "CC-BY-4.0",
               f"{HF}/nvidia/parakeet-tdt-0.6b-v3",
               hf_files("istupakov/parakeet-tdt-0.6b-v3-onnx", parakeet,
@@ -184,6 +197,11 @@ def main():
               revision=parakeet),
         model("whispercpp", "Whisper medium (GGML), speech-to-text for whisper.cpp", [], "MIT", f"{HF}/ggerganov/whisper.cpp",
               hf_files("ggerganov/whisper.cpp", whisper, [("ggml-medium.bin", "whispercpp/ggml-medium.bin")]), revision=whisper),
+        *[model(f"whispercpp_{size}", f"Whisper {size} (GGML), speech-to-text for whisper.cpp", [], "MIT",
+                f"{HF}/ggerganov/whisper.cpp",
+                hf_files("ggerganov/whisper.cpp", whisper, [(f"ggml-{size}.bin", f"whispercpp/ggml-{size}.bin")]),
+                revision=whisper)
+          for size in whisper_sizes],
         model("pocket_tts", "Pocket TTS (ONNX, int8), English text-to-speech", ["tts/pocket"], "CC-BY-4.0",
               f"{HF}/kyutai/pocket-tts",
               hf_files("KevinAHM/pocket-tts-web", pocket,
@@ -191,12 +209,12 @@ def main():
                         ("text_conditioner_int8.onnx", "flow_lm_main_int8.onnx", "flow_lm_flow_int8.onnx",
                          "mimi_decoder_int8.onnx", "tokenizer.model", "voices.bin")], kind="spaces"),
               revision=pocket),
-        model("supertonic", "Supertonic 3 (ONNX), text-to-speech, voice M1", ["tts/supertonic"], "OpenRAIL",
+        model("supertonic", "Supertonic 3 (ONNX), text-to-speech, ten voices (M1-M5, F1-F5)", ["tts/supertonic"], "OpenRAIL",
               f"{HF}/supertone-oss-archive/supertonic-3",
               hf_files("supertone-oss-archive/supertonic-3", supertonic,
                        [(name, f"supertonic3/{name}") for name in
                         ("onnx/tts.json", "onnx/unicode_indexer.json", "onnx/duration_predictor.onnx", "onnx/text_encoder.onnx",
-                         "onnx/vector_estimator.onnx", "onnx/vocoder.onnx", "voice_styles/M1.json")]),
+                         "onnx/vector_estimator.onnx", "onnx/vocoder.onnx", *supertonic_voices)]),
               revision=supertonic, requires_acceptance=True),
         model("moss_tts", "MOSS-TTS-Nano 100M (ONNX) and its audio tokenizer, text-to-speech", ["tts/moss"], "Apache-2.0",
               f"{HF}/OpenMOSS-Team/MOSS-TTS-Nano",
@@ -216,8 +234,16 @@ def main():
                        [(name, f"phonon_tts/{name}") for name in
                         ("config.json", "tokenizer.model", "model.q8.gguf", "default-voice.safetensors")])
               + hf_files("gradium/phonon-voices", phonon_voice_revision,
-                         phonon_voices(phonon_voice_revision, ["Easton", "Zoey", "Augustin", "Anton", "Marcos", "Davi"])),
+                         phonon_voices(phonon_voice_revision, phonon_voice_names)),
               revision=phonon, gated=True, requires_acceptance=True),
+        model("phonon_tts_en", "Phonon 31m English (GGUF) and six voices, text-to-speech (replaces phonon_tts)", [],
+              "Apache-2.0", f"{HF}/gradium/phonon-31m-en",
+              hf_files("gradium/phonon-31m-en", phonon_english,
+                       [(name, f"phonon_tts/{name}") for name in
+                        ("config.json", "tokenizer.model", "model.q8.gguf", "default-voice.safetensors")])
+              + hf_files("gradium/phonon-voices", phonon_voice_revision,
+                         phonon_voices(phonon_voice_revision, phonon_voice_names)),
+              revision=phonon_english),
         model("lfm2.5-1.2b-instruct", "LFM2.5 1.2B Instruct (GGUF, Q4_K_M), local LLM", ["llm/llamacpp"], "LFM-Open-License-1.0",
               f"{HF}/LiquidAI/LFM2.5-1.2B-Instruct-GGUF/blob/main/LICENSE",
               hf_files("LiquidAI/LFM2.5-1.2B-Instruct-GGUF", lfm,
