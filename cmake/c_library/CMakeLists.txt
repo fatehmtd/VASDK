@@ -81,13 +81,13 @@ endif()
 # Windows exports only what is marked: VASDK_C_API (dllexport while VASDK is compiled) and the
 # two functions of ProvidersShared.cpp.
 
-# Windows has no rpath: the DLLs it loads (ONNX Runtime, an installed protobuf or curl) beside it in
+# Windows has no rpath: the DLLs it loads (ONNX Runtime, OpenSSL, an installed protobuf or curl) beside it in
 # the build tree, so the bindings' tests and vasdk_copy_runtime() find them there
 include(${CMAKE_CURRENT_SOURCE_DIR}/VASDKCopyRuntime.cmake)
 if(WIN32)
     get_property(_vasdk_copy_script GLOBAL PROPERTY VASDK_COPY_RUNTIME_SCRIPT)
     add_custom_command(TARGET vasdk_c POST_BUILD
-        COMMAND ${CMAKE_COMMAND} "-DVASDK_COPY_FILES=$<TARGET_RUNTIME_DLLS:vasdk_c>"
+        COMMAND ${CMAKE_COMMAND} "-DVASDK_COPY_FILES=$<TARGET_RUNTIME_DLLS:vasdk_c>;${VASDK_OPENSSL_RUNTIME_FILES}"
                 "-DVASDK_COPY_TO=$<TARGET_FILE_DIR:vasdk_c>" -P "${_vasdk_copy_script}"
         VERBATIM)
 endif()

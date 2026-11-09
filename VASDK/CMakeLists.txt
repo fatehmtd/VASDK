@@ -218,6 +218,22 @@ if(VASDK_METRICS_PROMETHEUS OR VASDK_ENABLE_WEBSOCKET_SERVER)
                 GIT_TAG        v0.18.3)
     target_link_libraries(VASDK PRIVATE httplib::httplib)
     target_compile_definitions(VASDK PRIVATE VASDK_HAS_HTTPLIB)
+    # Windows: cpp-httplib serves HTTPS (the remote control's tls) with an OpenSSL it finds installed,
+    # whose DLLs vasdk_c then imports. FindOpenSSL's targets don't name them, so they are found beside
+    # its headers, then copied and installed beside vasdk_c (cmake/c_library, cmake/VASDKInstall.cmake).
+    set(VASDK_OPENSSL_RUNTIME_FILES "" CACHE INTERNAL "")
+    get_target_property(_vasdk_httplib_links httplib::httplib INTERFACE_LINK_LIBRARIES)
+    if(WIN32 AND _vasdk_httplib_links MATCHES "BOOL:(TRUE|ON|1)>:OpenSSL::SSL|(^|;)OpenSSL::SSL(;|$)")
+        get_filename_component(_vasdk_openssl_root "${OPENSSL_INCLUDE_DIR}" DIRECTORY)
+        file(GLOB _vasdk_openssl_dlls "${_vasdk_openssl_root}/bin/libssl*.dll" "${_vasdk_openssl_root}/bin/libcrypto*.dll")
+        if(_vasdk_openssl_dlls)
+            set(VASDK_OPENSSL_RUNTIME_FILES "${_vasdk_openssl_dlls}" CACHE INTERNAL "")
+            message(STATUS "VASDK: HTTPS through OpenSSL, its DLLs beside vasdk_c: ${_vasdk_openssl_dlls}")
+        else()
+            message(WARNING "VASDK: cpp-httplib uses OpenSSL, but its DLLs aren't in ${_vasdk_openssl_root}/bin: "
+                            "put libssl and libcrypto beside vasdk_c.dll, or set HTTPLIB_USE_OPENSSL_IF_AVAILABLE OFF")
+        endif()
+    endif()
     message(STATUS "VASDK: cpp-httplib available (Prometheus=${VASDK_METRICS_PROMETHEUS}, WebSocket=${VASDK_ENABLE_WEBSOCKET_SERVER})")
 endif()
 

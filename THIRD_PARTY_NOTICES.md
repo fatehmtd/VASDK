@@ -72,7 +72,7 @@ Every VAD/STT/TTS/LLM/audio provider under `VASDK_3P_IMPL/`, plus the core libra
 | [paullouisageneau/libdatachannel](https://github.com/paullouisageneau/libdatachannel) | WebRTC provider (`VASDK_BUILD_LIBDATACHANNEL_WEBRTC`) | GitHub | MPL 2.0 |
 | [paullouisageneau/libjuice](https://github.com/paullouisageneau/libjuice), [cisco/libsrtp](https://github.com/cisco/libsrtp), [sctplab/usrsctp](https://github.com/sctplab/usrsctp), [SergiusTheBest/plog](https://github.com/SergiusTheBest/plog) | WebRTC provider (ICE, SRTP, SCTP, logging - libdatachannel submodules) | GitHub | MPL 2.0 (libjuice), BSD 3-Clause (libsrtp, usrsctp), MIT (plog) |
 | [xiph/opus](https://github.com/xiph/opus) | WebRTC provider (Opus codec) | GitHub | BSD 3-Clause |
-| OpenSSL | WebRTC provider (DTLS; Mbed TLS or GnuTLS via `USE_MBEDTLS`/`USE_GNUTLS` instead), libcurl built from source on Linux/macOS | System-installed (`find_package`), [openssl.org](https://www.openssl.org) | Apache 2.0 (3.x) |
+| OpenSSL | WebRTC provider (DTLS; Mbed TLS or GnuTLS via `USE_MBEDTLS`/`USE_GNUTLS` instead), libcurl built from source on Linux/macOS, cpp-httplib's HTTPS (the remote control's `tls`) on desktop. On Windows its DLLs ship beside `vasdk_c.dll` | System-installed (`find_package`), [openssl.org](https://www.openssl.org) | Apache 2.0 (3.x) |
 | [Mbed-TLS/mbedtls](https://github.com/Mbed-TLS/mbedtls) | TLS for libcurl and libwebsockets in the Android build | GitHub | Apache 2.0 OR GPL-2.0-or-later, your choice |
 | [gabime/spdlog](https://github.com/gabime/spdlog) | Logging (core library) | GitHub | MIT |
 | [nlohmann/json](https://github.com/nlohmann/json) | JSON (core library) | GitHub | MIT |

@@ -132,6 +132,17 @@ public:
     std::vector<std::string> followUps;  // merged text announced downstream
 };
 
+// Until the reply's final frame has been spoken, at most `timeout`: a slow machine (a shared CI runner)
+// takes longer than the 30 ms steps add up to, so a fixed wait isn't enough there.
+void waitForFinalFrame(Recorder& recorder, std::chrono::milliseconds timeout = 10s) {
+    const auto deadline = Clock::now() + timeout;
+    while (Clock::now() < deadline) {
+        for (const auto& spoken : recorder.snapshot())
+            if (spoken.isFinal) return;
+        std::this_thread::sleep_for(10ms);
+    }
+}
+
 int failures = 0;
 void check(bool ok, const char* what) {
     if (!ok) { ++failures; std::fprintf(stderr, "FAIL %s\n", what); }
@@ -229,7 +240,7 @@ void streamsSentencesThenTail(bool anthropic) {
     Rig rig(R"({"text": "Sure, I can help with that. Your order shipped yesterday. Anything else?", "isExpecting": true})",
             anthropic);
     rig.userSays("Where is my order?");
-    std::this_thread::sleep_for(1500ms);
+    waitForFinalFrame(*rig.recorder);
 
     size_t userTurns = 0;
     for (size_t at = 0; (at = rig.http->lastBody.find("Where is my order?", at)) != std::string::npos; ++at) ++userTurns;
