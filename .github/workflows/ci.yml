@@ -62,6 +62,12 @@ jobs:
         run: cmake --build --preset ci
       - name: Test
         run: ctest --preset ci
+      - name: What vasdk_c.dll loads, after a failure
+        if: failure() && runner.os == 'Windows'
+        shell: bash
+        run: |
+          ls build/ci/cmake/c_library
+          dumpbin //dependents build/ci/cmake/c_library/vasdk_c.dll
 
       - name: The C library exports vasdk_* only
         shell: bash

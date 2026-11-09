@@ -145,8 +145,9 @@ target_link_libraries(VASDK
 target_compile_definitions(VASDK PRIVATE VASDK_C_BUILDING)
 if(VASDK_LIBRARY_TYPE STREQUAL "STATIC")
     target_compile_definitions(VASDK PUBLIC VASDK_STATIC_DEFINE INTERFACE VASDK_C_STATIC)
-    # Linked into the C library, nothing of it is visible outside but the C API.
-    set_target_properties(VASDK PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
+    # Default visibility, as the code linking it: the C library limits what it exports with its own
+    # lists (cmake/c_library). Hidden here and default there, macOS sees two copies of a type's
+    # identity, so a provider registered by an app (ProviderRegistry, keyed by typeid) isn't found.
 endif()
 
 #  Optional metrics exporters 
