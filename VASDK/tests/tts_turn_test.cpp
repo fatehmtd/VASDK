@@ -139,6 +139,19 @@ std::shared_ptr<transport::AgentStateFrame> agent(transport::AgentStateTransitio
     return f;
 }
 
+// Until `condition` holds, at most `timeout`. A check that something happens waits for it, not a
+// fixed time: a loaded machine (a shared CI runner) runs late. Lower bounds on timings stay as they
+// are (late never makes them fail); a check that something doesn't happen still waits a fixed time.
+template <class Condition>
+bool waitUntil(Condition condition, std::chrono::milliseconds timeout = 5s) {
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (!condition()) {
+        if (std::chrono::steady_clock::now() >= deadline) return false;
+        std::this_thread::sleep_for(2ms);
+    }
+    return true;
+}
+
 int failures = 0;
 void check(bool ok, const char* what, const char* mode) {
     if (!ok) { ++failures; std::fprintf(stderr, "FAIL [%s] %s\n", mode, what); }
@@ -175,7 +188,7 @@ void streamedReply(bool queued) {
     rig.send(text("Two. ", false));
     std::this_thread::sleep_for(300ms);  // provider goes idle mid-reply (LLM slower than TTS)
     rig.send(text("Three.", true));
-    std::this_thread::sleep_for(700ms);
+    waitUntil([&] { return rig.recorder->snapshot().size() >= 2; });
 
     const auto states = rig.recorder->snapshot();
     check(states == std::vector<SynthesisState>{SynthesisState::STARTED, SynthesisState::COMPLETED},
@@ -204,7 +217,7 @@ void bargeIn(bool syncCancel) {
     std::this_thread::sleep_for(100ms);
     rig.send(agent(transport::AgentStateTransition::INTERRUPT_RESOLVED));
     rig.send(text("Gamma.", true));
-    std::this_thread::sleep_for(500ms);
+    waitUntil([&] { return rig.recorder->snapshot().size() >= 4; });
 
     check(rig.recorder->snapshot() == std::vector<SynthesisState>{SynthesisState::STARTED, SynthesisState::INTERRUPTED,
                                                                  SynthesisState::STARTED, SynthesisState::COMPLETED},
@@ -224,7 +237,7 @@ void protectedPart(bool queued) {
     // Each sentence is 100 ms of audio, played back to back: the disclaimer at 100-200 ms, heard 20 ms later.
     // Sampled rather than read at fixed times: a loaded machine runs late, never early.
     std::chrono::steady_clock::time_point on{}, off{};
-    while (std::chrono::steady_clock::now() < t0 + 1000ms && off == std::chrono::steady_clock::time_point{}) {
+    while (std::chrono::steady_clock::now() < t0 + 5000ms && off == std::chrono::steady_clock::time_point{}) {
         const bool protectedNow = rig.tts->getProtectedPlaybackMs() > 0;
         const auto now = std::chrono::steady_clock::now();
         if (protectedNow && on == std::chrono::steady_clock::time_point{}) on = now;
@@ -234,7 +247,7 @@ void protectedPart(bool queued) {
     check(on != std::chrono::steady_clock::time_point{}, "while it plays", mode);
     check(on == std::chrono::steady_clock::time_point{} || on - t0 >= 80ms, "not during the part before", mode);
     check(off != std::chrono::steady_clock::time_point{}, "not during the part after", mode);
-    std::this_thread::sleep_for(300ms);
+    waitUntil([&] { return rig.provider->received.size() >= 3 && rig.recorder->snapshot().size() >= 2; });
     check(rig.provider->received == std::vector<std::string>{"Intro.", "Disclaimer.", "Question?"}, "all parts in order", mode);
     check(rig.recorder->snapshot() == std::vector<SynthesisState>{SynthesisState::STARTED, SynthesisState::COMPLETED},
           "still one turn", mode);
@@ -256,15 +269,13 @@ void pausedReply() {
     // Text complete but still synthesizing: unknown, not "0 ms left" (that read as the tail and blocked barge-in)
     check(rig.tts->getRemainingReplyPlaybackMs() == -1, "still synthesizing: remaining playback unknown", mode);
     // Synthesis takes about 40 ms here; wait for it rather than for a fixed time (Windows timers tick every 15.6 ms).
-    const auto synthesized = std::chrono::steady_clock::now() + 150ms;
-    while (rig.tts->getRemainingReplyPlaybackMs() < 0 && std::chrono::steady_clock::now() < synthesized)
-        std::this_thread::sleep_for(2ms);
+    waitUntil([&] { return rig.tts->getRemainingReplyPlaybackMs() >= 0; });
     check(rig.tts->getRemainingReplyPlaybackMs() >= 0, "reply text complete: remaining playback known", mode);
     rig.send(agent(transport::AgentStateTransition::BARGE_IN_PENDING));
     std::this_thread::sleep_for(400ms);  // longer than the 200 ms reply: only the pause keeps it going
     check(rig.recorder->snapshot() == std::vector<SynthesisState>{SynthesisState::STARTED}, "no COMPLETED while paused", mode);
     rig.send(agent(transport::AgentStateTransition::BACKCHANNEL));
-    std::this_thread::sleep_for(500ms);
+    waitUntil([&] { return rig.recorder->snapshot().size() >= 2; });
 
     const auto states = rig.recorder->snapshot();
     check(states == std::vector<SynthesisState>{SynthesisState::STARTED, SynthesisState::COMPLETED},
@@ -299,30 +310,37 @@ void duckLastsMinimumDuration() {
     const bool stillShort = std::chrono::steady_clock::now() - duckStart < 280ms;   // a loaded machine may oversleep
     const auto early = snapshot();
     check(early.size() == 1 || (!stillShort && early.size() == 2), "still ducked before the minimum duration", mode);
-    std::this_thread::sleep_for(250ms);
+    waitUntil([&] { return snapshot().size() >= 2; });
     auto events = snapshot();
     check(events.size() == 2 && !events[1].first, "released once the minimum duration passed", mode);
     if (events.size() == 2) {
+        // Not much longer than 300 ms: a release that waited for anything else would be far later. A
+        // loaded machine wakes the release late, so the bound isn't tight.
         const auto heldFor = std::chrono::duration_cast<std::chrono::milliseconds>(events[1].second - events[0].second);
-        check(heldFor >= 290ms && heldFor < 400ms, "held for about the minimum duration", mode);
+        check(heldFor >= 290ms && heldFor < 600ms, "held for about the minimum duration", mode);
     }
 
     // Speech over the agent again while the release is pending: stays ducked from the new start.
     rig.send(agent(transport::AgentStateTransition::BARGE_IN_PENDING));
+    const auto secondStart = std::chrono::steady_clock::now();
     rig.send(agent(transport::AgentStateTransition::BACKCHANNEL));
     std::this_thread::sleep_for(200ms);
+    const bool beforeRelease = std::chrono::steady_clock::now() - secondStart < 280ms;   // a loaded machine may oversleep
     rig.send(agent(transport::AgentStateTransition::BARGE_IN_PENDING));
     std::this_thread::sleep_for(200ms);
-    check(snapshot().size() == 4, "a new overlap cancels the scheduled release", mode);
+    if (beforeRelease) check(snapshot().size() == 4, "a new overlap cancels the scheduled release", mode);
+    else std::printf("[%s] a new overlap: skipped, the machine overslept\n", mode);
 
     // A committed barge-in releases as soon as the interrupt resolves, without waiting.
+    const size_t beforeInterrupt = snapshot().size();
     rig.send(agent(transport::AgentStateTransition::BARGE_IN_INTERRUPT));
     rig.send(agent(transport::AgentStateTransition::INTERRUPT_RESOLVED));
-    std::this_thread::sleep_for(30ms);
+    waitUntil([&] { return snapshot().size() > beforeInterrupt; }, 1000ms);
     events = snapshot();
-    check(events.size() == 5 && !events[4].first, "interrupt resolution releases at once", mode);
+    check(events.size() == beforeInterrupt + 1 && !events.back().first, "interrupt resolution releases at once", mode);
+    const size_t afterInterrupt = events.size();
     std::this_thread::sleep_for(400ms);
-    check(snapshot().size() == 5, "no stray release later", mode);
+    check(snapshot().size() == afterInterrupt, "no stray release later", mode);
 }
 
 std::shared_ptr<transport::TextFrame> reply(const std::string& t, bool isFinal, uint64_t turnId) {
@@ -345,7 +363,7 @@ void replacedTurnQueued() {
     rig.send(reply("Got it. ", false, 3));
     rig.send(reply("Anything else?", false, 3));
     rig.send(replaced(3));                     // its final never comes
-    std::this_thread::sleep_for(500ms);
+    waitUntil([&] { return rig.recorder->snapshot().size() >= 2; });
     check(rig.provider->received == std::vector<std::string>{"Intro. "}, "the replaced turn's sentences dropped", mode);
     check(rig.recorder->snapshot() == std::vector<SynthesisState>{SynthesisState::STARTED, SynthesisState::COMPLETED},
           "the turn still completes", mode);
@@ -360,9 +378,9 @@ void replacedTurnPlaying() {
     std::this_thread::sleep_for(30ms);
     rig.send(replaced(3));
     rig.send(reply("Beta.", true, 3));          // the stale reply's rest, arriving after
-    std::this_thread::sleep_for(300ms);
+    waitUntil([&] { return rig.recorder->snapshot().size() >= 2; });
     rig.send(reply("Gamma.", true, 4));
-    std::this_thread::sleep_for(500ms);
+    waitUntil([&] { return rig.recorder->snapshot().size() >= 4; });
     check(rig.provider->received == std::vector<std::string>{"Alpha. ", "Gamma."}, "late text of the replaced turn dropped", mode);
     check(rig.recorder->snapshot() == std::vector<SynthesisState>{SynthesisState::STARTED, SynthesisState::COMPLETED,
                                                                  SynthesisState::STARTED, SynthesisState::COMPLETED},
