@@ -7,7 +7,7 @@ add_library(vasdk_provider_catalog STATIC
 )
 file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/proto)   # protoc doesn't create its output folder
 protobuf_generate(TARGET vasdk_provider_catalog
-    IMPORT_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/proto
+    IMPORT_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/proto ${VASDK_PROTOBUF_IMPORT_DIRS}
     PROTOC_OUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/proto)
 
 target_include_directories(vasdk_provider_catalog PUBLIC
@@ -96,7 +96,7 @@ if(NOT ANDROID AND (TARGET protobuf::protoc OR Protobuf_PROTOC_EXECUTABLE))
     endif()
     add_custom_command(OUTPUT ${_catalog_python_out}/options_pb2.py
         COMMAND ${_catalog_protoc} --python_out=${VASDK_ROOT_BINARY_DIR}/bindings/python --pyi_out=${VASDK_ROOT_BINARY_DIR}/bindings/python
-                -I ${CMAKE_CURRENT_SOURCE_DIR}/proto vasdk/providers/options.proto
+                -I ${CMAKE_CURRENT_SOURCE_DIR}/proto ${VASDK_PROTOC_IMPORT_ARGUMENTS} vasdk/providers/options.proto
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/proto
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/proto/vasdk/providers/options.proto
         COMMENT "Python messages for the providers' options"

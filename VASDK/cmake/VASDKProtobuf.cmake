@@ -1,5 +1,13 @@
-# Provides protobuf::libprotobuf and protobuf_generate(): an installed protobuf (CONFIG
-# package, e.g. Homebrew or a distro package) when there is one, otherwise built from source.
+# Provides protobuf::libprotobuf and protobuf_generate(): an installed protobuf (CONFIG package:
+# Conan, Homebrew, a distro package) when there is one, otherwise built from source.
+#
+# Where protoc finds Google's own .proto files (google/protobuf/any.proto, struct.proto, ...): an
+# installed protoc finds them in its include/ folder, one built from source has none, so they come
+# from protobuf's sources. Two global variables, empty for an installed protobuf, which every protoc
+# call passes: VASDK_PROTOBUF_IMPORT_DIRS to protobuf_generate(IMPORT_DIRS), VASDK_PROTOC_IMPORT_ARGUMENTS
+# (-I <folder>) to a protoc command of its own.
+set(VASDK_PROTOBUF_IMPORT_DIRS "" CACHE INTERNAL "")
+set(VASDK_PROTOC_IMPORT_ARGUMENTS "" CACHE INTERNAL "")
 if(NOT TARGET protobuf::libprotobuf)
     find_package(Protobuf CONFIG QUIET)
 endif()
@@ -67,4 +75,6 @@ else()
     )
     fetchcontent_makeavailable(protobuf)
     include(${protobuf_SOURCE_DIR}/cmake/protobuf-generate.cmake)
+    set(VASDK_PROTOBUF_IMPORT_DIRS ${protobuf_SOURCE_DIR}/src CACHE INTERNAL "")
+    set(VASDK_PROTOC_IMPORT_ARGUMENTS -I ${protobuf_SOURCE_DIR}/src CACHE INTERNAL "")
 endif()

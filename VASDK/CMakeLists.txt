@@ -318,7 +318,7 @@ if(VASDK_ENABLE_ENGINE_CONFIG)
     file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/proto)   # protoc doesn't create its output folder
     protobuf_generate(TARGET VASDK
         ${_vasdk_proto_export}
-        IMPORT_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/proto
+        IMPORT_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/proto ${VASDK_PROTOBUF_IMPORT_DIRS}
         PROTOC_OUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/proto)
     target_include_directories(VASDK PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/proto> $<INSTALL_INTERFACE:include/VASDK/proto>)
     # The same messages for Python (bindings/python: vasdk.engine.events_pb2, ...), by the same
@@ -350,7 +350,7 @@ if(VASDK_ENABLE_ENGINE_CONFIG)
         endforeach()
         add_custom_command(OUTPUT ${_vasdk_python_protos}
             COMMAND ${_vasdk_protoc} --python_out=${VASDK_ROOT_BINARY_DIR}/bindings/python --pyi_out=${VASDK_ROOT_BINARY_DIR}/bindings/python
-                    -I ${CMAKE_CURRENT_SOURCE_DIR}/proto ${_vasdk_python_inputs}
+                    -I ${CMAKE_CURRENT_SOURCE_DIR}/proto ${VASDK_PROTOC_IMPORT_ARGUMENTS} ${_vasdk_python_inputs}
             WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/proto
             DEPENDS ${_vasdk_python_depends}
             COMMENT "Python messages for bindings/python"

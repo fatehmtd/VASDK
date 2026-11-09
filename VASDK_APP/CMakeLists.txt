@@ -14,7 +14,7 @@ if(VASDK_ENABLE_ENGINE_CONFIG AND TARGET VASDK)
     add_library(garage_extensions STATIC ${GARAGE_DIR}/extensions/GarageExtensions.cpp ${GARAGE_DIR}/garage.proto)
     file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/garage_proto)   # protoc doesn't create its output folder
     protobuf_generate(TARGET garage_extensions
-        IMPORT_DIRS ${GARAGE_DIR}
+        IMPORT_DIRS ${GARAGE_DIR} ${VASDK_PROTOBUF_IMPORT_DIRS}
         PROTOC_OUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/garage_proto)
     target_include_directories(garage_extensions PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/garage_proto>
