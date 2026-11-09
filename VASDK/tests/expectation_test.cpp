@@ -264,6 +264,11 @@ int main() {
                                      pipeline::FlowDirection::DOWNSTREAM);
         };
         auto exchange = [&](std::optional<int> listenMs, int atLeastMs) -> int {
+            size_t before = 0;
+            {
+                std::lock_guard<std::mutex> lock(recorder->mutex);
+                before = recorder->states.size();
+            }
             send(Turn::TurnActor::USER, Turn::TurnState::START);
             send(Turn::TurnActor::USER, Turn::TurnState::END);
             if (listenMs || atLeastMs) {
@@ -274,9 +279,19 @@ int main() {
             }
             send(Turn::TurnActor::SYSTEM, Turn::TurnState::START);
             send(Turn::TurnActor::SYSTEM, Turn::TurnState::END);
-            recorder->settle();
-            std::lock_guard<std::mutex> lock(recorder->mutex);
-            return recorder->states.empty() ? -99 : recorder->states.back().listenWindowMs;
+            // The state that opens the follow-up window, the only one carrying it. Waited for, not
+            // read after a fixed time: on a slow machine it comes late, or the 150 ms window has
+            // already closed and a later state follows it.
+            const auto deadline = std::chrono::steady_clock::now() + 2s;
+            while (std::chrono::steady_clock::now() < deadline) {
+                {
+                    std::lock_guard<std::mutex> lock(recorder->mutex);
+                    for (size_t i = before; i < recorder->states.size(); ++i)
+                        if (recorder->states[i].listenWindowMs != 0) return recorder->states[i].listenWindowMs;
+                }
+                std::this_thread::sleep_for(5ms);
+            }
+            return -99;
         };
         auto wake = std::make_shared<transport::TriggerFrame>();
         wake->triggerType = transport::TriggerType::WAKE_WORD;
