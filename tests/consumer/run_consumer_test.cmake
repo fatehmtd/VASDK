@@ -1,7 +1,13 @@
-# Builds and runs tests/consumer/c_library against this build of VASDK, as another project would:
+# Builds and runs a program against this build of VASDK, as another project would:
 #   MODE=install     cmake --install into a fresh prefix, then find_package(VASDK) from it
 #   MODE=build_tree  find_package(VASDK) straight from the build tree (VASDK_DIR)
-# cmake -DMODE=... -DVASDK_BUILD_DIR=... -DCONFIG=... -DGENERATOR=... [-DPLATFORM=...] -DWORK_DIR=... -P run_consumer_test.cmake
+#   PACKAGE=c        tests/consumer/c_library: the C library, VASDK::c (the default)
+#   PACKAGE=cpp      tests/consumer/cpp_library: the C++ libraries, find_package(VASDK COMPONENTS cpp).
+#                    The install adds the component vasdk_cpp_development. The program finds VASDK's
+#                    dependencies as VASDK's build did: DEPENDENCY_TOOLCHAIN (its toolchain file: Conan,
+#                    vcpkg) and DEPENDENCY_PREFIX_PATH (its CMAKE_PREFIX_PATH, entries joined by |).
+# cmake -DMODE=... [-DPACKAGE=...] -DVASDK_BUILD_DIR=... -DCONFIG=... -DGENERATOR=... [-DPLATFORM=...]
+#       [-DDEPENDENCY_TOOLCHAIN=...] [-DDEPENDENCY_PREFIX_PATH=...] -DWORK_DIR=... -P run_consumer_test.cmake
 
 foreach(_required MODE VASDK_BUILD_DIR WORK_DIR GENERATOR)
     if(NOT DEFINED ${_required})
@@ -10,6 +16,12 @@ foreach(_required MODE VASDK_BUILD_DIR WORK_DIR GENERATOR)
 endforeach()
 if(NOT CONFIG)
     set(CONFIG Release)
+endif()
+if(NOT PACKAGE)
+    set(PACKAGE c)
+endif()
+if(NOT PACKAGE MATCHES "^(c|cpp)$")
+    message(FATAL_ERROR "PACKAGE is '${PACKAGE}': c or cpp")
 endif()
 
 function(run)
@@ -49,6 +61,17 @@ if(MODE STREQUAL "install")
         message(FATAL_ERROR "A plain install has no bin/vasdk")
     endif()
     run(${_vasdk_command} version)
+    if(PACKAGE STREQUAL "cpp")
+        # The C++ libraries on top of the plain install, and their package
+        run(${CMAKE_COMMAND} --install ${VASDK_BUILD_DIR} --prefix ${_prefix} --config ${CONFIG}
+            --component vasdk_cpp_development)
+        foreach(_file lib/cmake/VASDK/VASDKCpp.cmake lib/cmake/VASDK/VASDKCppTargets.cmake
+                      include/VASDK/engine/ProviderRegistry.h include/VASDK/proto/vasdk/engine/engine_config.pb.h)
+            if(NOT EXISTS ${_prefix}/${_file})
+                message(FATAL_ERROR "The component vasdk_cpp_development installs no ${_file}")
+            endif()
+        endforeach()
+    endif()
     set(_find -DCMAKE_PREFIX_PATH=${_prefix})
 elseif(MODE STREQUAL "build_tree")
     set(_find -DVASDK_DIR=${VASDK_BUILD_DIR})
@@ -56,13 +79,37 @@ else()
     message(FATAL_ERROR "MODE is '${MODE}': install or build_tree")
 endif()
 
-get_filename_component(_source ${CMAKE_CURRENT_LIST_DIR}/c_library ABSOLUTE)
+if(PACKAGE STREQUAL "cpp")
+    # VASDK by its package folder, so CMAKE_PREFIX_PATH stays free for VASDK's own dependencies,
+    # found where VASDK's build found them: its toolchain file and prefix path, through an initial
+    # cache, which keeps a list a list
+    if(MODE STREQUAL "install")
+        set(_find -DVASDK_DIR=${_prefix}/lib/cmake/VASDK)
+    else()
+        set(_find -DVASDK_DIR=${VASDK_BUILD_DIR})
+    endif()
+    set(_initial_cache ${WORK_DIR}/dependencies.cmake)
+    file(WRITE ${_initial_cache} "")
+    if(DEPENDENCY_TOOLCHAIN)
+        file(APPEND ${_initial_cache} "set(CMAKE_TOOLCHAIN_FILE [==[${DEPENDENCY_TOOLCHAIN}]==] CACHE FILEPATH \"\")\n")
+    endif()
+    if(DEPENDENCY_PREFIX_PATH)
+        string(REPLACE "|" ";" _prefix_path "${DEPENDENCY_PREFIX_PATH}")
+        file(APPEND ${_initial_cache} "set(CMAKE_PREFIX_PATH [==[${_prefix_path}]==] CACHE STRING \"\")\n")
+    endif()
+    list(APPEND _find -C ${_initial_cache})
+    set(_programs vasdk_cpp_consumer)
+    get_filename_component(_source ${CMAKE_CURRENT_LIST_DIR}/cpp_library ABSOLUTE)
+else()
+    set(_programs vasdk_consumer vasdk_consumer_cpp)   # C, and C++ through vasdk.hpp
+    get_filename_component(_source ${CMAKE_CURRENT_LIST_DIR}/c_library ABSOLUTE)
+endif()
 run(${CMAKE_COMMAND} -S ${_source} -B ${WORK_DIR}/consumer -G ${GENERATOR} ${_platform} ${_find} -DCMAKE_BUILD_TYPE=${CONFIG})
 run(${CMAKE_COMMAND} --build ${WORK_DIR}/consumer --config ${CONFIG})
 
 # Windows: vasdk_copy_runtime() put vasdk_c.dll and what it loads beside the program, so no PATH
 # is needed; elsewhere the rpath finds them
-foreach(_program vasdk_consumer vasdk_consumer_cpp)   # C, and C++ through vasdk.hpp
+foreach(_program IN LISTS _programs)
     find_program(_consumer_${_program} ${_program} PATHS ${WORK_DIR}/consumer/${CONFIG} ${WORK_DIR}/consumer NO_DEFAULT_PATH)
     if(NOT _consumer_${_program})
         message(FATAL_ERROR "${_program} was not built")

@@ -13,9 +13,27 @@ protobuf_generate(TARGET vasdk_provider_catalog
 target_include_directories(vasdk_provider_catalog PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/proto>
+    $<INSTALL_INTERFACE:include>   # ProviderCatalog/ProviderCatalog.h; options.pb.h is beside VASDK's messages
 )
 target_link_libraries(vasdk_provider_catalog PUBLIC VASDK)
 add_library(VASDK::providers ALIAS vasdk_provider_catalog)   # every provider built, for a project that adds VASDK from source
+set_target_properties(vasdk_provider_catalog PROPERTIES EXPORT_NAME providers)   # VASDK::providers once installed too
+
+# The catalog with the C++ libraries (component vasdk_cpp_development, never in a plain install);
+# cmake/VASDKInstall.cmake adds it to find_package(VASDK COMPONENTS cpp) when it can
+install(TARGETS vasdk_provider_catalog COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+install(FILES ProviderCatalog.h ProviderCatalogC.h
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/ProviderCatalog
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
+)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/proto/vasdk/providers/options.pb.h
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/VASDK/proto/vasdk/providers
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
+)
 
 # target  ->  define the catalog uses to register it
 set(_vasdk_catalog_providers
@@ -66,6 +84,7 @@ foreach(_index RANGE 0 ${_last} 2)
         if(NOT TARGET VASDK::${_alias})
             add_library(VASDK::${_alias} ALIAS ${_target})
         endif()
+        set_target_properties(${_target} PROPERTIES EXPORT_NAME ${_alias})   # the same name once installed
     endif()
 endforeach()
 # The page a config-created WebRTC peer serves when its options name none.

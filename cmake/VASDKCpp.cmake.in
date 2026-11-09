@@ -1,0 +1,19 @@
+# find_package(VASDK COMPONENTS cpp): the C++ libraries (docs/integrating.md), loaded by VASDKConfig.cmake.
+# Installed with the component vasdk_cpp_development, never by a plain install.
+#
+#   find_package(VASDK REQUIRED COMPONENTS cpp)
+#   target_link_libraries(app PRIVATE VASDK::VASDK)            # the core
+#   target_link_libraries(app PRIVATE VASDK::providers)        # every provider below, by config id
+#   target_link_libraries(app PRIVATE VASDK::silero_vad)       # one provider
+#
+# The libraries are static: the program links what they link, so the packages they were built
+# against are found here again. Build the program against the same versions, with the same
+# compiler and settings: the C++ API has no binary stability (the C library, VASDK::c, has).
+
+include(CMakeFindDependencyMacro)
+@VASDK_CPP_FIND_DEPENDENCIES@
+include("${CMAKE_CURRENT_LIST_DIR}/VASDKCppTargets.cmake")
+
+# The providers in the package, each VASDK::<id>; VASDK::providers registers them all when it is there
+set(VASDK_CPP_PROVIDERS "@VASDK_CPP_PROVIDERS@")
+set(VASDK_CPP_HAS_CATALOG @VASDK_CPP_HAS_CATALOG@)

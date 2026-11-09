@@ -7,11 +7,14 @@ VASDK comes in two forms:
 | Form | What you link | Interface | When |
 | --- | --- | --- | --- |
 | **The C library**, `vasdk_c` | `VASDK::c` | The [C API](reference/c-api.md): `vasdk.h`, `vasdk_providers.h`, and `vasdk.hpp`, its header-only C++ form. Stable across releases of one major version | Prebuilt packages, other languages, and any project that wants one shared library and no C++ ABI concerns |
-| **The C++ libraries**, from source | `VASDK::VASDK`, `VASDK::providers`, `VASDK::<provider>` | Everything: frames, processors, pipelines, providers, the engine | A C++ app that builds VASDK alongside itself and writes its own processors or providers |
+| **The C++ libraries**, from source or an install | `VASDK::VASDK`, `VASDK::providers`, `VASDK::<provider>` | Everything: frames, processors, pipelines, providers, the engine | A C++ app that writes its own processors or providers, and builds VASDK alongside itself or against the same installed dependencies |
 
 The C library is one shared library: the C API and every provider of its build, with their dependencies (protobuf, abseil, spdlog, curl) linked in and hidden. It exports the `vasdk_*` functions and nothing else, so it can't clash with another protobuf or spdlog in your program. This is what the Python and Kotlin bindings load, and what the release archives and packages ship. This is the pattern ONNX Runtime and sherpa-onnx follow too: a C ABI, with languages layered on top.
 
-The C++ API depends on protobuf, spdlog and nlohmann/json in its public headers. That means your program must build against the same versions VASDK did, so it comes from source only.
+The C++ API depends on protobuf, spdlog and nlohmann/json in its public headers. That means your program must build against the same versions VASDK did. Two ways give you that:
+
+- **From source** (FetchContent, `add_subdirectory`): VASDK builds inside your project, with its dependencies. This works with any dependency source.
+- **From an install** (`find_package(VASDK COMPONENTS cpp)`): VASDK was built against installed packages (Conan, vcpkg, a distro), and your program finds the same ones. See [The C++ libraries from an install](#the-c-libraries-from-an-install).
 
 ```mermaid
 flowchart LR
@@ -21,6 +24,7 @@ flowchart LR
     end
     subgraph binary["Prebuilt"]
         P["cmake --install, release archive,<br/>package manager"] --> C2["VASDK::c<br/>find_package / pkg-config"]
+        P -- "component vasdk_cpp_development,<br/>dependencies from installed packages" --> CPP2["VASDK::VASDK + VASDK::providers<br/>find_package(VASDK COMPONENTS cpp)"]
     end
     C1 & C2 --> L["libvasdk_c: C API + providers,<br/>exports vasdk_* only"]
     L --> B["Python, Kotlin/JVM, Android,<br/>any language with a C FFI"]
@@ -109,7 +113,7 @@ On Windows, `bin/` also holds the DLLs `vasdk_c.dll` imports directly. For examp
 A plain install leaves out two components; install them by name:
 
 - **`apps`:** the sample apps, for example `cmake --install build --component apps`.
-- **`vasdk_cpp_development`:** the static C++ libraries and headers.
+- **`vasdk_cpp_development`:** the static C++ libraries and headers. When the build's dependencies were installed packages, `find_package(VASDK COMPONENTS cpp)` also comes with them ([The C++ libraries from an install](#the-c-libraries-from-an-install)).
 
 ### A program
 
@@ -143,6 +147,45 @@ int main() {
 ```
 
 The [C API reference](reference/c-api.md) has the rest: agents, sessions, runtimes, models, and providers and processors written in C.
+
+### The C++ libraries from an install
+
+The C++ libraries are static. A program that links them also links their dependencies, so `find_package(VASDK COMPONENTS cpp)` finds those again in your program with `find_dependency`. That only works when they are installed packages. Build VASDK against installed dependencies, then install the component:
+
+```bash
+# The recipe's dependencies from Conan (conanfile.py); vcpkg or your distro's packages work the same way
+conan install . -s compiler.cppstd=17 --build=missing
+# conan_toolchain.cmake is in the generators folder Conan prints: build-conan/generators with Visual
+# Studio, build-conan/Release/generators elsewhere
+cmake -B build -DCMAKE_TOOLCHAIN_FILE=build-conan/generators/conan_toolchain.cmake -DVASDK_DEPENDENCY_SOURCE=AUTO
+cmake --build build --config Release
+cmake --install build --prefix /opt/vasdk                                         # the C library
+cmake --install build --prefix /opt/vasdk --component vasdk_cpp_development       # the C++ libraries
+```
+
+`AUTO` uses an installed package wherever there is one; `SYSTEM` never downloads anything. The install adds the C++ headers (`include/VASDK/`, the generated messages in `include/VASDK/proto/`, one folder per provider), the static libraries, and `lib/cmake/VASDK/VASDKCpp.cmake` with `VASDKCppTargets.cmake`:
+
+```cmake
+find_package(VASDK 1.0 REQUIRED COMPONENTS cpp)    # the same toolchain file or CMAKE_PREFIX_PATH as VASDK's build
+target_link_libraries(my_app PRIVATE VASDK::VASDK)                 # the core
+target_link_libraries(my_app PRIVATE VASDK::providers)             # the catalog, when it is in the package
+message(STATUS "C++ providers: ${VASDK_CPP_PROVIDERS}, catalog: ${VASDK_CPP_HAS_CATALOG}")
+
+find_package(VASDK REQUIRED COMPONENTS cpp miniaudio_audio)        # with cpp, a provider is its C++ target
+```
+
+Some rules about this package:
+
+- **What gets in.** At configure time, VASDK checks each C++ library's link interface. A library is in the package when everything it links is either another library of the package or a target an installed package defines: spdlog, nlohmann_json, protobuf, abseil, cpp-httplib, curl, OpenSSL, zlib, highway or ONNX Runtime. Otherwise it is left out, and so is whatever links it. The catalog links every provider, so one provider left out takes the catalog with it. The configure log names the package's contents and why each library was left out.
+- **What stays out.** Any dependency the build downloads or compiles in itself:
+  - with `VASDK_DEPENDENCY_SOURCE=FETCH` (the default), spdlog, protobuf and the rest, so no C++ package is made at all;
+  - Microsoft's prebuilt ONNX Runtime (`onnxruntime_lib`);
+  - a provider's own sources (Whistle's engine, sentencepiece, PFFFT, RNNoise, llama.cpp).
+
+  Today that leaves the core, the catalog and the providers that need no such library (miniaudio, for example). For any other provider, add VASDK from source.
+- **Not found.** Without the package, `find_package(VASDK COMPONENTS cpp)` fails and says why. The component still installs the libraries and headers, but nothing tells CMake how to link them.
+- **Same build settings.** Build your program with the compiler, standard library, configuration and dependency versions VASDK was built with. The C++ API has no binary stability ([Versions](#versions-and-compatibility)).
+- **Build tree.** `-DVASDK_DIR=<VASDK's build directory>` finds the same package without installing.
 
 ## Flavors
 
@@ -182,7 +225,7 @@ The same from a program: `vasdk_models_pull` in C, `vasdk::Models` in C++, `vasd
 | `VASDK_FLAVOR` | empty | `core`, `default` or `full`: see [Flavors](#flavors) |
 | `VASDK_BUILD_C_LIBRARY` | `ON` | The C library, `VASDK::c` |
 | `VASDK_SHARED` | `OFF` | The C++ core as a shared library (needs a shared protobuf). The C library is then not built: the shared core exports the C API itself |
-| `VASDK_DEPENDENCY_SOURCE` | `FETCH` | `FETCH` downloads pinned versions. `SYSTEM` uses `find_package` only (Conan, distro packages) and never downloads. `AUTO` tries `find_package`, then downloads |
+| `VASDK_DEPENDENCY_SOURCE` | `FETCH` | `FETCH` downloads pinned versions. `SYSTEM` uses `find_package` only (Conan, distro packages) and never downloads. `AUTO` tries `find_package`, then downloads. `find_package(VASDK COMPONENTS cpp)` needs `SYSTEM`, or `AUTO` finding them |
 | `VASDK_DOWNLOAD_MODELS` | on when top-level | Download models at configure time |
 | `VASDK_ENABLE_AVX2` | `ON` | AVX2 and FMA on x86_64 (GCC, Clang). The release presets turn it off so the binary runs on any x86_64 CPU |
 | `VASDK_INSTALL` | `ON` | Generate the install rules, `find_package(VASDK)` and `vasdk.pc` |
@@ -202,7 +245,7 @@ The presets in [`CMakePresets.json`](../CMakePresets.json) bundle these options:
 
 - **One version:** the repository's [`VERSION`](../VERSION) file sets the version of the SDK, the C library and every binding. A program reads it from `<VASDK/version.h>` (`VASDK_VERSION_STRING`, `VASDK_VERSION_NUMBER`) or at run time from `vasdk_version()`.
 - **Stable C API:** `VASDK_C_API_VERSION` in `vasdk.h` is also the library's soname (`libvasdk_c.so.1`). Within one major version the C API only grows. A function never changes or goes away ([C API, Stability](reference/c-api.md#stability)), so `find_package(VASDK 1.2)` accepts any later 1.x (`SameMajorVersion`).
-- **No stability promise for the C++ API:** build it from the same source as your program.
+- **No stability promise for the C++ API:** build it from the same source as your program, or link an install of it built with the same compiler, settings and dependency versions.
 - **A program that loads the library at run time** (a plugin, a binding) compares `vasdk_c_api_version()` with the `VASDK_C_API_VERSION` it was built against: a lower one is an older library.
 - **Windows hosts with an older C++ runtime:** a process that loads its own older `msvcp140.dll` first (a JVM, a game engine) runs the library as well: it is built with `_DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR`, which Visual Studio 17.10 and later need for that.
 
@@ -214,6 +257,7 @@ Which channels publish VASDK, and their state:
 | --- | --- | --- |
 | CMake (`FetchContent`, `add_subdirectory`, CPM) | C++ API and C library from source | Available |
 | `cmake --install`, `find_package`, pkg-config | The C library | Available |
+| `cmake --install --component vasdk_cpp_development`, `find_package(VASDK COMPONENTS cpp)` | The C++ libraries, from a build against installed dependencies ([from an install](#the-c-libraries-from-an-install)) | Available |
 | GitHub Releases | Archives per platform and flavor, checksums, SBOM | Planned (CI and release workflow) |
 | Conan | The C library from source, dependencies from Conan | The recipe in the repository ([Conan](#conan)); Conan Center later |
 | Homebrew | The C library | Planned |

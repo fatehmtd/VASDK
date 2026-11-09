@@ -288,3 +288,20 @@ if(VASDK_BUILD_TESTS AND VASDK_INSTALL AND TARGET vasdk_c)
         set_tests_properties(vasdk_consumer_${_mode} PROPERTIES TIMEOUT 600 RESOURCE_LOCK vasdk_consumer)
     endforeach()
 endif()
+
+#  The same with the C++ libraries, find_package(VASDK COMPONENTS cpp), when this build makes that
+#  package (its dependencies are installed packages: cmake/VASDKInstall.cmake). The program finds
+#  them as this build did, by its toolchain file and prefix path.
+
+if(VASDK_BUILD_TESTS AND VASDK_INSTALL AND VASDK_CPP_PACKAGE AND TARGET vasdk_c)
+    string(REPLACE ";" "|" _vasdk_prefix_path "${CMAKE_PREFIX_PATH}")
+    foreach(_mode install build_tree)
+        add_test(NAME vasdk_consumer_cpp_${_mode}
+                 COMMAND ${CMAKE_COMMAND} -DMODE=${_mode} -DPACKAGE=cpp -DVASDK_BUILD_DIR=${VASDK_ROOT_BINARY_DIR} -DCONFIG=$<CONFIG>
+                         "-DGENERATOR=${CMAKE_GENERATOR}" "-DPLATFORM=${CMAKE_GENERATOR_PLATFORM}"
+                         "-DDEPENDENCY_TOOLCHAIN=${CMAKE_TOOLCHAIN_FILE}" "-DDEPENDENCY_PREFIX_PATH=${_vasdk_prefix_path}"
+                         -DWORK_DIR=${VASDK_ROOT_BINARY_DIR}/consumer_cpp_${_mode}
+                         -P ${VASDK_ROOT_DIR}/tests/consumer/run_consumer_test.cmake)
+        set_tests_properties(vasdk_consumer_cpp_${_mode} PROPERTIES TIMEOUT 900 RESOURCE_LOCK vasdk_consumer)
+    endforeach()
+endif()

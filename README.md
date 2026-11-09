@@ -40,7 +40,7 @@ The project is young and moving fast, with no tagged releases yet; see [what's m
 
 ## Use it in your project
 
-VASDK ships as a C library, `vasdk_c`. It is one shared library with the stable [C API](docs/reference/c-api.md) and the providers built in, and exports nothing else. The full C++ API comes from source. [Using VASDK in your project](docs/integrating.md) covers each path: targets, flavors, options and packages.
+VASDK ships as a C library, `vasdk_c`. It is one shared library with the stable [C API](docs/reference/c-api.md) and the providers built in, and exports nothing else. The full C++ API comes from source, or from an install built against installed dependencies (`find_package(VASDK COMPONENTS cpp)`). [Using VASDK in your project](docs/integrating.md) covers each path: targets, flavors, options and packages.
 
 ```cmake
 # From source: the C++ API (VASDK::VASDK, VASDK::providers) or the C library (VASDK::c)

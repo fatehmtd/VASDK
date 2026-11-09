@@ -1,4 +1,4 @@
-# find_package(VASDK): the C library, VASDK::c (docs/integrating.md).
+# find_package(VASDK): the C library, VASDK::c, and the C++ libraries, component cpp (docs/integrating.md).
 #
 #   find_package(VASDK 1.0 REQUIRED)
 #   target_link_libraries(app PRIVATE VASDK::c)              # #include <VASDK/c/vasdk.h>
@@ -6,11 +6,18 @@
 #
 #   find_package(VASDK REQUIRED COMPONENTS silero_vad whistle_stt)   # fails if they aren't built in
 #
-# Sets VASDK_VERSION, VASDK_C_API_VERSION and VASDK_PROVIDERS (the providers built into the library).
+#   find_package(VASDK REQUIRED COMPONENTS cpp)              # VASDK::VASDK, VASDK::providers, VASDK::<provider>
+#   find_package(VASDK REQUIRED COMPONENTS cpp silero_vad)   # with cpp, a provider names its C++ target
+#
+# Sets VASDK_VERSION, VASDK_C_API_VERSION and VASDK_PROVIDERS (the providers built into the C
+# library); with cpp, VASDK_CPP_PROVIDERS (the C++ provider targets installed).
 
 @PACKAGE_INIT@
 
-include("${CMAKE_CURRENT_LIST_DIR}/VASDKTargets.cmake")
+# The C library: in every install, unless VASDK was built shared (VASDK_SHARED)
+if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/VASDKTargets.cmake")
+    include("${CMAKE_CURRENT_LIST_DIR}/VASDKTargets.cmake")
+endif()
 # vasdk_copy_runtime(<target>): on Windows, vasdk_c.dll and the DLLs it loads beside <target>.
 # Installed beside this file; the build tree's is the source tree's.
 if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/VASDKCopyRuntime.cmake")
@@ -22,9 +29,41 @@ endif()
 set(VASDK_C_API_VERSION @VASDK_C_API_VERSION@)
 set(VASDK_PROVIDERS "@VASDK_BUILT_PROVIDERS@")
 
-# Components: c (the library itself), or the id of a provider it must have built in
+# The C++ libraries, only when asked for: they find their own dependencies (protobuf, spdlog...)
+set(VASDK_cpp_FOUND FALSE)
+if("cpp" IN_LIST VASDK_FIND_COMPONENTS)
+    if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/VASDKCpp.cmake")
+        include("${CMAKE_CURRENT_LIST_DIR}/VASDKCpp.cmake")
+        set(VASDK_cpp_FOUND TRUE)
+    else()
+        string(CONCAT VASDK_NOT_FOUND_MESSAGE "VASDK's C++ libraries are not in this install: install the component "
+            "vasdk_cpp_development (cmake --install <build> --component vasdk_cpp_development), from a build whose "
+            "dependencies are installed packages (VASDK_DEPENDENCY_SOURCE SYSTEM or AUTO)")
+    endif()
+endif()
+
+# Components: c (the library itself), cpp (above), or the id of a provider: built into the C library,
+# or with cpp, a C++ target VASDK::<id>
 foreach(_vasdk_component IN LISTS VASDK_FIND_COMPONENTS)
-    if(_vasdk_component STREQUAL "c" OR _vasdk_component IN_LIST VASDK_PROVIDERS)
+    if(_vasdk_component STREQUAL "cpp")
+        continue()
+    elseif(_vasdk_component STREQUAL "c")
+        if(TARGET VASDK::c)
+            set(VASDK_c_FOUND TRUE)
+        else()
+            set(VASDK_c_FOUND FALSE)
+            set(VASDK_NOT_FOUND_MESSAGE "This VASDK has no C library (it was built with VASDK_SHARED)")
+        endif()
+    elseif("cpp" IN_LIST VASDK_FIND_COMPONENTS)
+        if(VASDK_cpp_FOUND AND _vasdk_component IN_LIST VASDK_CPP_PROVIDERS)
+            set(VASDK_${_vasdk_component}_FOUND TRUE)
+        else()
+            set(VASDK_${_vasdk_component}_FOUND FALSE)
+            if(VASDK_cpp_FOUND)
+                set(VASDK_NOT_FOUND_MESSAGE "VASDK's C++ package has no provider '${_vasdk_component}' (it has: ${VASDK_CPP_PROVIDERS})")
+            endif()
+        endif()
+    elseif(_vasdk_component IN_LIST VASDK_PROVIDERS)
         set(VASDK_${_vasdk_component}_FOUND TRUE)
     else()
         set(VASDK_${_vasdk_component}_FOUND FALSE)

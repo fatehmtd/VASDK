@@ -407,12 +407,16 @@ target_include_directories(VASDK PUBLIC
 )
 
 if(VASDK_ENABLE_CTRACK AND TARGET vasdk_ctrack_iface)
-    target_link_libraries(VASDK PRIVATE vasdk_ctrack_iface)
+    # Header-only: its headers and defines while VASDK compiles, no link, so it stays out of the
+    # exported C++ package (cmake/VASDKInstall.cmake)
+    target_include_directories(VASDK PRIVATE $<TARGET_PROPERTY:vasdk_ctrack_iface,INTERFACE_INCLUDE_DIRECTORIES>)
+    target_compile_definitions(VASDK PRIVATE $<TARGET_PROPERTY:vasdk_ctrack_iface,INTERFACE_COMPILE_DEFINITIONS>)
 endif()
 
 # The C++ library and its headers, for a build that installs the C++ API (component
 # vasdk_cpp_development, never part of a plain install: the packages ship the C library,
-# cmake/c_library). Its dependencies' headers (protobuf, spdlog, nlohmann_json) are the consumer's.
+# cmake/c_library). Its dependencies' headers (protobuf, spdlog, nlohmann_json) are the consumer's;
+# when they are installed packages, cmake/VASDKInstall.cmake adds find_package(VASDK COMPONENTS cpp).
 include(GNUInstallDirs)
 install(TARGETS VASDK COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
