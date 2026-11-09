@@ -18,6 +18,9 @@ add_compile_definitions($<$<CXX_COMPILER_ID:MSVC>:_DISABLE_CONSTEXPR_MUTEX_CONST
 # project's.
 set(VASDK_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(VASDK_ROOT_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
+# What the Python tests run with: the C library, and the messages this build generates (the binding
+# looks under build/ by default, not under a preset's build/<name>)
+set(VASDK_PYTHON_TEST_ENVIRONMENT "VASDK_LIBRARY=$<TARGET_FILE:vasdk_c>;VASDK_PYTHON_PROTOS=${VASDK_ROOT_BINARY_DIR}/bindings/python/vasdk")
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
 include(GNUInstallDirs)
@@ -229,7 +232,7 @@ if(VASDK_BUILD_TESTS)
         # The model store from Python (the other Python suites run the sample apps' agents: VASDK_APP)
         if(VASDK_BUILD_PYTHON_BINDING)
             add_test(NAME vasdk_python_models COMMAND ${Python3_EXECUTABLE} ${VASDK_ROOT_DIR}/bindings/python/tests/test_models.py)
-            set_tests_properties(vasdk_python_models PROPERTIES ENVIRONMENT "VASDK_LIBRARY=$<TARGET_FILE:vasdk_c>")
+            set_tests_properties(vasdk_python_models PROPERTIES ENVIRONMENT "${VASDK_PYTHON_TEST_ENVIRONMENT}")
         endif()
         # C and the bindings that are on level with the C++ API (skills/vasdk-binding-parity)
         if(VASDK_BUILD_PYTHON_BINDING OR VASDK_BUILD_KOTLIN_BINDING)

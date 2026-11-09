@@ -54,9 +54,13 @@ bool makeCertificate(const std::filesystem::path& folder, std::string& cert, std
     X509_gmtime_adj(X509_getm_notBefore(x509), 0);
     X509_gmtime_adj(X509_getm_notAfter(x509), 60L * 60 * 24);
     X509_set_pubkey(x509, pkey);
-    X509_NAME* name = X509_get_subject_name(x509);
+    // A name of its own, set as subject and issuer: newer OpenSSL releases (the macOS runner's) return a
+    // const name from X509_get_subject_name(), which can't take an entry
+    X509_NAME* name = X509_NAME_new();
     X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC, reinterpret_cast<const unsigned char*>("127.0.0.1"), -1, -1, 0);
+    X509_set_subject_name(x509, name);
     X509_set_issuer_name(x509, name);
+    X509_NAME_free(name);
     const bool signedOk = X509_sign(x509, pkey, EVP_sha256()) > 0;
     cert = (folder / "remote_control_test.crt").string();
     key = (folder / "remote_control_test.key").string();

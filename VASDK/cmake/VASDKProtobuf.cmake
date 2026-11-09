@@ -64,6 +64,13 @@ else()
     set(protobuf_BUILD_SHARED_LIBS  OFF CACHE BOOL "" FORCE)
     set(protobuf_INSTALL            OFF CACHE BOOL "" FORCE)
     set(protobuf_WITH_ZLIB          OFF CACHE BOOL "" FORCE)
+    # The C runtime of the code linking it: the DLL one unless CMAKE_MSVC_RUNTIME_LIBRARY picks the
+    # static one (protobuf's own default is static, which MSVC refuses to link with /MD code)
+    if(NOT CMAKE_MSVC_RUNTIME_LIBRARY OR CMAKE_MSVC_RUNTIME_LIBRARY MATCHES "DLL")
+        set(protobuf_MSVC_STATIC_RUNTIME OFF CACHE BOOL "" FORCE)
+    else()
+        set(protobuf_MSVC_STATIC_RUNTIME ON CACHE BOOL "" FORCE)
+    endif()
     set(ABSL_PROPAGATE_CXX_STD      ON  CACHE BOOL "" FORCE)
     set(ABSL_ENABLE_INSTALL         OFF CACHE BOOL "" FORCE)
     fetchcontent_declare(

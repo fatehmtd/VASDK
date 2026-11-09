@@ -44,15 +44,15 @@ if(VASDK_ENABLE_ENGINE_CONFIG AND TARGET VASDK)
         if(VASDK_BUILD_PYTHON_BINDING AND Python3_Interpreter_FOUND AND TARGET vasdk_c)
             add_test(NAME vasdk_python_garage
                      COMMAND ${Python3_EXECUTABLE} ${VASDK_ROOT_DIR}/bindings/python/tests/test_garage.py ${GARAGE_DIR})
-            set_tests_properties(vasdk_python_garage PROPERTIES ENVIRONMENT "VASDK_LIBRARY=$<TARGET_FILE:vasdk_c>")
+            set_tests_properties(vasdk_python_garage PROPERTIES ENVIRONMENT "${VASDK_PYTHON_TEST_ENVIRONMENT}")
             # A page type and an entity extractor written in Python
             add_test(NAME vasdk_python_extensions
                      COMMAND ${Python3_EXECUTABLE} ${VASDK_ROOT_DIR}/bindings/python/tests/test_extensions.py)
-            set_tests_properties(vasdk_python_extensions PROPERTIES ENVIRONMENT "VASDK_LIBRARY=$<TARGET_FILE:vasdk_c>")
+            set_tests_properties(vasdk_python_extensions PROPERTIES ENVIRONMENT "${VASDK_PYTHON_TEST_ENVIRONMENT}")
             # Providers, processors, a runtime, and the conversation's controls, written in Python
             add_test(NAME vasdk_python_providers
                      COMMAND ${Python3_EXECUTABLE} ${VASDK_ROOT_DIR}/bindings/python/tests/test_providers.py)
-            set_tests_properties(vasdk_python_providers PROPERTIES ENVIRONMENT "VASDK_LIBRARY=$<TARGET_FILE:vasdk_c>" TIMEOUT 120)
+            set_tests_properties(vasdk_python_providers PROPERTIES ENVIRONMENT "${VASDK_PYTHON_TEST_ENVIRONMENT}" TIMEOUT 120)
         endif()
         add_test(NAME vasdk_agent_garage_menu_nlu
                  COMMAND garage_agentc eval ${GARAGE_DIR}/agent.txtpb ${GARAGE_DIR}/nlu_eval.txtpb --min-accuracy 0.9)
