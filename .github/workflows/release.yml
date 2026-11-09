@@ -42,8 +42,8 @@ jobs:
         include:
           - { name: linux-x64,   os: ubuntu-24.04,     archive: tar.gz }
           - { name: linux-arm64, os: ubuntu-24.04-arm, archive: tar.gz }
-          - { name: macos-arm64, os: macos-14,         archive: tar.gz }
-          - { name: macos-x64,   os: macos-13,         archive: tar.gz }
+          - { name: macos-arm64, os: macos-15,         archive: tar.gz }
+          - { name: macos-x64,   os: macos-15-intel,   archive: tar.gz }
           - { name: windows-x64, os: windows-2022,     archive: zip }
     # The full flavor carries many third-party clients: a failure there doesn't hold the release
     continue-on-error: ${{ matrix.flavor == 'full' }}

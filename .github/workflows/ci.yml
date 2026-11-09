@@ -28,7 +28,7 @@ jobs:
         include:
           - { name: linux-x64,   os: ubuntu-24.04 }
           - { name: linux-arm64, os: ubuntu-24.04-arm }
-          - { name: macos-arm64, os: macos-14 }
+          - { name: macos-arm64, os: macos-15 }
           - { name: windows-x64, os: windows-2022 }
     steps:
       - uses: actions/checkout@v4

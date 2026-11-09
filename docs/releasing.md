@@ -43,7 +43,7 @@ flowchart LR
 | Platform | Runner | Note |
 | --- | --- | --- |
 | `linux-x64`, `linux-arm64` | Ubuntu 24.04 | Needs the system's OpenSSL (libssl 3) and glibc 2.39. A manylinux_2_28 container comes next, for older distributions |
-| `macos-arm64`, `macos-x64` | macOS 14, macOS 13 | |
+| `macos-arm64`, `macos-x64` | macOS 15 (Apple silicon, Intel) | |
 | `windows-x64` | Windows Server 2022, MSVC | curl over Schannel, no OpenSSL |
 
 The `full` flavor carries many third-party clients. A failure there doesn't hold the other archives.
