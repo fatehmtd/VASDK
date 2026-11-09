@@ -32,6 +32,7 @@ flowchart LR
 | Models | `VASDK/include/VASDK/ModelStore.h`, `VASDK/src/c/vasdk_c_models.cpp`, `VASDK_3P_IMPL/models/manifest.json` (built in), `VASDK_3P_IMPL/models/generate_manifest.py`; at configure time `VASDK_3P_IMPL/cmake/VASDKModels.cmake` (`vasdk_download_model`), which the `Download*.cmake` scripts call | [Models](../../docs/models.md) |
 | The command | `VASDK/tools/vasdk/main.cpp` (`vasdk models ...`, installed in `bin/`), `cmake/c_library/test_vasdk_command.cmake` | [Models, The command](../../docs/models.md#the-command) |
 | Another project's view | `tests/consumer/c_library/` (C and `vasdk.hpp`), `tests/consumer/run_consumer_test.cmake` | |
+| Conan | `conanfile.py` (the C library from this tree, dependencies from Conan), `test_package/` | [Conan](../../docs/integrating.md#conan) |
 
 ## Rules
 
@@ -46,7 +47,7 @@ flowchart LR
 
 ## Steps
 
-- **A new dependency:** `vasdk_dependency(<package> TARGET <target> FIND CONFIG DECLARE <FetchContent arguments>)` in the file that needs it. A prebuilt library is an `IMPORTED` target with its hash, as `VASDK_3P_IMPL/cmake/FindONNXRuntime.cmake` does. A shared one the C library loads gets installed beside it in `cmake/VASDKInstall.cmake`.
+- **A new dependency:** `vasdk_dependency(<package> TARGET <target> FIND CONFIG DECLARE <FetchContent arguments>)` in the file that needs it, and the same version in `conanfile.py`'s `requirements()` when Conan Center has it. A prebuilt library is an `IMPORTED` target with its hash, as `VASDK_3P_IMPL/cmake/FindONNXRuntime.cmake` does. A shared one the C library loads gets installed beside it in `cmake/VASDKInstall.cmake`.
 - **A new C function:** follow [vasdk-bindings](../vasdk-bindings/SKILL.md). The version script and exported symbols list cover `vasdk_*` already.
 - **A breaking change to the C API:** only in a new major version. Raise `VASDK_C_API_VERSION` (the soname follows) and the major in `VERSION`.
 - **A new provider:** add it to a flavor ([vasdk-provider](../vasdk-provider/SKILL.md), row 17). Its `VASDK::<name>` alias and its `find_package` component come from the catalog.
@@ -58,6 +59,7 @@ flowchart LR
 - **Models:** `vasdk_model_store` (offline), `vasdk_model_store_network` (skipped without network), `vasdk_command`, `vasdk_model_downloads` (the configure-time downloads, and every id they use is in the manifest).
 - **Exports:** `dumpbin /exports vasdk_c.dll` (Windows), `nm -D --defined-only libvasdk_c.so` (Linux) or `nm -gU libvasdk_c.dylib` (macOS) lists `vasdk_*` only.
 - **Subproject:** a FetchContent build of VASDK from another project configures with no app, test or model download.
+- **Conan:** `conan create . -s compiler.cppstd=17 --build=missing` builds the package and runs `test_package/` (CI's `conan` job).
 
 ## Done when
 

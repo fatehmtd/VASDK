@@ -54,7 +54,7 @@ find_package(VASDK 1.0 REQUIRED)
 target_link_libraries(my_app PRIVATE VASDK::c)
 ```
 
-pkg-config (`pkg-config --cflags --libs vasdk`) works too, and C++ programs on the prebuilt library use the header-only `<VASDK/c/vasdk.hpp>`. Release archives, Conan, Homebrew, PyPI and Maven Central (`com.vasdk`) are on the way ([Packages](docs/integrating.md#packages)).
+pkg-config (`pkg-config --cflags --libs vasdk`) works too, and C++ programs on the prebuilt library use the header-only `<VASDK/c/vasdk.hpp>`. Conan builds it with [the recipe in the repository](docs/integrating.md#conan). Release archives, Homebrew, PyPI and Maven Central (`com.vasdk`) are on the way ([Packages](docs/integrating.md#packages)).
 
 No package ships model files. The `vasdk` command installed with the library downloads them, checks their SHA-256 and puts them where sessions look ([Models](docs/models.md)):
 

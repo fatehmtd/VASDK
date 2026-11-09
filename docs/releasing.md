@@ -53,7 +53,8 @@ The `full` flavor carries many third-party clients. A failure there doesn't hold
 | Channel | Built from | Credentials | State |
 | --- | --- | --- | --- |
 | GitHub release | `release.yml` | `GITHUB_TOKEN` | Ready |
-| Conan Center | `conanfile.py`, a pull request to conan-center-index | None | Planned |
+| Conan | [`conanfile.py`](../conanfile.py) in the repository, built by CI | None | Ready ([Conan](integrating.md#conan)) |
+| Conan Center | The same recipe, in a pull request to conan-center-index | None | Planned: Conan Center builds offline, so ONNX Runtime and the providers' sources must come from Conan first |
 | Homebrew | A formula in a tap, from the source archive | A tap repository | Planned |
 | PyPI | cibuildwheel wheels with the C library inside | Trusted publishing (OIDC), no token | Planned |
 | Maven Central | `com.vasdk:vasdk-android`, `com.vasdk:vasdk-jvm` | The `com.vasdk` namespace (verified by a DNS TXT record on vasdk.com) and a signing key | Planned |

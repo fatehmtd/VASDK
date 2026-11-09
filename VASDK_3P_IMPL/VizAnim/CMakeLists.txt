@@ -1,3 +1,8 @@
+# Highway (SIMD): hwy::hwy, fetched or installed (root CMakeLists.txt)
+if(NOT TARGET hwy::hwy)
+    message(FATAL_ERROR "VizAnim needs Google Highway: turn VASDK_ENABLE_HIGHWAY on, or VASDK_BUILD_VIZANIM off")
+endif()
+
 # Fetch pffft for efficient FFT computation
 include(FetchContent)
 
@@ -37,7 +42,7 @@ target_include_directories(vasdk_vizanim
 
 target_link_libraries(vasdk_vizanim
     PUBLIC  spdlog::spdlog
-    PUBLIC  hwy
+    PUBLIC  hwy::hwy
     PUBLIC  VASDK
     PRIVATE PFFFT
 )

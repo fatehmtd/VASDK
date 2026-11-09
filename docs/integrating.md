@@ -100,7 +100,7 @@ You can also skip the install: `-DVASDK_DIR=<VASDK's build directory>` points `f
 Each installed library has a fixed location:
 
 - **Linux and macOS:** the library finds ONNX Runtime beside itself (rpath `$ORIGIN`, `@loader_path`).
-- **Windows:** there is no rpath, so `vasdk_copy_runtime(<target>)` copies `vasdk_c.dll` and the DLLs it loads beside your program after each build. It works from source, from a build tree and from an install. The other way is to keep `bin/` on `PATH`.
+- **Windows:** there is no rpath, so `vasdk_copy_runtime(<target>)` copies `vasdk_c.dll` and the DLLs it loads beside your program after each build. It works from source, from a build tree and from an install. Keeping `bin/` on `PATH` is not enough: Windows 11 ships an older `onnxruntime.dll` in System32, and Windows looks there before `PATH`, so the library would load that one.
 
 `bin/` also holds `vasdk`, the command that downloads models ([Models](#models)).
 
@@ -215,11 +215,47 @@ Which channels publish VASDK, and their state:
 | CMake (`FetchContent`, `add_subdirectory`, CPM) | C++ API and C library from source | Available |
 | `cmake --install`, `find_package`, pkg-config | The C library | Available |
 | GitHub Releases | Archives per platform and flavor, checksums, SBOM | Planned (CI and release workflow) |
-| Conan | The C library from source, dependencies from Conan | Planned |
+| Conan | The C library from source, dependencies from Conan | The recipe in the repository ([Conan](#conan)); Conan Center later |
 | Homebrew | The C library | Planned |
 | PyPI (`pip install vasdk`) | The Python binding with the C library inside | Planned ([bindings/python](../bindings/python/README.md) builds a wheel locally today) |
 | Maven Central (`com.vasdk:vasdk-android`, `com.vasdk:vasdk-jvm`) | The Kotlin binding with the C library inside | Planned ([Android](apps/android.md#the-kotlin-binding-as-an-aar) builds the AAR locally today) |
 | NuGet, npm, SwiftPM, crates.io, Go, pub.dev | Bindings over the C library | Later |
+
+### Conan
+
+[`conanfile.py`](../conanfile.py) builds the C library from a checkout of this repository into your Conan cache. It takes spdlog, nlohmann_json, cpp-httplib, protobuf, libcurl and Highway from Conan:
+
+```bash
+conan create . -s compiler.cppstd=17 --build=missing                          # flavor default
+conan create . -s compiler.cppstd=17 --build=missing -o "vasdk/*:flavor=full"  # or core
+```
+
+A project then requires `vasdk` and uses the package's own `find_package(VASDK)`, as with an archive:
+
+```ini
+# conanfile.txt
+[requires]
+vasdk/1.0.0
+
+[generators]
+CMakeToolchain
+```
+
+```cmake
+find_package(VASDK REQUIRED)
+target_link_libraries(app PRIVATE VASDK::c)
+vasdk_copy_runtime(app)   # Windows: vasdk_c.dll and ONNX Runtime beside app
+```
+
+- **Needs C++17:** a profile that says `compiler.cppstd=14` (what `conan profile detect` writes for MSVC) gets `-s compiler.cppstd=17`.
+- **Dependencies are hidden.** They are linked into `vasdk_c` statically and hidden, so a consumer links `VASDK::c` and nothing else.
+- **Downloads at build time:**
+  - ONNX Runtime: Microsoft's prebuilt shared library, pinned by SHA-256 and installed beside `vasdk_c`. Conan's own `onnxruntime` needs protobuf older than 7.
+  - The sources a few providers compile in.
+
+  This is why the recipe isn't on Conan Center yet: Conan Center builds offline.
+- **No models:** the package holds none; the [model store](models.md) fetches them at run time.
+- **Tested:** [`test_package/`](../test_package) builds and runs the programs of `tests/consumer/c_library` against the package. CI runs `conan create` on Linux and Windows.
 
 ## Platforms
 
