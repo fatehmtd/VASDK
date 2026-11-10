@@ -52,6 +52,11 @@ jobs:
           path: build/ci/VASDK_3P_IMPL/models
           key: models-${{ matrix.name }}-${{ hashFiles('VASDK_3P_IMPL/cmake/Download*.cmake') }}
           restore-keys: models-${{ matrix.name }}-
+      - name: Evaluation set cache   # docs/evaluation.md: the clips the vasdk_eval_* tests read
+        uses: actions/cache@v4
+        with:
+          path: build/ci/VASDK_3P_IMPL/eval
+          key: eval-${{ hashFiles('VASDK_3P_IMPL/Evaluation/data/manifest.json') }}
 
       - name: Configure
         run: >

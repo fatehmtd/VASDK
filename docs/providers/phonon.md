@@ -99,5 +99,6 @@ flowchart LR
 | `phonon_chunk_unit` | unit | nothing | `ctest --test-dir build -R phonon_chunk_unit` |
 | `phonon_chunk_parity` | unit | the tokenizer | `ctest --test-dir build -R phonon_chunk_parity` |
 | `vasdk_offline_conversation` | integration | the default models | `ctest --test-dir build -R vasdk_offline_conversation` |
+| `vasdk_eval_tts_phonon` | evaluation: FLEURS sentences synthesized, then recognized by a local STT ([Evaluation](../evaluation.md)): 2.5% of the words misheard | the evaluation set, an STT (skipped without) | `ctest --test-dir build -L eval` |
 
 A test that needs a model or a key reports "skipped" without it.

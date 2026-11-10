@@ -64,6 +64,10 @@ Voz STT ([Desert Ant Labs](https://huggingface.co/desert-ant-labs/voz)) is NVIDI
 
 GLiNER ([urchade/GLiNER](https://github.com/urchade/GLiNER), Apache 2.0) is the on-device [entity model](reference/flows.md#entity-models), `providers { entity_model { id: "gliner" } }`. It is off by default: `-DVASDK_BUILD_GLINER_NER=ON` downloads the int8 ONNX export of gliner_small-v2.1 (English, 183 MB), or gliner_multi-v2.1 with `-DVASDK_GLINER_MODEL=multi` (349 MB), each file pinned by revision and SHA-256, into `models/gliner`. `GlinerOptions { model_dir threshold }` (default 0.5). A parity test (`vasdk_gliner_ner`) checks its scores against those of the Python reference on the same ONNX Runtime. Not built for Android yet. The other two entity models, `tagger` (needs MiniLM) and `llm`, are in the core library and need no build option.
 
+## How well they do
+
+Each local provider is measured on real read speech (LibriSpeech, FLEURS) by `vasdk_provider_eval`: word error rates for STT, a recognizer's error on synthesized speech for TTS, F1 against labelled speech for VAD, turn accuracy, speaker EER, recognition through noise suppression. Its ctest holds it to its baselines ([Evaluation](evaluation.md)).
+
 ## Sources and licenses
 
 Where each provider's underlying code or API actually comes from, and under what license. Model-weight licenses (downloaded separately at build time) are covered in full in [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md); this table is about the implementation - the SDK, inference code, or API a provider target wraps.

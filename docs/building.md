@@ -26,7 +26,7 @@ cmake -B build -S . -DVASDK_BUILD_APPS=ON          # VASDK_Pipeline, VASDK_CallC
 cmake -B build -S . -DVASDK_BUILD_APP=ON           # the pipeline app alone (VASDK_BUILD_CALLCENTER, VASDK_BUILD_CAR)
 ```
 
-The tests run with `-DVASDK_BUILD_TESTS=ON`; the garage agent's suites live in `VASDK_APP`, so a full test run also turns on the apps (`-DVASDK_BUILD_APPS=ON`).
+The tests run with `-DVASDK_BUILD_TESTS=ON`; the garage agent's suites live in `VASDK_APP`, so a full test run also turns on the apps (`-DVASDK_BUILD_APPS=ON`). `-DVASDK_DOWNLOAD_EVAL_DATA=ON` also downloads the evaluation set (about 37 MB), so the `vasdk_eval_*` tests measure the local providers on real speech instead of skipping ([Evaluation](evaluation.md)).
 
 ### Presets
 

@@ -2,7 +2,8 @@
 # (VASDK_3P_IMPL/models/manifest.json): the same list, URLs and SHA-256s the model store downloads
 # from at run time (docs/models.md). The Download*.cmake scripts call one function:
 #
-#   vasdk_download_model(<model id> DIRECTORY <dir> [STRIP <prefix>] [REQUIRED] [RESULT <variable>])
+#   vasdk_download_model(<model id> DIRECTORY <dir> [STRIP <prefix>] [REQUIRED] [RESULT <variable>]
+#                        [MANIFEST <file>])
 #
 # - Each file of the model lands at <dir>/<path>, with <prefix> taken off the front of the
 #   manifest's path: vasdk_download_model(parakeet DIRECTORY ${PARAKEET_MODEL_DIR} STRIP parakeet/).
@@ -14,6 +15,8 @@
 # - A gated model sends the Hugging Face token (HF_TOKEN, else the file `hf auth login` writes), and
 #   only to huggingface.co. A model whose license needs reading first prints that license.
 # - A failure warns, or stops the configure with REQUIRED, and sets <variable> to OFF.
+# - MANIFEST reads that manifest instead of VASDK_MODEL_MANIFEST: the evaluation data has its own
+#   (VASDK_3P_IMPL/Evaluation/data/manifest.json, docs/evaluation.md).
 #
 # VASDK_MODEL_MANIFEST names another manifest: a mirror, or models of your own. The runtime takes
 # the same file through `vasdk models --manifest` and `manifest_path`.
@@ -68,7 +71,7 @@ function(_vasdk_huggingface_token output)
 endfunction()
 
 function(vasdk_download_model model_id)
-    cmake_parse_arguments(PARSE_ARGV 1 ARG "REQUIRED" "DIRECTORY;STRIP;RESULT" "")
+    cmake_parse_arguments(PARSE_ARGV 1 ARG "REQUIRED" "DIRECTORY;STRIP;RESULT;MANIFEST" "")
     if(NOT ARG_DIRECTORY)
         message(FATAL_ERROR "vasdk_download_model(${model_id}): DIRECTORY is required")
     endif()
@@ -80,13 +83,17 @@ function(vasdk_download_model model_id)
         set(${ARG_RESULT} OFF PARENT_SCOPE)
     endif()
 
-    if(NOT EXISTS "${VASDK_MODEL_MANIFEST}")
-        message(FATAL_ERROR "VASDK_MODEL_MANIFEST: no file ${VASDK_MODEL_MANIFEST}")
+    set(manifest_path "${VASDK_MODEL_MANIFEST}")
+    if(ARG_MANIFEST)
+        set(manifest_path "${ARG_MANIFEST}")
     endif()
-    file(READ "${VASDK_MODEL_MANIFEST}" manifest)
+    if(NOT EXISTS "${manifest_path}")
+        message(FATAL_ERROR "vasdk_download_model(${model_id}): no manifest ${manifest_path}")
+    endif()
+    file(READ "${manifest_path}" manifest)
     string(JSON model_count ERROR_VARIABLE manifest_error LENGTH "${manifest}" models)
     if(manifest_error)
-        message(FATAL_ERROR "${VASDK_MODEL_MANIFEST} is not a model manifest: ${manifest_error}")
+        message(FATAL_ERROR "${manifest_path} is not a model manifest: ${manifest_error}")
     endif()
     set(model "")
     if(model_count GREATER 0)
@@ -100,7 +107,7 @@ function(vasdk_download_model model_id)
         endforeach()
     endif()
     if(model STREQUAL "")
-        message(FATAL_ERROR "Model '${model_id}' is not in ${VASDK_MODEL_MANIFEST}")
+        message(FATAL_ERROR "Model '${model_id}' is not in ${manifest_path}")
     endif()
 
     string(JSON license ERROR_VARIABLE no_license GET "${model}" license)

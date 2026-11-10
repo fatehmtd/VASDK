@@ -68,5 +68,6 @@ flowchart LR
 | --- | --- | --- | --- |
 | `pyannote_fbank_parity` | unit | nothing (goldens in the repo) | `ctest --test-dir build -R pyannote_fbank_parity` |
 | `vasdk_dsp_speaker` | integration: by config id, and a session with it | `pyannote_embedding.onnx` (skipped without) | `ctest --test-dir build -R vasdk_dsp_speaker` |
+| `vasdk_eval_speaker_pyannote` | evaluation: every pair of LibriSpeech clips, same speaker or not ([Evaluation](../evaluation.md)): EER 0% on 10 speakers | the evaluation set (skipped without) | `ctest --test-dir build -L eval` |
 
 A test that needs a model or a key reports "skipped" without it.

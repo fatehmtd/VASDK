@@ -393,7 +393,7 @@ if(VASDK_BUILD_LLAMACPP)
     # A normal variable, saved and put back, so the outer project's cache is left alone.
     set(_vasdk_saved_shared_libs ${BUILD_SHARED_LIBS})
     set(BUILD_SHARED_LIBS OFF)
-    add_subdirectory(${llamacpp_SOURCE_DIR} ${llamacpp_BINARY_DIR})
+    add_subdirectory(${llamacpp_SOURCE_DIR} ${llamacpp_BINARY_DIR} EXCLUDE_FROM_ALL)   # its own install rules stay out of VASDK's
     set(BUILD_SHARED_LIBS ${_vasdk_saved_shared_libs})
 endif()
 
@@ -411,8 +411,8 @@ if(VASDK_BUILD_WHISPERCPP)
     set(GGML_BUILD_TESTS      OFF CACHE BOOL "" FORCE)
     fetchcontent_declare(
         whispercpp
-        GIT_REPOSITORY https://github.com/ggerganov/whisper.cpp.git
-        GIT_TAG        v1.7.4  # pinned for reproducible builds; update to upgrade
+        GIT_REPOSITORY https://github.com/ggml-org/whisper.cpp.git
+        GIT_TAG        v1.9.5  # pinned; built against the ggml Phonon and llama.cpp share (an older one no longer compiles)
         ${VASDK_FETCH_EXCLUDE}   # its own install rules stay out of VASDK's
     )
     fetchcontent_makeavailable(whispercpp)
@@ -602,4 +602,8 @@ endif()
 # Provider catalog (engine config ids -> providers); needs the protobuf-based engine config
 if(VASDK_ENABLE_ENGINE_CONFIG)
     add_subdirectory(ProviderCatalog)
+    # Provider evaluation on real speech (docs/evaluation.md): a tool and its ctests
+    if(VASDK_BUILD_TESTS AND NOT ANDROID)
+        add_subdirectory(Evaluation)
+    endif()
 endif()

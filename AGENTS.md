@@ -11,7 +11,7 @@ ctest --test-dir build --output-on-failure          # tests needing models or AP
 ./build/VASDK_APP/VASDK_Pipeline --config VASDK_APP/config/engine.txtpb --env-file .env
 ```
 
-The sample apps are optional (`VASDK_BUILD_APPS`, off by default) and the garage agent's suites live in `VASDK_APP`, so a full test run turns them on. `cmake --preset dev` does the same into build/dev. Prerequisites, presets, CMake options and model downloads: [docs/building.md](docs/building.md). How another project consumes VASDK (`VASDK::c`, `find_package`, flavors): [docs/integrating.md](docs/integrating.md). With Visual Studio or Xcode, binaries land under an extra `Release/` folder.
+Local providers are also measured on real speech (`-DVASDK_DOWNLOAD_EVAL_DATA=ON`, then `ctest -L eval`; [docs/evaluation.md](docs/evaluation.md)). The sample apps are optional (`VASDK_BUILD_APPS`, off by default) and the garage agent's suites live in `VASDK_APP`, so a full test run turns them on. `cmake --preset dev` does the same into build/dev. Prerequisites, presets, CMake options and model downloads: [docs/building.md](docs/building.md). How another project consumes VASDK (`VASDK::c`, `find_package`, flavors): [docs/integrating.md](docs/integrating.md). With Visual Studio or Xcode, binaries land under an extra `Release/` folder.
 
 ## Layout
 

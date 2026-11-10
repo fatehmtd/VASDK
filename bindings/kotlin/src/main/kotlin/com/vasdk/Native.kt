@@ -75,6 +75,8 @@ internal interface VasdkLibrary : Library {
                           error: PointerByReference): Int
     fun vasdk_models_verify(models: Pointer, id: String, error: PointerByReference): Int
     fun vasdk_models_remove(models: Pointer, id: String, error: PointerByReference): Int
+    fun vasdk_score_transcript(reference: String?, hypothesis: String?): Pointer?
+    fun vasdk_normalize_transcript(text: String?): Pointer?
 
     fun vasdk_registry_create(): Pointer
     fun vasdk_registry_free(registry: Pointer)

@@ -104,5 +104,6 @@ flowchart LR
 | Test | Kind | Needs | Run |
 | --- | --- | --- | --- |
 | `vasdk_offline_conversation` | integration | the models (with `parakeet` as its STT argument) | `ctest --test-dir build -R vasdk_offline_conversation` |
+| `vasdk_eval_stt_parakeet_oneshot`, `vasdk_eval_stt_parakeet_streaming` | evaluation: LibriSpeech and FLEURS speech against what was said ([Evaluation](../evaluation.md)): WER 3.0% English, 7.1% French | the evaluation set (skipped without) | `ctest --test-dir build -L eval` |
 
 A test that needs a model or a key reports "skipped" without it.

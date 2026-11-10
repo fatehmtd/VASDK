@@ -86,6 +86,13 @@ using Shared = std::shared_ptr<Handle>;
 inline std::string version() { return vasdk_version(); }
 /// The library's C API version: lower than VASDK_C_API_VERSION means this header is newer than it
 inline int apiVersion() { return vasdk_c_api_version(); }
+
+/// Word and character errors of `hypothesis` against `reference`, as JSON (vasdk_score_transcript)
+inline std::string scoreTranscript(const std::string& reference, const std::string& hypothesis) {
+    return detail::take(vasdk_score_transcript(reference.c_str(), hypothesis.c_str()));
+}
+/// The text as it is scored (vasdk_normalize_transcript)
+inline std::string normalizeTranscript(const std::string& text) { return detail::take(vasdk_normalize_transcript(text.c_str())); }
 /// "trace", "debug", "info", "warn", "error" or "off": VASDK's and the providers' logs
 inline void setLogLevel(const std::string& level) {
     if (!vasdk_set_log_level(level.c_str())) throw Error("unknown log level: " + level);

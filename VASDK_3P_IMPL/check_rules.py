@@ -7,7 +7,8 @@
 Rules checked:
   1. every header and source of an integration declares its code in namespace
      va::thirdparty::<category>, the category being one of CATEGORIES (the catalog, which
-     registers every category, sits in va::thirdparty itself); inside it, the core namespaces
+     registers every category, sits in va::thirdparty itself, and the evaluation harness, which
+     measures every category, in va::thirdparty::evaluation); inside it, the core namespaces
      that a category shadows (audio, transport, llm, nlu) are written in full: va::audio::
   2. no `static` variable in a source file (.cpp/.cc), at file scope or in a function; static
      functions and class constants are fine, fixed tables are constexpr
@@ -37,6 +38,7 @@ STATIC_EXEMPT = {
 # One per stage skill (skills/vasdk-<stage>); a new kind of integration adds its category here and in AGENTS.md.
 CATEGORIES = ("vad", "stt", "tts", "turn", "wakeword", "llm", "nlu", "speaker", "audio", "transport")
 CATALOG_FOLDER = "ProviderCatalog/"
+EVALUATION_FOLDER = "Evaluation/"
 NAMESPACE = re.compile(r"namespace\s+(?:va::thirdparty|va\s*\{\s*namespace\s+thirdparty)(?:::(\w+)(?:::\w+)*)?\s*\{")
 SHADOWED_CORE = re.compile(r"(?<![\w:])(audio|transport|llm|nlu)::(?=[A-Za-z_])")
 STATIC_LINE = re.compile(r"^\s*(?:inline\s+)?static\b(?!_)(.*)$", re.MULTILINE)
@@ -67,6 +69,9 @@ def violations(relative_path, text):
         if relative_path.startswith(CATALOG_FOLDER):
             if not categories:
                 found.append(f"{relative_path}: not in namespace va::thirdparty")
+        elif relative_path.startswith(EVALUATION_FOLDER):
+            if "evaluation" not in categories:
+                found.append(f"{relative_path}: not in namespace va::thirdparty::evaluation")
         elif not any(category in CATEGORIES for category in categories):
             found.append(f"{relative_path}: not in namespace va::thirdparty::<category> "
                          f"(one of {', '.join(CATEGORIES)})")
@@ -116,6 +121,9 @@ def self_test():
         ("Nested/Nested.h", "namespace va {\nnamespace thirdparty::tts {\nclass N {};\n}\n}\n", []),
         ("Port/impl/port.h", "namespace va::thirdparty::tts::port {\nclass P {};\n}\n", []),
         ("ProviderCatalog/Catalog.h", "namespace va::thirdparty {\nvoid registerAll();\nusing E = nlu::Encoder;\n}\n", []),
+        ("Evaluation/Stages.h", "namespace va::thirdparty::evaluation {\nusing Config = va::audio::AudioConfig;\n}\n", []),
+        ("Evaluation/Wrong.h", "namespace va::thirdparty::stt {\nclass W {};\n}\n", ["not in namespace va::thirdparty::evaluation"]),
+        ("Evaluation/Shadow.h", "namespace va::thirdparty::evaluation {\nusing C = audio::AudioConfig;\n}\n", ["write va::audio:: in full"]),
         ("Shadow/Shadow.h", "namespace va::thirdparty::stt {\nusing Config = audio::AudioConfig;\n"
                             "using Full = va::audio::AudioConfig;\n}\n", ["write va::audio:: in full"]),
         ("File/File.cpp", good + "static int counter = 0;\n}\n", ["static variable: static int counter = 0;"]),

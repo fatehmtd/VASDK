@@ -85,5 +85,6 @@ flowchart LR
 | Test | Kind | Needs | Run |
 | --- | --- | --- | --- |
 | `smartturn_features_parity` | unit | nothing (goldens in the repo) | `ctest --test-dir build -R smartturn_features_parity` |
+| `vasdk_eval_turn_smartturn_v3` | evaluation: finished sentences and sentences stopped mid-phrase, the VAD's states at their real timings ([Evaluation](../evaluation.md)). Finished ones end the turn 80 ms after the speech; 75% of stopped ones end it before the VAD would, 30% within 0.5 s | the evaluation set (skipped without) | `ctest --test-dir build -L eval` |
 
 A test that needs a model or a key reports "skipped" without it.

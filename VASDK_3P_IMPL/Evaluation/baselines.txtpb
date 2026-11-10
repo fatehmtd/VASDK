@@ -1,0 +1,122 @@
+# proto-file: VASDK_3P_IMPL/Evaluation/proto/vasdk/eval/eval_set.proto
+# proto-message: vasdk.eval.Baselines
+#
+# What each local provider scored on the evaluation set (docs/evaluation.md), and how much worse
+# it may get: `vasdk_provider_eval --check` fails past value + margin (value - margin when higher
+# is better). Written by `vasdk_provider_eval --write-baselines`; margins edited by hand stay.
+baselines { stage: "stt" provider: "moonshine" mode: "oneshot" language: "en-US" metric: "cer" value: 0.0125 margin: 0.03 tier: SMOKE }
+baselines { stage: "stt" provider: "moonshine" mode: "oneshot" language: "en-US" metric: "wer" value: 0.0398 margin: 0.03 tier: SMOKE }
+baselines { stage: "stt" provider: "moonshine" mode: "streaming" language: "en-US" metric: "cer" value: 0.0125 margin: 0.03 tier: SMOKE }
+baselines { stage: "stt" provider: "moonshine" mode: "streaming" language: "en-US" metric: "wer" value: 0.0398 margin: 0.03 tier: SMOKE }
+baselines { stage: "stt" provider: "parakeet" mode: "oneshot" language: "en-US" metric: "cer" value: 0.0136 margin: 0.03 tier: SMOKE }
+baselines { stage: "stt" provider: "parakeet" mode: "oneshot" language: "en-US" metric: "wer" value: 0.0341 margin: 0.03 tier: SMOKE }
+baselines { stage: "stt" provider: "parakeet" mode: "oneshot" language: "fr-FR" metric: "cer" value: 0.019 margin: 0.03 tier: SMOKE }
+baselines { stage: "stt" provider: "parakeet" mode: "oneshot" language: "fr-FR" metric: "wer" value: 0.0561 margin: 0.03 tier: SMOKE }
+baselines { stage: "stt" provider: "parakeet" mode: "streaming" language: "en-US" metric: "cer" value: 0.0245 margin: 0.03 tier: SMOKE }
+baselines { stage: "stt" provider: "parakeet" mode: "streaming" language: "en-US" metric: "wer" value: 0.0455 margin: 0.03 tier: SMOKE }
+baselines { stage: "stt" provider: "parakeet" mode: "streaming" language: "fr-FR" metric: "cer" value: 0.038 margin: 0.03 tier: SMOKE }
+baselines { stage: "stt" provider: "parakeet" mode: "streaming" language: "fr-FR" metric: "wer" value: 0.0841 margin: 0.03 tier: SMOKE }
+baselines { stage: "stt" provider: "whistle" mode: "oneshot" language: "en-US" metric: "cer" value: 0.0256 margin: 0.03 tier: SMOKE }
+baselines { stage: "stt" provider: "whistle" mode: "oneshot" language: "en-US" metric: "wer" value: 0.0568 margin: 0.03 tier: SMOKE }
+baselines { stage: "stt" provider: "whistle" mode: "oneshot" language: "fr-FR" metric: "cer" value: 0.0823 margin: 0.03 tier: SMOKE }
+baselines { stage: "stt" provider: "whistle" mode: "oneshot" language: "fr-FR" metric: "wer" value: 0.1682 margin: 0.03 tier: SMOKE }
+baselines { stage: "stt" provider: "whistle" mode: "streaming" language: "en-US" metric: "cer" value: 0.0204 margin: 0.03 tier: SMOKE }
+baselines { stage: "stt" provider: "whistle" mode: "streaming" language: "en-US" metric: "wer" value: 0.054 margin: 0.03 tier: SMOKE }
+baselines { stage: "stt" provider: "whistle" mode: "streaming" language: "fr-FR" metric: "cer" value: 0.0775 margin: 0.03 tier: SMOKE }
+baselines { stage: "stt" provider: "whistle" mode: "streaming" language: "fr-FR" metric: "wer" value: 0.1495 margin: 0.03 tier: SMOKE }
+baselines { stage: "tts" provider: "moss" mode: "judge parakeet" language: "en-US" metric: "bad_clips" margin: 0.1 tier: SMOKE }
+baselines { stage: "tts" provider: "moss" mode: "judge parakeet" language: "en-US" metric: "clipped" margin: 0.001 tier: SMOKE }
+baselines { stage: "tts" provider: "moss" mode: "judge parakeet" language: "en-US" metric: "judge_cer" value: 0.063 margin: 0.03 tier: SMOKE }
+baselines { stage: "tts" provider: "moss" mode: "judge parakeet" language: "en-US" metric: "judge_wer" value: 0.0762 margin: 0.05 tier: SMOKE }
+baselines { stage: "tts" provider: "phonon" mode: "judge parakeet" language: "en-US" metric: "bad_clips" margin: 0.1 tier: SMOKE }
+baselines { stage: "tts" provider: "phonon" mode: "judge parakeet" language: "en-US" metric: "clipped" margin: 0.001 tier: SMOKE }
+baselines { stage: "tts" provider: "phonon" mode: "judge parakeet" language: "en-US" metric: "judge_cer" value: 0.0053 margin: 0.03 tier: SMOKE }
+baselines { stage: "tts" provider: "phonon" mode: "judge parakeet" language: "en-US" metric: "judge_wer" value: 0.019 margin: 0.05 tier: SMOKE }
+baselines { stage: "tts" provider: "phonon" mode: "judge whistle" language: "en-US" metric: "bad_clips" margin: 0.1 tier: SMOKE }
+baselines { stage: "tts" provider: "phonon" mode: "judge whistle" language: "en-US" metric: "clipped" margin: 0.001 tier: SMOKE }
+baselines { stage: "tts" provider: "phonon" mode: "judge whistle" language: "en-US" metric: "judge_cer" value: 0.014 margin: 0.03 tier: SMOKE }
+baselines { stage: "tts" provider: "phonon" mode: "judge whistle" language: "en-US" metric: "judge_wer" value: 0.0381 margin: 0.05 tier: SMOKE }
+baselines { stage: "tts" provider: "pocket" mode: "judge parakeet" language: "en-US" metric: "bad_clips" margin: 0.1 tier: SMOKE }
+baselines { stage: "tts" provider: "pocket" mode: "judge parakeet" language: "en-US" metric: "clipped" margin: 0.001 tier: SMOKE }
+baselines { stage: "tts" provider: "pocket" mode: "judge parakeet" language: "en-US" metric: "judge_cer" value: 0.0088 margin: 0.03 tier: SMOKE }
+baselines { stage: "tts" provider: "pocket" mode: "judge parakeet" language: "en-US" metric: "judge_wer" value: 0.019 margin: 0.05 tier: SMOKE }
+baselines { stage: "tts" provider: "pocket" mode: "judge whistle" language: "en-US" metric: "bad_clips" margin: 0.1 tier: SMOKE }
+baselines { stage: "tts" provider: "pocket" mode: "judge whistle" language: "en-US" metric: "clipped" margin: 0.001 tier: SMOKE }
+baselines { stage: "tts" provider: "pocket" mode: "judge whistle" language: "en-US" metric: "judge_cer" value: 0.028 margin: 0.03 tier: SMOKE }
+baselines { stage: "tts" provider: "pocket" mode: "judge whistle" language: "en-US" metric: "judge_wer" value: 0.0571 margin: 0.05 tier: SMOKE }
+baselines { stage: "tts" provider: "supertonic" mode: "judge parakeet" language: "en-US" metric: "bad_clips" margin: 0.1 tier: SMOKE }
+baselines { stage: "tts" provider: "supertonic" mode: "judge parakeet" language: "en-US" metric: "clipped" margin: 0.001 tier: SMOKE }
+baselines { stage: "tts" provider: "supertonic" mode: "judge parakeet" language: "en-US" metric: "judge_cer" value: 0.0193 margin: 0.03 tier: SMOKE }
+baselines { stage: "tts" provider: "supertonic" mode: "judge parakeet" language: "en-US" metric: "judge_wer" value: 0.0286 margin: 0.05 tier: SMOKE }
+baselines { stage: "vad" provider: "silero" metric: "f1" value: 0.9098 margin: 0.05 higher_is_better: true tier: SMOKE }
+baselines { stage: "vad" provider: "silero" metric: "false_alarm" margin: 0.05 tier: SMOKE }
+baselines { stage: "turn" provider: "smartturn-v3" language: "en-US" metric: "accuracy" value: 0.6 margin: 0.1 higher_is_better: true tier: SMOKE }
+baselines { stage: "turn" provider: "smartturn-v3" language: "en-US" metric: "false_end_500ms" value: 0.4 margin: 0.1 tier: SMOKE }
+baselines { stage: "speaker" provider: "pyannote" metric: "eer" margin: 0.05 tier: SMOKE }
+baselines { stage: "denoise" provider: "rnnoise" metric: "noise_attenuation_db" value: 24.1517 margin: 3 higher_is_better: true tier: SMOKE }
+baselines { stage: "denoise" provider: "rnnoise" mode: "judge parakeet" language: "en-US" metric: "wer_denoised_0db" value: 0.8949 margin: 0.05 tier: SMOKE }
+baselines { stage: "denoise" provider: "rnnoise" mode: "judge parakeet" language: "en-US" metric: "wer_denoised_10db" value: 0.3438 margin: 0.05 tier: SMOKE }
+baselines { stage: "denoise" provider: "rnnoise" mode: "judge parakeet" language: "en-US" metric: "wer_denoised_5db" value: 0.5739 margin: 0.05 tier: SMOKE }
+baselines { stage: "denoise" provider: "rnnoise" mode: "judge parakeet" language: "en-US" metric: "wer_denoised_clean" value: 0.0483 margin: 0.05 tier: SMOKE }
+baselines { stage: "denoise" provider: "rnnoise" mode: "judge whistle" language: "en-US" metric: "wer_denoised_0db" value: 0.9574 margin: 0.05 tier: SMOKE }
+baselines { stage: "denoise" provider: "rnnoise" mode: "judge whistle" language: "en-US" metric: "wer_denoised_10db" value: 0.267 margin: 0.05 tier: SMOKE }
+baselines { stage: "denoise" provider: "rnnoise" mode: "judge whistle" language: "en-US" metric: "wer_denoised_5db" value: 0.5795 margin: 0.05 tier: SMOKE }
+baselines { stage: "denoise" provider: "rnnoise" mode: "judge whistle" language: "en-US" metric: "wer_denoised_clean" value: 0.0739 margin: 0.05 tier: SMOKE }
+baselines { stage: "stt" provider: "moonshine" mode: "oneshot" language: "en-US" metric: "cer" value: 0.014 margin: 0.03 tier: FULL }
+baselines { stage: "stt" provider: "moonshine" mode: "oneshot" language: "en-US" metric: "wer" value: 0.0392 margin: 0.03 tier: FULL }
+baselines { stage: "stt" provider: "moonshine" mode: "streaming" language: "en-US" metric: "cer" value: 0.0135 margin: 0.03 tier: FULL }
+baselines { stage: "stt" provider: "moonshine" mode: "streaming" language: "en-US" metric: "wer" value: 0.0375 margin: 0.03 tier: FULL }
+baselines { stage: "stt" provider: "parakeet" mode: "oneshot" language: "en-US" metric: "cer" value: 0.0105 margin: 0.03 tier: FULL }
+baselines { stage: "stt" provider: "parakeet" mode: "oneshot" language: "en-US" metric: "wer" value: 0.03 margin: 0.03 tier: FULL }
+baselines { stage: "stt" provider: "parakeet" mode: "oneshot" language: "fr-FR" metric: "cer" value: 0.0242 margin: 0.03 tier: FULL }
+baselines { stage: "stt" provider: "parakeet" mode: "oneshot" language: "fr-FR" metric: "wer" value: 0.0707 margin: 0.03 tier: FULL }
+baselines { stage: "stt" provider: "parakeet" mode: "streaming" language: "en-US" metric: "cer" value: 0.015 margin: 0.03 tier: FULL }
+baselines { stage: "stt" provider: "parakeet" mode: "streaming" language: "en-US" metric: "wer" value: 0.0333 margin: 0.03 tier: FULL }
+baselines { stage: "stt" provider: "parakeet" mode: "streaming" language: "fr-FR" metric: "cer" value: 0.0485 margin: 0.03 tier: FULL }
+baselines { stage: "stt" provider: "parakeet" mode: "streaming" language: "fr-FR" metric: "wer" value: 0.0878 margin: 0.03 tier: FULL }
+baselines { stage: "stt" provider: "whistle" mode: "oneshot" language: "en-US" metric: "cer" value: 0.0303 margin: 0.03 tier: FULL }
+baselines { stage: "stt" provider: "whistle" mode: "oneshot" language: "en-US" metric: "wer" value: 0.0742 margin: 0.03 tier: FULL }
+baselines { stage: "stt" provider: "whistle" mode: "oneshot" language: "fr-FR" metric: "cer" value: 0.0973 margin: 0.03 tier: FULL }
+baselines { stage: "stt" provider: "whistle" mode: "oneshot" language: "fr-FR" metric: "wer" value: 0.2056 margin: 0.03 tier: FULL }
+baselines { stage: "stt" provider: "whistle" mode: "streaming" language: "en-US" metric: "cer" value: 0.0303 margin: 0.03 tier: FULL }
+baselines { stage: "stt" provider: "whistle" mode: "streaming" language: "en-US" metric: "wer" value: 0.0725 margin: 0.03 tier: FULL }
+baselines { stage: "stt" provider: "whistle" mode: "streaming" language: "fr-FR" metric: "cer" value: 0.0984 margin: 0.03 tier: FULL }
+baselines { stage: "stt" provider: "whistle" mode: "streaming" language: "fr-FR" metric: "wer" value: 0.2248 margin: 0.03 tier: FULL }
+baselines { stage: "tts" provider: "moss" mode: "judge parakeet" language: "en-US" metric: "bad_clips" margin: 0.1 tier: FULL }
+baselines { stage: "tts" provider: "moss" mode: "judge parakeet" language: "en-US" metric: "clipped" margin: 0.001 tier: FULL }
+baselines { stage: "tts" provider: "moss" mode: "judge parakeet" language: "en-US" metric: "judge_cer" value: 0.0021 margin: 0.03 tier: FULL }
+baselines { stage: "tts" provider: "moss" mode: "judge parakeet" language: "en-US" metric: "judge_wer" value: 0.005 margin: 0.05 tier: FULL }
+baselines { stage: "tts" provider: "phonon" mode: "judge parakeet" language: "en-US" metric: "bad_clips" margin: 0.1 tier: FULL }
+baselines { stage: "tts" provider: "phonon" mode: "judge parakeet" language: "en-US" metric: "clipped" margin: 0.001 tier: FULL }
+baselines { stage: "tts" provider: "phonon" mode: "judge parakeet" language: "en-US" metric: "judge_cer" value: 0.0026 margin: 0.03 tier: FULL }
+baselines { stage: "tts" provider: "phonon" mode: "judge parakeet" language: "en-US" metric: "judge_wer" value: 0.0124 margin: 0.05 tier: FULL }
+baselines { stage: "tts" provider: "phonon" mode: "judge whistle" language: "en-US" metric: "bad_clips" margin: 0.1 tier: FULL }
+baselines { stage: "tts" provider: "phonon" mode: "judge whistle" language: "en-US" metric: "clipped" margin: 0.001 tier: FULL }
+baselines { stage: "tts" provider: "phonon" mode: "judge whistle" language: "en-US" metric: "judge_cer" value: 0.0081 margin: 0.03 tier: FULL }
+baselines { stage: "tts" provider: "phonon" mode: "judge whistle" language: "en-US" metric: "judge_wer" value: 0.0249 margin: 0.05 tier: FULL }
+baselines { stage: "tts" provider: "pocket" mode: "judge parakeet" language: "en-US" metric: "bad_clips" margin: 0.1 tier: FULL }
+baselines { stage: "tts" provider: "pocket" mode: "judge parakeet" language: "en-US" metric: "clipped" margin: 0.001 tier: FULL }
+baselines { stage: "tts" provider: "pocket" mode: "judge parakeet" language: "en-US" metric: "judge_cer" value: 0.003 margin: 0.03 tier: FULL }
+baselines { stage: "tts" provider: "pocket" mode: "judge parakeet" language: "en-US" metric: "judge_wer" value: 0.0124 margin: 0.05 tier: FULL }
+baselines { stage: "tts" provider: "pocket" mode: "judge whistle" language: "en-US" metric: "bad_clips" margin: 0.1 tier: FULL }
+baselines { stage: "tts" provider: "pocket" mode: "judge whistle" language: "en-US" metric: "clipped" margin: 0.001 tier: FULL }
+baselines { stage: "tts" provider: "pocket" mode: "judge whistle" language: "en-US" metric: "judge_cer" value: 0.0162 margin: 0.03 tier: FULL }
+baselines { stage: "tts" provider: "pocket" mode: "judge whistle" language: "en-US" metric: "judge_wer" value: 0.0572 margin: 0.05 tier: FULL }
+baselines { stage: "tts" provider: "supertonic" mode: "judge parakeet" language: "en-US" metric: "bad_clips" margin: 0.1 tier: FULL }
+baselines { stage: "tts" provider: "supertonic" mode: "judge parakeet" language: "en-US" metric: "clipped" margin: 0.001 tier: FULL }
+baselines { stage: "tts" provider: "supertonic" mode: "judge parakeet" language: "en-US" metric: "judge_cer" value: 0.0043 margin: 0.03 tier: FULL }
+baselines { stage: "tts" provider: "supertonic" mode: "judge parakeet" language: "en-US" metric: "judge_wer" value: 0.0124 margin: 0.05 tier: FULL }
+baselines { stage: "vad" provider: "silero" metric: "f1" value: 0.9169 margin: 0.05 higher_is_better: true tier: FULL }
+baselines { stage: "vad" provider: "silero" metric: "false_alarm" value: 0.0083 margin: 0.05 tier: FULL }
+baselines { stage: "turn" provider: "smartturn-v3" language: "en-US" metric: "accuracy" value: 0.625 margin: 0.1 higher_is_better: true tier: FULL }
+baselines { stage: "turn" provider: "smartturn-v3" language: "en-US" metric: "false_end_500ms" value: 0.3 margin: 0.1 tier: FULL }
+baselines { stage: "speaker" provider: "pyannote" metric: "eer" margin: 0.05 tier: FULL }
+baselines { stage: "denoise" provider: "rnnoise" metric: "noise_attenuation_db" value: 24.1517 margin: 3 higher_is_better: true tier: FULL }
+baselines { stage: "denoise" provider: "rnnoise" mode: "judge parakeet" language: "en-US" metric: "wer_denoised_0db" value: 0.735 margin: 0.05 tier: FULL }
+baselines { stage: "denoise" provider: "rnnoise" mode: "judge parakeet" language: "en-US" metric: "wer_denoised_10db" value: 0.3233 margin: 0.05 tier: FULL }
+baselines { stage: "denoise" provider: "rnnoise" mode: "judge parakeet" language: "en-US" metric: "wer_denoised_5db" value: 0.4808 margin: 0.05 tier: FULL }
+baselines { stage: "denoise" provider: "rnnoise" mode: "judge parakeet" language: "en-US" metric: "wer_denoised_clean" value: 0.0408 margin: 0.05 tier: FULL }
+baselines { stage: "denoise" provider: "rnnoise" mode: "judge whistle" language: "en-US" metric: "wer_denoised_0db" value: 0.8075 margin: 0.05 tier: FULL }
+baselines { stage: "denoise" provider: "rnnoise" mode: "judge whistle" language: "en-US" metric: "wer_denoised_10db" value: 0.3383 margin: 0.05 tier: FULL }
+baselines { stage: "denoise" provider: "rnnoise" mode: "judge whistle" language: "en-US" metric: "wer_denoised_5db" value: 0.5533 margin: 0.05 tier: FULL }
+baselines { stage: "denoise" provider: "rnnoise" mode: "judge whistle" language: "en-US" metric: "wer_denoised_clean" value: 0.095 margin: 0.05 tier: FULL }

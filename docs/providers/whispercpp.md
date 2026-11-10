@@ -27,7 +27,7 @@ In C++, `va::thirdparty::stt::WhisperCppTranscriptionOptions` (in [`WhisperCppTr
 | `noSpeechThreshold` | `0.3f` | Below whisper.cpp's 0.6 so short VAD-gated clips aren't dropped as "no speech". |
 | `noContext` | `true` | Every clip stands alone, so stale context from earlier segments can't leak into the prompt. |
 
-Known build issue: with `-DVASDK_BUILD_LLAMACPP=ON` as well, whisper.cpp (pinned at v1.7.4) reuses the newer ggml llama.cpp brings and fails to compile (`GGML_KQ_MASK_PAD`, `ggml_backend_sched_new`). Build it without llama.cpp until the pin moves.
+whisper.cpp is pinned at v1.9.5, which builds against the ggml that Phonon and llama.cpp bring, so it builds beside them (v1.7.4 didn't: `GGML_KQ_MASK_PAD`, `ggml_backend_sched_new`).
 
 ## Models and licenses
 

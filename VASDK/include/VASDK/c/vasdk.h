@@ -545,6 +545,21 @@ VASDK_C_API int vasdk_models_verify(const vasdk_models* models, const char* id, 
 /* Deletes the model's files */
 VASDK_C_API int vasdk_models_remove(const vasdk_models* models, const char* id, char** error);
 
+/* ---- Transcript scores (VASDK/metrics/TranscriptScore.h, docs/evaluation.md): how far what a
+ *      recognizer heard is from what was said, as word and character error rates. ----
+ *
+ *   char* score = vasdk_score_transcript("The cat sat.", "the cat sit");
+ *   // {"words": {"substitutions": 1, "deletions": 0, "insertions": 0, "reference_length": 3,
+ *   //            "error_rate": 0.333}, "characters": {...}, "reference": "the cat sat", "hypothesis": "the cat sit"}
+ *   vasdk_free(score);
+ *
+ * Both texts (UTF-8) are normalized first: lower case, punctuation as spaces, apostrophes kept
+ * inside words. Over many clips add the counts up and divide once; the mean of each clip's rate
+ * weighs short clips too much. NULL inputs count as empty. Free the result with vasdk_free. */
+VASDK_C_API char* vasdk_score_transcript(const char* reference, const char* hypothesis);
+/* The text as it is scored (free it) */
+VASDK_C_API char* vasdk_normalize_transcript(const char* text);
+
 #ifdef __cplusplus
 }
 #endif

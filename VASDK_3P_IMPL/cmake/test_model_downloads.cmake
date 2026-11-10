@@ -103,6 +103,16 @@ expect_false("${ok}" "a file whose SHA-256 doesn't match reports failure")
 expect_missing("${WORK}/broken/broken.txt" "a file whose SHA-256 doesn't match is not kept")
 expect_missing("${WORK}/broken/broken.txt.part" "no .part is left behind")
 
+# 1e. MANIFEST: another manifest for one call (the evaluation data's), VASDK_MODEL_MANIFEST untouched
+file(WRITE "${WORK}/other.json" "{\"schema\": 1, \"models\": [
+  {\"id\": \"other\", \"license\": \"CC-BY-4.0\", \"files\": [
+    {\"path\": \"other/common.txt\", \"url\": \"${source}/common.txt\", \"sha256\": \"${hash_common}\", \"size\": ${size_common}}]}]}")
+vasdk_download_model(other DIRECTORY "${WORK}/other" MANIFEST "${WORK}/other.json" RESULT ok)
+expect_true("${ok}" "a model of another manifest downloads")
+expect_content("${WORK}/other/other/common.txt" "common to every CPU" "MANIFEST's file lands at its path")
+vasdk_download_model(demo DIRECTORY "${WORK}/after" STRIP demo/ RESULT ok)
+expect_true("${ok}" "VASDK_MODEL_MANIFEST still serves the calls without MANIFEST")
+
 # 2. Every id the build asks for is in the real manifest
 file(READ "${CMAKE_CURRENT_LIST_DIR}/../models/manifest.json" manifest)
 string(JSON count LENGTH "${manifest}" models)

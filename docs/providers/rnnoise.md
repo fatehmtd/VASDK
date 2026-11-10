@@ -69,5 +69,6 @@ flowchart LR
 | --- | --- | --- | --- |
 | `vasdk_rnnoise` | unit | nothing | `ctest --test-dir build -R vasdk_rnnoise` |
 | `vasdk_dsp_speaker` | integration: by config id, and a session with it | pyannote's model (skipped without) | `ctest --test-dir build -R vasdk_dsp_speaker` |
+| `vasdk_eval_denoise_rnnoise` | evaluation: speech in pink noise and babble at 0, 5 and 10 dB SNR recognized before and after, noise alone ([Evaluation](../evaluation.md)). It takes 24 dB off noise, but Whistle recognizes less of what it leaves (WER 29.7% → 55.3% at 5 dB) | the evaluation set, Whistle (skipped without) | `ctest --test-dir build -L eval` |
 
 A test that needs a model or a key reports "skipped" without it.

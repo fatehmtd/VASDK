@@ -1,0 +1,68 @@
+// What provider evaluation runs on and what it checks against (VASDK_3P_IMPL/Evaluation,
+// docs/evaluation.md).
+//
+// An EvalSet lists clips of real speech, with what was said, and the clips built from them, with
+// where the speech is. tools/eval-data/build_eval_set.py writes it as references.txtpb beside the
+// clips. Baselines hold each provider's measured scores, which `vasdk_provider_eval --check` keeps
+// it to.
+syntax = "proto3";
+
+package vasdk.eval;
+
+enum ClipKind {
+  CLIP_KIND_UNSPECIFIED = 0;
+  SPEECH = 1;   // one utterance: text, speaker (STT, TTS sentences, speaker identification, denoising)
+  VAD = 2;      // silence or noise around utterances: speech says where they are
+  TURN = 3;     // ends after a pause, the sentence finished (turn_complete) or cut off at a pause inside it
+  NOISE = 4;    // no speech: false alarms, noise to mix
+}
+
+enum Tier {
+  TIER_UNSPECIFIED = 0;
+  SMOKE = 1;    // the few clips ctest runs; also in FULL
+  FULL = 2;     // every clip: vasdk_provider_eval's default
+}
+
+message Segment {
+  int32 start_ms = 1;
+  int32 end_ms = 2;
+}
+
+message Clip {
+  string id = 1;
+  string path = 2;               // 16 kHz mono 16-bit WAV, relative to the folder of references.txtpb
+  ClipKind kind = 3;
+  string language = 4;           // "en-US", "fr-FR"
+  string text = 5;               // what is said (SPEECH; TURN: up to where the clip ends)
+  string speaker = 6;            // the corpus's speaker id (SPEECH)
+  string gender = 7;             // "male", "female", when the corpus says
+  repeated Segment speech = 8;   // VAD, TURN: where the speech is (pauses of 300 ms or more apart in VAD clips)
+  bool turn_complete = 9;        // TURN: the sentence ends where the clip's speech does
+  Tier tier = 10;
+  string source = 11;            // corpus and utterance: "LibriSpeech test-clean 1089-134686-0000"
+  string noise = 12;             // NOISE: "white", "pink", "brown", "hum" or "babble" (talkers: not a VAD false alarm)
+}
+
+message EvalSet {
+  string name = 1;               // "vasdk-eval-v1"
+  string description = 2;
+  repeated string licenses = 3;  // attribution for each corpus the clips come from
+  repeated Clip clips = 4;
+}
+
+// A score a provider must keep: no worse than value by more than margin.
+message Baseline {
+  string stage = 1;              // "stt", "tts", "vad", "turn", "speaker", "denoise"
+  string provider = 2;           // the catalog id: "whistle", "silero"
+  string mode = 3;               // stt: "oneshot" or "streaming"; empty for the others
+  string language = 4;           // "en-US"; empty when the metric isn't per language
+  string metric = 5;             // "wer", "cer", "f1", "eer", ...
+  double value = 6;
+  double margin = 7;
+  bool higher_is_better = 8;     // f1, accuracy; false for error rates
+  Tier tier = 9;                 // the clips it was measured on
+}
+
+message Baselines {
+  repeated Baseline baselines = 1;
+}

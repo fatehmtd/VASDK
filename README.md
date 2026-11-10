@@ -96,6 +96,8 @@ That's a full voice loop: mic in, VAD, speaker tracking, transcription, LLM turn
 
 With Visual Studio or Xcode, binaries land under an extra `Release/` folder (e.g. `./build/VASDK_APP/Release/VASDK_Pipeline`).
 
+To see how the local providers do on real speech (word error rates, VAD F1, turn accuracy, TTS intelligibility), configure with `-DVASDK_BUILD_TESTS=ON -DVASDK_DOWNLOAD_EVAL_DATA=ON` and run `ctest -L eval`, or `vasdk_provider_eval all --report <dir>` for a report ([Evaluation](docs/evaluation.md)).
+
 Beyond C++, the [C API](docs/reference/c-api.md) has [Python](bindings/python/README.md) and [Kotlin](bindings/kotlin/README.md) (JVM and Android) bindings, level with the C++ API: agents, spoken sessions, every control, and providers and processors written in them. Both load the C library and are optional and off by default: `-DVASDK_BUILD_PYTHON_BINDING=ON`, `-DVASDK_BUILD_KOTLIN_BINDING=ON`.
 
 ## Architecture at a glance

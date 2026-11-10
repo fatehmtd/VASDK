@@ -48,7 +48,7 @@ import threading
 from pathlib import Path
 
 __all__ = ["Registry", "Turn", "Agent", "Conversation", "Providers", "Session", "Runtime", "Models", "Sink", "run_test_file",
-           "run_test", "words", "version", "api_version", "set_log_level", "VasdkError", "Event", "Command", "ConversationInput", "ConversationReply",
+           "run_test", "words", "score_transcript", "normalize_transcript", "version", "api_version", "set_log_level", "VasdkError", "Event", "Command", "ConversationInput", "ConversationReply",
            "StepOutcome", "SessionOptions", "ToolDeclaration", "ToolParameter", "TriggerDecision", "Language",
            "builtin_language", "ConversationSnapshot", "FlowTestCase", "EntityValue", "EntityValuesCommand", "Backchannel",
            "VoicePrint",
@@ -325,6 +325,8 @@ _models_status = _declare("vasdk_models_status", _i, _p, _s)
 _models_pull = _declare("vasdk_models_pull", _i, _p, _s, _i, _MODEL_PROGRESS, _p, _error)
 _models_verify = _declare("vasdk_models_verify", _i, _p, _s, _error)
 _models_remove = _declare("vasdk_models_remove", _i, _p, _s, _error)
+_score_transcript = _declare("vasdk_score_transcript", _p, _s, _s)
+_normalize_transcript = _declare("vasdk_normalize_transcript", _p, _s)
 _log_level = None   # set_log_level's, for the providers library when it loads
 
 
@@ -450,6 +452,18 @@ def set_log_level(level):
     _log_level = level
     if _providers_lib is not None and hasattr(_providers_lib, "vasdk_providers_set_log_level"):
         _providers_lib.vasdk_providers_set_log_level(_encode(level))
+
+
+def score_transcript(reference, hypothesis):
+    """How far what was heard is from what was said (docs/evaluation.md): a dict with "words" and
+    "characters", each {"substitutions", "deletions", "insertions", "reference_length",
+    "error_rate"}, and both texts as scored. Over many clips add the counts up and divide once."""
+    return json.loads(_take(_score_transcript(_encode(reference or ""), _encode(hypothesis or ""))))
+
+
+def normalize_transcript(text):
+    """The text as score_transcript compares it: lower case, punctuation as spaces, apostrophes kept inside words."""
+    return _take(_normalize_transcript(_encode(text or "")))
 
 
 def words(text):

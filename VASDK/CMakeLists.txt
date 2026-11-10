@@ -73,6 +73,7 @@ add_library(VASDK ${VASDK_LIBRARY_TYPE}
     ./src/AudioRingBuffer.cpp
     ./src/AudioSIMD.cpp
     ./src/ModelStore.cpp
+    ./src/WavFile.cpp
     ${CMAKE_CURRENT_BINARY_DIR}/generated/ModelManifest.cpp
     # Transport infrastructure
     ./src/Transport.cpp
@@ -279,6 +280,7 @@ if(VASDK_ENABLE_ENGINE_CONFIG)
         ./src/nlu/RuleNluProvider.cpp
         ./src/nlu/Calendar.cpp
         ./src/nlu/Language.cpp
+        ./src/metrics/TranscriptScore.cpp
         ${CMAKE_CURRENT_BINARY_DIR}/generated/BuiltInLanguage.cpp
         ./src/nlu/EmbeddingNluProvider.cpp
         ./src/nlu/LlmNluProvider.cpp
@@ -289,6 +291,7 @@ if(VASDK_ENABLE_ENGINE_CONFIG)
         ./src/c/vasdk_c_session.cpp
         ./src/c/vasdk_c_providers.cpp
         ./src/c/vasdk_c_models.cpp
+        ./src/c/vasdk_c_score.cpp
         ./src/engine/RemoteControl.cpp
         ./proto/vasdk/engine/engine_config.proto
         ./proto/vasdk/engine/events.proto
@@ -468,6 +471,10 @@ if(VASDK_BUILD_TESTS)
     target_link_libraries(vasdk_pipeline_description_test PRIVATE VASDK)
     add_test(NAME vasdk_pipeline_description COMMAND vasdk_pipeline_description_test)
 
+    add_executable(vasdk_wav_file_test tests/wav_file_test.cpp)
+    target_link_libraries(vasdk_wav_file_test PRIVATE VASDK)
+    add_test(NAME vasdk_wav_file COMMAND vasdk_wav_file_test)
+
     add_executable(vasdk_goal_test tests/goal_test.cpp)
     target_link_libraries(vasdk_goal_test PRIVATE VASDK nlohmann_json::nlohmann_json)
     add_test(NAME vasdk_goal COMMAND vasdk_goal_test)
@@ -613,6 +620,9 @@ if(VASDK_BUILD_TESTS)
         add_executable(vasdk_rule_nlu_test tests/rule_nlu_test.cpp)
         target_link_libraries(vasdk_rule_nlu_test PRIVATE VASDK)
         add_test(NAME vasdk_rule_nlu COMMAND vasdk_rule_nlu_test)
+        add_executable(vasdk_transcript_score_test tests/transcript_score_test.cpp)
+        target_link_libraries(vasdk_transcript_score_test PRIVATE VASDK)
+        add_test(NAME vasdk_transcript_score COMMAND vasdk_transcript_score_test)
         add_executable(vasdk_entity_extractor_test tests/entity_extractor_test.cpp)
         target_link_libraries(vasdk_entity_extractor_test PRIVATE VASDK)
         add_test(NAME vasdk_entity_extractor COMMAND vasdk_entity_extractor_test)

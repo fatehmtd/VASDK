@@ -12,7 +12,7 @@ Start here and pick your path.
 | **Building from source** (prerequisites, CMake options, model downloads, air-gapped builds) | [Building VASDK](building.md). |
 | **Using VASDK from another project** (CMake, `find_package`, pkg-config, packages) | [Using VASDK in your project](integrating.md). |
 | **Getting the model files** (download, check, offline machines, licenses) | [Models](models.md). |
-| **Choosing providers** (which STT/TTS/LLM, their options, models and licenses) | [Providers](provider-catalog.md). |
+| **Choosing providers** (which STT/TTS/LLM, their options, models and licenses) | [Providers](provider-catalog.md), and how well each local one does on real speech: [Evaluation](evaluation.md). |
 | **Implementing a provider** (new STT/TTS/VAD/LLM backend) | [Provider interfaces](reference/providers.md), especially the checklist at the end. |
 | **Extending the core** (new processor, transport, frame type) | [Processors](reference/processors.md), [Transports](reference/transports.md), [Frames](reference/frames.md) - each ends with an extension guide. |
 | **Doing compliance / legal review** | [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md). |
@@ -25,6 +25,7 @@ Start here and pick your path.
 - **[Releasing VASDK](releasing.md)** - the version, the release workflow, what each channel publishes.
 - **[Models](models.md)** - the model store: downloading, checking and finding the files local providers load; the `vasdk` command; licenses and gated models; offline machines.
 - **[Providers](provider-catalog.md)** - every implementation, how the apps choose between them, per-provider options, sources and licenses.
+- **[Evaluation](evaluation.md)** - the local providers measured on real speech (word error rate, VAD F1, turn accuracy, speaker EER, TTS intelligibility), the evaluation set, `vasdk_provider_eval`, and the baselines ctest holds them to.
 - **[Provider pages](providers/README.md)** - one page per integration: platforms, options and defaults, models and licenses, usage, a flow diagram, tests.
 
 ## Core concepts (reference)

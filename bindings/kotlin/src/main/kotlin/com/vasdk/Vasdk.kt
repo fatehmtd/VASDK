@@ -15,7 +15,11 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.double
 import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
 import vasdk.flow.AgentOuterClass.Choice
 import vasdk.flow.ExpectationOuterClass.Expectation
 import vasdk.flow.StepOutcomeOuterClass.StepAsk
@@ -23,6 +27,14 @@ import vasdk.flow.StepOutcomeOuterClass.StepOutcome
 import vasdk.flow.TestCase.FlowTestCase
 import vasdk.nlu.LanguageOuterClass.Language
 import java.io.Closeable
+
+/** Edits from what was said to what was heard, in words or characters (docs/evaluation.md). */
+data class EditCounts(val substitutions: Long, val deletions: Long, val insertions: Long, val referenceLength: Long, val errorRate: Double) {
+    val errors: Long get() = substitutions + deletions + insertions
+}
+
+/** A transcript's score: word and character edits, and both texts as they were compared. */
+data class TranscriptScore(val words: EditCounts, val characters: EditCounts, val reference: String, val hypothesis: String)
 
 /** A VASDK call failed; the message says why (an agent's errors say where). */
 class VasdkException(message: String) : RuntimeException(message)
@@ -47,6 +59,26 @@ object Vasdk {
         val length = SizeTByReference()
         return Language.parseFrom(takenBytes(Lib.vasdk.vasdk_language_builtin(FORMAT_BINARY, length), length))
     }
+
+    /**
+     * How far what was heard is from what was said: word and character error rates, both texts
+     * normalized first (lower case, punctuation as spaces). Over many clips add the counts up and
+     * divide once.
+     */
+    fun scoreTranscript(reference: String, hypothesis: String): TranscriptScore {
+        val score = Json.parseToJsonElement(taken(Lib.vasdk.vasdk_score_transcript(reference, hypothesis))).jsonObject
+        fun counts(name: String): EditCounts {
+            val counted = score.getValue(name).jsonObject
+            fun number(key: String) = counted.getValue(key).jsonPrimitive
+            return EditCounts(number("substitutions").long, number("deletions").long, number("insertions").long,
+                              number("reference_length").long, number("error_rate").double)
+        }
+        return TranscriptScore(counts("words"), counts("characters"), score.getValue("reference").jsonPrimitive.content,
+                               score.getValue("hypothesis").jsonPrimitive.content)
+    }
+
+    /** The text as scoreTranscript compares it. */
+    fun normalizeTranscript(text: String): String = taken(Lib.vasdk.vasdk_normalize_transcript(text))
 
     /** Plays a FlowTestCase file: whether it passed, and a line per difference. */
     fun runTestFile(agent: Agent, path: String): Pair<Boolean, String> {

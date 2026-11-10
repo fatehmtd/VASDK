@@ -114,6 +114,10 @@ A source build that is the top-level project downloads its enabled providers' mo
 - **Gated and licensed models:** the token comes from `HF_TOKEN` or `hf auth login`. A model whose license needs reading first prints that license when it downloads; enabling its provider in the build is the acceptance.
 - **Another manifest:** `-DVASDK_MODEL_MANIFEST=<file>`, as `--manifest` at run time.
 
+## The evaluation set
+
+The clips the provider evaluation runs on download the same way, from a manifest of their own ([`VASDK_3P_IMPL/Evaluation/data/manifest.json`](../VASDK_3P_IMPL/Evaluation/data/manifest.json), one model `eval_audio_v1`): at configure time with `-DVASDK_DOWNLOAD_EVAL_DATA=ON` (`vasdk_download_model(... MANIFEST <file>)`), or at run time with `vasdk_provider_eval --store <dir>` or `vasdk models pull eval_audio_v1 --manifest <file> --dir <dir>`. Each file's SHA-256 is checked. See [Evaluation](evaluation.md).
+
 ## The manifest
 
 ```json

@@ -20,6 +20,7 @@ Rules for a row:
 | `VASDK/include/VASDK/flow/CompiledAgent.h` | `CompiledAgent` | methods |
 | `VASDK/include/VASDK/flow/FlowRuntime.h` | `FlowRuntime` | methods |
 | `VASDK/include/VASDK/flow/FlowTestRunner.h` | `*` | functions |
+| `VASDK/include/VASDK/metrics/TranscriptScore.h` | `*` | functions |
 | `VASDK/include/VASDK/engine/ProviderRegistry.h` | `ProviderRegistry` | class |
 | `VASDK/include/VASDK/VADProvider.h` | `VADProvider` | class |
 | `VASDK/include/VASDK/GenericTranscriptionProvider.h` | `GenericTranscriptionProvider` | class |
@@ -153,6 +154,8 @@ Rules for a row:
 | `FlowRuntime::setClock` | — | — | — | C++ only: the C++ tests' clock; flow test files set times themselves |
 | `runFlowTestFile` | `vasdk_run_test_file` | `run_test_file` | `Vasdk.runTestFile` | |
 | `runFlowTest` | `vasdk_run_test_message` | `run_test` | `Vasdk.runTest` | a FlowTestCase from memory |
+| `scoreWords`, `scoreCharacters` | `vasdk_score_transcript` | `score_transcript` | `Vasdk.scoreTranscript` | both at once, as JSON in C |
+| `normalizeTranscript`, `transcriptWords` | `vasdk_normalize_transcript` | `normalize_transcript` | `Vasdk.normalizeTranscript` | the words: the normalized text split at spaces |
 
 ## C functions the bindings leave out
 

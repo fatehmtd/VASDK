@@ -35,10 +35,11 @@
       "name": "ci",
       "inherits": "base",
       "displayName": "Continuous integration",
-      "description": "Everything CI checks: the tests, the sample apps and the Python binding",
+      "description": "Everything CI checks: the tests, the sample apps, the Python binding and the providers on real speech",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "VASDK_BUILD_TESTS": "ON",
+        "VASDK_DOWNLOAD_EVAL_DATA": "ON",
         "VASDK_BUILD_APPS": "ON",
         "VASDK_BUILD_PYTHON_BINDING": "ON"
       }
