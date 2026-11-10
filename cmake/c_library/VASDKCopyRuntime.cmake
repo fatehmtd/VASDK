@@ -10,7 +10,16 @@
 # Defined by find_package(VASDK) and by a source build. Also run as a script (-P) by the copy itself.
 
 if(CMAKE_SCRIPT_MODE_FILE)
-    # The copy: every DLL in VASDK_COPY_FROM, and every file in VASDK_COPY_FILES, into VASDK_COPY_TO
+    # The copy: every DLL in VASDK_COPY_FROM, and every file in VASDK_COPY_FILES, into VASDK_COPY_TO.
+    # Programs in one folder copy the same DLLs as they finish linking, at the same moment, and
+    # Windows refuses a file another copy is writing or replacing ("Permission denied"): the copies
+    # take turns on VASDK_COPY_LOCK, a file of the build tree.
+    if(VASDK_COPY_LOCK)
+        file(LOCK "${VASDK_COPY_LOCK}" GUARD PROCESS TIMEOUT 600 RESULT_VARIABLE _locked)
+        if(NOT _locked EQUAL 0)
+            message(FATAL_ERROR "VASDK: can't lock ${VASDK_COPY_LOCK}: ${_locked}")
+        endif()
+    endif()
     set(_files ${VASDK_COPY_FILES})
     if(VASDK_COPY_FROM)
         file(GLOB _dlls "${VASDK_COPY_FROM}/*.dll")
@@ -20,8 +29,9 @@ if(CMAKE_SCRIPT_MODE_FILE)
     list(REMOVE_ITEM _files "")
     foreach(_file IN LISTS _files)
         get_filename_component(_directory "${_file}" DIRECTORY)
+        get_filename_component(_name "${_file}" NAME)
         if(NOT _directory STREQUAL VASDK_COPY_TO)
-            file(COPY "${_file}" DESTINATION "${VASDK_COPY_TO}")
+            file(COPY_FILE "${_file}" "${VASDK_COPY_TO}/${_name}" ONLY_IF_DIFFERENT)
         endif()
     endforeach()
     return()
@@ -36,7 +46,8 @@ function(vasdk_copy_runtime target)
     get_property(_script GLOBAL PROPERTY VASDK_COPY_RUNTIME_SCRIPT)
     add_custom_command(TARGET ${target} POST_BUILD
         COMMAND ${CMAKE_COMMAND} "-DVASDK_COPY_FROM=$<TARGET_FILE_DIR:VASDK::c>"
-                "-DVASDK_COPY_TO=$<TARGET_FILE_DIR:${target}>" -P "${_script}"
+                "-DVASDK_COPY_TO=$<TARGET_FILE_DIR:${target}>"
+                "-DVASDK_COPY_LOCK=${CMAKE_BINARY_DIR}/CMakeFiles/vasdk_copy_runtime.lock" -P "${_script}"
         COMMENT "VASDK: vasdk_c.dll and the DLLs it loads beside ${target}"
         VERBATIM)
 endfunction()

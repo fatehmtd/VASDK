@@ -88,7 +88,8 @@ if(WIN32)
     get_property(_vasdk_copy_script GLOBAL PROPERTY VASDK_COPY_RUNTIME_SCRIPT)
     add_custom_command(TARGET vasdk_c POST_BUILD
         COMMAND ${CMAKE_COMMAND} "-DVASDK_COPY_FILES=$<TARGET_RUNTIME_DLLS:vasdk_c>;${VASDK_OPENSSL_RUNTIME_FILES}"
-                "-DVASDK_COPY_TO=$<TARGET_FILE_DIR:vasdk_c>" -P "${_vasdk_copy_script}"
+                "-DVASDK_COPY_TO=$<TARGET_FILE_DIR:vasdk_c>"
+                "-DVASDK_COPY_LOCK=${CMAKE_BINARY_DIR}/CMakeFiles/vasdk_copy_runtime.lock" -P "${_vasdk_copy_script}"
         VERBATIM)
 endif()
 
