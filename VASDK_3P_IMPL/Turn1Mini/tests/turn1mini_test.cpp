@@ -29,8 +29,10 @@ constexpr int kSteps = 30;
 constexpr double kSpeechSeconds = 3.0;
 // The golden comes from the same ONNX Runtime version (gen_scores_golden.py): the same scores on x86-64.
 // The int8 graph's integer kernels differ by CPU and by version: 0.0046 on Arm (Pixel 9 Pro XL),
-// 0.0012 for ONNX Runtime 1.31. A state handled wrong moves the scores by about 0.4.
-constexpr float kTolerance = 1e-2f;
+// 0.0106 on a GitHub linux-x64 runner, 0.0012 for ONNX Runtime 1.31. A state handled wrong moves
+// the scores by about 0.4, far beyond either bound.
+constexpr float kTolerance = 3e-2f;
+constexpr float kStateEffect = 0.2f;
 
 int failures = 0;
 
@@ -228,7 +230,7 @@ int main(int argc, char** argv) {
         stream.push(audio.data() + at, Turn1MiniStream::kStepSamples, &stateless);
     }
     const float withoutState = largestDifference(stateless, golden);
-    check(withoutState > 10 * kTolerance, "dropping the state changes the scores (by " + std::to_string(withoutState) + ")");
+    check(withoutState > kStateEffect, "dropping the state changes the scores (by " + std::to_string(withoutState) + ")");
 
     // Time per step, one thread
     stream.reset();
