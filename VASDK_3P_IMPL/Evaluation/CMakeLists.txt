@@ -59,6 +59,7 @@ set(_vasdk_eval_runs
     "tts|moss|vasdk_moss_tts|"
     "vad|silero|vasdk_silero_vad|"
     "turn|smartturn-v3|vasdk_smartturn_v3|"
+    "turn|turn-1-mini|vasdk_turn1mini|"
     "speaker|pyannote|vasdk_pyannote_speaker|"
     "denoise|rnnoise|vasdk_rnnoise|"
 )

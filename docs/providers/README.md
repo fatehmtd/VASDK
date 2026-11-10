@@ -35,6 +35,7 @@
 
 ## Turn detection
 
+- [turn-1-mini](turn-1-mini.md): id `turn-1-mini`
 - [SmartTurn v3](smartturn-v3.md): id `smartturn-v3`
 
 ## Understanding

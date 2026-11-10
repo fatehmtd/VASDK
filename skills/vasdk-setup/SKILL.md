@@ -42,7 +42,7 @@ If no, C++ extensions and a `<name>_agentc` tool, as in `VASDK_APP/agents/garage
 | `vad` | `SileroOptions` | `threshold` (lower hears quieter speech) |
 | `stt` | `LocalSttOptions` / `CloudOptions` | `language`; cloud: `api_key` as `${<PROVIDER>_API_KEY}` |
 | `tts` | `LocalTtsOptions` / `CloudOptions` | `voice`, `language`; cloud: `api_key`, `voice_id` |
-| `turn` | `SmartTurnOptions` | whether to use one (without it, the VAD's silence ends turns) |
+| `turn` | `Turn1MiniOptions` (`turn-1-mini`, English), `SmartTurnOptions` (`smartturn-v3`, any language) | whether to use one (without it, the VAD's silence ends turns), and which: `turn-1-mini` for English, `smartturn-v3` otherwise |
 | `sentence_encoder` | `MiniLmOptions` | whether the agent should understand paraphrases its examples miss |
 | `entity_model` | `GlinerOptions` (`gliner`); none for `tagger`, `llm` | `threshold` ([which one](../../docs/reference/flows.md#entity-models)) |
 | `wake_word` | | none ships yet: say so and point to [vasdk-wake-word](../vasdk-wake-word/SKILL.md) |

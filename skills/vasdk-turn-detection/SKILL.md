@@ -1,6 +1,6 @@
 ---
 name: vasdk-turn-detection
-description: End-of-turn detection and turn-taking in VASDK - SmartTurn v3, turn-taking presets, pauses versus finished turns, barge-in, back-channels, follow-ups, and implementing a new TurnDetectionProvider. Use when the assistant cuts people off, answers too slowly, or when adding a turn model.
+description: End-of-turn detection and turn-taking in VASDK - turn-1-mini, SmartTurn v3, turn-taking presets, pauses versus finished turns, barge-in, back-channels, follow-ups, and implementing a new TurnDetectionProvider. Use when the assistant cuts people off, answers too slowly, or when adding a turn model.
 ---
 
 # Turn detection
@@ -18,12 +18,13 @@ description: End-of-turn detection and turn-taking in VASDK - SmartTurn v3, turn
 
 | Id | Folder | Kind | Options |
 | --- | --- | --- | --- |
-| `smartturn-v3` | `VASDK_3P_IMPL/SmartTurnV3/` | local ONNX, on by default, `va::thirdparty::turn` | `SmartTurnOptions`: `model_path` |
+| `turn-1-mini` | `VASDK_3P_IMPL/Turn1Mini/` | local ONNX, streaming, English, on by default and preferred, `va::thirdparty::turn` | `Turn1MiniOptions`: `model_path`, `pause_threshold`, `threshold` |
+| `smartturn-v3` | `VASDK_3P_IMPL/SmartTurnV3/` | local ONNX, multilingual, on by default, `va::thirdparty::turn` | `SmartTurnOptions`: `model_path` |
 
 ## Using it
 
 ```textproto
-providers { turn { id: "smartturn-v3" } }
+providers { turn { id: "turn-1-mini" } }   # English; smartturn-v3 for other languages
 turn_taking { preset: BALANCED }   # SNAPPY for phone calls, PATIENT for people who stop to think; then override single values
 ```
 
@@ -39,7 +40,7 @@ If it cuts people off, use `PATIENT` or raise the pause threshold. If it answers
 ## Adding one
 
 1. The steps, files and code rules in [vasdk-provider](../vasdk-provider/SKILL.md). Interface: `va::audio::TurnDetectionProvider`. Options: a new `<Name>Options`.
-2. Template: `VASDK_3P_IMPL/SmartTurnV3/` (`va::thirdparty::turn`, ONNX, a golden-parity test of its audio features against the Python reference: `VASDK_3P_IMPL/SmartTurnV3/tests/gen_features_golden.py` and `VASDK_3P_IMPL/SmartTurnV3/tests/golden/`).
+2. Template: `VASDK_3P_IMPL/SmartTurnV3/` for a model that re-reads the turn from the ring buffer (`va::thirdparty::turn`, ONNX, a golden-parity test of its audio features against the Python reference: `VASDK_3P_IMPL/SmartTurnV3/tests/gen_features_golden.py` and `VASDK_3P_IMPL/SmartTurnV3/tests/golden/`); `VASDK_3P_IMPL/Turn1Mini/` for a streaming model that carries state across every audio frame (a golden of its scores from the reference's streaming loop: `VASDK_3P_IMPL/Turn1Mini/tests/gen_scores_golden.py`).
 3. Register it with `registry.add<va::audio::TurnDetectionProvider, providers::<Name>Options>("<id>", ...)`.
 
 ## Tests

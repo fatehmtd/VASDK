@@ -77,7 +77,10 @@ def main():
         return 77
 
     config = Path(tempfile.mkdtemp()) / "engine.txtpb"
-    config.write_text('providers { vad { id: "silero" } stt { id: "whistle" } tts { id: "phonon" } }\n', encoding="utf-8")
+    # The end of each spoken turn: turn-1-mini (by its id, through the binding) when its model is there
+    turn = ' turn { id: "turn-1-mini" }' if (models / "turn_1_mini.onnx").exists() else ""
+    print("end of turn: " + ("turn-1-mini" if turn else "the VAD's silence"))
+    config.write_text('providers { vad { id: "silero" } stt { id: "whistle" } tts { id: "phonon" }' + turn + ' }\n', encoding="utf-8")
     kitchen = Kitchen()
     registry = vasdk.Registry()
     kitchen.register(registry)

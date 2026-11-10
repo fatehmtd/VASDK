@@ -261,6 +261,17 @@ message SmartTurnOptions {
   optional float pause_threshold = 6;            // the probability a pause needs to end the turn; unset: 0.85
 }
 
+// turn-1-mini (p99lab): a streaming model that hears all the audio, in 160 ms steps.
+message Turn1MiniOptions {
+  string model_path = 1;                         // unset: <models_dir>/turn_1_mini.onnx (any of its turn-1-mini.step*.onnx graphs)
+  optional float threshold = 2;                  // end-of-turn score (0-1) that ends the turn after the VAD's end;
+                                                 // unset: VASDK_TURN1MINI_THRESHOLD, then 0.15
+  optional int32 post_audio_frames = 3;          // frames after the VAD's end that are still evaluated; unset: 3
+  optional bool evaluate_on_pause = 4;           // also evaluate during pauses, so a finished turn ends at the pause; unset: true
+  optional float pause_threshold = 5;            // the score a pause needs to end the turn;
+                                                 // unset: VASDK_TURN1MINI_PAUSE_THRESHOLD, then 0.15
+}
+
 // ---------------------------------------------------------------- Understanding
 
 // Sentence encoder: minilm.

@@ -52,6 +52,8 @@ baselines { stage: "vad" provider: "silero" metric: "f1" value: 0.9098 margin: 0
 baselines { stage: "vad" provider: "silero" metric: "false_alarm" margin: 0.05 tier: SMOKE }
 baselines { stage: "turn" provider: "smartturn-v3" language: "en-US" metric: "accuracy" value: 0.6 margin: 0.1 higher_is_better: true tier: SMOKE }
 baselines { stage: "turn" provider: "smartturn-v3" language: "en-US" metric: "false_end_500ms" value: 0.4 margin: 0.1 tier: SMOKE }
+baselines { stage: "turn" provider: "turn-1-mini" language: "en-US" metric: "accuracy" value: 0.9 margin: 0.1 higher_is_better: true tier: SMOKE }
+baselines { stage: "turn" provider: "turn-1-mini" language: "en-US" metric: "false_end_500ms" value: 0.2 margin: 0.1 tier: SMOKE }
 baselines { stage: "speaker" provider: "pyannote" metric: "eer" margin: 0.05 tier: SMOKE }
 baselines { stage: "denoise" provider: "rnnoise" metric: "noise_attenuation_db" value: 24.1517 margin: 3 higher_is_better: true tier: SMOKE }
 baselines { stage: "denoise" provider: "rnnoise" mode: "judge parakeet" language: "en-US" metric: "wer_denoised_0db" value: 0.8949 margin: 0.05 tier: SMOKE }
@@ -110,6 +112,8 @@ baselines { stage: "vad" provider: "silero" metric: "f1" value: 0.9169 margin: 0
 baselines { stage: "vad" provider: "silero" metric: "false_alarm" value: 0.0083 margin: 0.05 tier: FULL }
 baselines { stage: "turn" provider: "smartturn-v3" language: "en-US" metric: "accuracy" value: 0.625 margin: 0.1 higher_is_better: true tier: FULL }
 baselines { stage: "turn" provider: "smartturn-v3" language: "en-US" metric: "false_end_500ms" value: 0.3 margin: 0.1 tier: FULL }
+baselines { stage: "turn" provider: "turn-1-mini" language: "en-US" metric: "accuracy" value: 0.875 margin: 0.1 higher_is_better: true tier: FULL }
+baselines { stage: "turn" provider: "turn-1-mini" language: "en-US" metric: "false_end_500ms" value: 0.05 margin: 0.1 tier: FULL }
 baselines { stage: "speaker" provider: "pyannote" metric: "eer" margin: 0.05 tier: FULL }
 baselines { stage: "denoise" provider: "rnnoise" metric: "noise_attenuation_db" value: 24.1517 margin: 3 higher_is_better: true tier: FULL }
 baselines { stage: "denoise" provider: "rnnoise" mode: "judge parakeet" language: "en-US" metric: "wer_denoised_0db" value: 0.735 margin: 0.05 tier: FULL }

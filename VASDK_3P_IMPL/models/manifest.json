@@ -39,6 +39,24 @@
       ]
     },
     {
+      "id": "turn_1_mini",
+      "description": "turn-1-mini (ONNX, int8 dynamic), streaming end-of-turn detection",
+      "providers": [
+        "turn/turn-1-mini"
+      ],
+      "license": "Apache-2.0",
+      "license_url": "https://huggingface.co/p99lab/turn-1-mini",
+      "revision": "41e98810a30e9bfc09ef752d7120fb41561006f1",
+      "files": [
+        {
+          "path": "turn_1_mini.onnx",
+          "url": "https://huggingface.co/p99lab/turn-1-mini/resolve/41e98810a30e9bfc09ef752d7120fb41561006f1/onnx/turn-1-mini.step.int8dyn.onnx",
+          "size": 7000932,
+          "sha256": "a59a5b627190e7bf52a46dd25026ec8d4d0b01e1b0146643bb39161808c0619e"
+        }
+      ]
+    },
+    {
       "id": "pyannote_embedding",
       "description": "WeSpeaker ResNet34-LM (ONNX), speaker embeddings",
       "providers": [

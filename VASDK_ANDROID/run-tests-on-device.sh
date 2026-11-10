@@ -36,7 +36,7 @@ adb push -q "$BUILD/_deps/onnxruntime-src/jni/$ABI/libonnxruntime.so" "$DEVICE/l
 omp=$(host "$(find "${ANDROID_NDK:?set ANDROID_NDK}" -path "*linux/$OMP_ARCH/libomp.so" | head -1)")
 adb push -q "$omp" "$DEVICE/lib/" >/dev/null
 for folder in VASDK/entities VASDK/tests VASDK_3P_IMPL/PhononTTS/tests/golden VASDK_3P_IMPL/MossTTS/tests/golden \
-              VASDK_3P_IMPL/SmartTurnV3/tests/golden VASDK_3P_IMPL/PyannoteSpeaker/tests/golden; do
+              VASDK_3P_IMPL/SmartTurnV3/tests/golden VASDK_3P_IMPL/Turn1Mini/tests/golden               VASDK_3P_IMPL/PyannoteSpeaker/tests/golden; do
     target=$(dirname "$(on_device "$SOURCE_SEEN/$folder")")
     adb shell "mkdir -p '$target'"
     adb push -q "$SOURCE/$folder" "$target/" >/dev/null
@@ -52,10 +52,16 @@ while IFS= read -r line; do
     if [ "$name" = vasdk_offline_conversation_test ] && [ -n "$MODELS" ]; then
         target=$(on_device "$(echo "$arguments" | tr -d '"')")
         adb shell "mkdir -p '$target'" < /dev/null
-        for model in silero_vad.onnx smart_turn_v3.onnx whistle parakeet pocket_tts phonon_tts; do
+        for model in silero_vad.onnx smart_turn_v3.onnx turn_1_mini.onnx whistle parakeet pocket_tts phonon_tts; do
             [ -e "$MODELS/$model" ] || continue
             adb shell "[ -e '$target/$model' ]" < /dev/null || adb push -q "$MODELS/$model" "$target/" < /dev/null >/dev/null
         done
+    fi
+    # turn-1-mini's own test takes the model's path (the build downloads no model for Android)
+    if [ "$name" = turn1mini_test ] && [ -e "$MODELS/turn_1_mini.onnx" ]; then
+        target=$(on_device "$(echo "$arguments" | awk '{print $1}' | tr -d '"')")
+        adb shell "mkdir -p '$(dirname "$target")'" < /dev/null
+        adb push -q "$MODELS/turn_1_mini.onnx" "$target" < /dev/null >/dev/null
     fi
     remote=$(on_device "$executable")
     adb shell "mkdir -p '$(dirname "$remote")'" < /dev/null

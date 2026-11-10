@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vasdk.android.SttProvider
 import com.vasdk.android.TtsProvider
+import com.vasdk.android.TurnProvider
 import com.vasdk.android.VasdkEngine
 
 @Composable
@@ -49,6 +50,7 @@ internal fun SettingsOverlay(
     sttProvider: SttProvider,
     sttStreaming: Boolean,
     ttsProvider: TtsProvider,
+    turnProvider: TurnProvider,
     useLocalLlm: Boolean,
     llmModelName: String,
     applyEnabled: Boolean,
@@ -56,6 +58,7 @@ internal fun SettingsOverlay(
     onSttProviderChange: (SttProvider) -> Unit,
     onSttStreamingChange: (Boolean) -> Unit,
     onTtsProviderChange: (TtsProvider) -> Unit,
+    onTurnProviderChange: (TurnProvider) -> Unit,
     onUseLocalLlmChange: (Boolean) -> Unit,
     onLlmModelChange: (String) -> Unit,
     onApplyClick: () -> Unit,
@@ -103,6 +106,16 @@ internal fun SettingsOverlay(
                 if (sttProvider == SttProvider.VOZ) VozCredit()
                 Column(modifier = Modifier.padding(top = 10.dp)) {
                     SttStreamingRow(streaming = sttStreaming, onToggle = onSttStreamingChange)
+                }
+
+                Column(modifier = Modifier.padding(top = 28.dp)) {
+                    SectionHeader("End of turn")
+                    ProviderPicker(
+                        options = TurnProvider.entries,
+                        selected = turnProvider,
+                        label = { it.label },
+                        onSelect = onTurnProviderChange
+                    )
                 }
 
                 Column(modifier = Modifier.padding(top = 28.dp)) {

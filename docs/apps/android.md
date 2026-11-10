@@ -18,7 +18,7 @@ flowchart TB
         Bridge["builds the pipeline, bridges callbacks both ways<br/>(incl. nativeGetPromptPreview for model info)"]
     end
     subgraph Native["VASDK core + providers (C++, per-ABI)"]
-        Providers["AAudio mic and speaker · SileroVAD · SmartTurnV3 · pyannote speaker<br/>STT: Whistle · Parakeet · Voz · Soniox · Deepgram · Gladia · Gradium · Cartesia · Fish Audio<br/>TTS: PocketTTS · Phonon · MOSS · Soniox · Deepgram · Gradium · Cartesia · Fish Audio<br/>llama.cpp (local LLM)"]
+        Providers["AAudio mic and speaker · SileroVAD · turn-1-mini or SmartTurnV3 · pyannote speaker<br/>STT: Whistle · Parakeet · Voz · Soniox · Deepgram · Gladia · Gradium · Cartesia · Fish Audio<br/>TTS: PocketTTS · Phonon · MOSS · Soniox · Deepgram · Gradium · Cartesia · Fish Audio<br/>llama.cpp (local LLM)"]
     end
 
     Kotlin <--> Engine
@@ -195,10 +195,11 @@ stateDiagram-v2
 
 ## Settings and provider switching
 
-`Header.kt` exposes four actions beyond the status pill: animation test (`GraphicEq`), model info (`Info`), new conversation (`RestartAlt`), and settings (`Settings`) - the LLM mode toggle that used to live directly in the header was folded into the settings overlay instead. `SettingsOverlay.kt` lets you swap STT/TTS/LLM providers at runtime, no rebuild required:
+`Header.kt` exposes four actions beyond the status pill: animation test (`GraphicEq`), model info (`Info`), new conversation (`RestartAlt`), and settings (`Settings`) - the LLM mode toggle that used to live directly in the header was folded into the settings overlay instead. `SettingsOverlay.kt` lets you swap STT/TTS/end-of-turn/LLM providers at runtime, no rebuild required:
 
 - **Speech-to-Text** - `SttProvider`: `PARAKEET` · `WHISTLE` (on-device, arm64 only) · `VOZ` (on-device, through the Desert Ant Labs Kotlin SDK `ai.desertant:voz`, which downloads its own model; Settings shows the attribution its license requires) · `SONIOX` · `DEEPGRAM` · `GLADIA` · `CARTESIA` · `FISHAUDIO` · `GRADIUM` (cloud), plus a streaming/one-shot toggle.
 - **Text-to-Speech** - `TtsProvider`: `POCKET` · `PHONON` (on-device, `gradium/phonon-31m-en`, Apache 2.0) · `MOSS` (on-device, MOSS-TTS-Nano) · `SONIOX` · `DEEPGRAM` · `CARTESIA` · `FISHAUDIO` · `GRADIUM` (cloud).
+- **End of turn** - `TurnProvider`: `TURN1MINI` (turn-1-mini, English, the default) · `SMARTTURN` (SmartTurn v3, any language). Both models are bundled in `res/raw`; `init()` extracts and loads only the selected one.
 - **Language Model** - on-device/cloud toggle; on-device exposes the same presets as `VasdkEngine.LOCAL_LLM_MODELS`.
 
 "Apply Config" tears down and re-initializes the native pipeline with the newly selected providers. `sttModelDir`/`ttsModelDir` (`parakeet/`, `whistle/` or `voz/`, `pocket_tts/`, `phonon_tts/` or `moss_tts/` under `cacheDir`) are only meaningful for the currently selected on-device provider - the native side ignores them when a cloud provider is active instead. Choices persist across restarts via `ProviderPreferences`.
@@ -282,6 +283,6 @@ The native suite, the same `ctest` cases as on the desktop, runs on a device or 
 
 2. [`run-tests-on-device.sh`](../../VASDK_ANDROID/run-tests-on-device.sh) does the rest:
    - It pushes each test and runs it as ctest would. Golden files, entity packs and test commands keep the paths they had at build time.
-   - With a models folder, the offline spoken conversation runs. It uses Silero, SmartTurn, Pocket and Phonon, with Whistle for STT where its engine is built (arm64), or Parakeet otherwise.
+   - With a models folder, the offline spoken conversation runs. It uses Silero, SmartTurn, Pocket and Phonon (and turn-1-mini in its own run), with Whistle for STT where its engine is built (arm64), or Parakeet otherwise.
    - It deletes each binary once its test has run: they're statically linked, and an emulator fills up.
    - On an x86_64 emulator (API 33, 6 GB), all 52 cases pass or skip. The skips are tests whose models weren't pushed: MOSS, a GGUF.

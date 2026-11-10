@@ -130,6 +130,7 @@ class MainActivity : ComponentActivity(), VasdkEngine.Listener {
             sttProvider = engine.sttProvider,
             sttStreaming = engine.sttStreaming,
             ttsProvider = engine.ttsProvider,
+            turnProvider = engine.turnProvider,
             useLocalLlm = engine.useLocalLLM,
             llmModelName = engine.llmModelMeta.modelName
         )
@@ -158,6 +159,7 @@ class MainActivity : ComponentActivity(), VasdkEngine.Listener {
                     onSttProviderChange = { provider -> viewModel.onSettingsSttProviderChanged(provider) },
                     onSttStreamingChange = { streaming -> viewModel.onSettingsSttStreamingChanged(streaming) },
                     onTtsProviderChange = { provider -> viewModel.onSettingsTtsProviderChanged(provider) },
+                    onTurnProviderChange = { provider -> viewModel.onSettingsTurnProviderChanged(provider) },
                     onUseLocalLlmChange = { useLocal -> viewModel.onSettingsUseLocalLlmChanged(useLocal) },
                     onLlmModelChange = { modelName -> viewModel.onSettingsLlmModelChanged(modelName) },
                     onApplyConfig = { applyPendingConfig() },
@@ -287,6 +289,7 @@ class MainActivity : ComponentActivity(), VasdkEngine.Listener {
             sttProvider = state.settingsSttProvider,
             sttStreaming = state.settingsSttStreaming,
             ttsProvider = state.settingsTtsProvider,
+            turnProvider = state.settingsTurnProvider,
             useLocalLlm = state.settingsUseLocalLlm,
             llmModelName = state.settingsLlmModelName
         )
@@ -299,6 +302,7 @@ class MainActivity : ComponentActivity(), VasdkEngine.Listener {
         sttProvider: SttProvider,
         sttStreaming: Boolean,
         ttsProvider: TtsProvider,
+        turnProvider: TurnProvider,
         useLocalLlm: Boolean,
         llmModelName: String
     ) {
@@ -307,6 +311,7 @@ class MainActivity : ComponentActivity(), VasdkEngine.Listener {
         engine.setSttProvider(sttProvider)
         engine.setSttStreaming(sttStreaming)
         engine.setTtsProvider(ttsProvider)
+        engine.setTurnProvider(turnProvider)
         engine.setLlmMode(useLocalLlm)
         VasdkEngine.LOCAL_LLM_MODELS.firstOrNull { it.modelName == llmModelName }?.let {
             engine.setLocalLlmModel(it)

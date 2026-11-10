@@ -194,7 +194,7 @@ A flavor is a named set of providers. The release archives and packages each com
 | Flavor | Providers | For |
 | --- | --- | --- |
 | `core` | None. The app adds its own with `vasdk_providers_add_*` | The smallest binary; your own backends |
-| `default` | miniaudio, Silero VAD, energy/ZCR VAD, SmartTurn v3, Whistle STT, Pocket TTS, MiniLM, pyannote, RNNoise, VizAnim | On-device voice on every desktop platform, permissive licenses only |
+| `default` | miniaudio, Silero VAD, energy/ZCR VAD, turn-1-mini, SmartTurn v3, Whistle STT, Pocket TTS, MiniLM, pyannote, RNNoise, VizAnim | On-device voice on every desktop platform, permissive licenses only |
 | `full` | `default`, plus llama.cpp, whisper.cpp, Parakeet, Moonshine, Supertonic, MOSS-TTS, Phonon, GLiNER, and the Deepgram, Cartesia, Fish Audio, Gradium and Gladia clients | Local LLM, larger models, and cloud STT and TTS |
 
 Some rules about flavors:

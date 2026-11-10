@@ -5,11 +5,13 @@
 // runs: VAD, STT, the agent's turn, its spoken reply. The assistant's speech isn't fed back
 // (headphones). Exits 77 (skipped) when the models aren't there.
 //   offline_conversation_test <models dir> [assistant voice: pocket] [stt: whistle, else parakeet]
+//                             [turn: none (VAD silence), else a turn provider id, e.g. turn-1-mini]
 
 #include "ProviderCatalog.h"
 
 #include <VASDK/GenericTranscriptionProvider.h>
 #include <VASDK/GenericVoiceSynthesisProvider.h>
+#include <VASDK/TurnDetectionProvider.h>
 #include <VASDK/c/vasdk.h>
 #include <VASDK/c/vasdk_cpp.h>
 #include "vasdk/engine/engine_config.pb.h"
@@ -202,15 +204,25 @@ int main(int argc, char** argv) {
     // The recognizer: as asked, else Whistle when this binary has it, else Parakeet.
     const auto recognizers = vasdk_providers_registry(providers).ids<va::audio::GenericTranscriptionProvider>();
     auto built = [&](const std::string& id) { return std::find(recognizers.begin(), recognizers.end(), id) != recognizers.end(); };
-    const std::string stt = argc > 3 ? argv[3] : built("whistle") ? "whistle" : "parakeet";
+    const std::string stt = argc > 3 && *argv[3] ? argv[3] : built("whistle") ? "whistle" : "parakeet";
+    // The end of turn: VAD silence, or a turn model by id (its model must be there too)
+    const std::string turn = argc > 4 ? argv[4] : "";
+    if (!turn.empty()) {
+        const auto turns = vasdk_providers_registry(providers).ids<va::audio::TurnDetectionProvider>();
+        if (std::find(turns.begin(), turns.end(), turn) == turns.end()) {
+            std::printf("skipped: no %s turn provider in this binary\n", turn.c_str());
+            return 77;
+        }
+    }
+    const std::string turnModel = turn == "turn-1-mini" ? "turn_1_mini.onnx" : turn == "smartturn-v3" ? "smart_turn_v3.onnx" : "";
     if (!built(stt)) {
         std::printf("skipped: no %s recognizer in this binary\n", stt.c_str());
         return 77;
     }
     const std::string sttModel = stt == "whistle" ? "whistle/whistle.cact" : stt + "/vocab.txt";
     for (const std::string& needed : {std::string("silero_vad.onnx"), sttModel, std::string("pocket_tts/voices.bin"),
-                                      std::string("phonon_tts")}) {
-        if (!std::filesystem::exists(models / needed)) {
+                                      std::string("phonon_tts"), turnModel}) {
+        if (!needed.empty() && !std::filesystem::exists(models / needed)) {
             std::printf("skipped: %s isn't in %s\n", needed.c_str(), models.string().c_str());
             return 77;
         }
@@ -225,8 +237,10 @@ int main(int argc, char** argv) {
                               << "providers { vad { id: \"silero\" }\n"
                               << "  stt { id: \"" << stt << "\" options { [type.googleapis.com/vasdk.providers.LocalSttOptions] { idle_timeout_ms: 550 } } }\n"
                               << "  tts { id: \"" << assistantVoice << "\" options { [type.googleapis.com/vasdk.providers." << voiceOptions
-                              << "] { prebuffer_ms: 250 silence_duration_seconds: 0.3 } } } }\n";
-    std::printf("STT: %s, the assistant's voice: %s\n", stt.c_str(), assistantVoice.c_str());
+                              << "] { prebuffer_ms: 250 silence_duration_seconds: 0.3 } } }\n"
+                              << (turn.empty() ? std::string() : "  turn { id: \"" + turn + "\" }\n") << "}\n";
+    std::printf("STT: %s, the assistant's voice: %s, the end of turn: %s\n", stt.c_str(), assistantVoice.c_str(),
+                turn.empty() ? "VAD silence" : turn.c_str());
     char* error = nullptr;
     vasdk_agent* agent = vasdk_agent_parse(kAgent, std::strlen(kAgent), VASDK_FORMAT_TEXT, nullptr, &error);
     check(agent != nullptr, std::string("the agent parses ") + (error ? error : ""));

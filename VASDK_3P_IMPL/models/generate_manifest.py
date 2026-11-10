@@ -103,6 +103,7 @@ def main():
     # Pinned revisions. To move one: change it here, run this script, commit the manifest.
     silero = "https://raw.githubusercontent.com/snakers4/silero-vad/v6.2/src/silero_vad/data/silero_vad.onnx"
     smart_turn = "f766f81d3cfdf7737ac64aad813d91bbfd56bf93"
+    turn_1_mini = "41e98810a30e9bfc09ef752d7120fb41561006f1"
     # Repositories the build used to follow on main: pinned to the commit the manifest already
     # names, or main's current commit the first time (--refresh moves them all to main's).
     manifest_path = HERE / "manifest.json"
@@ -158,6 +159,10 @@ def main():
               f"{HF}/pipecat-ai/smart-turn-v3",
               hf_files("pipecat-ai/smart-turn-v3", smart_turn, [("smart-turn-v3.2-cpu.onnx", "smart_turn_v3.onnx")]),
               revision=smart_turn),
+        model("turn_1_mini", "turn-1-mini (ONNX, int8 dynamic), streaming end-of-turn detection", ["turn/turn-1-mini"],
+              "Apache-2.0", f"{HF}/p99lab/turn-1-mini",
+              hf_files("p99lab/turn-1-mini", turn_1_mini, [("onnx/turn-1-mini.step.int8dyn.onnx", "turn_1_mini.onnx")]),
+              revision=turn_1_mini),
         model("pyannote_embedding", "WeSpeaker ResNet34-LM (ONNX), speaker embeddings", ["speaker_embedding/pyannote"],
               "CC-BY-4.0", f"{HF}/pyannote/wespeaker-voxceleb-resnet34-LM",
               url_files([("https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/"

@@ -32,7 +32,7 @@ flowchart LR
         I2["Parakeet · Moonshine · Whisper.cpp · Gladia · Soniox · Deepgram · Cartesia · Fish Audio · Gradium"]
         I3["Supertonic · PocketTTS · Phonon · MOSS-TTS-Nano · Soniox · Deepgram · Cartesia · Fish Audio · Gradium"]
         I4["RNNoise"]
-        I5["SmartTurn v3"]
+        I5["turn-1-mini · SmartTurn v3"]
         I7["pyannote (WeSpeaker ResNet34)"]
         I6["MiniAudio · SDL3 · FFmpeg"]
     end
@@ -179,7 +179,7 @@ virtual TurnEvaluation evaluate(const std::shared_ptr<transport::Frame> frame,
                                 bool agentIsSpeaking) = 0;
 ```
 
-`evaluate()` is called per frame (VAD state frames and others); return `NONE` to stay silent, or a `TURN_START`/`TURN_END` decision and `TurnDetectionProcessor` emits the corresponding `TurnStateFrame`. `agentIsSpeaking` is how you classify `INTERRUPT` (user barged in over TTS) vs `NORMAL`. The built-in fallback (no provider) maps VAD `STARTING`→start, `ENDED`→end at VAD confidence; the SmartTurn v3 implementation in `VASDK_3P_IMPL` adds a semantic end-of-turn model, thresholds, rolling averages, and minimum-duration suppression. By default SmartTurn scores a few frames after VAD `ENDED`; `setEvaluateOnPause(true)` (on the `TurnDetectionProvider` base, like `setPauseThreshold`) also scores each frame while the VAD is `PAUSED`/`ENDING`, and a `TURN_END` there - which needs `pauseThreshold()` confidence, default 0.85, since a pause is often just a breath - makes `TurnDetectionProcessor` end the VAD segment early (one inference per paused frame). A `TURN_START` returned on VAD `STARTING` is held by the processor until the VAD confirms speech.
+`evaluate()` is called per frame (VAD state frames and others); return `NONE` to stay silent, or a `TURN_START`/`TURN_END` decision and `TurnDetectionProcessor` emits the corresponding `TurnStateFrame`. `agentIsSpeaking` is how you classify `INTERRUPT` (user barged in over TTS) vs `NORMAL`. The built-in fallback (no provider) maps VAD `STARTING`→start, `ENDED`→end at VAD confidence; the SmartTurn v3 and turn-1-mini implementations in `VASDK_3P_IMPL` add an end-of-turn model (turn-1-mini streams every audio frame through its state; SmartTurn re-reads the turn), thresholds, rolling averages, and minimum-duration suppression. By default SmartTurn scores a few frames after VAD `ENDED`; `setEvaluateOnPause(true)` (on the `TurnDetectionProvider` base, like `setPauseThreshold`) also scores each frame while the VAD is `PAUSED`/`ENDING`, and a `TURN_END` there - which needs `pauseThreshold()` confidence, default 0.85, since a pause is often just a breath - makes `TurnDetectionProcessor` end the VAD segment early (one inference per paused frame). A `TURN_START` returned on VAD `STARTING` is held by the processor until the VAD confirms speech.
 
 ## SpeakerEmbeddingProvider
 

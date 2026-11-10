@@ -57,6 +57,7 @@ set(_vasdk_catalog_providers
     vasdk_phonon_tts      PHONON_TTS
     vasdk_pocket_tts      POCKET_TTS
     vasdk_smartturn_v3    SMART_TURN_V3
+    vasdk_turn1mini       TURN1MINI
     vasdk_minilm_nlu      MINILM_NLU
     vasdk_gliner_ner      GLINER_NER
     vasdk_libdatachannel_webrtc LIBDATACHANNEL_WEBRTC
@@ -145,6 +146,15 @@ if(VASDK_BUILD_TESTS)
     vasdk_test_dlls(vasdk_provider_options_test)
 endif()
 
+# turn-1-mini by config id: its options message, the environment behind its thresholds (skips without its model).
+if(VASDK_BUILD_TESTS AND TARGET vasdk_turn1mini)
+    add_executable(vasdk_turn1mini_options_test ${CMAKE_CURRENT_SOURCE_DIR}/../Turn1Mini/tests/options_test.cpp)
+    target_link_libraries(vasdk_turn1mini_options_test PRIVATE vasdk_provider_catalog)
+    add_test(NAME vasdk_turn1mini_options COMMAND vasdk_turn1mini_options_test ${CMAKE_CURRENT_BINARY_DIR}/../models)
+    set_tests_properties(vasdk_turn1mini_options PROPERTIES SKIP_RETURN_CODE 77)
+    vasdk_test_dlls(vasdk_turn1mini_options_test)
+endif()
+
 # A spoken conversation with no network, through the C API: VAD, STT and TTS on this machine.
 if(VASDK_BUILD_TESTS AND TARGET vasdk_silero_vad AND TARGET vasdk_whistle_stt AND TARGET vasdk_pocket_tts AND TARGET vasdk_phonon_tts)
     add_executable(vasdk_offline_conversation_test offline_conversation_test.cpp)
@@ -153,6 +163,12 @@ if(VASDK_BUILD_TESTS AND TARGET vasdk_silero_vad AND TARGET vasdk_whistle_stt AN
              COMMAND vasdk_offline_conversation_test ${CMAKE_CURRENT_BINARY_DIR}/../models)
     set_tests_properties(vasdk_offline_conversation PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 600)
     vasdk_test_dlls(vasdk_offline_conversation_test)
+    # The same conversation with turn-1-mini deciding where each of the user's turns ends
+    if(TARGET vasdk_turn1mini)
+        add_test(NAME vasdk_offline_conversation_turn1mini
+                 COMMAND vasdk_offline_conversation_test ${CMAKE_CURRENT_BINARY_DIR}/../models pocket "" turn-1-mini)
+        set_tests_properties(vasdk_offline_conversation_turn1mini PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 600)
+    endif()
 endif()
 
 # The audio DSP and speaker embedding picked by config id (rnnoise, pyannote), and a session with both.

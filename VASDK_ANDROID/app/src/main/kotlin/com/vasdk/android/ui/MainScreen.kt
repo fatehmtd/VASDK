@@ -21,6 +21,7 @@ import com.vasdk.android.MainMessageRole
 import com.vasdk.android.MainUiState
 import com.vasdk.android.SttProvider
 import com.vasdk.android.TtsProvider
+import com.vasdk.android.TurnProvider
 
 @Composable
 fun MainScreen(
@@ -37,6 +38,7 @@ fun MainScreen(
     onSttProviderChange: (SttProvider) -> Unit = {},
     onSttStreamingChange: (Boolean) -> Unit = {},
     onTtsProviderChange: (TtsProvider) -> Unit = {},
+    onTurnProviderChange: (TurnProvider) -> Unit = {},
     onUseLocalLlmChange: (Boolean) -> Unit = {},
     onLlmModelChange: (String) -> Unit = {},
     onApplyConfig: () -> Unit = {},
@@ -155,6 +157,7 @@ fun MainScreen(
                 sttProvider = state.settingsSttProvider,
                 sttStreaming = state.settingsSttStreaming,
                 ttsProvider = state.settingsTtsProvider,
+                turnProvider = state.settingsTurnProvider,
                 useLocalLlm = state.settingsUseLocalLlm,
                 llmModelName = state.settingsLlmModelName,
                 applyEnabled = !state.configApplyInProgress,
@@ -162,6 +165,7 @@ fun MainScreen(
                 onSttProviderChange = onSttProviderChange,
                 onSttStreamingChange = onSttStreamingChange,
                 onTtsProviderChange = onTtsProviderChange,
+                onTurnProviderChange = onTurnProviderChange,
                 onUseLocalLlmChange = onUseLocalLlmChange,
                 onLlmModelChange = onLlmModelChange,
                 onApplyClick = onApplyConfig,
@@ -180,11 +184,13 @@ fun MainScreen(
                 sttProvider = state.settingsSttProvider,
                 sttStreaming = state.settingsSttStreaming,
                 ttsProvider = state.settingsTtsProvider,
+                turnProvider = state.settingsTurnProvider,
                 useLocalLlm = state.settingsUseLocalLlm,
                 llmModelName = state.settingsLlmModelName,
                 onSttProviderChange = onSttProviderChange,
                 onSttStreamingChange = onSttStreamingChange,
                 onTtsProviderChange = onTtsProviderChange,
+                onTurnProviderChange = onTurnProviderChange,
                 onUseLocalLlmChange = onUseLocalLlmChange,
                 onLlmModelChange = onLlmModelChange,
                 onNext = onSetupNext,

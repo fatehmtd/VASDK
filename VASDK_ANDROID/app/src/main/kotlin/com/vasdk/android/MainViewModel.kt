@@ -73,6 +73,7 @@ data class MainUiState(
     val settingsSttProvider: SttProvider = SttProvider.PARAKEET,
     val settingsSttStreaming: Boolean = true,
     val settingsTtsProvider: TtsProvider = TtsProvider.POCKET,
+    val settingsTurnProvider: TurnProvider = TurnProvider.TURN1MINI,
     val settingsUseLocalLlm: Boolean = false,
     val settingsLlmModelName: String = VasdkEngine.LFM2_5Meta.modelName,
     // First-run wizard: edits the same settings* selections as the Settings screen, but
@@ -146,6 +147,7 @@ class MainViewModel : ViewModel() {
         sttProvider: SttProvider,
         sttStreaming: Boolean,
         ttsProvider: TtsProvider,
+        turnProvider: TurnProvider,
         useLocalLlm: Boolean,
         llmModelName: String
     ) {
@@ -154,6 +156,7 @@ class MainViewModel : ViewModel() {
                 settingsSttProvider = sttProvider,
                 settingsSttStreaming = sttStreaming,
                 settingsTtsProvider = ttsProvider,
+                settingsTurnProvider = turnProvider,
                 settingsUseLocalLlm = useLocalLlm,
                 settingsLlmModelName = llmModelName
             )
@@ -178,6 +181,10 @@ class MainViewModel : ViewModel() {
 
     fun onSettingsTtsProviderChanged(provider: TtsProvider) {
         _uiState.update { it.copy(settingsTtsProvider = provider) }
+    }
+
+    fun onSettingsTurnProviderChanged(provider: TurnProvider) {
+        _uiState.update { it.copy(settingsTurnProvider = provider) }
     }
 
     fun onSettingsUseLocalLlmChanged(useLocal: Boolean) {

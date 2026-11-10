@@ -3,7 +3,7 @@
 # VASDK_BUILD_<NAME> switches, which also refine a flavor (-DVASDK_FLAVOR=default -DVASDK_BUILD_LLAMACPP=ON).
 #
 #   core      the SDK and the C API, no provider: the app brings its own (vasdk_providers_add_*)
-#   default   on-device voice for every platform: miniaudio, Silero VAD, SmartTurn, Whistle STT,
+#   default   on-device voice for every platform: miniaudio, Silero VAD, SmartTurn, turn-1-mini, Whistle STT,
 #             Pocket TTS, MiniLM, pyannote, RNNoise, VizAnim (permissive licenses only)
 #   full      default, and local LLM and the larger models (llama.cpp, whisper.cpp, Parakeet,
 #             Moonshine, Supertonic, MOSS, Phonon, GLiNER) and the cloud STT and TTS clients
@@ -22,7 +22,7 @@ if(NOT VASDK_FLAVOR MATCHES "^(core|default|full)$")
 endif()
 
 set(_vasdk_flavor_default
-    MINIAUDIO SILERO_VAD ENERGY_ZCR_VAD SMART_TURN_V3 MINILM_NLU PYANNOTE_SPEAKER WHISTLE_STT POCKET_TTS RNNOISE VIZANIM)
+    MINIAUDIO SILERO_VAD ENERGY_ZCR_VAD SMART_TURN_V3 TURN1MINI MINILM_NLU PYANNOTE_SPEAKER WHISTLE_STT POCKET_TTS RNNOISE VIZANIM)
 set(_vasdk_flavor_full ${_vasdk_flavor_default}
     PHONON_TTS LLAMACPP WHISPERCPP PARAKEET MOONSHINE_STT SUPERTONIC_TTS MOSS_TTS GLINER_NER
     DEEPGRAMPP_STT DEEPGRAMPP_TTS CARTESIAPP_STT CARTESIAPP_TTS FISHAUDIOPP_STT FISHAUDIOPP_TTS

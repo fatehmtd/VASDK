@@ -6,7 +6,7 @@
 
 ```mermaid
 flowchart LR
-    TIn["Transport In<br/>(mic)"] --> VAD["VAD<br/>(Silero)"] --> Turn["Turn Detection<br/>(SmartTurn v3)"] --> STT --> Agent["Agent State"] --> LLM["LLM + Tool Dispatch"] --> TTS --> TOut["Transport Out<br/>(spkr)"]
+    TIn["Transport In<br/>(mic)"] --> VAD["VAD<br/>(Silero)"] --> Turn["Turn Detection<br/>(turn-1-mini)"] --> STT --> Agent["Agent State"] --> LLM["LLM + Tool Dispatch"] --> TTS --> TOut["Transport Out<br/>(spkr)"]
     TOut -.->|"upstream: ErrorFrame, INTERRUPT, SynthesisStateFrame"| TIn
 ```
 
@@ -17,7 +17,7 @@ VAD, STT, TTS and turn detection are chosen at run time: `--config` names a prov
 ## What it demonstrates
 
 - **Barge-in, not back-channels**: talk over the assistant and `AgentStateProcessor` cancels the in-flight TTS. A short "mm-hmm" or "yeah" only ducks it for a moment, and the assistant keeps going without answering it ([back-channels](../reference/processors.md#back-channels-speech-over-the-agent-that-isnt-an-interruption)).
-- **Turn detection**: SmartTurn v3 (when built) decides whether you're done talking, rather than a fixed silence timeout. It scores each pause as it happens, so a clearly finished sentence ends the turn at the pause; an unfinished one waits for the VAD's silence timers. A noise blip shorter than 250 ms never counts as you starting to speak, so it can't cut the assistant off.
+- **Turn detection**: turn-1-mini (when built; [SmartTurn v3](../providers/smartturn-v3.md) for other languages than English, by `--config`) decides whether you're done talking, rather than a fixed silence timeout. It scores each pause as it happens, so a clearly finished sentence ends the turn at the pause; an unfinished one waits for the VAD's silence timers. A noise blip shorter than 250 ms never counts as you starting to speak, so it can't cut the assistant off.
 - **Browser calls**: `--webrtc-port` swaps the local mic and speaker for a WebRTC peer and serves a demo page with live state, VizAnim visuals, speaker tags and per-turn latency.
 - **Tool calling**: two demo tools, `get_weather` and `get_time`, registered on a `ToolDispatchProcessor`. The LLM calls them mid-conversation and speaks the result.
 - **Prompts as files**: the system prompt and response-format instruction live in [`prompts/`](../../VASDK_APP/prompts/) and can be overridden per run with `--system-prompt` and `--format-instruction`.

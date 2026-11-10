@@ -30,6 +30,7 @@ import com.vasdk.android.BuildConfig
 import com.vasdk.android.SetupStep
 import com.vasdk.android.SttProvider
 import com.vasdk.android.TtsProvider
+import com.vasdk.android.TurnProvider
 import com.vasdk.android.VasdkEngine
 
 /**
@@ -43,11 +44,13 @@ internal fun SetupWizard(
     sttProvider: SttProvider,
     sttStreaming: Boolean,
     ttsProvider: TtsProvider,
+    turnProvider: TurnProvider,
     useLocalLlm: Boolean,
     llmModelName: String,
     onSttProviderChange: (SttProvider) -> Unit,
     onSttStreamingChange: (Boolean) -> Unit,
     onTtsProviderChange: (TtsProvider) -> Unit,
+    onTurnProviderChange: (TurnProvider) -> Unit,
     onUseLocalLlmChange: (Boolean) -> Unit,
     onLlmModelChange: (String) -> Unit,
     onNext: () -> Unit,
@@ -83,6 +86,15 @@ internal fun SetupWizard(
                         )
                         Column(modifier = Modifier.padding(top = 10.dp)) {
                             SttStreamingRow(streaming = sttStreaming, onToggle = onSttStreamingChange)
+                        }
+                        Column(modifier = Modifier.padding(top = 20.dp)) {
+                            StepTitle("End of turn", "What decides you have finished speaking.")
+                            ProviderPicker(
+                                options = TurnProvider.entries,
+                                selected = turnProvider,
+                                label = { it.label },
+                                onSelect = onTurnProviderChange
+                            )
                         }
                     }
                     SetupStep.TTS -> {
@@ -121,6 +133,7 @@ internal fun SetupWizard(
                         sttProvider = sttProvider,
                         sttStreaming = sttStreaming,
                         ttsProvider = ttsProvider,
+                        turnProvider = turnProvider,
                         useLocalLlm = useLocalLlm,
                         llmModelName = llmModelName
                     )
@@ -232,6 +245,7 @@ private fun ReviewStep(
     sttProvider: SttProvider,
     sttStreaming: Boolean,
     ttsProvider: TtsProvider,
+    turnProvider: TurnProvider,
     useLocalLlm: Boolean,
     llmModelName: String
 ) {
@@ -240,6 +254,7 @@ private fun ReviewStep(
         Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
             ReviewRow("Speech-to-Text", "${sttProvider.label} · ${if (sttStreaming) "streaming" else "one-shot"}")
             ReviewRow("Text-to-Speech", ttsProvider.label)
+            ReviewRow("End of turn", turnProvider.label)
             ReviewRow("Language model", if (useLocalLlm) "$llmModelName (on-device)" else "Cloud")
         }
     }

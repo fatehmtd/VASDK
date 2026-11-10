@@ -2,7 +2,7 @@
 
 VASDK itself is licensed under the Apache License 2.0 (see [LICENSE](LICENSE)). The models it runs are not. This file lists every model the project uses, where it comes from, and the license it is distributed under.
 
-Two model files are bundled directly in this repository (for the Android app). Everything else is downloaded from its upstream source at CMake configure time by the scripts in `VASDK_3P_IMPL/cmake/`, or at run time by the model store from the pinned list in `VASDK_3P_IMPL/models/manifest.json` ([Models](docs/models.md)); The Android app downloads its models at runtime from the same upstream sources. Neither path redistributes those files here, but their licenses still govern how you may use and ship them.
+Three model files are bundled directly in this repository (for the Android app). Everything else is downloaded from its upstream source at CMake configure time by the scripts in `VASDK_3P_IMPL/cmake/`, or at run time by the model store from the pinned list in `VASDK_3P_IMPL/models/manifest.json` ([Models](docs/models.md)); The Android app downloads its models at runtime from the same upstream sources. Neither path redistributes those files here, but their licenses still govern how you may use and ship them.
 
 Library and provider dependencies (spdlog, nlohmann/json, llama.cpp, whisper.cpp, ONNX Runtime, CLI11, and the rest) are fetched from their upstream repositories at build time under their own licenses and are not redistributed in this repository. They're itemized in [Provider and library dependencies](#provider-and-library-dependencies) below.
 
@@ -11,6 +11,7 @@ Library and provider dependencies (spdlog, nlohmann/json, llama.cpp, whisper.cpp
 | Model | Pipeline stage | Source | License |
 | --- | --- | --- | --- |
 | Silero VAD | Voice activity detection | [snakers4/silero-vad](https://github.com/snakers4/silero-vad) | MIT |
+| turn-1-mini (ONNX step graph, int8) | Turn detection | [p99lab/turn-1-mini](https://huggingface.co/p99lab/turn-1-mini), by p99lab; trained in part on CC BY 4.0 data (its [NOTICE](#turn-1-mini-turn_1_minionnx), below) | Apache 2.0 |
 | Smart Turn v3 | Turn detection | [pipecat-ai/smart-turn-v3](https://huggingface.co/pipecat-ai/smart-turn-v3) | BSD 2-Clause |
 | WeSpeaker ResNet34-LM (ONNX) | Speaker identification (`VASDK_BUILD_PYANNOTE_SPEAKER`) | [wespeaker_en_voxceleb_resnet34_LM.onnx](https://github.com/k2-fsa/sherpa-onnx/releases/tag/speaker-recongition-models) (sherpa-onnx export), the same checkpoint as [pyannote/wespeaker-voxceleb-resnet34-LM](https://huggingface.co/pyannote/wespeaker-voxceleb-resnet34-LM) used by [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) | CC BY 4.0 |
 | Parakeet TDT 0.6B v3 (ONNX) | Speech-to-text | [istupakov/parakeet-tdt-0.6b-v3-onnx](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx), converted from [nvidia/parakeet-tdt-0.6b-v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) | CC BY 4.0 |
@@ -63,7 +64,7 @@ Every VAD/STT/TTS/LLM/audio provider under `VASDK_3P_IMPL/`, plus the core libra
 | [snakers4/silero-vad](https://github.com/snakers4/silero-vad) | VAD (Silero) | GitHub | MIT |
 | [marton78/pffft](https://github.com/marton78/pffft) | SmartTurn v3, VizAnim, pyannote speaker embedding (FFT) | GitHub | Permissive NCAR/UCAR license |
 | [xiph/rnnoise](https://github.com/xiph/rnnoise) | Noise suppression | GitHub | BSD 3-Clause |
-| [microsoft/onnxruntime](https://github.com/microsoft/onnxruntime) | Silero, Parakeet, Moonshine, SmartTurn, PocketTTS, Supertonic, MOSS-TTS-Nano, MiniLM, GLiNER, pyannote speaker embedding (ONNX inference) | GitHub release archive (desktop), Maven Central AAR (Android) | MIT |
+| [microsoft/onnxruntime](https://github.com/microsoft/onnxruntime) | Silero, Parakeet, Moonshine, SmartTurn, turn-1-mini, PocketTTS, Supertonic, MOSS-TTS-Nano, MiniLM, GLiNER, pyannote speaker embedding (ONNX inference) | GitHub release archive (desktop), Maven Central AAR (Android) | MIT |
 | [moonshine-ai/moonshine](https://github.com/moonshine-ai/moonshine) | STT (Moonshine streaming model, ORT utils and tokenizer code) | GitHub | MIT (code and every streaming model; only legacy non-streaming non-English models, which VASDK doesn't use, are under the non-commercial Moonshine Community License) |
 | [ggml-org/whisper.cpp](https://github.com/ggml-org/whisper.cpp) | STT (Whisper.cpp) | GitHub | MIT |
 | Cactus needle engine | STT (Whistle; prebuilt binaries only, no source) | [Cactus-Compute/needle3](https://huggingface.co/Cactus-Compute/needle3) (HuggingFace: `cactus-needle` wheel on desktop, `libneedle.a` on Android) | Apache 2.0 |
@@ -116,6 +117,7 @@ Installed from PyPI by uv or pip (`bindings/python/pyproject.toml`, `VASDK_PYTHO
 | [sounddevice](https://pypi.org/project/sounddevice/) (with [PortAudio](https://www.portaudio.com/), bundled in its macOS and Windows wheels) | The Python app's voice mode: microphone and speaker | MIT (PortAudio: MIT-style) |
 | [torch](https://pypi.org/project/torch/), [torchaudio](https://pypi.org/project/torchaudio/) | Development only: `gen_fbank_golden.py` writes the pyannote fbank golden | BSD 3-Clause / BSD 2-Clause |
 | [transformers](https://pypi.org/project/transformers/), [numpy](https://pypi.org/project/numpy/) | Development only: `gen_features_golden.py` writes the SmartTurn features golden | Apache 2.0 / BSD 3-Clause |
+| [onnxruntime](https://pypi.org/project/onnxruntime/), [numpy](https://pypi.org/project/numpy/) | Development only: `gen_scores_golden.py` writes the turn-1-mini scores golden | MIT / BSD 3-Clause |
 
 ### Android app libraries
 
@@ -131,7 +133,7 @@ Pulled from Google Maven and Maven Central by Gradle and packaged into the APK (
 
 ## Models bundled in this repository
 
-The Android app embeds two model files at `VASDK_ANDROID/app/src/main/res/raw/`. Their full license texts follow, as their terms require.
+The Android app embeds three model files at `VASDK_ANDROID/app/src/main/res/raw/`. Their full license texts follow, as their terms require.
 
 ### Silero VAD (`silero_vad.onnx`)
 
@@ -190,4 +192,42 @@ SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
 CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
+
+### turn-1-mini (`turn_1_mini.onnx`)
+
+Source: https://huggingface.co/p99lab/turn-1-mini (`onnx/turn-1-mini.step.int8dyn.onnx`, revision `41e98810a30e9bfc09ef752d7120fb41561006f1`), by p99lab. License: Apache License 2.0, the same text as this repository's [LICENSE](LICENSE). Its `NOTICE`, which section 4(d) of that license requires redistributions to keep:
+
+```text
+p99lab turn-1-mini, an end-of-turn detection model
+Copyright 2026 p99lab (https://p99lab.com)
+
+This product includes turn-1-mini, an end-of-turn detection model developed by p99lab
+(https://huggingface.co/p99lab/turn-1-mini). Redistributed copies, and models or products that include or are
+derived from it, must retain this notice, as section 4(d) of the Apache License, Version 2.0 requires.
+The names "p99lab" and "turn-1-mini" may not be used to name or endorse derived models or products without
+permission (section 6).
+
+The code in this repository and the model weights are released under the Apache License, Version 2.0 (see LICENSE).
+turn-1-mini uses no third-party model at run time.
+
+Third-party data credits
+The datasets below are licensed under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/), which asks for credit.
+The model was trained in part on them. Their audio was processed for training and is not redistributed here.
+Their authors do not endorse p99lab or this model.
+
+HarperValleyBank. C. Wu, M. Nafziger, A. Scodary, A. Maas, "HarperValleyBank: A Domain-Specific Spoken Dialog
+  Corpus", arXiv:2010.13929. https://github.com/cricketclub/gridspace-stanford-harper-valley
+LibriSpeech. V. Panayotov, G. Chen, D. Povey, S. Khudanpur, "LibriSpeech: an ASR corpus based on public domain
+  audio books", ICASSP 2015. https://www.openslr.org/12
+AMI Meeting Corpus. J. Carletta et al., "The AMI Meeting Corpus: A Pre-announcement", MLMI 2005.
+  https://groups.inf.ed.ac.uk/ami/corpus/
+ICSI Meeting Corpus. A. Janin et al., "The ICSI Meeting Corpus", ICASSP 2003. https://groups.inf.ed.ac.uk/ami/icsi/
+
+otoSpeech full-duplex (processed 141 h; task-oriented 20 h), otoearth. CC BY 4.0.
+  https://huggingface.co/otoearth
+
+Evaluation (never trained or tuned on)
+eot-bench (code), LiveKit. Apache-2.0. https://github.com/livekit/eot-bench
+livekit/eot-bench-data, LiveKit. CC BY 4.0 per its dataset card. https://huggingface.co/datasets/livekit/eot-bench-data
 ```
