@@ -105,7 +105,7 @@ jobs:
           output-file: dist/vasdk-${{ needs.version.outputs.version }}.cdx.json
           upload-artifact: false
       - name: Build provenance
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: dist/vasdk-*
       - name: GitHub release
