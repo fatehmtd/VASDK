@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vasdk"
-version = "1.0.0"
+version = "1.1.0"
 description = "VASDK voice agents from Python: agents, text conversations, and steps, tools, envelopes, page types and entity extractors written in Python"
 readme = "README.md"
 requires-python = ">=3.8"
