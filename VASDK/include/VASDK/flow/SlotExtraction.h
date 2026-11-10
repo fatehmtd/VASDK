@@ -1,6 +1,6 @@
 #pragma once
 
-#include "vasdk_export.h"
+#include <VASDK/vasdk_export.h>
 #include "Entities.h"
 #include "Expression.h"
 #include "vasdk/goal/goal.pb.h"

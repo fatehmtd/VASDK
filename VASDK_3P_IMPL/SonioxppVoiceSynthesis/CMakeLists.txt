@@ -26,7 +26,7 @@ if(APPLE AND EXISTS "/opt/homebrew/lib")
     target_link_directories(vasdk_sonioxpp_tts PUBLIC /opt/homebrew/lib)
 endif()
 
-install(TARGETS vasdk_sonioxpp_tts
+install(TARGETS vasdk_sonioxpp_tts COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -34,8 +34,10 @@ install(TARGETS vasdk_sonioxpp_tts
 
 install(FILES SonioxppVoiceSynthesisProvider.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/SonioxppVoiceSynthesis
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )
 
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/vasdk_sonioxpp_tts_export.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/SonioxppVoiceSynthesis
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )

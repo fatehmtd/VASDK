@@ -50,6 +50,7 @@ public:
     std::string reply;
     std::vector<std::string> replies;  // one per request when set (tool round trips)
     std::atomic<int> requests{0};
+    std::atomic<int> finished{0};   // requests that have returned: done, cancelled or failed
     bool anthropic = false;
     bool timesOut = false;   // every request fails, as a timeout does
     std::string lastBody, lastUrl;
@@ -67,6 +68,7 @@ public:
             ++requests;
             network::HttpResponse failed;
             failed.error = {network::NetworkErrorCode::Timeout, "Timeout was reached"};
+            ++finished;
             return failed;
         }
         const int n = requests++;
@@ -77,6 +79,7 @@ public:
             if (generation.load() != gen) {
                 r.error = {network::NetworkErrorCode::Cancelled, "cancelled"};
                 returnTime = Clock::now();
+                ++finished;
                 return r;
             }
             const std::string piece = jsonEscape(reply.substr(i, 5));
@@ -91,6 +94,7 @@ public:
         if (onChunk) onChunk(anthropic ? "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n" : "data: [DONE]\n\n");
         r.statusCode = 200;
         returnTime = Clock::now();
+        ++finished;
         return r;
     }
     network::HttpResponse get(const std::string&, const std::map<std::string, std::string>&, int) override { return {}; }
@@ -131,6 +135,30 @@ public:
     std::vector<Spoken> frames;
     std::vector<std::string> followUps;  // merged text announced downstream
 };
+
+// Until `condition` holds, at most `timeout`. A check that something happens waits for it, not a
+// fixed time: a slow machine (a shared CI runner) takes longer than the fake's 30 ms steps add up
+// to. A check that something doesn't happen still waits a fixed time.
+template <class Condition>
+bool waitUntil(Condition condition, std::chrono::milliseconds timeout = 10s) {
+    const auto deadline = Clock::now() + timeout;
+    while (!condition()) {
+        if (Clock::now() >= deadline) return false;
+        std::this_thread::sleep_for(10ms);
+    }
+    return true;
+}
+
+size_t finalFrames(Recorder& recorder) {
+    size_t count = 0;
+    for (const auto& spoken : recorder.snapshot()) count += spoken.isFinal ? 1 : 0;
+    return count;
+}
+
+// Until `count` replies have said their final frame
+void waitForFinalFrames(Recorder& recorder, size_t count = 1) {
+    waitUntil([&] { return finalFrames(recorder) >= count; });
+}
 
 int failures = 0;
 void check(bool ok, const char* what) {
@@ -229,7 +257,7 @@ void streamsSentencesThenTail(bool anthropic) {
     Rig rig(R"({"text": "Sure, I can help with that. Your order shipped yesterday. Anything else?", "isExpecting": true})",
             anthropic);
     rig.userSays("Where is my order?");
-    std::this_thread::sleep_for(1500ms);
+    waitForFinalFrames(*rig.recorder);
 
     size_t userTurns = 0;
     for (size_t at = 0; (at = rig.http->lastBody.find("Where is my order?", at)) != std::string::npos; ++at) ++userTurns;
@@ -249,17 +277,19 @@ void streamsSentencesThenTail(bool anthropic) {
 void bargeInAbortsAndRollsBack() {
     Rig rig(R"({"text": "Let me explain all the options in detail. First, there is the basic plan. Then the premium plan. Finally the family plan."})");
     rig.userSays("What plans do you have?");
-    for (int i = 0; i < 100 && rig.recorder->snapshot().empty(); ++i) std::this_thread::sleep_for(10ms);
+    waitUntil([&] { return !rig.recorder->snapshot().empty(); });
 
     auto interrupt = std::make_shared<transport::AgentStateFrame>();
     interrupt->transition = transport::AgentStateTransition::BARGE_IN_INTERRUPT;
     rig.send(interrupt);
     const size_t spokenAtInterrupt = rig.recorder->snapshot().size();
-    std::this_thread::sleep_for(1500ms);
+    waitUntil([&] { return rig.http->finished == 1; });
+    std::this_thread::sleep_for(200ms);   // nothing more is spoken
 
     check(spokenAtInterrupt == 1, "first sentence was spoken before the barge-in");
     check(rig.http->cancelled, "HTTP request was cancelled");
-    check(rig.http->returnTime - rig.http->cancelTime < 100ms, "request aborted promptly");
+    // Promptly: the rest of the reply would have streamed for over half a second more
+    check(rig.http->returnTime - rig.http->cancelTime < 300ms, "request aborted promptly");
     check(rig.recorder->snapshot().size() == spokenAtInterrupt, "nothing spoken after the barge-in");
     bool userTurnKept = false;
     for (const auto& m : rig.transport->getHistory())
@@ -270,7 +300,8 @@ void bargeInAbortsAndRollsBack() {
 void toolCallSpeaksNothing() {
     Rig rig(R"({"tools": [{"tool": "lookup_order", "args": {"id": "42"}}]})");
     rig.userSays("Where is order 42?");
-    std::this_thread::sleep_for(1200ms);
+    waitUntil([&] { return rig.http->finished == 1; });
+    std::this_thread::sleep_for(200ms);
     check(rig.recorder->snapshot().empty(), "tool-call reply speaks nothing");
 }
 
@@ -279,7 +310,7 @@ void toolRoundTripWithFiller() {
     rig.http->replies = {R"({"tools": [{"tool": "lookup_order", "args": {}}]})",
                          R"({"text": "Your order has shipped. It arrives on Friday."})"};
     rig.userSays("Where is my order?");
-    std::this_thread::sleep_for(2500ms);
+    waitForFinalFrames(*rig.recorder);
 
     const auto frames = rig.recorder->snapshot();
     check(rig.http->requests == 2, "tool round trip made a follow-up request");
@@ -297,17 +328,19 @@ void speculationConfirmed() {
     Rig rig(kReply);
     rig.llm->setSpeculativeFiring(true, 3);
     rig.userPausesAfter("Where is my order");
-    std::this_thread::sleep_for(1000ms);  // the speculative reply has fully streamed by now
+    waitUntil([&] { return rig.http->finished == 1; });   // the speculative reply has fully streamed
+    std::this_thread::sleep_for(100ms);
     check(rig.recorder->snapshot().empty(), "[spec confirmed] nothing spoken before the turn is confirmed");
 
     const auto confirmAt = Clock::now();
     rig.userSays("Where is my order?");
-    std::this_thread::sleep_for(100ms);
+    waitForFinalFrames(*rig.recorder);
     const auto frames = rig.recorder->snapshot();
     check(rig.http->requests == 1, "[spec confirmed] no second request");
     check(frames.size() == 2 && frames[0].text == "Your order shipped yesterday. " && frames[1].isFinal,
           "[spec confirmed] held reply released");
-    if (!frames.empty()) check(frames[0].at - confirmAt < 50ms, "[spec confirmed] released immediately");
+    // Immediately: a fresh request would stream for over half a second first
+    if (!frames.empty()) check(frames[0].at - confirmAt < 300ms, "[spec confirmed] released immediately");
     check(rig.userTurnsInHistory() == std::vector<std::string>{"Where is my order"}, "[spec confirmed] history kept");
 }
 
@@ -317,7 +350,7 @@ void speculationReplacedWhenFinalDiffers() {
     rig.userPausesAfter("Where is my");
     std::this_thread::sleep_for(400ms);
     rig.userSays("Where is my order?");
-    std::this_thread::sleep_for(1500ms);
+    waitForFinalFrames(*rig.recorder);
     check(rig.http->requests == 2, "[spec differs] fresh request for the final transcript");
     check(rig.recorder->snapshot().size() == 2, "[spec differs] only the fresh reply is spoken");
     check(rig.userTurnsInHistory() == std::vector<std::string>{"Where is my order?"},
@@ -330,7 +363,8 @@ void speculationCancelledWhenUserResumes() {
     rig.userPausesAfter("Where is my order");
     std::this_thread::sleep_for(200ms);
     rig.vad(transport::VADState::RESUMING);
-    std::this_thread::sleep_for(1200ms);
+    waitUntil([&] { return rig.http->finished == 1; });
+    std::this_thread::sleep_for(200ms);
     check(rig.recorder->snapshot().empty(), "[spec resumed] nothing spoken");
     check(rig.http->cancelled, "[spec resumed] request cancelled");
     check(rig.userTurnsInHistory().empty(), "[spec resumed] speculative turn rolled back");
@@ -348,10 +382,11 @@ void speculativeToolCallNeverRuns() {
                          R"({"text": "Your order has shipped. It arrives on Friday."})"};
     rig.llm->setSpeculativeFiring(true, 3);
     rig.userPausesAfter("Where is my order");
-    std::this_thread::sleep_for(800ms);
+    waitUntil([&] { return rig.http->finished == 1; });
+    std::this_thread::sleep_for(100ms);
     check(toolRuns == 0, "[spec tools] tool not run on an unconfirmed turn");
     rig.userSays("Where is my order?");
-    std::this_thread::sleep_for(2500ms);
+    waitUntil([&] { return toolRuns == 1 && rig.http->requests == 3 && rig.http->finished == 3; });
     check(toolRuns == 1, "[spec tools] tool runs once after confirmation");
     check(rig.http->requests == 3, "[spec tools] fresh request, then the tool follow-up");
 }
@@ -386,8 +421,9 @@ void profileAnswersTheTurnsThatNameIt() {
         frame->text = text;
         frame->confidence = 1.0f;
         frame->llmProfile = profile;
+        const int before = rig.http->finished;
         rig.llm->processFrame(frame, pipeline::FlowDirection::DOWNSTREAM);
-        std::this_thread::sleep_for(600ms);
+        waitUntil([&] { return rig.http->finished > before; });
         return nlohmann::json::parse(rig.http->lastBody).value("model", std::string());
     };
     check(turn("Tell me a story.", "smart") == "smart-model" && rig.http->lastUrl == smart.endpoint,
@@ -395,6 +431,7 @@ void profileAnswersTheTurnsThatNameIt() {
     check(turn("Thanks.", "") == "fake" && rig.http->lastUrl == "http://localhost:1/v1/chat/completions",
           "[profiles] the next turn by the default");
     check(turn("Again.", "nope") == "fake", "[profiles] an unknown one: the default");
+    waitUntil([&] { return finalFrames(*rig.recorder) == 3; });
     check(rig.userTurnsInHistory().size() == 3, "[profiles] one history across them");
 }
 
@@ -420,7 +457,7 @@ void replacingTurnCancelsThePreviousReply() {
     turn("Actually.", 3, false);
     std::this_thread::sleep_for(50ms);   // its request is streaming
     turn("Actually. Tell me a story.", 4, true);
-    std::this_thread::sleep_for(1500ms);
+    waitForFinalFrames(*rig.recorder);
     std::string spoken;
     bool tagged = true;
     for (const auto& frame : rig.recorder->snapshot()) {
@@ -434,7 +471,7 @@ void replacingTurnCancelsThePreviousReply() {
 
     // A turn the LLM never got (the Dialog answered it): the exchange before it stays.
     turn("Thanks.", 5, false);
-    std::this_thread::sleep_for(1200ms);
+    waitForFinalFrames(*rig.recorder, 2);
     auto replaced = std::make_shared<transport::TurnReplacedFrame>();
     replaced->turnId = 6;
     rig.llm->processFrame(replaced, pipeline::FlowDirection::DOWNSTREAM);
@@ -448,7 +485,7 @@ void failedRequestIsSaid() {
     rig.llm->setFailureReplies({"Sorry, that took too long."});
     rig.http->timesOut = true;
     rig.userSays("Tell me a long story.");
-    std::this_thread::sleep_for(600ms);
+    waitForFinalFrames(*rig.recorder);
     const auto frames = rig.recorder->snapshot();
     check(!frames.empty() && frames.back().text == "Sorry, that took too long." && frames.back().isFinal,
           "[failure] a failed request is said, not left in silence");
@@ -464,12 +501,12 @@ void backchannelGoesWithTheNextMessage() {
     std::this_thread::sleep_for(100ms);
     check(rig.http->requests == 0, "[backchannel] not answered");
     rig.userSays("What about Tuesday?");
-    std::this_thread::sleep_for(600ms);
+    waitForFinalFrames(*rig.recorder);
     const auto userTurns = rig.userTurnsInHistory();
     check(userTurns.size() == 1 && userTurns[0] == "(While you were speaking I said \"mm-hmm\".) What about Tuesday?",
           "[backchannel] recorded at the front of the next user message");
     rig.userSays("And Wednesday?");
-    std::this_thread::sleep_for(600ms);
+    waitForFinalFrames(*rig.recorder, 2);
     check(rig.userTurnsInHistory().size() == 2 && rig.userTurnsInHistory()[1] == "And Wednesday?",
           "[backchannel] recorded once");
 }
@@ -492,8 +529,9 @@ void agentRepliesGoInHistory() {
     rig.send(part("Your PIN 4321 is set.", true, "", {"4321"}));
     std::this_thread::sleep_for(100ms);
     check(rig.http->requests == 0, "[agent] its replies aren't answered");
+    const size_t agentFinals = finalFrames(*rig.recorder);
     rig.userSays("Did you call John?");
-    std::this_thread::sleep_for(600ms);
+    waitForFinalFrames(*rig.recorder, agentFinals + 1);
     std::vector<std::pair<llm::MessageRole, std::string>> said;
     for (const auto& m : rig.transport->getHistory())
         if (m.role != llm::MessageRole::SYSTEM) said.emplace_back(m.role, m.content);
@@ -518,8 +556,8 @@ void followUpMergedWithInterruptedTurn() {
         resumed->transition = transport::AgentStateTransition::USER_SPOKE_WHILE_THINKING;
         rig.send(resumed);
         rig.userSays("to Paris");
-        std::this_thread::sleep_for(1500ms);
         const std::vector<std::string> expected{enabled ? "Book a flight to Paris" : "to Paris"};
+        waitUntil([&] { return rig.userTurnsInHistory() == expected && finalFrames(*rig.recorder) >= 1; });
         check(rig.userTurnsInHistory() == expected,
               enabled ? "[follow-up] both utterances sent as one turn" : "[follow-up off] only the new utterance sent");
         check(rig.recorder->followUps == (enabled ? expected : std::vector<std::string>{}),
@@ -539,7 +577,7 @@ void followUpKeepsStagedUnsentFinal() {
     resumed->transition = transport::AgentStateTransition::USER_SPOKE_WHILE_THINKING;
     rig.send(resumed);
     rig.userSays("Paris.");
-    std::this_thread::sleep_for(1500ms);
+    waitForFinalFrames(*rig.recorder);
     check(rig.http->requests == 1, "[follow-up staged] only the merged turn is requested");
     check(rig.userTurnsInHistory() == std::vector<std::string>{"Book a flight to Paris."},
           "[follow-up staged] unsent words merged into the next turn");

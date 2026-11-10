@@ -10,7 +10,9 @@ Start here and pick your path.
 | **New to the codebase** (any level, including junior) | Root [README](../README.md) for the quick start, then [Core concepts](#core-concepts-reference) below in order: frames → processors → pipeline. The [minimal pipeline example](examples/minimal-pipeline.md) is the fastest way to a mental model. |
 | **Building an app on VASDK** | The [example apps](apps/README.md) and which to start from: [VASDK_Pipeline](apps/pipeline.md) (general assistant), [VASDK_CallCenter](apps/callcenter.md) (goal-oriented, no LLM needed), [VASDK_Car](apps/car.md) (an agent in verticals, rules and an LLM together, a model per task), [Android](apps/android.md), [VASDK_PYTHON_APP](apps/python.md) (VASDK from Python: spoken sessions, tools and triggers in Python). Then the [examples](#worked-examples). |
 | **Building from source** (prerequisites, CMake options, model downloads, air-gapped builds) | [Building VASDK](building.md). |
-| **Choosing providers** (which STT/TTS/LLM, their options, models and licenses) | [Providers](provider-catalog.md). |
+| **Using VASDK from another project** (CMake, `find_package`, pkg-config, packages) | [Using VASDK in your project](integrating.md). |
+| **Getting the model files** (download, check, offline machines, licenses) | [Models](models.md). |
+| **Choosing providers** (which STT/TTS/LLM, their options, models and licenses) | [Providers](provider-catalog.md), and how well each local one does on real speech: [Evaluation](evaluation.md). |
 | **Implementing a provider** (new STT/TTS/VAD/LLM backend) | [Provider interfaces](reference/providers.md), especially the checklist at the end. |
 | **Extending the core** (new processor, transport, frame type) | [Processors](reference/processors.md), [Transports](reference/transports.md), [Frames](reference/frames.md) - each ends with an extension guide. |
 | **Doing compliance / legal review** | [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md). |
@@ -18,8 +20,12 @@ Start here and pick your path.
 
 ## Setup
 
-- **[Building VASDK](building.md)** - prerequisites, build options, model files, air-gapped builds.
+- **[Building VASDK](building.md)** - prerequisites, presets, build options, dependencies, model files, air-gapped builds.
+- **[Using VASDK in your project](integrating.md)** - the C library (`VASDK::c`) and the C++ targets, FetchContent, `find_package`, pkg-config, flavors, packages.
+- **[Releasing VASDK](releasing.md)** - the version, the release workflow, what each channel publishes.
+- **[Models](models.md)** - the model store: downloading, checking and finding the files local providers load; the `vasdk` command; licenses and gated models; offline machines.
 - **[Providers](provider-catalog.md)** - every implementation, how the apps choose between them, per-provider options, sources and licenses.
+- **[Evaluation](evaluation.md)** - the local providers measured on real speech (word error rate, VAD F1, turn accuracy, speaker EER, TTS intelligibility), the evaluation set, `vasdk_provider_eval`, and the baselines ctest holds them to.
 - **[Provider pages](providers/README.md)** - one page per integration: platforms, options and defaults, models and licenses, usage, a flow diagram, tests.
 
 ## Core concepts (reference)
@@ -65,7 +71,7 @@ Full guides to the five apps in the repository, with what each shows and how it'
 ## Repository layout
 
 ```text
-VASDK/                Core shared library: the pipeline runtime, all interfaces
+VASDK/                Core library: the pipeline runtime, all interfaces, the C API
 VASDK_3P_IMPL/         Provider implementations, one CMake target each (see table below)
 VASDK_APP/             General-purpose voice assistant showcase (VASDK_Pipeline)
 VASDK_CALLCENTER_APP/  Goal-oriented call center showcase (VASDK_CallCenter)
@@ -74,6 +80,9 @@ VASDK_ANDROID/         Android app + JNI bindings around the core library
 VASDK_PYTHON_APP/      Kitchen assistant in Python, on the Python binding
 VASDK/languages/       The built-in language pack (en-US): copy it to write another language
 bindings/python/       The Python binding (the C API, over ctypes)
+bindings/kotlin/       The Kotlin binding (the C API, over JNA): JVM, and Android's AAR
+cmake/                 Packaging: the C library (vasdk_c), dependencies, flavors, find_package(VASDK)
+tests/consumer/        A program built against an installed VASDK, as another project builds it
 skills/                Task skills for coding agents and contributors (index: AGENTS.md)
 docs/apps/             The example apps' guides
 docs/examples/         Worked examples (pipelines, tools, goals, testing)

@@ -26,7 +26,7 @@ if(APPLE AND EXISTS "/opt/homebrew/lib")
     target_link_directories(vasdk_sonioxpp_stt PUBLIC /opt/homebrew/lib)
 endif()
 
-install(TARGETS vasdk_sonioxpp_stt
+install(TARGETS vasdk_sonioxpp_stt COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -34,8 +34,10 @@ install(TARGETS vasdk_sonioxpp_stt
 
 install(FILES SonioxppTranscriptionProvider.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/SonioxppTranscription
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )
 
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/vasdk_sonioxpp_stt_export.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/SonioxppTranscription
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )

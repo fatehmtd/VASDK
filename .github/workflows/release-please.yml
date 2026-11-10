@@ -1,0 +1,23 @@
+# Keeps a release pull request open from the Conventional Commits on master (feat:, fix:, ...): it
+# raises VERSION and the Python binding's version, and writes CHANGELOG.md. Merging it tags
+# v<VERSION>, which starts the release workflow (docs/releasing.md).
+name: Release PR
+
+on:
+  push:
+    branches: [master]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: googleapis/release-please-action@v4
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          # A token other than GITHUB_TOKEN, so the tag it pushes starts the release workflow
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}

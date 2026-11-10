@@ -1,13 +1,11 @@
 # Fetch pffft for efficient FFT computation
 include(FetchContent)
 
-# TODO: pffft has no tagged releases - pin to a specific commit SHA before release
-# e.g.: GIT_TAG <commit-sha>
 fetchcontent_declare(
     pffft
     GIT_REPOSITORY https://github.com/marton78/pffft.git
-    GIT_TAG        master
-    GIT_SHALLOW    ON
+    GIT_TAG        237ffa283b17e5ef88ef8198b465f41b0268011d   # no release tags: a commit, for reproducible builds
+    ${VASDK_FETCH_EXCLUDE}   # its own install rules stay out of VASDK's
 )
 fetchcontent_makeavailable(pffft)
 
@@ -49,7 +47,7 @@ if(VASDK_BUILD_TESTS)
              COMMAND smartturn_features_test ${CMAKE_CURRENT_SOURCE_DIR}/tests/golden/features_golden.txt)
 endif()
 
-install(TARGETS vasdk_smartturn_v3
+install(TARGETS vasdk_smartturn_v3 COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -57,8 +55,10 @@ install(TARGETS vasdk_smartturn_v3
 
 install(FILES SmartTurnV3Provider.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/SmartTurnV3
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )
 
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/vasdk_smartturn_v3_export.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/SmartTurnV3
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )

@@ -1,0 +1,118 @@
+# A tag v<VERSION> releases VASDK (docs/releasing.md): the C library for each platform and flavor as
+# an archive of an install prefix, with SHA256SUMS, an SBOM and build provenance, on a GitHub
+# release. The package channels (Conan, Homebrew, PyPI, Maven Central) are built from it.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build (v1.2.3); a dry run without a release when it isn't a pushed tag"
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
+jobs:
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: The tag is v<VERSION>
+        run: python3 cmake/check_versions.py --tag "$TAG"
+      - id: version
+        run: echo "version=$(cat VERSION)" >> "$GITHUB_OUTPUT"
+
+  archive:
+    name: ${{ matrix.name }} ${{ matrix.flavor }}
+    needs: version
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        name: [linux-x64, linux-arm64, macos-arm64, macos-x64, windows-x64]
+        flavor: [core, default, full]
+        include:
+          - { name: linux-x64,   os: ubuntu-24.04,     archive: tar.gz }
+          - { name: linux-arm64, os: ubuntu-24.04-arm, archive: tar.gz }
+          - { name: macos-arm64, os: macos-15,         archive: tar.gz }
+          - { name: macos-x64,   os: macos-15-intel,   archive: tar.gz }
+          - { name: windows-x64, os: windows-2022,     archive: zip }
+    # The full flavor carries many third-party clients: a failure there doesn't hold the release
+    continue-on-error: ${{ matrix.flavor == 'full' }}
+    env:
+      NAME: vasdk-${{ matrix.flavor }}-${{ needs.version.outputs.version }}-${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: lukka/get-cmake@latest
+      - name: Linux packages
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      - name: Configure
+        # curl from source (Schannel on Windows, the system's OpenSSL elsewhere); on Linux the
+        # runner's glibc for now, a manylinux_2_28 container next (docs/releasing.md)
+        shell: bash
+        run: |
+          preset=release; [ "${{ matrix.flavor }}" != default ] && preset=release-${{ matrix.flavor }}
+          echo "PRESET=$preset" >> "$GITHUB_ENV"
+          cmake --preset $preset -G Ninja -DVASDK_FETCH_CURL=ON
+      - name: Build and install
+        shell: bash
+        run: |
+          cmake --build --preset "$PRESET"
+          cmake --install "build/$PRESET" --prefix "stage/$NAME"
+      - name: Archive
+        shell: bash
+        run: |
+          cd stage
+          if [ "${{ matrix.archive }}" = zip ]; then 7z a -tzip "../$NAME.zip" "$NAME"; else tar czf "../$NAME.tar.gz" "$NAME"; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.NAME }}
+          path: ${{ env.NAME }}.${{ matrix.archive }}
+          if-no-files-found: error
+
+  publish:
+    needs: [version, archive]
+    if: always() && needs.version.result == 'success'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write        # the GitHub release
+      id-token: write        # build provenance
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: cd dist && sha256sum vasdk-* > SHA256SUMS && cat SHA256SUMS
+      - name: SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: dist/vasdk-${{ needs.version.outputs.version }}.cdx.json
+          upload-artifact: false
+      - name: Build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/vasdk-*
+      - name: GitHub release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/vasdk-*
+            dist/SHA256SUMS
+          generate_release_notes: true

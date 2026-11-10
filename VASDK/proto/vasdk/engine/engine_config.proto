@@ -225,7 +225,7 @@ message Security {
 }
 
 message EngineConfig {
-  string models_dir = 1;               // base directory for local model files
+  string models_dir = 1;               // base directory for local model files; unset: the model store's (docs/models.md)
   Providers providers = 2;
   LlmConfig llm = 3;                   // unset: the app's command-line or built-in defaults
   TurnTaking turn_taking = 4;

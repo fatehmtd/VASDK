@@ -44,12 +44,13 @@ if(VASDK_BUILD_TESTS)
     # End-to-end synthesis smoke test; reports "skipped" when the models have not been downloaded.
     add_executable(supertonic_tts_synth_test tests/synth_test.cpp)
     target_link_libraries(supertonic_tts_synth_test PRIVATE vasdk_supertonic_tts)
+    vasdk_test_dlls(supertonic_tts_synth_test)   # ONNX Runtime beside it on Windows, not System32's older one
     add_test(NAME supertonic_tts_synth
              COMMAND supertonic_tts_synth_test ${SUPERTONIC_MODEL_DIR} ${CMAKE_CURRENT_BINARY_DIR}/supertonic_tts_test.wav)
     set_tests_properties(supertonic_tts_synth PROPERTIES SKIP_RETURN_CODE 77)
 endif()
 
-install(TARGETS vasdk_supertonic_tts
+install(TARGETS vasdk_supertonic_tts COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -57,8 +58,10 @@ install(TARGETS vasdk_supertonic_tts
 
 install(FILES SupertonicVoiceSynthesisProvider.hpp
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/SupertonicTTS
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )
 
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/vasdk_supertonic_tts_export.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/SupertonicTTS
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )

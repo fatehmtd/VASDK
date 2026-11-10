@@ -80,5 +80,6 @@ flowchart LR
 | Test | Kind | Needs | Run |
 | --- | --- | --- | --- |
 | `moonshine_stt_stream` | unit | the model and a WAV | `ctest --test-dir build -R moonshine_stt_stream` |
+| `vasdk_eval_stt_moonshine_oneshot`, `vasdk_eval_stt_moonshine_streaming` | evaluation: LibriSpeech and FLEURS English against what was said ([Evaluation](../evaluation.md)): WER 3.9% | the evaluation set (skipped without) | `ctest --test-dir build -L eval` |
 
 A test that needs a model or a key reports "skipped" without it.

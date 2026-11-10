@@ -511,8 +511,8 @@ int add(vasdk_providers* providers, const char* id, vasdk_provider_create_fn cre
         id, std::function<std::shared_ptr<Interface>(const ProviderContext&)>(
                 [make, name = std::string(id)](const ProviderContext& context) -> std::shared_ptr<Interface> {
                     auto provider = make(context);
-                    if (provider->started()) return provider;
-                    spdlog::warn("[vasdk] provider {}: create returned NULL", name);
+                    if (provider && provider->started()) return provider;
+                    if (provider) spdlog::warn("[vasdk] provider {}: create returned NULL", name);
                     return nullptr;
                 }));
     return 1;
@@ -596,8 +596,12 @@ int vasdk_providers_add_vad(vasdk_providers* providers, const char* id, vasdk_pr
     if (!detect) return 0;
     const Callbacks callbacks{create, destroy, user};
     const std::string name = id ? id : "";
-    return add<va::audio::VADProvider>(providers, id, create, [=](const ProviderContext& context) {
-        return std::make_shared<AppVad>(name, callbacks, rateOf(context), detect);
+    return add<va::audio::VADProvider>(providers, id, create, [=](const ProviderContext& context) -> std::shared_ptr<AppVad> {
+        // Initialized with the session's audio, as the built-in VADs are: VADFrameProcessor turns
+        // every duration into samples with its sample rate
+        auto vad = std::make_shared<AppVad>(name, callbacks, rateOf(context), detect);
+        if (!vad->initialize(context.audio, static_cast<int>(context.audio.sampleRate) * 4)) return nullptr;
+        return vad;
     });
 }
 

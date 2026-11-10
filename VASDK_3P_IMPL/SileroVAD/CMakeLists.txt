@@ -25,7 +25,7 @@ target_link_libraries(vasdk_silero_vad
     PUBLIC VASDK
 )
 
-install(TARGETS vasdk_silero_vad
+install(TARGETS vasdk_silero_vad COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -33,8 +33,10 @@ install(TARGETS vasdk_silero_vad
 
 install(FILES SileroVAD.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/SileroVAD
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )
 
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/vasdk_silero_vad_export.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/SileroVAD
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )

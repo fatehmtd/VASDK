@@ -1,6 +1,8 @@
 # The C API
 
-*Reference for the C API. Headers: [`vasdk.h`](../../VASDK/include/VASDK/c/vasdk.h) and its C++ wrapper [`vasdk_cpp.h`](../../VASDK/include/VASDK/c/vasdk_cpp.h) - the source of truth if this page and the code ever disagree.*
+*Reference for the C API. Headers: [`vasdk.h`](../../VASDK/include/VASDK/c/vasdk.h), [`vasdk_providers.h`](../../VASDK/include/VASDK/c/vasdk_providers.h), [`vasdk_c_export.h`](../../VASDK/include/VASDK/c/vasdk_c_export.h), the header-only C++ form [`vasdk.hpp`](../../VASDK/include/VASDK/c/vasdk.hpp) and the C++ bridge [`vasdk_cpp.h`](../../VASDK/include/VASDK/c/vasdk_cpp.h) - the source of truth if this page and the code ever disagree.*
+
+The C API is what the C library, `vasdk_c` (`VASDK::c`), exports: one shared library with the C API and every provider of its build, and nothing else visible. Another project gets it from `find_package(VASDK)`, pkg-config or a package ([Using VASDK in your project](../integrating.md)).
 
 [`VASDK/c/vasdk.h`](../../VASDK/include/VASDK/c/vasdk.h) gives any language that can call C what C++ apps have for [agents](flows.md): load an agent, talk to it by text, write its steps, tools, envelopes, page types and entity extractors, and run its test cases. Data crosses as JSON or serialized protos ([`vasdk/flow/*.proto`](../../VASDK/proto/vasdk/flow/)), never as C++ types, so bindings (Python, Rust, Go, Swift) stay thin.
 
@@ -53,7 +55,7 @@ Text VASDK returns as `char*` is the caller's: free it with `vasdk_free`. On fai
 A `vasdk_session` is a spoken conversation: the speech providers an [engine config](engine-config.md) names (VAD, STT, TTS, an LLM) and, optionally, an agent. The app brings the audio. It pushes the user's 16-bit mono PCM in with `vasdk_session_push_audio`, in pieces of any size, and gets the assistant's speech through its audio callback. That fits a phone line, a file, or the app's own audio device.
 
 ```c
-#include "ProviderCatalog/ProviderCatalogC.h"   /* vasdk_providers_add_all; includes VASDK/c/vasdk.h */
+#include <VASDK/c/vasdk_providers.h>   /* vasdk_providers_add_all; includes VASDK/c/vasdk.h */
 
 vasdk_providers* providers = vasdk_providers_create();
 vasdk_providers_add_all(providers);               /* ProviderCatalog: every provider built in */
@@ -134,9 +136,40 @@ vasdk_providers_add_llm(providers, "mine", create, NULL, complete, NULL, NULL);
 
 [`c_providers_test.cpp`](../../VASDK/tests/c_providers_test.cpp) runs a whole spoken session on providers and processors written in C, with no models; [`c_conversation_test.cpp`](../../VASDK/tests/c_conversation_test.cpp) covers the conversation and turn calls.
 
+## Models
+
+The model store downloads the files local providers load, checks each against the SHA-256 the built-in manifest pins, and keeps them where a session looks when its `models_dir` is unset ([Models](../models.md)).
+
+```c
+vasdk_models* models = vasdk_models_create(NULL, &error);     /* {"directory", "manifest_path", "token", "offline"} */
+char* needed = vasdk_models_for_config(models, "engine.txtpb", &error);   /* ["silero_vad", ...] */
+vasdk_models_pull(models, "silero_vad", 0, on_progress, NULL, &error);    /* 0: no license to accept */
+```
+
+| Function | What |
+| --- | --- |
+| `vasdk_models_create`, `vasdk_models_free` | A store; options as JSON, NULL for the defaults |
+| `vasdk_models_default_directory`, `vasdk_models_directory` | `VASDK_MODELS_DIR`, else the user cache; the store's own |
+| `vasdk_models_list` | Every model of this machine as JSON, with its `status` |
+| `vasdk_models_for_config` | The ids an engine config's providers load |
+| `vasdk_models_status` | `VASDK_MODEL_PRESENT`, `_PARTIAL`, `_MISSING` or `_UNKNOWN` |
+| `vasdk_models_pull` | Downloads what is missing; `accept_license` for a model that `requires_acceptance`; the progress callback returning 0 stops it |
+| `vasdk_models_verify`, `vasdk_models_remove` | Hashes the files again; deletes them |
+
+## From C++: vasdk.hpp
+
+[`vasdk.hpp`](../../VASDK/include/VASDK/c/vasdk.hpp) is the C API in C++17, header-only over `vasdk.h`: it works with the prebuilt library from any compiler and keeps the C API's stability. `vasdk::Registry`, `Agent`, `Conversation`, `Providers`, `Session`, `Runtime` and `Models` free their handles, return `std::string`, throw `vasdk::Error` and take `std::function` callbacks. Each keeps alive what its C handle needs (a session its providers, agent and registry), so destruction order doesn't matter. `get()` gives the C handle for any call it doesn't wrap. It is a different thing from `vasdk_cpp.h`, which hands C++ types across and holds only for code built from the same source.
+
+```cpp
+vasdk::Registry registry;
+registry.addTool("create_booking", "Books a slot", [](std::string_view args) { return std::string(R"({"id": 42})"); });
+vasdk::Conversation conversation(vasdk::Agent::load("agent.txtpb", registry));
+std::string reply = conversation.start();
+```
+
 ## From Python and Kotlin
 
-[`bindings/python/vasdk`](../../bindings/python/vasdk/__init__.py) wraps the C API with `ctypes`, so it needs no compiler: point `VASDK_LIBRARY` at a shared build of VASDK (`build/VASDK/libVASDK.dylib`), and add `bindings/python` to `PYTHONPATH`. It uses the proto functions, with Python classes the build generates from the same `.proto` files: replies are `vasdk.ConversationReply` messages and events `vasdk.Event` ([Messages](../../bindings/python/README.md#messages)). It needs `pip install protobuf`.
+[`bindings/python/vasdk`](../../bindings/python/vasdk/__init__.py) wraps the C API with `ctypes`, so it needs no compiler: point `VASDK_LIBRARY` at the C library (`build/cmake/c_library/libvasdk_c.dylib`; without it the build tree's is found), and add `bindings/python` to `PYTHONPATH`. It uses the proto functions, with Python classes the build generates from the same `.proto` files: replies are `vasdk.ConversationReply` messages and events `vasdk.Event` ([Messages](../../bindings/python/README.md#messages)). It needs `pip install protobuf`.
 
 ```python
 import vasdk
@@ -176,6 +209,17 @@ passed, report = vasdk.run_test_file(agent, "VASDK_APP/agents/garage-menu/tests/
 
 Errors raise `vasdk.VasdkError` with VASDK's message. The garage agent's whole suite runs from Python in `ctest` (`vasdk_python_garage`, [`test_garage.py`](../../bindings/python/tests/test_garage.py)), with its C++ step, envelope and tool written again in Python; a page type and an entity extractor in Python run in `vasdk_python_extensions`.
 
-**Spoken sessions from Python.** `vasdk.Providers()` loads the `vasdk_providers` library, and `vasdk.Session(config, providers, agent, ...)` wraps a `vasdk_session`: `on_event` (each `vasdk.Event`), `on_audio`, `tool` (LLM tools in Python), `push_audio`, `send` (a `vasdk.Command`) and its shortcuts (`inject_text`, `fire_trigger`, `set_param`, `select_choice`, `interrupt`), `set_context`, `snapshot`. [VASDK_PYTHON_APP](../apps/python.md) is a kitchen assistant built on it, with its spoken test in `ctest` (`vasdk_python_session`).
+**Spoken sessions from Python.** `vasdk.Providers()` adds the providers the C library has built in, and `vasdk.Session(config, providers, agent, ...)` wraps a `vasdk_session`: `on_event` (each `vasdk.Event`), `on_audio`, `tool` (LLM tools in Python), `push_audio`, `send` (a `vasdk.Command`) and its shortcuts (`inject_text`, `fire_trigger`, `set_param`, `select_choice`, `interrupt`), `set_context`, `snapshot`. [VASDK_PYTHON_APP](../apps/python.md) is a kitchen assistant built on it, with its spoken test in `ctest` (`vasdk_python_session`).
 
-**A wheel.** `python bindings/python/bundle.py build/VASDK/Release` copies the shared library and the libraries beside it into the package, and `pip wheel bindings/python` makes `vasdk-1.0.0-py3-none-<platform>.whl`: any Python 3 on that platform, no `VASDK_LIBRARY` needed once installed ([bindings/python/README.md](../../bindings/python/README.md)).
+**A wheel.** `python bindings/python/bundle.py build/cmake/c_library/Release` copies the C library and the libraries beside it into the package, and `pip wheel bindings/python` makes `vasdk-1.0.0-py3-none-<platform>.whl`: any Python 3 on that platform, no `VASDK_LIBRARY` needed once installed ([bindings/python/README.md](../../bindings/python/README.md)).
+
+## Stability
+
+The C API is VASDK's stable binary interface, the one the C library exports and every binding and package is built on:
+
+- **Within a major version it only grows.** A release adds functions, enum values and fields at the end of a struct a caller doesn't allocate. It never changes or removes a function, and never changes a type's layout. A program built against 1.2 runs with any later 1.x library.
+- **`VASDK_C_API_VERSION`** in `vasdk.h` counts the breaking changes, and is the library's soname: `libvasdk_c.so.1`, `libvasdk_c.1.dylib`. It rises only with a new major version. `vasdk_c_api_version()` gives the loaded library's, for a program that loads it at run time; `vasdk_version()` gives the release (`VASDK_VERSION_STRING` in `<VASDK/version.h>` at compile time).
+- **Only `vasdk_*` is exported.** `VASDK_C_API` (`vasdk_c_export.h`) marks the functions. On Linux and Android a linker version script hides everything else, and on macOS an exported symbols list does. On Windows only marked functions are exported. The static libraries inside (protobuf, abseil, spdlog, the providers) stay private, so they never clash with another copy in the program.
+- **`vasdk_cpp.h` is not part of it.** It hands out C++ types and holds only for code built from the same source.
+
+To add to the C API: add a function, never change one; give it `VASDK_C_API`; and bring the bindings level ([vasdk-bindings](../../skills/vasdk-bindings/SKILL.md)).

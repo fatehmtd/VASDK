@@ -351,4 +351,4 @@ A config built in code instead of read from a file goes to `VAEngine::create` / 
 
 ## Build
 
-Engine config files need protobuf. Configure uses an installed protobuf (Homebrew `protobuf`, vcpkg, or a system package with CMake config files) and otherwise builds v36.2 from source. The option `VASDK_ENABLE_ENGINE_CONFIG` defaults to ON on desktop and OFF on Android, where the size cost is still being evaluated. VASDK_Pipeline requires it.
+Engine config files need protobuf. Configure uses an installed protobuf (Homebrew `protobuf`, or a system package with CMake config files) and otherwise builds v36.2 from source. The option `VASDK_ENABLE_ENGINE_CONFIG` defaults to ON on desktop and OFF on Android, where the size cost is still being evaluated. VASDK_Pipeline requires it.

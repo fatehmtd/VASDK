@@ -35,7 +35,7 @@ vasdk.run_test_file(agent, "tests/book_service.txtpb")   # (True, "")
 `vasdk.Session` is a spoken conversation: the speech providers and the LLM an [engine config](../../docs/reference/engine-config.md) names, and an agent (or `None` for the LLM alone). Your code brings the audio, as 16-bit mono PCM: a microphone, a phone line, a file.
 
 ```python
-providers = vasdk.Providers()            # every VAD, STT and TTS provider in the vasdk_providers library
+providers = vasdk.Providers()            # every VAD, STT and TTS provider built into the C library
 session = vasdk.Session("engine.txtpb", providers, agent, models_dir="models",
                         system_prompt="You're a kitchen assistant. The kitchen: {context}")
 
@@ -69,7 +69,7 @@ session = vasdk.Session(config, providers, agent, models_dir="models")   # vasdk
 
 | | |
 | --- | --- |
-| `Providers()` | Loads the `vasdk_providers` library (`VASDK_PROVIDERS_LIBRARY`, else beside VASDK or in the build tree). It's built when VASDK is a shared library. |
+| `Providers()` | Adds the providers built into the C library, `vasdk_c` (with a shared VASDK instead: the `vasdk_providers` library, from `VASDK_PROVIDERS_LIBRARY`, else beside VASDK or in the build tree). |
 | `Session(config, providers, agent, id, models_dir, system_prompt, format_instruction)` | Before `start()`: `on_event`, `on_audio`, `tool`. Callbacks run on VASDK's threads; keep them quick. |
 | `push_audio`, `inject_text`, `say` | The user's audio, a user turn by text, words the assistant says. |
 | `send(vasdk.Command(...))` | What a `Command` asks: `inject_text`, `select_choice`, `fire_trigger`, `say`, `interrupt`, `set_session_param`. `select_choice`, `interrupt` and the methods around them are shortcuts for it. |
@@ -90,7 +90,7 @@ Everything else a C++ session does is here too:
 Providers can be written in Python, and an engine config names them by id like built-in ones:
 
 ```python
-providers = vasdk.Providers(built_in=False)   # only Python's; True also loads the vasdk_providers library
+providers = vasdk.Providers(built_in=False)   # only Python's; True also adds the C library's built-in ones
 
 @providers.vad("loudness")
 class Loudness:
@@ -109,6 +109,25 @@ class Mine:
 The binding's tests run with `-DVASDK_BUILD_PYTHON_BINDING=ON` (off by default).
 
 [VASDK_PYTHON_APP](../../VASDK_PYTHON_APP/) is a whole app built this way: a kitchen assistant with a microphone, a scripted demo, and tests.
+
+## Models
+
+The model store downloads the model files local providers load, checks their SHA-256, and keeps them where a session looks when it gets no `models_dir` ([Models](../../docs/models.md)):
+
+```python
+models = vasdk.Models()                                   # directory=, manifest_path=, token=, offline=
+for model_id in models.for_config("engine.txtpb"):        # what the config's providers load
+    models.pull(model_id, progress=lambda model, file, done, total: print(f"{model}: {done * 100 // total}%"))
+session = vasdk.Session("engine.txtpb", providers, agent)   # no models_dir: the store's directory
+```
+
+| Call | What |
+| --- | --- |
+| `Models.list()` | Every model of this machine: `id`, `license`, `size`, `status` (`present`, `partial`, `missing`)... |
+| `Models.pull(model_id, accept_license=False, progress=None)` | Downloads what is missing, resuming; `progress` returning `False` stops it. `accept_license` for a non-commercial or custom license |
+| `Models.verify`, `Models.remove`, `Models.status`, `Models.default_directory()` | |
+
+`vasdk.api_version()` gives the library's `VASDK_C_API_VERSION`. Test: [`tests/test_models.py`](tests/test_models.py) (`vasdk_python_models`).
 
 ## Messages
 
@@ -153,18 +172,16 @@ The generated code needs the `protobuf` package at the version of VASDK's `proto
 
 ## A wheel
 
-A wheel carries a shared build of VASDK for one platform. It works with any Python 3 there.
+A wheel carries the C library, `vasdk_c`, for one platform: the C API and every provider built in. It works with any Python 3 there.
 
-1. Build VASDK as a shared library. It is shared by default on Windows; elsewhere, configure with `-DBUILD_SHARED_LIBS=ON`.
+1. Build VASDK. Every build makes the C library (`build/cmake/c_library/`).
 2. Bundle the library and the libraries beside it into the package:
 
    ```sh
-   python bindings/python/bundle.py build/VASDK/Release    # the folder with VASDK.dll or libVASDK.so
+   python bindings/python/bundle.py build/cmake/c_library/Release    # the folder with vasdk_c.dll or libvasdk_c.so
    ```
 
-   On Windows this copies VASDK.dll and its dependencies: protobuf, abseil, curl, OpenSSL and zlib. It copies the generated messages too (`engine/`, `flow/`, `goal/`, `nlu/`), and the wheel depends on `protobuf`.
-
-   For spoken sessions, add the speech providers' folder: `python bindings/python/bundle.py build/VASDK/Release build/VASDK_3P_IMPL/ProviderCatalog/Release`. That copies `vasdk_providers` and ONNX Runtime too; the models stay outside the wheel (`Session(models_dir=...)`).
+   This copies the C library and what it loads: ONNX Runtime, and, on Windows, any installed DLL it imports (protobuf, abseil, curl when they come from a package manager). It copies the generated messages too (`engine/`, `flow/`, `goal/`, `nlu/`, `providers/`), and the wheel depends on `protobuf`. The models stay outside the wheel (`Session(models_dir=...)`).
 
 3. Build and install the wheel, with uv or pip:
 
@@ -180,10 +197,10 @@ To remove the copied libraries from the source tree, run `python bindings/python
 
 ## Without a wheel
 
-To use the package from the source tree instead, install it editable (`uv pip install -e bindings/python` or `pip install -e bindings/python`), or put `bindings/python` on `sys.path` as the tests do, and set `VASDK_LIBRARY` to the shared library. If it isn't set, the package looks in `./build/VASDK`. The messages are found in `build/bindings/python/vasdk`, or where `VASDK_PYTHON_PROTOS` points.
+To use the package from the source tree instead, install it editable (`uv pip install -e bindings/python` or `pip install -e bindings/python`), or put `bindings/python` on `sys.path` as the tests do, and set `VASDK_LIBRARY` to the C library. If it isn't set, the package looks in `./build/cmake/c_library` (then `./build/VASDK`, for a shared VASDK). The messages are found in `build/bindings/python/vasdk`, or where `VASDK_PYTHON_PROTOS` points.
 
 ```sh
-VASDK_LIBRARY=build/VASDK/Release/VASDK.dll python bindings/python/tests/test_garage.py VASDK_APP/agents/garage-menu
+VASDK_LIBRARY=build/cmake/c_library/Release/vasdk_c.dll python bindings/python/tests/test_garage.py VASDK_APP/agents/garage-menu
 ```
 
 The tests in `tests/` run in ctest as `vasdk_python_garage` and `vasdk_python_extensions`; the kitchen app's as `vasdk_python_kitchen` and `vasdk_python_session` (spoken, with the speech models).

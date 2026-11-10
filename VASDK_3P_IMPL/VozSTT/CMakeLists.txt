@@ -28,7 +28,7 @@ endif()
 
 include(GNUInstallDirs)
 
-install(TARGETS vasdk_voz_stt
+install(TARGETS vasdk_voz_stt COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -36,4 +36,5 @@ install(TARGETS vasdk_voz_stt
 
 install(FILES VozTranscriptionProvider.hpp ${CMAKE_CURRENT_BINARY_DIR}/vasdk_voz_stt_export.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/VozSTT
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )

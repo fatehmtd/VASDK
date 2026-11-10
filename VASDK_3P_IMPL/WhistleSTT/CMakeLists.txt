@@ -43,7 +43,7 @@ endif()
 
 include(GNUInstallDirs)
 
-install(TARGETS vasdk_whistle_stt
+install(TARGETS vasdk_whistle_stt COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -51,8 +51,10 @@ install(TARGETS vasdk_whistle_stt
 
 install(FILES WhistleTranscriptionProvider.hpp
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/WhistleSTT
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )
 
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/vasdk_whistle_stt_export.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/WhistleSTT
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )

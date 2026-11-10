@@ -1,4 +1,5 @@
 #include "engine/Runtime.h"
+#include "ModelStore.h"
 
 #include <algorithm>
 #include "nlu/EmbeddingNluProvider.h"
@@ -179,6 +180,8 @@ Runtime::LlmProvider Runtime::createLlm(std::string* error) const {
 Runtime::Runtime(vasdk::engine::EngineConfig config, ProviderRegistry registry, Options options)
     : _config(std::move(config)), _registry(std::move(registry)), _options(std::move(options)) {
     if (!_config.models_dir().empty()) _options.modelsDir = _config.models_dir();
+    // Neither says: where the model store puts what it pulls (VASDK_MODELS_DIR, else the user cache)
+    if (_options.modelsDir.empty()) _options.modelsDir = ModelStore::defaultDirectory();
 }
 
 std::shared_ptr<Runtime::ProviderSet> Runtime::createProviderSet(std::string* error) const {

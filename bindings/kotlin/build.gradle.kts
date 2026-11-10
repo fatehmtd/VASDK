@@ -9,7 +9,8 @@ plugins {
 (findProperty("vasdk.buildDir") as String?)?.let { layout.buildDirectory.set(file(it)) }
 
 group = "com.vasdk"
-version = "1.0.0"
+// The SDK's one version: the repository's VERSION file (docs/releasing.md)
+version = rootDir.resolve("../../VERSION").readText().trim()
 
 repositories { mavenCentral() }
 

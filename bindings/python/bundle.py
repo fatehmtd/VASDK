@@ -1,14 +1,16 @@
-"""Copies a shared build of VASDK, and the libraries beside it that it needs, into the vasdk
-package, so the wheel built next carries them:
+"""Copies VASDK's C library, and the libraries beside it that it needs, into the vasdk package, so
+the wheel built next carries them:
 
-    python bindings/python/bundle.py build/VASDK/Release      # where VASDK.dll / libVASDK.so is
+    python bindings/python/bundle.py build/cmake/c_library/Release   # where vasdk_c.dll / libvasdk_c.so is
     pip wheel bindings/python -w dist
 
-On Windows every DLL in that folder is copied (protobuf, abseil, curl, OpenSSL, zlib sit there);
-elsewhere libVASDK and the .so / .dylib files beside it. `--clean` removes what was copied.
+The C library (vasdk_c) holds the C API and every provider built in, so that one folder is enough.
+An install prefix works too (`cmake --install build --prefix out`, then its bin/ on Windows, lib/
+elsewhere), with VASDK_PYTHON_PROTOS set. On Windows every DLL in that folder is copied (ONNX Runtime,
+and protobuf, abseil, curl when they're installed DLLs); elsewhere the .so / .dylib files. The
+models aren't: Session's models_dir. `--clean` removes what was copied.
 
-For spoken sessions (vasdk.Providers), name the speech providers' folder too: its vasdk_providers
-library and what it loads (ONNX Runtime) are copied as well. The models aren't: Session's models_dir.
+A shared VASDK (VASDK_SHARED) works as before: its folder, then the speech providers' folder:
 
     python bindings/python/bundle.py build/VASDK/Release build/VASDK_3P_IMPL/ProviderCatalog/Release
 
@@ -24,6 +26,7 @@ from pathlib import Path
 
 PACKAGE = Path(__file__).resolve().parent / "vasdk"
 PATTERNS = {"win32": ["*.dll"], "darwin": ["*.dylib"]}.get(sys.platform, ["*.so", "*.so.*"])
+C_LIBRARY = {"win32": "vasdk_c.dll", "darwin": "libvasdk_c.dylib"}.get(sys.platform, "libvasdk_c.so")
 LIBRARY = {"win32": "VASDK.dll", "darwin": "libVASDK.dylib"}.get(sys.platform, "libVASDK.so")
 PROVIDERS = {"win32": "vasdk_providers.dll", "darwin": "libvasdk_providers.dylib"}.get(sys.platform, "libvasdk_providers.so")
 MESSAGES = ["engine", "flow", "goal", "nlu", "providers"]   # the proto packages, as vasdk.<name>
@@ -56,8 +59,8 @@ def main(arguments):
         print(__doc__)
         return 2
     folders = [Path(argument).resolve() for argument in arguments]
-    if not (folders[0] / LIBRARY).exists():
-        print(f"{LIBRARY} isn't in {folders[0]}: build VASDK as a shared library (the default on Windows)")
+    if not (folders[0] / C_LIBRARY).exists() and not (folders[0] / LIBRARY).exists():
+        print(f"neither {C_LIBRARY} nor {LIBRARY} is in {folders[0]}: build the vasdk_c target")
         return 1
     if len(folders) > 1 and not any(folders[1].glob(PROVIDERS)):
         print(f"no vasdk_providers library in {folders[1]}: build the vasdk_providers target")

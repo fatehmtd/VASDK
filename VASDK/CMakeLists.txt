@@ -1,6 +1,18 @@
-cmake_minimum_required(VERSION 3.16...4.0)
+cmake_minimum_required(VERSION 3.21...4.0)
 
-project(VASDK LANGUAGES CXX)
+# The SDK's one version, from the VERSION file (the top-level project reads it, Android's too)
+if(NOT DEFINED VASDK_VERSION)
+    file(STRINGS ${CMAKE_CURRENT_SOURCE_DIR}/../VERSION VASDK_VERSION LIMIT_COUNT 1)
+endif()
+project(VASDK VERSION ${VASDK_VERSION} LANGUAGES CXX)
+
+# The repository's root and its build, when this directory is added on its own
+if(NOT DEFINED VASDK_ROOT_DIR)
+    get_filename_component(VASDK_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/.. ABSOLUTE)
+endif()
+if(NOT DEFINED VASDK_ROOT_BINARY_DIR)
+    get_filename_component(VASDK_ROOT_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR}/.. ABSOLUTE)
+endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -18,21 +30,51 @@ option(VASDK_ENABLE_ENGINE_CONFIG "Build engine config files (protobuf) and the 
 if(VASDK_ENABLE_ENGINE_CONFIG)
     include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/VASDKProtobuf.cmake)
 endif()
-# One protobuf per binary: with a static protobuf (built from source, as on Android), VASDK is
-# static too, so it and the app's own generated code (provider options, extensions) share the one
-# copy linked into the app. Two copies would keep two registries of message types.
-set(VASDK_LIBRARY_TYPE SHARED)
-if(TARGET protobuf::libprotobuf)
-    get_target_property(_protobuf_type protobuf::libprotobuf TYPE)
-    if(_protobuf_type STREQUAL "STATIC_LIBRARY")
-        set(VASDK_LIBRARY_TYPE STATIC)
+# The C++ library is static by default: apps link it whole, and the C library (vasdk_c) is built
+# from it, a shared library of its own. VASDK_SHARED makes it a shared library instead, which needs
+# a shared protobuf: one protobuf per binary, so a static protobuf (built from source, as on
+# Android) keeps VASDK static, and it and the app's own generated code (provider options,
+# extensions) share the one copy linked into the app. Two copies would keep two registries of
+# message types.
+option(VASDK_SHARED "Build the C++ library, VASDK, as a shared library (needs a shared protobuf)" OFF)
+set(VASDK_LIBRARY_TYPE STATIC)
+if(VASDK_SHARED)
+    set(VASDK_LIBRARY_TYPE SHARED)
+    if(TARGET protobuf::libprotobuf)
+        get_target_property(_protobuf_type protobuf::libprotobuf TYPE)
+        if(_protobuf_type STREQUAL "STATIC_LIBRARY")
+            message(WARNING "VASDK_SHARED: protobuf is a static library here, so VASDK stays static (one protobuf per binary). "
+                            "Install a shared protobuf to build VASDK shared.")
+            set(VASDK_LIBRARY_TYPE STATIC)
+        endif()
     endif()
 endif()
+
+# The model manifest (VASDK_3P_IMPL/models/manifest.json), built in: what ModelStore downloads
+# when it is given no other. Its bytes, like the language pack below.
+set(_vasdk_model_manifest ${VASDK_ROOT_DIR}/VASDK_3P_IMPL/models/manifest.json)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${_vasdk_model_manifest})
+file(READ ${_vasdk_model_manifest} _vasdk_model_manifest_hex HEX)
+string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," _vasdk_model_manifest_bytes "${_vasdk_model_manifest_hex}")
+file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/generated/ModelManifest.cpp.in
+    "// Generated from VASDK_3P_IMPL/models/manifest.json by CMake: edit that file (generate_manifest.py).\n"
+    "#include <VASDK/ModelStore.h>\n"
+    "namespace va {\n"
+    "std::string builtinModelManifest() {\n"
+    "    const unsigned char bytes[] = {${_vasdk_model_manifest_bytes}};\n"
+    "    return std::string(reinterpret_cast<const char*>(bytes), sizeof(bytes));\n"
+    "}\n"
+    "}\n")
+configure_file(${CMAKE_CURRENT_BINARY_DIR}/generated/ModelManifest.cpp.in
+               ${CMAKE_CURRENT_BINARY_DIR}/generated/ModelManifest.cpp COPYONLY)
 
 add_library(VASDK ${VASDK_LIBRARY_TYPE}
     # Core sources
     ./src/AudioRingBuffer.cpp
     ./src/AudioSIMD.cpp
+    ./src/ModelStore.cpp
+    ./src/WavFile.cpp
+    ${CMAKE_CURRENT_BINARY_DIR}/generated/ModelManifest.cpp
     # Transport infrastructure
     ./src/Transport.cpp
     ./src/HttpTransport.cpp
@@ -93,9 +135,21 @@ add_library(VASDK ${VASDK_LIBRARY_TYPE}
     ./src/MetricsReporter.cpp
 )
 
+add_library(VASDK::VASDK ALIAS VASDK)   # the C++ API, for a project that adds VASDK from source
+
 target_link_libraries(VASDK
     PUBLIC spdlog::spdlog
 )
+
+# The C API's functions (VASDK/c/vasdk_c_export.h): exported from VASDK, and from the C library
+# built from it. Code linked to a static VASDK calls them directly.
+target_compile_definitions(VASDK PRIVATE VASDK_C_BUILDING)
+if(VASDK_LIBRARY_TYPE STREQUAL "STATIC")
+    target_compile_definitions(VASDK PUBLIC VASDK_STATIC_DEFINE INTERFACE VASDK_C_STATIC)
+    # Default visibility, as the code linking it: the C library limits what it exports with its own
+    # lists (cmake/c_library). Hidden here and default there, macOS sees two copies of a type's
+    # identity, so a provider registered by an app (ProviderRegistry, keyed by typeid) isn't found.
+endif()
 
 #  Optional metrics exporters 
 if(VASDK_METRICS_STATSD)
@@ -126,11 +180,18 @@ if(VASDK_METRICS_PROMETHEUS)
 endif()
 
 #  Google Highway SIMD acceleration 
-if(VASDK_ENABLE_HIGHWAY AND TARGET hwy)
-    target_link_libraries(VASDK PRIVATE hwy)
+# A binary built with AVX2 needs a CPU with AVX2 (Intel Haswell, AMD Excavator, 2013 or later):
+# packages for every machine turn it off (the release presets).
+option(VASDK_ENABLE_AVX2 "Compile VASDK's audio helpers for AVX2 and FMA on x86_64 (GCC and Clang)" ON)
+if(VASDK_ENABLE_HIGHWAY AND (TARGET hwy::hwy OR TARGET hwy))
+    if(TARGET hwy::hwy)
+        target_link_libraries(VASDK PRIVATE hwy::hwy)
+    else()
+        target_link_libraries(VASDK PRIVATE hwy)
+    endif()
     target_compile_definitions(VASDK PRIVATE VASDK_HIGHWAY_ENABLED)
-    # On x86_64 desktop, enable AVX2+FMA so Highway picks a wider ISA than SSE2
-    if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64" AND NOT ANDROID)
+    # On x86_64 desktop, enable AVX2+FMA so Highway picks a wider ISA than SSE2 (MSVC has no such flags)
+    if(VASDK_ENABLE_AVX2 AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64" AND NOT ANDROID AND NOT MSVC)
         target_compile_options(VASDK PRIVATE -mavx2 -mfma)
     endif()
     message(STATUS "VASDK: Google Highway SIMD acceleration enabled")
@@ -151,17 +212,29 @@ endif()
 option(VASDK_ENABLE_WEBSOCKET_SERVER "Enable WebSocket server transport via cpp-httplib" ON)
 
 if(VASDK_METRICS_PROMETHEUS OR VASDK_ENABLE_WEBSOCKET_SERVER)
-    if(NOT TARGET httplib::httplib)
-        include(FetchContent)
-        fetchcontent_declare(
-            cpp-httplib
-            GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
-            GIT_TAG        v0.18.3
-        )
-        fetchcontent_makeavailable(cpp-httplib)
-    endif()
+    # An installed one under VASDK_DEPENDENCY_SOURCE SYSTEM or AUTO (Conan, distro packages), else the pinned release
+    vasdk_dependency(httplib TARGET httplib::httplib
+        FIND CONFIG
+        DECLARE GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
+                GIT_TAG        v0.18.3)
     target_link_libraries(VASDK PRIVATE httplib::httplib)
     target_compile_definitions(VASDK PRIVATE VASDK_HAS_HTTPLIB)
+    # Windows: cpp-httplib serves HTTPS (the remote control's tls) with an OpenSSL it finds installed,
+    # whose DLLs vasdk_c then imports. FindOpenSSL's targets don't name them, so they are found beside
+    # its headers, then copied and installed beside vasdk_c (cmake/c_library, cmake/VASDKInstall.cmake).
+    set(VASDK_OPENSSL_RUNTIME_FILES "" CACHE INTERNAL "")
+    get_target_property(_vasdk_httplib_links httplib::httplib INTERFACE_LINK_LIBRARIES)
+    if(WIN32 AND _vasdk_httplib_links MATCHES "BOOL:(TRUE|ON|1)>:OpenSSL::SSL|(^|;)OpenSSL::SSL(;|$)")
+        get_filename_component(_vasdk_openssl_root "${OPENSSL_INCLUDE_DIR}" DIRECTORY)
+        file(GLOB _vasdk_openssl_dlls "${_vasdk_openssl_root}/bin/libssl*.dll" "${_vasdk_openssl_root}/bin/libcrypto*.dll")
+        if(_vasdk_openssl_dlls)
+            set(VASDK_OPENSSL_RUNTIME_FILES "${_vasdk_openssl_dlls}" CACHE INTERNAL "")
+            message(STATUS "VASDK: HTTPS through OpenSSL, its DLLs beside vasdk_c: ${_vasdk_openssl_dlls}")
+        else()
+            message(WARNING "VASDK: cpp-httplib uses OpenSSL, but its DLLs aren't in ${_vasdk_openssl_root}/bin: "
+                            "put libssl and libcrypto beside vasdk_c.dll, or set HTTPLIB_USE_OPENSSL_IF_AVAILABLE OFF")
+        endif()
+    endif()
     message(STATUS "VASDK: cpp-httplib available (Prometheus=${VASDK_METRICS_PROMETHEUS}, WebSocket=${VASDK_ENABLE_WEBSOCKET_SERVER})")
 endif()
 
@@ -207,6 +280,7 @@ if(VASDK_ENABLE_ENGINE_CONFIG)
         ./src/nlu/RuleNluProvider.cpp
         ./src/nlu/Calendar.cpp
         ./src/nlu/Language.cpp
+        ./src/metrics/TranscriptScore.cpp
         ${CMAKE_CURRENT_BINARY_DIR}/generated/BuiltInLanguage.cpp
         ./src/nlu/EmbeddingNluProvider.cpp
         ./src/nlu/LlmNluProvider.cpp
@@ -216,6 +290,8 @@ if(VASDK_ENABLE_ENGINE_CONFIG)
         ./src/c/vasdk_c.cpp
         ./src/c/vasdk_c_session.cpp
         ./src/c/vasdk_c_providers.cpp
+        ./src/c/vasdk_c_models.cpp
+        ./src/c/vasdk_c_score.cpp
         ./src/engine/RemoteControl.cpp
         ./proto/vasdk/engine/engine_config.proto
         ./proto/vasdk/engine/events.proto
@@ -256,15 +332,15 @@ if(VASDK_ENABLE_ENGINE_CONFIG)
     if(WIN32 AND VASDK_LIBRARY_TYPE STREQUAL "SHARED")
         set(_vasdk_proto_export EXPORT_MACRO VASDK_EXPORT)
         target_compile_options(VASDK PUBLIC
-            "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/FIvasdk_export.h>"
-            "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<NOT:$<CXX_COMPILER_ID:MSVC>>>:SHELL:-include vasdk_export.h>")
+            "$<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/FIVASDK/vasdk_export.h>"
+            "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<NOT:$<CXX_COMPILER_ID:MSVC>>>:SHELL:-include VASDK/vasdk_export.h>")
     endif()
     file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/proto)   # protoc doesn't create its output folder
     protobuf_generate(TARGET VASDK
         ${_vasdk_proto_export}
-        IMPORT_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/proto
+        IMPORT_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/proto ${VASDK_PROTOBUF_IMPORT_DIRS}
         PROTOC_OUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/proto)
-    target_include_directories(VASDK PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/proto>)
+    target_include_directories(VASDK PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/proto> $<INSTALL_INTERFACE:include/VASDK/proto>)
     # The same messages for Python (bindings/python: vasdk.engine.events_pb2, ...), by the same
     # protoc, into build/bindings/python/vasdk, where the binding looks for them (bundle.py copies
     # them into a wheel). Python's protobuf package must be this protoc's version or newer.
@@ -274,7 +350,7 @@ if(VASDK_ENABLE_ENGINE_CONFIG)
         else()
             set(_vasdk_protoc ${Protobuf_PROTOC_EXECUTABLE})
         endif()
-        set(_vasdk_python_out ${CMAKE_BINARY_DIR}/bindings/python/vasdk)
+        set(_vasdk_python_out ${VASDK_ROOT_BINARY_DIR}/bindings/python/vasdk)
         get_target_property(_vasdk_protos VASDK SOURCES)
         list(FILTER _vasdk_protos INCLUDE REGEX "[.]proto$")
         set(_vasdk_python_protos)
@@ -293,8 +369,8 @@ if(VASDK_ENABLE_ENGINE_CONFIG)
             endif()
         endforeach()
         add_custom_command(OUTPUT ${_vasdk_python_protos}
-            COMMAND ${_vasdk_protoc} --python_out=${CMAKE_BINARY_DIR}/bindings/python --pyi_out=${CMAKE_BINARY_DIR}/bindings/python
-                    -I ${CMAKE_CURRENT_SOURCE_DIR}/proto ${_vasdk_python_inputs}
+            COMMAND ${_vasdk_protoc} --python_out=${VASDK_ROOT_BINARY_DIR}/bindings/python --pyi_out=${VASDK_ROOT_BINARY_DIR}/bindings/python
+                    -I ${CMAKE_CURRENT_SOURCE_DIR}/proto ${VASDK_PROTOC_IMPORT_ARGUMENTS} ${_vasdk_python_inputs}
             WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/proto
             DEPENDS ${_vasdk_python_depends}
             COMMENT "Python messages for bindings/python"
@@ -303,7 +379,7 @@ if(VASDK_ENABLE_ENGINE_CONFIG)
     endif()
     target_link_libraries(VASDK PUBLIC protobuf::libprotobuf)
     target_compile_definitions(VASDK PUBLIC VASDK_HAS_ENGINE_CONFIG)
-    target_compile_definitions(VASDK PRIVATE VASDK_C_VERSION="${CMAKE_PROJECT_VERSION}")
+    target_compile_definitions(VASDK PRIVATE VASDK_C_VERSION="${PROJECT_VERSION}")
     # Checks, tests and chats with agent files: vasdk_agentc lint|test|chat agent.txtpb
     if(NOT ANDROID)   # a desktop tool
     add_executable(vasdk_agentc ./tools/vasdk_agentc/main.cpp)
@@ -317,39 +393,52 @@ set_target_properties(VASDK PROPERTIES
     SOVERSION ${PROJECT_VERSION_MAJOR}
 )
 
-include(GNUInstallDirs)
-install(TARGETS VASDK
-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-)
-
-# Generate export header
+# The C++ library's export macros, <VASDK/vasdk_export.h>, and the version, <VASDK/version.h>,
+# generated beside each other: VASDK_EXPORT, and VASDK_VERSION_MAJOR, _MINOR, _PATCH, _STRING
 include(GenerateExportHeader)
 generate_export_header(VASDK
     BASE_NAME VASDK
-    EXPORT_FILE_NAME vasdk_export.h
+    EXPORT_FILE_NAME ${CMAKE_CURRENT_BINARY_DIR}/include/VASDK/vasdk_export.h
 )
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/cmake/version.h.in ${CMAKE_CURRENT_BINARY_DIR}/include/VASDK/version.h @ONLY)
 
 target_include_directories(VASDK PUBLIC
-    $<INSTALL_INTERFACE:include>  # For installed package (optional but good practice)
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include> # For direct build
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}> # To export the symbols header
+    $<INSTALL_INTERFACE:include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/include>   # vasdk_export.h, version.h
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/VASDK # to simplify the internal include files
 )
 
 if(VASDK_ENABLE_CTRACK AND TARGET vasdk_ctrack_iface)
-    target_link_libraries(VASDK PRIVATE vasdk_ctrack_iface)
+    # Header-only: its headers and defines while VASDK compiles, no link, so it stays out of the
+    # exported C++ package (cmake/VASDKInstall.cmake)
+    target_include_directories(VASDK PRIVATE $<TARGET_PROPERTY:vasdk_ctrack_iface,INTERFACE_INCLUDE_DIRECTORIES>)
+    target_compile_definitions(VASDK PRIVATE $<TARGET_PROPERTY:vasdk_ctrack_iface,INTERFACE_COMPILE_DEFINITIONS>)
 endif()
 
-# Install headers
+# The C++ library and its headers, for a build that installs the C++ API (component
+# vasdk_cpp_development, never part of a plain install: the packages ship the C library,
+# cmake/c_library). Its dependencies' headers (protobuf, spdlog, nlohmann_json) are the consumer's;
+# when they are installed packages, cmake/VASDKInstall.cmake adds find_package(VASDK COMPONENTS cpp).
+include(GNUInstallDirs)
+install(TARGETS VASDK COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
 install(DIRECTORY include/VASDK
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
     FILES_MATCHING PATTERN "*.h"
 )
-
-# Install export header
-install(FILES ${CMAKE_CURRENT_BINARY_DIR}/vasdk_export.h
+install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/proto/
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/VASDK/proto
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
+    FILES_MATCHING PATTERN "*.pb.h"
+)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/include/VASDK/vasdk_export.h ${CMAKE_CURRENT_BINARY_DIR}/include/VASDK/version.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/VASDK
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )
 
 # Unit tests (run with ctest)
@@ -381,6 +470,10 @@ if(VASDK_BUILD_TESTS)
     add_executable(vasdk_pipeline_description_test tests/pipeline_description_test.cpp)
     target_link_libraries(vasdk_pipeline_description_test PRIVATE VASDK)
     add_test(NAME vasdk_pipeline_description COMMAND vasdk_pipeline_description_test)
+
+    add_executable(vasdk_wav_file_test tests/wav_file_test.cpp)
+    target_link_libraries(vasdk_wav_file_test PRIVATE VASDK)
+    add_test(NAME vasdk_wav_file COMMAND vasdk_wav_file_test)
 
     add_executable(vasdk_goal_test tests/goal_test.cpp)
     target_link_libraries(vasdk_goal_test PRIVATE VASDK nlohmann_json::nlohmann_json)
@@ -487,20 +580,27 @@ if(VASDK_BUILD_TESTS)
         target_link_libraries(vasdk_trigger_arbiter_test PRIVATE VASDK)
         add_test(NAME vasdk_trigger_arbiter COMMAND vasdk_trigger_arbiter_test)
         # The Android app's phone agent ("call mom"), by text on the desktop
-        set(PHONE_AGENT ${CMAKE_SOURCE_DIR}/VASDK_ANDROID/app/src/main/assets/agents/phone/agent.txtpb)
+        set(PHONE_AGENT ${VASDK_ROOT_DIR}/VASDK_ANDROID/app/src/main/assets/agents/phone/agent.txtpb)
         if(EXISTS ${PHONE_AGENT} AND NOT ANDROID)
-            file(GLOB PHONE_AGENT_TESTS ${CMAKE_SOURCE_DIR}/VASDK_ANDROID/agent-tests/phone/*.txtpb)
+            file(GLOB PHONE_AGENT_TESTS ${VASDK_ROOT_DIR}/VASDK_ANDROID/agent-tests/phone/*.txtpb)
             add_test(NAME vasdk_agent_android_phone COMMAND vasdk_agentc test ${PHONE_AGENT} ${PHONE_AGENT_TESTS})
         endif()
         if(TARGET httplib::httplib)
             add_executable(vasdk_remote_control_test tests/remote_control_test.cpp)
-            target_link_libraries(vasdk_remote_control_test PRIVATE VASDK httplib::httplib)
+            # httplib first: its headers must be the ones VASDK was built with, ahead of another copy
+            # on VASDK's include path (a package prefix that holds cpp-httplib too)
+            target_link_libraries(vasdk_remote_control_test PRIVATE httplib::httplib VASDK)
             add_test(NAME vasdk_remote_control COMMAND vasdk_remote_control_test)
         endif()
         enable_language(C)
         add_executable(vasdk_c_test tests/vasdk_c_test.c)   # the C API, from C
         target_link_libraries(vasdk_c_test PRIVATE VASDK)
         add_test(NAME vasdk_c COMMAND vasdk_c_test WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+        add_executable(vasdk_model_store_test tests/model_store_test.cpp)   # ModelStore and vasdk_models_*, offline
+        target_link_libraries(vasdk_model_store_test PRIVATE VASDK nlohmann_json::nlohmann_json)
+        add_test(NAME vasdk_model_store COMMAND vasdk_model_store_test)
+        add_test(NAME vasdk_model_store_network COMMAND vasdk_model_store_test --network)
+        set_tests_properties(vasdk_model_store_network PROPERTIES SKIP_RETURN_CODE 77)
         add_executable(vasdk_c_session_test tests/c_session_test.cpp)   # spoken sessions through the C API
         target_link_libraries(vasdk_c_session_test PRIVATE VASDK nlohmann_json::nlohmann_json)
         add_test(NAME vasdk_c_session COMMAND vasdk_c_session_test)
@@ -516,10 +616,13 @@ if(VASDK_BUILD_TESTS)
         add_test(NAME vasdk_network_fallback COMMAND vasdk_network_fallback_test)
         add_executable(vasdk_llm_assist_test tests/llm_assist_test.cpp)
         target_link_libraries(vasdk_llm_assist_test PRIVATE VASDK)
-        add_test(NAME vasdk_llm_assist COMMAND vasdk_llm_assist_test WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/..)
+        add_test(NAME vasdk_llm_assist COMMAND vasdk_llm_assist_test WORKING_DIRECTORY ${VASDK_ROOT_DIR}/..)
         add_executable(vasdk_rule_nlu_test tests/rule_nlu_test.cpp)
         target_link_libraries(vasdk_rule_nlu_test PRIVATE VASDK)
         add_test(NAME vasdk_rule_nlu COMMAND vasdk_rule_nlu_test)
+        add_executable(vasdk_transcript_score_test tests/transcript_score_test.cpp)
+        target_link_libraries(vasdk_transcript_score_test PRIVATE VASDK)
+        add_test(NAME vasdk_transcript_score COMMAND vasdk_transcript_score_test)
         add_executable(vasdk_entity_extractor_test tests/entity_extractor_test.cpp)
         target_link_libraries(vasdk_entity_extractor_test PRIVATE VASDK)
         add_test(NAME vasdk_entity_extractor COMMAND vasdk_entity_extractor_test)

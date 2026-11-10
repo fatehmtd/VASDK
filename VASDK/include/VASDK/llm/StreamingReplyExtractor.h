@@ -1,7 +1,7 @@
 #pragma once
 
 #include <VASDK/llm/ResponseChunker.h>
-#include "vasdk_export.h"
+#include <VASDK/vasdk_export.h>
 
 #include <string>
 #include <vector>

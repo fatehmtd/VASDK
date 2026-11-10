@@ -74,9 +74,11 @@ struct Rig {
     int protectedMs = 0;   // a part that can't be interrupted is playing
     size_t mark = 0;
 
-    explicit Rig(pipeline::BackchannelConfig backchannelConfig = {}) {
+    // interruptTimeoutMs: long by default, so a check made after a committed barge-in doesn't see the
+    // timeout's resolution on a slow machine (a stalled CI runner); E9 sets a short one to test it.
+    explicit Rig(pipeline::BackchannelConfig backchannelConfig = {}, int interruptTimeoutMs = 2000) {
         agentState->setBackchannelConfig(backchannelConfig);
-        agentState->setInterruptTimeoutMs(150);
+        agentState->setInterruptTimeoutMs(interruptTimeoutMs);
         agentState->setPlaybackRemainingMsProvider([this] { return playbackRemainingMs; });
         agentState->setProtectedPlaybackMsProvider([this] { return protectedMs; });
         agentState->setDownstream(recorder);
@@ -265,7 +267,7 @@ void lateCommitReplaysTurn() {
 
 void lateCommitOnTimeout() {
     const char* scenario = "E9 timeout replay";
-    Rig rig;
+    Rig rig({}, 150);
     rig.userStarts();
     rig.userStops();
     rig.transcript("The blue one.", true);

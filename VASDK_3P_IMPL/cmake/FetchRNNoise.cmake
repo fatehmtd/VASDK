@@ -13,13 +13,10 @@
 # expected archive is recorded in the repo's `model_version` file.
 # 
 
-# TODO: rnnoise has no tagged releases - pin to a specific commit SHA before release
-# e.g.: GIT_TAG <commit-sha>
 FetchContent_Declare(
     rnnoise
     GIT_REPOSITORY https://github.com/xiph/rnnoise.git
-    GIT_TAG        main
-    GIT_SHALLOW    ON
+    GIT_TAG        70f1d256acd4b34a572f999a05c87bf00b67730d   # no release tags: a commit, for reproducible builds
 )
 
 # Populate (download) without trying to add_subdirectory, because rnnoise

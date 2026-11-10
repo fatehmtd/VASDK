@@ -25,7 +25,7 @@ target_link_libraries(vasdk_parakeet
     PUBLIC VASDK
 )
 
-install(TARGETS vasdk_parakeet
+install(TARGETS vasdk_parakeet COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -33,8 +33,10 @@ install(TARGETS vasdk_parakeet
 
 install(FILES ParakeetTranscriptionProvider.hpp
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/Parakeet
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )
 
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/vasdk_parakeet_export.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/Parakeet
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )

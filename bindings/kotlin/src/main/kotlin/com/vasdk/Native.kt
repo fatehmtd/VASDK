@@ -1,5 +1,5 @@
 // The C API (VASDK/include/VASDK/c/vasdk.h) as JNA sees it: every function, every callback type.
-// The public classes (Vasdk, Registry, Agent, Conversation, Providers, Session, Runtime) wrap it.
+// The public classes (Vasdk, Registry, Agent, Conversation, Providers, Session, Runtime, Models) wrap it.
 @file:Suppress("FunctionName")
 
 package com.vasdk
@@ -9,6 +9,7 @@ import com.sun.jna.CallbackThreadInitializer
 import com.sun.jna.IntegerType
 import com.sun.jna.Library
 import com.sun.jna.Native
+import com.sun.jna.NativeLibrary
 import com.sun.jna.Pointer
 import com.sun.jna.ptr.ByReference
 import com.sun.jna.ptr.IntByReference
@@ -56,11 +57,26 @@ internal fun interface WakeWordFn : Callback { fun invoke(instance: Pointer?, pc
 internal fun interface AudioDspFn : Callback { fun invoke(instance: Pointer?, input: Pointer?, output: Pointer?, samples: SizeT) }
 internal fun interface SpeakerEmbeddingFn : Callback { fun invoke(instance: Pointer?, pcm: Pointer?, samples: SizeT, voicePrint: Pointer) }
 internal fun interface InstanceTextFn : Callback { fun invoke(instance: Pointer?, text: Pointer, result: Pointer) }
+internal fun interface ModelProgressFn : Callback { fun invoke(model: Pointer, file: Pointer, done: Long, total: Long, user: Pointer?): Int }
 
 internal interface VasdkLibrary : Library {
     fun vasdk_free(pointer: Pointer?)
     fun vasdk_version(): String
     fun vasdk_set_log_level(level: String): Int
+    fun vasdk_c_api_version(): Int
+    fun vasdk_models_create(optionsJson: String?, error: PointerByReference): Pointer?
+    fun vasdk_models_free(models: Pointer)
+    fun vasdk_models_default_directory(): Pointer?
+    fun vasdk_models_directory(models: Pointer): String
+    fun vasdk_models_list(models: Pointer): Pointer?
+    fun vasdk_models_for_config(models: Pointer, configPath: String, error: PointerByReference): Pointer?
+    fun vasdk_models_status(models: Pointer, id: String): Int
+    fun vasdk_models_pull(models: Pointer, id: String, acceptLicense: Int, progress: ModelProgressFn?, user: Pointer?,
+                          error: PointerByReference): Int
+    fun vasdk_models_verify(models: Pointer, id: String, error: PointerByReference): Int
+    fun vasdk_models_remove(models: Pointer, id: String, error: PointerByReference): Int
+    fun vasdk_score_transcript(reference: String?, hypothesis: String?): Pointer?
+    fun vasdk_normalize_transcript(text: String?): Pointer?
 
     fun vasdk_registry_create(): Pointer
     fun vasdk_registry_free(registry: Pointer)
@@ -190,17 +206,34 @@ internal interface ProvidersLibrary : Library {
 internal object Lib {
     private val options = mapOf(Library.OPTION_STRING_ENCODING to "UTF-8")
 
-    /** VASDK_LIBRARY (a path), else the system property vasdk.library, else "VASDK" on the library path (Android: libVASDK.so). */
-    val path: String = System.getenv("VASDK_LIBRARY")?.takeIf { it.isNotEmpty() } ?: System.getProperty("vasdk.library") ?: "VASDK"
+    /**
+     * VASDK_LIBRARY (a path), else the system property vasdk.library, else the C library on the
+     * library path: "vasdk_c" (libvasdk_c.so, vasdk_c.dll), else "VASDK" (a shared VASDK, Android's libVASDK.so).
+     */
+    val path: String = (System.getenv("VASDK_LIBRARY")?.takeIf { it.isNotEmpty() } ?: System.getProperty("vasdk.library"))
+        // A path in the platform's form: Windows finds the DLLs a library imports beside it only
+        // when its path has backslashes (LOAD_WITH_ALTERED_SEARCH_PATH, which JNA uses)
+        ?.let { File(it).absolutePath } ?: defaultLibrary()
+
+    private fun defaultLibrary(): String = try {
+        NativeLibrary.getInstance("vasdk_c", options)
+        "vasdk_c"
+    } catch (missing: UnsatisfiedLinkError) {
+        "VASDK"
+    }
 
     val vasdk: VasdkLibrary by lazy { Native.load(path, VasdkLibrary::class.java, options) }
 
     /**
-     * VASDK_PROVIDERS_LIBRARY, else beside VASDK in a build tree, else "vasdk_providers" on the
-     * library path, else VASDK itself (Android's libVASDK.so holds the providers too).
+     * VASDK_PROVIDERS_LIBRARY, else the C library itself (vasdk_c holds the providers), else beside
+     * a shared VASDK in a build tree, else "vasdk_providers" on the library path, else VASDK itself
+     * (Android's libVASDK.so holds the providers too).
      */
     val providers: ProvidersLibrary by lazy {
         val explicit = System.getenv("VASDK_PROVIDERS_LIBRARY")?.takeIf { it.isNotEmpty() }
+        if (explicit == null && File(path).name.contains("vasdk_c")) {
+            return@lazy Native.load(path, ProvidersLibrary::class.java, options)
+        }
         val beside = File(path).absoluteFile.parentFile?.parentFile
             ?.let { File(it, "VASDK_3P_IMPL/ProviderCatalog/" + System.mapLibraryName("vasdk_providers")) }
         val name = explicit ?: beside?.takeIf { it.exists() }?.path ?: "vasdk_providers"

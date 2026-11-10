@@ -1,5 +1,13 @@
-# Provides protobuf::libprotobuf and protobuf_generate(): an installed protobuf (CONFIG
-# package, e.g. Homebrew or vcpkg) when there is one, otherwise built from source.
+# Provides protobuf::libprotobuf and protobuf_generate(): an installed protobuf (CONFIG package:
+# Conan, Homebrew, a distro package) when there is one, otherwise built from source.
+#
+# Where protoc finds Google's own .proto files (google/protobuf/any.proto, struct.proto, ...): an
+# installed protoc finds them in its include/ folder, one built from source has none, so they come
+# from protobuf's sources. Two global variables, empty for an installed protobuf, which every protoc
+# call passes: VASDK_PROTOBUF_IMPORT_DIRS to protobuf_generate(IMPORT_DIRS), VASDK_PROTOC_IMPORT_ARGUMENTS
+# (-I <folder>) to a protoc command of its own.
+set(VASDK_PROTOBUF_IMPORT_DIRS "" CACHE INTERNAL "")
+set(VASDK_PROTOC_IMPORT_ARGUMENTS "" CACHE INTERNAL "")
 if(NOT TARGET protobuf::libprotobuf)
     find_package(Protobuf CONFIG QUIET)
 endif()
@@ -13,6 +21,9 @@ if(TARGET protobuf::libprotobuf)
         endif()
     endforeach()
     message(STATUS "VASDK: using installed protobuf ${Protobuf_VERSION}")
+elseif(VASDK_DEPENDENCY_SOURCE STREQUAL "SYSTEM")
+    message(FATAL_ERROR "VASDK: protobuf not found and VASDK_DEPENDENCY_SOURCE is SYSTEM: "
+                        "install it (Conan, your package manager) or use FETCH or AUTO")
 else()
     message(STATUS "VASDK: protobuf not installed - building it from source (first configure is slow)")
     include(FetchContent)
@@ -53,6 +64,13 @@ else()
     set(protobuf_BUILD_SHARED_LIBS  OFF CACHE BOOL "" FORCE)
     set(protobuf_INSTALL            OFF CACHE BOOL "" FORCE)
     set(protobuf_WITH_ZLIB          OFF CACHE BOOL "" FORCE)
+    # The C runtime of the code linking it: the DLL one unless CMAKE_MSVC_RUNTIME_LIBRARY picks the
+    # static one (protobuf's own default is static, which MSVC refuses to link with /MD code)
+    if(NOT CMAKE_MSVC_RUNTIME_LIBRARY OR CMAKE_MSVC_RUNTIME_LIBRARY MATCHES "DLL")
+        set(protobuf_MSVC_STATIC_RUNTIME OFF CACHE BOOL "" FORCE)
+    else()
+        set(protobuf_MSVC_STATIC_RUNTIME ON CACHE BOOL "" FORCE)
+    endif()
     set(ABSL_PROPAGATE_CXX_STD      ON  CACHE BOOL "" FORCE)
     set(ABSL_ENABLE_INSTALL         OFF CACHE BOOL "" FORCE)
     fetchcontent_declare(
@@ -60,7 +78,10 @@ else()
         GIT_REPOSITORY https://github.com/protocolbuffers/protobuf.git
         GIT_TAG        v${VASDK_PROTOBUF_VERSION}
         GIT_SHALLOW    TRUE
+        ${VASDK_FETCH_EXCLUDE}   # its own install rules stay out of VASDK's
     )
     fetchcontent_makeavailable(protobuf)
     include(${protobuf_SOURCE_DIR}/cmake/protobuf-generate.cmake)
+    set(VASDK_PROTOBUF_IMPORT_DIRS ${protobuf_SOURCE_DIR}/src CACHE INTERNAL "")
+    set(VASDK_PROTOC_IMPORT_ARGUMENTS -I ${protobuf_SOURCE_DIR}/src CACHE INTERNAL "")
 endif()

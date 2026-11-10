@@ -5,20 +5,21 @@ VASDK is a C++17 framework for voice assistants: a pipeline of typed frames thro
 ## Build, test, run
 
 ```bash
-cmake -B build -S . -DVASDK_BUILD_TESTS=ON          # add -DVASDK_BUILD_<NAME>=ON per optional provider
+cmake -B build -S . -DVASDK_BUILD_TESTS=ON -DVASDK_BUILD_APPS=ON   # add -DVASDK_BUILD_<NAME>=ON per optional provider
 cmake --build build --config Release -j
 ctest --test-dir build --output-on-failure          # tests needing models or API keys report "skipped" (exit 77)
 ./build/VASDK_APP/VASDK_Pipeline --config VASDK_APP/config/engine.txtpb --env-file .env
 ```
 
-Prerequisites, CMake options and model downloads: [docs/building.md](docs/building.md). With Visual Studio or Xcode, binaries land under an extra `Release/` folder.
+Local providers are also measured on real speech (`-DVASDK_DOWNLOAD_EVAL_DATA=ON`, then `ctest -L eval`; [docs/evaluation.md](docs/evaluation.md)). The sample apps are optional (`VASDK_BUILD_APPS`, off by default) and the garage agent's suites live in `VASDK_APP`, so a full test run turns them on. `cmake --preset dev` does the same into build/dev. Prerequisites, presets, CMake options and model downloads: [docs/building.md](docs/building.md). How another project consumes VASDK (`VASDK::c`, `find_package`, flavors): [docs/integrating.md](docs/integrating.md). With Visual Studio or Xcode, binaries land under an extra `Release/` folder.
 
 ## Layout
 
 | Path | What |
 | --- | --- |
 | `VASDK/` | Core library: frames, processors, pipeline, provider interfaces (`VASDK/include/VASDK/`), engine, agents, LLM, C API, tests (`VASDK/tests/`) |
-| `VASDK_3P_IMPL/` | Third-party integrations, one CMake target each, guarded by `VASDK_BUILD_<NAME>`; `ProviderCatalog/` registers them by config id |
+| `cmake/` | Packaging: the C library `vasdk_c` (`cmake/c_library/`), dependencies, flavors, `find_package(VASDK)` and pkg-config; [`CMakePresets.json`](CMakePresets.json) and [`VERSION`](VERSION) beside it |
+| `VASDK_3P_IMPL/` | Third-party integrations, one CMake target each, guarded by `VASDK_BUILD_<NAME>`; `ProviderCatalog/` registers them by config id; `models/manifest.json` pins every model file the model store downloads ([docs/models.md](docs/models.md)) |
 | `VASDK_APP/`, `VASDK_CALLCENTER_APP/`, `VASDK_CAR_APP/`, `VASDK_PYTHON_APP/`, `VASDK_ANDROID/` | Example apps ([docs/apps](docs/apps/README.md)) |
 | `bindings/python/` | Python binding over the C API |
 | `docs/` | Reference and guides ([index](docs/README.md)) |
@@ -45,6 +46,7 @@ Prerequisites, CMake options and model downloads: [docs/building.md](docs/buildi
 | A use case: agent, car vertical or new app | [vasdk-app](skills/vasdk-app/SKILL.md) |
 | Exposing a feature in C, Python and Android | [vasdk-bindings](skills/vasdk-bindings/SKILL.md) |
 | Bringing C, Python and Kotlin level with the C++ API (parity check and manifest) | [vasdk-binding-parity](skills/vasdk-binding-parity/SKILL.md) |
+| How other projects get VASDK: the C library, `find_package`, presets, flavors, dependencies, packages and releases | [vasdk-packaging](skills/vasdk-packaging/SKILL.md) |
 
 ## House rules
 

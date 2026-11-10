@@ -1,6 +1,6 @@
 #pragma once
 
-#include "vasdk_export.h"
+#include <VASDK/vasdk_export.h>
 #include <VASDK/goal/GoalDefinition.h>
 #include <nlohmann/json.hpp>
 #include <string>

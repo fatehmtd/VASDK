@@ -92,5 +92,6 @@ flowchart LR
 | Test | Kind | Needs | Run |
 | --- | --- | --- | --- |
 | `supertonic_tts_synth` | unit | the models | `ctest --test-dir build -R supertonic_tts_synth` |
+| `vasdk_eval_tts_supertonic` | evaluation: FLEURS sentences synthesized, then recognized by a local STT ([Evaluation](../evaluation.md)): 1.2% of the words misheard (Parakeet) | the evaluation set, an STT (skipped without) | `ctest --test-dir build -L eval` |
 
 A test that needs a model or a key reports "skipped" without it.

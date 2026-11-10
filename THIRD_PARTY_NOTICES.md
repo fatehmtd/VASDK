@@ -2,7 +2,7 @@
 
 VASDK itself is licensed under the Apache License 2.0 (see [LICENSE](LICENSE)). The models it runs are not. This file lists every model the project uses, where it comes from, and the license it is distributed under.
 
-Two model files are bundled directly in this repository (for the Android app). Everything else is downloaded from its upstream source at CMake configure time by the scripts in `VASDK_3P_IMPL/cmake/`; The Android app downloads its models at runtime from the same upstream sources. Neither path redistributes those files here, but their licenses still govern how you may use and ship them.
+Two model files are bundled directly in this repository (for the Android app). Everything else is downloaded from its upstream source at CMake configure time by the scripts in `VASDK_3P_IMPL/cmake/`, or at run time by the model store from the pinned list in `VASDK_3P_IMPL/models/manifest.json` ([Models](docs/models.md)); The Android app downloads its models at runtime from the same upstream sources. Neither path redistributes those files here, but their licenses still govern how you may use and ship them.
 
 Library and provider dependencies (spdlog, nlohmann/json, llama.cpp, whisper.cpp, ONNX Runtime, CLI11, and the rest) are fetched from their upstream repositories at build time under their own licenses and are not redistributed in this repository. They're itemized in [Provider and library dependencies](#provider-and-library-dependencies) below.
 
@@ -21,7 +21,7 @@ Library and provider dependencies (spdlog, nlohmann/json, llama.cpp, whisper.cpp
 | Pocket TTS (ONNX) | Text-to-speech | [KevinAHM/pocket-tts-web](https://huggingface.co/spaces/KevinAHM/pocket-tts-web), converted from [kyutai/pocket-tts](https://huggingface.co/kyutai/pocket-tts) | CC BY 4.0 |
 | Supertonic 3 | Text-to-speech | [supertone-oss-archive/supertonic-3](https://huggingface.co/supertone-oss-archive/supertonic-3) (archived, pinned revision) | OpenRAIL |
 | Phonon 40m multilingual (GGUF) | Text-to-speech (`VASDK_BUILD_PHONON_TTS`, desktop default) | [gradium/phonon-40m-multilingual](https://huggingface.co/gradium/phonon-40m-multilingual) (gated) | CC BY-NC 4.0 |
-| Phonon 31m English (GGUF) | Text-to-speech (`-DPHONON_TTS_HF_REPO=gradium/phonon-31m-en`, Android app) | [gradium/phonon-31m-en](https://huggingface.co/gradium/phonon-31m-en) | Apache 2.0 |
+| Phonon 31m English (GGUF) | Text-to-speech (`-DPHONON_TTS_MODEL=phonon_tts_en`, Android app) | [gradium/phonon-31m-en](https://huggingface.co/gradium/phonon-31m-en) | Apache 2.0 |
 | Phonon voices (`.safetensors`) | Text-to-speech (Phonon) | [gradium/phonon-voices](https://huggingface.co/gradium/phonon-voices) | Apache 2.0 |
 | MOSS-TTS-Nano 100M (ONNX) + MOSS-Audio-Tokenizer-Nano decoder | Text-to-speech (opt-in, `VASDK_BUILD_MOSS_TTS`) | [Supbatomic/moss-tts-nano-100m-onnx-model](https://huggingface.co/Supbatomic/moss-tts-nano-100m-onnx-model), exported from [OpenMOSS-Team/MOSS-TTS-Nano](https://huggingface.co/OpenMOSS-Team/MOSS-TTS-Nano); codec from [OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano-ONNX](https://huggingface.co/OpenMOSS-Team/MOSS-Audio-Tokenizer-Nano-ONNX) | Apache 2.0 |
 | LFM2.5 1.2B Instruct (GGUF) | Default local LLM (desktop apps) | [LiquidAI/LFM2.5-1.2B-Instruct-GGUF](https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct-GGUF) | LFM Open License v1.0 |
@@ -36,12 +36,23 @@ Library and provider dependencies (spdlog, nlohmann/json, llama.cpp, whisper.cpp
 Points worth knowing before you ship a product on top of these:
 
 - **CC BY 4.0** (Parakeet, Pocket TTS, WeSpeaker ResNet34-LM) requires attribution to the original model authors if you redistribute the weights or derivatives of them. WeSpeaker's VoxCeleb models carry the license of their training data, the [VoxCeleb dataset](https://mm.kaist.ac.kr/datasets/voxceleb/).
-- **CC BY-NC 4.0** (the Phonon 40m model) forbids commercial use. Phonon is on by default on desktop and downloads the 40m model when a HuggingFace token is set. For a commercial product, license the weights from Gradium or switch to the Apache 2.0 [gradium/phonon-31m-en](https://huggingface.co/gradium/phonon-31m-en) with `-DPHONON_TTS_HF_REPO=gradium/phonon-31m-en` (the Android app already uses it). The voices are Apache 2.0 either way.
+- **CC BY-NC 4.0** (the Phonon 40m model) forbids commercial use. Phonon is on by default on desktop and downloads the 40m model when a HuggingFace token is set. For a commercial product, license the weights from Gradium or switch to the Apache 2.0 [gradium/phonon-31m-en](https://huggingface.co/gradium/phonon-31m-en) with `-DPHONON_TTS_MODEL=phonon_tts_en` (the Android app already uses it). The voices are Apache 2.0 either way.
 - **OpenRAIL** (Supertonic 3) is a responsible-AI license with use restrictions. Read the [license text on the model page](https://huggingface.co/supertone-oss-archive/supertonic-3) before commercial use.
 - **LFM Open License v1.0** (both LFM2.5 GGUF models - the 1.2B desktop default and the 230M Android default) is Liquid AI's custom license with its own commercial terms. Read the LICENSE file in the respective model repository ([1.2B](https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct-GGUF/blob/main/LICENSE), [230M](https://huggingface.co/LiquidAI/LFM2.5-230M-GGUF)) before commercial use, or swap in a different GGUF via `-DVASDK_LLAMACPP_MODEL_URL` (desktop) or a different `LLMModelMeta` preset (Android).
 - **Llama 3.2 Community License** (an Android preset) allows commercial use, with conditions: products with more than 700 million monthly active users need a separate license from Meta, use must follow Meta's Acceptable Use Policy, and a product that ships the model must include a copy of the license and display "Built with Llama". Read the [license](https://huggingface.co/meta-llama/Llama-3.2-1B-Instruct/blob/main/LICENSE.txt) before shipping it.
 - **Gemma Terms of Use** (an Android preset) allow commercial use, subject to Google's Prohibited Use Policy, and pass the same restrictions on to anyone you redistribute the model to. Read the [terms](https://ai.google.dev/gemma/terms) before shipping it.
 - **Moonshine:** all streaming models, which are the only Moonshine models VASDK downloads, are MIT. The non-commercial Moonshine Community License covers only the legacy non-streaming models for languages other than English.
+
+## Evaluation data
+
+The provider evaluation ([docs/evaluation.md](docs/evaluation.md)) runs on clips cut, resampled and mixed from two speech corpora. The set is downloaded at configure time with `VASDK_DOWNLOAD_EVAL_DATA=ON` (model `eval_audio_v1` of `VASDK_3P_IMPL/Evaluation/data/manifest.json`); nothing of it is in this repository. Its `ATTRIBUTION.md` travels with it.
+
+| Corpus | Used for | Source | License |
+| --- | --- | --- | --- |
+| LibriSpeech ASR corpus, test-clean (Panayotov, Chen, Povey, Khudanpur) | English speech with speakers and genders; VAD clips; babble | [openslr.org/12](https://www.openslr.org/12) | CC BY 4.0 |
+| FLEURS, en_us and fr_fr test (Conneau et al., Google) | English and French sentences, punctuated; turn clips; TTS sentences | [google/fleurs](https://huggingface.co/datasets/google/fleurs) | CC BY 4.0 |
+
+The white, pink and brown noise and the hum are generated by the builder ([`tools/eval-data/build_eval_set.py`](tools/eval-data/build_eval_set.py)). Redistributing the set, or clips of it, needs the attribution above.
 
 ## Provider and library dependencies
 
@@ -72,7 +83,7 @@ Every VAD/STT/TTS/LLM/audio provider under `VASDK_3P_IMPL/`, plus the core libra
 | [paullouisageneau/libdatachannel](https://github.com/paullouisageneau/libdatachannel) | WebRTC provider (`VASDK_BUILD_LIBDATACHANNEL_WEBRTC`) | GitHub | MPL 2.0 |
 | [paullouisageneau/libjuice](https://github.com/paullouisageneau/libjuice), [cisco/libsrtp](https://github.com/cisco/libsrtp), [sctplab/usrsctp](https://github.com/sctplab/usrsctp), [SergiusTheBest/plog](https://github.com/SergiusTheBest/plog) | WebRTC provider (ICE, SRTP, SCTP, logging - libdatachannel submodules) | GitHub | MPL 2.0 (libjuice), BSD 3-Clause (libsrtp, usrsctp), MIT (plog) |
 | [xiph/opus](https://github.com/xiph/opus) | WebRTC provider (Opus codec) | GitHub | BSD 3-Clause |
-| OpenSSL | WebRTC provider (DTLS; Mbed TLS or GnuTLS via `USE_MBEDTLS`/`USE_GNUTLS` instead), libcurl built from source on Linux/macOS | System-installed (`find_package`), [openssl.org](https://www.openssl.org) | Apache 2.0 (3.x) |
+| OpenSSL | WebRTC provider (DTLS; Mbed TLS or GnuTLS via `USE_MBEDTLS`/`USE_GNUTLS` instead), libcurl built from source on Linux/macOS, cpp-httplib's HTTPS (the remote control's `tls`) on desktop. On Windows its DLLs ship beside `vasdk_c.dll` | System-installed (`find_package`), [openssl.org](https://www.openssl.org) | Apache 2.0 (3.x) |
 | [Mbed-TLS/mbedtls](https://github.com/Mbed-TLS/mbedtls) | TLS for libcurl and libwebsockets in the Android build | GitHub | Apache 2.0 OR GPL-2.0-or-later, your choice |
 | [gabime/spdlog](https://github.com/gabime/spdlog) | Logging (core library) | GitHub | MIT |
 | [nlohmann/json](https://github.com/nlohmann/json) | JSON (core library) | GitHub | MIT |

@@ -1,7 +1,7 @@
 #pragma once
 
 #include <google/protobuf/descriptor.pb.h>
-#include "vasdk_export.h"
+#include <VASDK/vasdk_export.h>
 #include "Entities.h"
 #include "Expression.h"
 #include "FlowRegistry.h"

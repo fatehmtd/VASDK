@@ -19,16 +19,14 @@
 #   FFmpeg_LIBRARIES     – link libraries / flags
 #
 # Search order:
-#   1. pkg-config  (Linux, macOS, and Windows vcpkg with CMAKE_PREFIX_PATH)
+#   1. pkg-config  (Linux, macOS, and Windows with CMAKE_PREFIX_PATH)
 #   2. FFMPEG_DIR  CMake variable or environment variable (manual install)
 #   3. Common default paths
 #
 # Quick-start:
 #   Linux:   sudo apt install libavformat-dev libavcodec-dev libavutil-dev libswresample-dev
 #   macOS:   brew install ffmpeg
-#   Windows: vcpkg install ffmpeg:x64-windows
-#            – or –
-#            Download a shared build from https://github.com/GyanD/codexffmpeg/releases
+#   Windows: download a shared build from https://github.com/GyanD/codexffmpeg/releases
 #            and set: cmake -DFFMPEG_DIR=C:/path/to/ffmpeg ..
 # 
 
@@ -133,7 +131,7 @@ endif()
 include(FindPackageHandleStandardArgs)
 find_package_handle_standard_args(FFmpeg
     REQUIRED_VARS FFmpeg_INCLUDE_DIRS FFmpeg_LIBRARIES
-    FAIL_MESSAGE "FFmpeg not found. Install it and re-run CMake:\n  Linux:   sudo apt install libavformat-dev libavcodec-dev libavutil-dev libswresample-dev\n  macOS:   brew install ffmpeg\n  Windows: vcpkg install ffmpeg:x64-windows  OR  set FFMPEG_DIR env var / -DFFMPEG_DIR=<path>"
+    FAIL_MESSAGE "FFmpeg not found. Install it and re-run CMake:\n  Linux:   sudo apt install libavformat-dev libavcodec-dev libavutil-dev libswresample-dev\n  macOS:   brew install ffmpeg\n  Windows: download a shared build (https://github.com/GyanD/codexffmpeg/releases) and set the FFMPEG_DIR env var / -DFFMPEG_DIR=<path>"
 )
 
 #  4. Create imported interface target 

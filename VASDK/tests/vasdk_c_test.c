@@ -254,6 +254,22 @@ int main(void) {
         vasdk_registry_free(languages);
     }
 
+    /* Transcript scores: counts by kind, normalized texts, NULL as empty */
+    {
+        char* score = vasdk_score_transcript("The cat, sat on the mat.", "the cat sit on mat");
+        check(score != NULL && strstr(score, "\"substitutions\":1") != NULL && strstr(score, "\"deletions\":1") != NULL &&
+                  strstr(score, "\"reference_length\":6") != NULL,
+              "word edits by kind");
+        check(score != NULL && strstr(score, "\"reference\":\"the cat sat on the mat\"") != NULL, "the reference as scored");
+        vasdk_free(score);
+        char* nothing = vasdk_score_transcript(NULL, NULL);
+        check(nothing != NULL && strstr(nothing, "\"error_rate\":0.0") != NULL, "nothing heard as nothing");
+        vasdk_free(nothing);
+        char* normalized = vasdk_normalize_transcript("Don't STOP, now!");
+        check(normalized != NULL && strcmp(normalized, "don't stop now") == 0, "normalized text");
+        vasdk_free(normalized);
+    }
+
     check(strlen(vasdk_version()) > 0, "a version");
     vasdk_conversation_free(conversation);
     vasdk_agent_free(agent);

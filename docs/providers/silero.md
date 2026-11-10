@@ -85,5 +85,6 @@ flowchart LR
 | Test | Kind | Needs | Run |
 | --- | --- | --- | --- |
 | `vasdk_offline_conversation` | integration | the default models | `ctest --test-dir build -R vasdk_offline_conversation` |
+| `vasdk_eval_vad_silero` | evaluation: speech against labelled segments in silence, noise and babble, noise alone ([Evaluation](../evaluation.md)): F1 91.7%, 0.8% false alarms | the evaluation set (skipped without) | `ctest --test-dir build -L eval` |
 
 A test that needs a model or a key reports "skipped" without it.

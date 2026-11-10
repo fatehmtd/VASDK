@@ -188,6 +188,8 @@ extern "C" {
 void vasdk_free(void* text) { std::free(text); }
 const char* vasdk_version(void) { return VASDK_C_VERSION; }
 
+int vasdk_c_api_version(void) { return VASDK_C_API_VERSION; }
+
 int vasdk_set_log_level(const char* level) {
     if (!level) return 0;
     const auto parsed = spdlog::level::from_str(level);

@@ -111,3 +111,6 @@ bindings/kotlin/.kotlin/
 bindings/python/*.egg-info/
 dist/
 __pycache__/
+# Conan: test_package/ build output, and the presets file "conan install ." writes
+test_package/build/
+CMakeUserPresets.json

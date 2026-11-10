@@ -21,7 +21,7 @@ flowchart LR
 
 | File | What |
 | --- | --- |
-| [`check_parity.py`](check_parity.py) | The check: audited C++ against [`parity.md`](parity.md), and the C API against what each binding declares. `--bindings c,python` leaves Kotlin out; `--self-test` runs it on `tests/fixture` |
+| [`check_parity.py`](check_parity.py) | The check: audited C++ against [`parity.md`](parity.md), and the C API against what each binding declares. `--bindings c,python` leaves Kotlin out; `--self-test` runs it on `skills/vasdk-binding-parity/tests/fixture` |
 | [`parity.md`](parity.md) | The manifest: the audited classes, one row per capability, and the C functions the bindings leave out on purpose |
 
 ## Steps

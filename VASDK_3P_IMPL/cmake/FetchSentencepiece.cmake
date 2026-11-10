@@ -13,6 +13,7 @@ if(NOT TARGET sentencepiece-static)
         GIT_REPOSITORY https://github.com/google/sentencepiece.git
         GIT_TAG        v0.2.0
         GIT_SHALLOW    ON
+        ${VASDK_FETCH_EXCLUDE}   # its own install rules stay out of VASDK's
     )
     FetchContent_MakeAvailable(sentencepiece)
     # It bundles an old protobuf-lite (its model files are protobuf messages). Compiled under its

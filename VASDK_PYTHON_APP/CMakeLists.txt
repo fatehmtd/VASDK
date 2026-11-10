@@ -1,20 +1,19 @@
 # The kitchen assistant is Python: nothing to build. Its tests run in ctest when there's a Python 3
-# and VASDK is a shared library (what the binding loads):
+# and the C library (vasdk_c, what the binding loads):
 #   vasdk_python_kitchen   the kitchen's code, and every conversation in tests/*.txtpb
 #   vasdk_python_session   a spoken session from Python, with the speech models (skipped without them)
 find_package(Python3 COMPONENTS Interpreter QUIET)
-get_target_property(_kitchen_vasdk_type VASDK TYPE)
-if(NOT Python3_Interpreter_FOUND OR NOT _kitchen_vasdk_type STREQUAL "SHARED_LIBRARY")
+if(NOT Python3_Interpreter_FOUND OR NOT TARGET vasdk_c)
     return()
 endif()
 
 add_test(NAME vasdk_python_kitchen COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_kitchen.py)
-set_tests_properties(vasdk_python_kitchen PROPERTIES ENVIRONMENT "VASDK_LIBRARY=$<TARGET_FILE:VASDK>")
+set_tests_properties(vasdk_python_kitchen PROPERTIES ENVIRONMENT "${VASDK_PYTHON_TEST_ENVIRONMENT}")
 
-if(TARGET vasdk_providers)
+if(TARGET vasdk_provider_catalog)
     add_test(NAME vasdk_python_session
-             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_session.py ${CMAKE_BINARY_DIR}/VASDK_3P_IMPL/models)
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_session.py ${VASDK_ROOT_BINARY_DIR}/VASDK_3P_IMPL/models)
     set_tests_properties(vasdk_python_session PROPERTIES
-        ENVIRONMENT "VASDK_LIBRARY=$<TARGET_FILE:VASDK>;VASDK_PROVIDERS_LIBRARY=$<TARGET_FILE:vasdk_providers>"
+        ENVIRONMENT "${VASDK_PYTHON_TEST_ENVIRONMENT}"
         SKIP_RETURN_CODE 77 TIMEOUT 300)
 endif()

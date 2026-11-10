@@ -18,6 +18,8 @@ Which one to start from:
 - **A phone app:** Android.
 - **Python:** VASDK_PYTHON_APP.
 
+The three C++ apps are optional parts of the build, off by default, so a plain build is the SDK alone. Turn them on with `-DVASDK_BUILD_APPS=ON` (or `cmake --preset apps`), or one at a time with `VASDK_BUILD_APP`, `VASDK_BUILD_CALLCENTER` and `VASDK_BUILD_CAR`. A plain `cmake --install` leaves them out; `cmake --install build --component apps` installs them.
+
 The same agent features run in all five. VASDK_PYTHON_APP reaches them through the [C API](../reference/c-api.md)'s [Python binding](../../bindings/python/README.md), which any other language can do the same way.
 
 ## What each app uses

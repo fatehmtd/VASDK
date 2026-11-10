@@ -92,15 +92,19 @@ int main() {
 
     // Outbound: 500 samples -> a 320-sample chunk, then 180 real + 140 silence, then pure silence.
     { std::lock_guard<std::mutex> l(peer->m); peer->chunks.clear(); }
+    const auto sent = std::chrono::steady_clock::now();
     t.sendFrame(synth(500, 1000));
     std::this_thread::sleep_for(130ms);
     {
         std::lock_guard<std::mutex> l(peer->m);
+        // One chunk per 20 ms of the time that really passed (a loaded machine sleeps longer than asked),
+        // plus two of slack: a burst would send them all at once
+        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - sent);
         auto& ch = peer->chunks;
         bool sized = !ch.empty();
         for (auto& c : ch) sized &= c.size() == 320;
         check(sized, "paced sender emits 320-sample (20 ms) chunks");
-        check(ch.size() <= 8, "sender is paced, not bursting");
+        check(ch.size() <= static_cast<size_t>(elapsed.count() / 20 + 2), "sender is paced, not bursting");
         // A silence tick may land between clear() and sendFrame(); find where speech starts.
         size_t k = 0;
         while (k < ch.size() && ch[k][0] != 1000) ++k;

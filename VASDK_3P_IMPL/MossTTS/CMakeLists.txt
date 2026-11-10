@@ -66,7 +66,7 @@ endif()
 
 #  Install
 
-install(TARGETS vasdk_moss_tts
+install(TARGETS vasdk_moss_tts COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -74,8 +74,10 @@ install(TARGETS vasdk_moss_tts
 
 install(FILES MossVoiceSynthesisProvider.hpp
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/MossTTS
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )
 
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/vasdk_moss_tts_export.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/MossTTS
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )

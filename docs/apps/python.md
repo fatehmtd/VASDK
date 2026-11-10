@@ -23,7 +23,7 @@ It shows what an app gets from VASDK when it's written in Python:
 
 ## Running it
 
-VASDK must be built as a shared library (the default on Windows; elsewhere `-DBUILD_SHARED_LIBS=ON`), which also builds `vasdk_providers`, the speech providers for Python, and VASDK's messages for Python. CMake downloads the speech models into `build/VASDK_3P_IMPL/models`.
+The binding loads the C library, `vasdk_c`, which every build makes: the C API and the speech providers in one library. The build also generates VASDK's messages for Python. CMake downloads the speech models into `build/VASDK_3P_IMPL/models`.
 
 The Python packages are listed twice, once for each tool: [`pyproject.toml`](../../VASDK_PYTHON_APP/pyproject.toml) and its `uv.lock` for uv, [`requirements.txt`](../../VASDK_PYTHON_APP/requirements.txt) for pip. Both install the binding from `bindings/python` (editable, so it finds the build tree), which brings `protobuf`; voice mode adds `sounddevice`. The other modes run without it.
 
@@ -166,8 +166,8 @@ cmake -B build -S . -DVASDK_BUILD_PYTHON_BINDING=ON -DPython3_EXECUTABLE=$PWD/VA
 ```
 
 ```bash
-ctest -R vasdk_python                                      # with VASDK built as a shared library
-VASDK_LIBRARY=build/VASDK/Release/VASDK.dll python VASDK_PYTHON_APP/tests/test_kitchen.py
+ctest -R vasdk_python
+VASDK_LIBRARY=build/cmake/c_library/Release/vasdk_c.dll python VASDK_PYTHON_APP/tests/test_kitchen.py
 ```
 
 - **[`test_kitchen.py`](../../VASDK_PYTHON_APP/tests/test_kitchen.py)** (`vasdk_python_kitchen`) tests the kitchen's code (durations, conversions, entities, timers that ring), then plays every `tests/*.txtpb` conversation against the agent with its Python tools. A turn an LLM would answer is checked as handed to it (`to_llm`, `llm_profile`). No models, no LLM.
@@ -178,7 +178,7 @@ VASDK_LIBRARY=build/VASDK/Release/VASDK.dll python VASDK_PYTHON_APP/tests/test_k
 - **Recipes:** [`data/recipes.json`](../../VASDK_PYTHON_APP/data/recipes.json). A step with `timer_minutes` offers a timer. The `@recipe` entity knows names and `aliases`.
 - **A new feature:** a part in `agent/` (intents, an envelope, flows), its tool in `Kitchen.register`, and, for the LLM, a `session.tool` in `register_llm_tools`.
 - **Another device:** anything that gives and takes 16-bit mono PCM can replace `kitchen/audio.py`: a Raspberry Pi's sound card, a phone line, a WebSocket.
-- **Another voice or recognizer:** [`config/engine.txtpb`](../../VASDK_PYTHON_APP/config/engine.txtpb) names them; every provider in `vasdk_providers` can be used ([Engine config files](../reference/engine-config.md)).
+- **Another voice or recognizer:** [`config/engine.txtpb`](../../VASDK_PYTHON_APP/config/engine.txtpb) names them; every provider built into the C library can be used ([Engine config files](../reference/engine-config.md)).
 
 ## Known limits
 

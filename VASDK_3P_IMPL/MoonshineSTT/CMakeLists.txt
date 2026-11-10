@@ -57,19 +57,21 @@ target_link_libraries(vasdk_moonshine_stt
 )
 
 if(VASDK_BUILD_TESTS)
-    # End-to-end streaming smoke test. No speech fixture ships with the repo: point
-    # MOONSHINE_TEST_WAV at a 16 kHz mono int16 English WAV (and optionally set the words it
-    # must contain); otherwise the test reports "skipped".
-    set(MOONSHINE_TEST_WAV "" CACHE FILEPATH "16 kHz mono int16 English speech WAV for moonshine_stt_stream")
-    set(MOONSHINE_TEST_EXPECTED "" CACHE STRING "Words the Moonshine transcript must contain")
+    # End-to-end streaming smoke test on a LibriSpeech clip of the evaluation set
+    # (VASDK_DOWNLOAD_EVAL_DATA, docs/evaluation.md), or on MOONSHINE_TEST_WAV, a 16 kHz mono int16
+    # English WAV of your own; "skipped" when the WAV isn't there.
+    set(MOONSHINE_TEST_WAV "${CMAKE_CURRENT_BINARY_DIR}/../eval/vasdk_eval_v1/clips/ls_4992-23283-0000.wav" CACHE FILEPATH
+        "16 kHz mono int16 English speech WAV for moonshine_stt_stream")
+    set(MOONSHINE_TEST_EXPECTED "forgetfulness" CACHE STRING "Words the Moonshine transcript must contain (one phrase, as it is heard)")
     add_executable(moonshine_stt_stream_test tests/stream_test.cpp)
     target_link_libraries(moonshine_stt_stream_test PRIVATE vasdk_moonshine_stt)
+    vasdk_test_dlls(moonshine_stt_stream_test)   # ONNX Runtime beside it on Windows, not System32's older one
     add_test(NAME moonshine_stt_stream
              COMMAND moonshine_stt_stream_test ${MOONSHINE_MODEL_DIR} "${MOONSHINE_TEST_WAV}" "${MOONSHINE_TEST_EXPECTED}")
     set_tests_properties(moonshine_stt_stream PROPERTIES SKIP_RETURN_CODE 77)
 endif()
 
-install(TARGETS vasdk_moonshine_stt
+install(TARGETS vasdk_moonshine_stt COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -77,8 +79,10 @@ install(TARGETS vasdk_moonshine_stt
 
 install(FILES MoonshineSttProvider.hpp
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/MoonshineSTT
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )
 
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/vasdk_moonshine_stt_export.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/MoonshineSTT
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )

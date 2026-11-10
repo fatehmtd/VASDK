@@ -48,7 +48,7 @@ In an engine config, its own `PhononOptions` message ([options.proto](../../VASD
 
 | Files | Source | License | Fetched by |
 | --- | --- | --- | --- |
-| config.json, tokenizer.model, model.q8.gguf, voices | [gradium/phonon-40m-multilingual](https://huggingface.co/gradium/phonon-40m-multilingual) (gated), or [gradium/phonon-31m-en](https://huggingface.co/gradium/phonon-31m-en) | CC BY-NC 4.0 (40m multilingual) · see the model page (31m-en) | `VASDK_3P_IMPL/cmake/DownloadPhononTTSModel.cmake` (`HF_TOKEN`, `-DPHONON_TTS_HF_REPO`) |
+| config.json, tokenizer.model, model.q8.gguf, voices | [gradium/phonon-40m-multilingual](https://huggingface.co/gradium/phonon-40m-multilingual) (gated), or [gradium/phonon-31m-en](https://huggingface.co/gradium/phonon-31m-en) | CC BY-NC 4.0 (40m multilingual) · see the model page (31m-en) | `VASDK_3P_IMPL/cmake/DownloadPhononTTSModel.cmake` (`HF_TOKEN`, `-DPHONON_TTS_MODEL=phonon_tts|phonon_tts_en`) |
 
 Inference: in-repo port of [gradium-ai/xn-ptts](https://github.com/gradium-ai/xn-ptts) on [ggml-org/ggml](https://github.com/ggml-org/ggml) (MIT).
 
@@ -99,5 +99,6 @@ flowchart LR
 | `phonon_chunk_unit` | unit | nothing | `ctest --test-dir build -R phonon_chunk_unit` |
 | `phonon_chunk_parity` | unit | the tokenizer | `ctest --test-dir build -R phonon_chunk_parity` |
 | `vasdk_offline_conversation` | integration | the default models | `ctest --test-dir build -R vasdk_offline_conversation` |
+| `vasdk_eval_tts_phonon` | evaluation: FLEURS sentences synthesized, then recognized by a local STT ([Evaluation](../evaluation.md)): 2.5% of the words misheard | the evaluation set, an STT (skipped without) | `ctest --test-dir build -L eval` |
 
 A test that needs a model or a key reports "skipped" without it.

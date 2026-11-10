@@ -98,5 +98,6 @@ flowchart LR
 | --- | --- | --- | --- |
 | `moss_normalize` | unit | nothing | `ctest --test-dir build -R moss_normalize` |
 | `moss_tts_synth` | unit | the models | `ctest --test-dir build -R moss_tts_synth` |
+| `vasdk_eval_tts_moss` | evaluation: FLEURS sentences synthesized, then recognized by a local STT ([Evaluation](../evaluation.md)): 0.5% of the words misheard (Parakeet) | the evaluation set, an STT (skipped without) | `ctest --test-dir build -L eval` |
 
 A test that needs a model or a key reports "skipped" without it.

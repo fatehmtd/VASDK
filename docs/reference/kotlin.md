@@ -7,10 +7,10 @@ The Kotlin binding gives a JVM app (macOS, Linux, Windows) or an Android app wha
 ```mermaid
 flowchart LR
     App["Kotlin app"] --> Binding["com.vasdk<br/>Session, Agent, Providers"]
-    Binding -- "JNA" --> CApi["libVASDK<br/>C API (vasdk.h)"]
+    Binding -- "JNA" --> CApi["vasdk_c, the C library<br/>C API (vasdk.h)"]
     CApi --> Core["C++ core<br/>Session, FlowRuntime"]
     Core -- "callbacks: events, audio,<br/>tools, providers, processors" --> Binding
-    Core --> Catalog["built-in providers<br/>(vasdk_providers)"]
+    Core --> Catalog["built-in providers<br/>(in vasdk_c)"]
 ```
 
 ## Building
@@ -19,11 +19,11 @@ It's optional: `-DVASDK_BUILD_KOTLIN_BINDING=ON` (off by default) registers `vas
 
 ```bash
 cd bindings/kotlin
-VASDK_LIBRARY=$PWD/../../build/VASDK/libVASDK.dylib gradle test     # .so on Linux, VASDK.dll on Windows
+VASDK_LIBRARY=$PWD/../../build/cmake/c_library/libvasdk_c.dylib gradle test   # .so on Linux, vasdk_c.dll on Windows
 gradle jar                                                          # build/libs/vasdk-1.0.0.jar
 ```
 
-On Android it's the `:vasdk` AAR ([Android](../apps/android.md#the-kotlin-binding-as-an-aar)). The library is found through `VASDK_LIBRARY` (a path), the `vasdk.library` system property, or `VASDK` on the library path (Android: `libVASDK.so` in the AAR). The built-in providers come from `VASDK_PROVIDERS_LIBRARY`, the build tree beside VASDK, `vasdk_providers` on the library path, or VASDK itself.
+On Android it's the `:vasdk` AAR ([Android](../apps/android.md#the-kotlin-binding-as-an-aar)). The library is found through `VASDK_LIBRARY` (a path), the `vasdk.library` system property, or `vasdk_c` on the library path, then `VASDK` (Android: `libVASDK.so` in the AAR). The built-in providers come from the C library itself; with a shared VASDK instead, from `VASDK_PROVIDERS_LIBRARY`, the build tree beside VASDK, `vasdk_providers` on the library path, or VASDK itself.
 
 ## Agents and conversations
 
@@ -48,14 +48,14 @@ val (passed, report) = Vasdk.runTestFile(agent, "VASDK_APP/agents/garage-menu/te
 | `Turn` | `text`, `lookup`, `say`, `ask`, `goTo`, `setText`, `render`, `replyText`, `flow`, `page`, `apply(StepOutcome)`. |
 | `Agent` | `load(path)`, `parse(text)`, `protoFiles()`, `conversation()`. |
 | `Conversation` | `start`, `say`, `noInput`, `selectChoice`, `fireTrigger`, `checkTriggers`, `deliverQueued`, `send(ConversationInput)`, `setParam`, `lookup`, `snapshot` / `resume`, `setEntityValues`, `setContext`, `replyInterrupted`, `noInputMs`, `nextScheduledTrigger`, `triggerState` / `restoreTriggerState`, `speakers` (the enrolled voice prints, to give back with `addSpeaker`). |
-| `Vasdk` | `version`, `setLogLevel`, `builtinLanguage`, `runTestFile`, `runTest(FlowTestCase)`. |
+| `Vasdk` | `version`, `apiVersion` (the library's `VASDK_C_API_VERSION`), `setLogLevel`, `builtinLanguage`, `runTestFile`, `runTest(FlowTestCase)`. |
 
 Values cross as [kotlinx.serialization](https://github.com/Kotlin/kotlinx.serialization) JSON: tool arguments and results, `lookup`'s values, the context. `jsonOf(value)` turns Kotlin values (maps, lists, strings, numbers) into it.
 
 ## Spoken sessions
 
 ```kotlin
-val providers = Providers()                     // every provider built into vasdk_providers
+val providers = Providers()                     // every provider built into the C library
 val options = vasdk.engine.Session.SessionOptions.newBuilder().setId("kitchen")
     .setSystemPrompt("You're a kitchen assistant. The kitchen: {context}").build()
 Session("engine.txtpb", providers, agent, options).use { session ->
@@ -82,6 +82,18 @@ The config is a file's path, or an `EngineConfig` built in code (`Session(config
 
 With `providers { audio_input { id: "miniaudio" } audio_output { id: "miniaudio" } }` (`aaudio` on Android) the session opens the microphone and speaker itself, and `pushAudio` / `onAudio` go unused. With `providers { llm { id: "llamacpp" } }` it runs a local LLM.
 
+## Models
+
+`Models` is the model store ([Models](../models.md)): it downloads the files local providers load, checks their SHA-256, and keeps them where a session with no models directory looks. On Android give it a directory (`filesDir`), and call `pull` off the main thread.
+
+| Call | What |
+| --- | --- |
+| `Models(directory, manifestPath, token, offline)` | A store; every argument optional |
+| `list()` | `Models.Model`s: `id`, `license`, `size`, `status` (`present`, `partial`, `missing`), `requiresAcceptance`... |
+| `forConfig(path)` | The ids an engine config's providers load |
+| `pull(id, acceptLicense, progress)` | Downloads what is missing, resuming; `progress` returning false stops it |
+| `verify`, `remove`, `status`, `Models.defaultDirectory()` | |
+
 ## Providers written in Kotlin
 
 ```kotlin
@@ -102,4 +114,4 @@ Each session makes its own instance from the factory, with its `Sink` (transcrip
 
 ## Tests
 
-`vasdk_kotlin` ([`bindings/kotlin/src/test/kotlin/com/vasdk/`](../../bindings/kotlin/src/test/kotlin/com/vasdk/)): the garage agent's whole suite through its step, tool and envelope written in Kotlin; a spoken session on providers and processors written in Kotlin, with no models; a runtime with a Kotlin sentence encoder and entity model; a text conversation's controls, a page type's turn, an entity extractor, a language and a test case from memory. On Android the same tests run with `:vasdk:connectedAndroidTest`.
+`vasdk_kotlin` ([`bindings/kotlin/src/test/kotlin/com/vasdk/`](../../bindings/kotlin/src/test/kotlin/com/vasdk/)): the garage agent's whole suite through its step, tool and envelope written in Kotlin; a spoken session on providers and processors written in Kotlin, with no models; a runtime with a Kotlin sentence encoder and entity model; a text conversation's controls, a page type's turn, an entity extractor, a language and a test case from memory; the model store against a manifest of its own (`ModelsTest`). On Android the same tests run with `:vasdk:connectedAndroidTest`.

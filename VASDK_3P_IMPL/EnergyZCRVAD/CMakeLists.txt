@@ -19,7 +19,7 @@ target_link_libraries(vasdk_energy_zcr_vad
     PUBLIC VASDK
 )
 
-install(TARGETS vasdk_energy_zcr_vad
+install(TARGETS vasdk_energy_zcr_vad COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -27,10 +27,12 @@ install(TARGETS vasdk_energy_zcr_vad
 
 install(FILES EnergyZCRVAD.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/EnergyZCRVAD
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )
 
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/vasdk_energy_zcr_vad_export.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/EnergyZCRVAD
+    COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL
 )
 
 if(VASDK_BUILD_TESTS)

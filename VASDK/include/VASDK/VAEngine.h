@@ -1,6 +1,6 @@
 #pragma once
 
-#include "vasdk_export.h"
+#include <VASDK/vasdk_export.h>
 #include "CommonAudioUtils.h"
 #include "engine/Session.h"
 
@@ -33,7 +33,7 @@ namespace engine { class ProviderRegistry; }
 class VASDK_EXPORT VAEngine : public engine::Session {
 public:
     struct Options : engine::Session::Options {
-        /** Used when the config's models_dir is empty. */
+        /** Used when the config's models_dir is empty; both empty: ModelStore::defaultDirectory(). */
         std::string modelsDir;
         audio::AudioConfig inputAudio{16000, audio::AudioFormat::SHORT, 1};
         audio::AudioConfig outputAudio{16000, audio::AudioFormat::SHORT, 1};
