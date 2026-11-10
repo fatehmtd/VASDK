@@ -12,6 +12,11 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 include(FetchContent)
 
+# VASDK's CMake modules, as the root CMakeLists.txt has them: vasdk_dependency() for VASDK/ and VASDK_3P_IMPL/
+list(APPEND CMAKE_MODULE_PATH ${VASDK_ROOT_DIR}/cmake)
+include(GNUInstallDirs)
+include(VASDKDependencies)
+
 #  Disable desktop-only features before pulling in VASDK core 
 set(VASDK_BUILD_THIRDPARTY_IMPL ON CACHE BOOL "" FORCE)
 set(VASDK_BUILD_APP             OFF CACHE BOOL "" FORCE)
@@ -58,6 +63,9 @@ set(HWY_ENABLE_TESTS    OFF CACHE BOOL "" FORCE)
 set(HWY_ENABLE_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(HWY_ENABLE_CONTRIB  OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(highway)
+if(NOT TARGET hwy::hwy AND TARGET hwy)
+    add_library(hwy::hwy ALIAS hwy)   # the name VASDK/ and VizAnim link, as the root CMakeLists.txt gives it
+endif()
 
 FetchContent_Declare(
     spdlog
