@@ -21,7 +21,7 @@ A provider is the swappable engine behind one pipeline stage. It implements one 
 | `vad` | [vasdk-vad](../vasdk-vad/SKILL.md) | SileroVAD, EnergyZCRVAD |
 | `stt` | [vasdk-stt](../vasdk-stt/SKILL.md) | Cartesia, Deepgram, Fish Audio, Gladia, Gradium, Soniox, Whistle, Moonshine, Parakeet, whisper.cpp, Voz |
 | `tts` | [vasdk-tts](../vasdk-tts/SKILL.md) | Cartesia, Deepgram, Fish Audio, Gradium, Soniox, Supertonic, Pocket, Phonon, MOSS |
-| `turn` | [vasdk-turn-detection](../vasdk-turn-detection/SKILL.md) | SmartTurnV3 |
+| `turn` | [vasdk-turn-detection](../vasdk-turn-detection/SKILL.md) | Turn1Mini, SmartTurnV3 |
 | `wakeword` | [vasdk-wake-word](../vasdk-wake-word/SKILL.md) | none yet |
 | `llm` | [vasdk-llm](../vasdk-llm/SKILL.md) | LlamaCpp |
 | `nlu` | [vasdk-nlu](../vasdk-nlu/SKILL.md) | MiniLmNlu, GlinerNer |

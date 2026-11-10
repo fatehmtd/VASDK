@@ -112,6 +112,7 @@ The full tier on Windows x64, every local provider built (`-DVASDK_BUILD_PARAKEE
 | STT | whistle | WER 7.4% English, 20.6% French one-shot; 7.2% and 22.5% streaming |
 | TTS | moss, phonon, pocket, supertonic | Parakeet mishears 0.5% (MOSS) and 1.2% (the others) of the words; no silent, clipped or badly paced clip. First audio after 0.11 s (Phonon), 0.21 s (MOSS), 0.27 s (Pocket), 1.26 s (Supertonic, which synthesizes a sentence whole) |
 | VAD | silero | F1 91.7% (precision 94.0%, recall 89.5%), 0.8% of noise taken for speech, onset 40 ms late |
+| Turn | turn-1-mini | 85% of finished sentences end the turn at the pause, a median 0.10 s after the speech; 10% of sentences stopped mid-phrase end it before the VAD would, 5% within half a second ([its page](providers/turn-1-mini.md#evaluation): accuracy 87.5% against SmartTurn's 62.5%) |
 | Turn | smartturn-v3 | Every finished sentence ends the turn, a median 80 ms after the speech; 75% of sentences stopped mid-phrase end it too before the VAD would, 30% within half a second |
 | Speaker | pyannote | EER 0% on 10 LibriSpeech speakers; at the processor's threshold of 0.3, 97.6% of different-speaker pairs are told apart |
 | Denoise | rnnoise | 24 dB off noise alone, but recognition does worse on what it leaves: Parakeet's WER 10.1% → 32.3% at 10 dB SNR, 26.7% → 48.1% at 5 dB, 3.0% → 4.1% on clean speech (Whistle's likewise) |

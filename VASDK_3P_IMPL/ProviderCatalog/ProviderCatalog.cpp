@@ -87,6 +87,9 @@
 #ifdef VASDK_HAS_SMART_TURN_V3
 #include "SmartTurnV3/SmartTurnV3Provider.h"
 #endif
+#ifdef VASDK_HAS_TURN1MINI
+#include "Turn1Mini/Turn1MiniProvider.h"
+#endif
 #ifdef VASDK_HAS_POCKET_TTS
 #include "PocketTTS/PocketVoiceSynthesisProvider.hpp"
 #endif
@@ -525,6 +528,27 @@ void registerTts([[maybe_unused]] engine::ProviderRegistry& registry) {
 }
 
 void registerTurn([[maybe_unused]] engine::ProviderRegistry& registry) {
+    // Registration order is the preference: turn-1-mini first (docs/providers/turn-1-mini.md, "Evaluation");
+    // it is English only, so other languages name smartturn-v3
+#ifdef VASDK_HAS_TURN1MINI
+    registry.add<va::audio::TurnDetectionProvider, providers::Turn1MiniOptions>("turn-1-mini",
+        [](const providers::Turn1MiniOptions& options, const ProviderContext& context)
+            -> std::shared_ptr<va::audio::TurnDetectionProvider> {
+            turn::Turn1MiniOptions turn1Mini;
+            turn1Mini.modelPath = options.model_path().empty() ? context.modelsDir + "/turn_1_mini.onnx" : options.model_path();
+            if (options.has_threshold()) turn1Mini.threshold = options.threshold();
+            else if (const char* threshold = std::getenv("VASDK_TURN1MINI_THRESHOLD")) turn1Mini.threshold = std::strtof(threshold, nullptr);
+            if (options.has_pause_threshold()) turn1Mini.pauseThreshold = options.pause_threshold();
+            else if (const char* pause = std::getenv("VASDK_TURN1MINI_PAUSE_THRESHOLD")) turn1Mini.pauseThreshold = std::strtof(pause, nullptr);
+            turn1Mini.threshold = std::clamp(turn1Mini.threshold, 0.0f, 1.0f);
+            turn1Mini.pauseThreshold = std::clamp(turn1Mini.pauseThreshold, 0.0f, 1.0f);
+            if (options.has_post_audio_frames()) turn1Mini.postAudioFrames = std::max(0, options.post_audio_frames());
+            if (options.has_evaluate_on_pause()) turn1Mini.evaluateOnPause = options.evaluate_on_pause();
+            auto provider = std::make_shared<turn::Turn1MiniProvider>(turn1Mini);
+            if (!provider->initialize(context.audio, context.ringBuffer)) return nullptr;
+            return provider;
+        });
+#endif
 #ifdef VASDK_HAS_SMART_TURN_V3
     registry.add<va::audio::TurnDetectionProvider, providers::SmartTurnOptions>("smartturn-v3",
         [](const providers::SmartTurnOptions& options, const ProviderContext& context)

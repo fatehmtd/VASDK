@@ -39,7 +39,7 @@ Inside quoted strings, `${NAME}` is replaced with the environment variable `NAME
 
 Each `ProviderSpec` has:
 
-- `id`: which provider to create. When empty, the first one built into the binary is used, in this order. VAD: `silero`. STT: `gradium`, `soniox`, `deepgram`, `cartesia`, `fishaudio`, `whistle`, `moonshine`, `parakeet`. TTS: `gradium`, `soniox`, `supertonic`, `deepgram`, `cartesia`, `fishaudio`, `moss`, `phonon`, `pocket`. Turn: `smartturn-v3`; with no turn model built in, the VAD's silence ends the turn. This order matches what VASDK_Pipeline picked before config files existed, so running without `--config` behaves as before.
+- `id`: which provider to create. When empty, the first one built into the binary is used, in this order. VAD: `silero`. STT: `gradium`, `soniox`, `deepgram`, `cartesia`, `fishaudio`, `whistle`, `moonshine`, `parakeet`. TTS: `gradium`, `soniox`, `supertonic`, `deepgram`, `cartesia`, `fishaudio`, `moss`, `phonon`, `pocket`. Turn: `turn-1-mini`, `smartturn-v3`; with no turn model built in, the VAD's silence ends the turn. This order matches what VASDK_Pipeline picked before config files existed, so running without `--config` behaves as before.
 - `options`: the provider's own options message, written with the `Any` syntax `[type.googleapis.com/<message>] { ... }`. Every field is optional. Unset fields fall back to the provider's environment variable (`SONIOX_API_KEY`, `PHONON_TTS_VOICE`, …), then to its default.
 
   | Message | Providers | Fields |
@@ -64,6 +64,7 @@ Each `ProviderSpec` has:
   | `vasdk.providers.MossOptions` | `moss` | `model_dir`, `voice`, `prebuffer_ms`, `threads`, `silence_duration_seconds`, `max_new_frames`, `max_chunk_tokens`, `text_normalization`, `pause_short_seconds`, `pause_long_seconds` |
   | `vasdk.providers.PhononOptions` | `phonon` | `model_dir`, `voice`, `language`, `prebuffer_ms`, `normalization_rules`, `temperature`, `duration_delta`, `stream_chunk_frames`, `max_tokens_per_chunk`, `silence_duration_seconds` |
   | `vasdk.providers.PocketOptions` | `pocket` | `model_dir`, `voice`, `steps`, `prebuffer_ms`, `temperature`, `silence_duration_seconds`, `decoder_batch_frames` |
+  | `vasdk.providers.Turn1MiniOptions` | `turn-1-mini` | `model_path`, `threshold`, `post_audio_frames`, `evaluate_on_pause`, `pause_threshold` |
   | `vasdk.providers.SmartTurnOptions` | `smartturn-v3` | `model_path`, `threshold`, `max_audio_duration_seconds`, `post_audio_frames`, `evaluate_on_pause`, `pause_threshold` |
   | `vasdk.providers.MiniLmOptions` | `minilm` (`sentence_encoder`) | `model_dir`, `threads` |
   | `vasdk.providers.GlinerOptions` | `gliner` (`entity_model`) | `model_dir`, `threshold`, `threads` |

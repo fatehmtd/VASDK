@@ -31,6 +31,7 @@ import vasdk.providers.pocketOptions
 import vasdk.providers.pyannoteOptions
 import vasdk.providers.sileroOptions
 import vasdk.providers.smartTurnOptions
+import vasdk.providers.turn1MiniOptions
 import vasdk.providers.sonioxSttOptions
 import vasdk.providers.sonioxTtsOptions
 import vasdk.providers.whistleOptions
@@ -95,6 +96,12 @@ enum class TtsProvider(val id: String, val label: String) {
     MOSS("moss", "MOSS-TTS-Nano (on-device, ~710 MB)")
 }
 
+/** The end-of-turn model. Both are bundled in res/raw; only the one selected is extracted and loaded. */
+enum class TurnProvider(val id: String, val label: String, val rawModel: Int) {
+    TURN1MINI("turn-1-mini", "turn-1-mini (on-device, English)", R.raw.turn_1_mini),
+    SMARTTURN("smartturn-v3", "SmartTurn v3 (on-device, multilingual)", R.raw.smart_turn_v3)
+}
+
 /**
  * One parameter of a [ToolInfo], as declared by the native Tool schema.
  */
@@ -154,6 +161,8 @@ class VasdkEngine private constructor(
         private set
     var ttsProvider: TtsProvider = ProviderPreferences.getTtsProvider(contextWrapper)
         private set
+    var turnProvider: TurnProvider = ProviderPreferences.getTurnProvider(contextWrapper)
+        private set
 
     /**
      * Switches between local (on-device) and remote LLM mode and persists the choice.
@@ -190,6 +199,12 @@ class VasdkEngine private constructor(
     fun setTtsProvider(provider: TtsProvider) {
         ttsProvider = provider
         ProviderPreferences.setTtsProvider(contextWrapper, provider)
+    }
+
+    /** The end-of-turn model; persists the choice. Takes effect at the next init(), like the others. */
+    fun setTurnProvider(provider: TurnProvider) {
+        turnProvider = provider
+        ProviderPreferences.setTurnProvider(contextWrapper, provider)
     }
 
     interface Listener {
@@ -421,11 +436,13 @@ class VasdkEngine private constructor(
         synchronized(VasdkEngine::class.java) {
             if (isNativeInitialized) return true
 
+            // The VAD, and only the selected end-of-turn model
+            val turnModel = turnProvider.rawModel
             val modelMap = mutableMapOf(
                 R.raw.silero_vad to "",
-                R.raw.smart_turn_v3 to ""
+                turnModel to ""
             )
-            val modelFiles = arrayOf(R.raw.silero_vad, R.raw.smart_turn_v3)
+            val modelFiles = arrayOf(R.raw.silero_vad, turnModel)
 
             for (modelFile in modelFiles) {
                 val modelPath = extractEmbeddedModels(modelFile, contextWrapper.cacheDir)
@@ -473,7 +490,7 @@ class VasdkEngine private constructor(
             val engineConfig = engineConfig(
                 modelsDir = contextWrapper.cacheDir.absolutePath,
                 vadModelPath = modelMap[R.raw.silero_vad]!!,
-                turnModelPath = modelMap[R.raw.smart_turn_v3]!!,
+                turnModelPath = modelMap[turnModel]!!,
                 sttModelDir = sttModelDir.absolutePath,
                 ttsModelDir = ttsModelDir.absolutePath,
                 caBundlePath = caBundlePath,
@@ -540,7 +557,13 @@ class VasdkEngine private constructor(
             activation = activation { mode = Activation.Mode.ALWAYS_ON }
             providers = providers {
                 vad = providerSpec { id = "silero"; options = sileroOptions { modelPath = vadModelPath }.toAny() }
-                turn = providerSpec { id = "smartturn-v3"; options = smartTurnOptions { modelPath = turnModelPath }.toAny() }
+                turn = providerSpec {
+                    id = turnProvider.id
+                    options = when (turnProvider) {
+                        TurnProvider.TURN1MINI -> turn1MiniOptions { modelPath = turnModelPath }.toAny()
+                        TurnProvider.SMARTTURN -> smartTurnOptions { modelPath = turnModelPath }.toAny()
+                    }
+                }
                 stt = providerSpec {
                     id = sttProvider.id
                     sttOptions?.let { options = it }

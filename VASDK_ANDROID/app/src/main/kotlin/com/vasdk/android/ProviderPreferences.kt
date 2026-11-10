@@ -3,7 +3,7 @@ package com.vasdk.android
 import android.content.Context
 
 /**
- * Persists the user's STT/TTS provider and local-LLM-model choices from the Settings UI.
+ * Persists the user's STT/TTS/end-of-turn provider and local-LLM-model choices from the Settings UI.
  * Mirrors [LlmPreferences]'s plain-SharedPreferences pattern rather than sharing its file,
  * since these are a distinct set of knobs the Settings screen owns.
  */
@@ -12,6 +12,7 @@ object ProviderPreferences {
     private const val KEY_STT_PROVIDER = "stt_provider"
     private const val KEY_STT_STREAMING = "stt_streaming"
     private const val KEY_TTS_PROVIDER = "tts_provider"
+    private const val KEY_TURN_PROVIDER = "turn_provider"
     private const val KEY_LOCAL_LLM_MODEL = "local_llm_model_name"
     private const val KEY_SETUP_COMPLETED = "setup_completed"
 
@@ -47,6 +48,15 @@ object ProviderPreferences {
 
     fun setTtsProvider(context: Context, provider: TtsProvider) {
         prefs(context).edit().putString(KEY_TTS_PROVIDER, provider.id).apply()
+    }
+
+    fun getTurnProvider(context: Context): TurnProvider {
+        val id = prefs(context).getString(KEY_TURN_PROVIDER, TurnProvider.TURN1MINI.id)
+        return TurnProvider.entries.firstOrNull { it.id == id } ?: TurnProvider.TURN1MINI
+    }
+
+    fun setTurnProvider(context: Context, provider: TurnProvider) {
+        prefs(context).edit().putString(KEY_TURN_PROVIDER, provider.id).apply()
     }
 
     fun getLocalLlmModelName(context: Context): String? =

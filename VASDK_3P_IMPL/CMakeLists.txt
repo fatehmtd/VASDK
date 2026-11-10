@@ -37,6 +37,7 @@ option(VASDK_BUILD_ENERGY_ZCR_VAD "Build Energy/ZCR VAD provider" OFF)
 
 # Turn detection
 option(VASDK_BUILD_SMART_TURN_V3 "Build SmartTurn v3 provider" ON)
+option(VASDK_BUILD_TURN1MINI "Build turn-1-mini provider (p99lab streaming end-of-turn model)" ON)
 option(VASDK_BUILD_MINILM_NLU "Build the MiniLM sentence encoder (agents understand paraphrases)" ON)
 option(VASDK_BUILD_GLINER_NER "Build the GLiNER entity model (entity_model gliner; downloads 183 MB, 349 MB multilingual)" OFF)
 
@@ -89,7 +90,7 @@ endif()
 
 # Check if ONNX Runtime is needed by any enabled module
 set(VASDK_NEEDS_ONNXRUNTIME OFF)
-if(VASDK_BUILD_SILERO_VAD OR VASDK_BUILD_PARAKEET OR VASDK_BUILD_MOONSHINE_STT OR VASDK_BUILD_SUPERTONIC_TTS OR VASDK_BUILD_SMART_TURN_V3 OR VASDK_BUILD_POCKET_TTS OR VASDK_BUILD_MOSS_TTS OR VASDK_BUILD_PYANNOTE_SPEAKER OR VASDK_BUILD_MINILM_NLU OR VASDK_BUILD_GLINER_NER)
+if(VASDK_BUILD_SILERO_VAD OR VASDK_BUILD_PARAKEET OR VASDK_BUILD_MOONSHINE_STT OR VASDK_BUILD_SUPERTONIC_TTS OR VASDK_BUILD_SMART_TURN_V3 OR VASDK_BUILD_TURN1MINI OR VASDK_BUILD_POCKET_TTS OR VASDK_BUILD_MOSS_TTS OR VASDK_BUILD_PYANNOTE_SPEAKER OR VASDK_BUILD_MINILM_NLU OR VASDK_BUILD_GLINER_NER)
     set(VASDK_NEEDS_ONNXRUNTIME ON)
 endif()
 
@@ -105,7 +106,7 @@ set(_vasdk_fetch_models ON)
 if(DEFINED VASDK_DOWNLOAD_MODELS AND NOT VASDK_DOWNLOAD_MODELS)
     set(_vasdk_fetch_models OFF)
     foreach(_switch LLAMACPP_MODEL MOONSHINE_MODEL MOSS_TTS_MODELS PARAKEET_MODEL PHONON_TTS_MODEL
-                    POCKET_TTS_MODELS SUPERTONIC_MODELS WHISPERCPP_MODEL WHISTLE_STT_MODEL SMARTTURN_V3_MODEL)
+                    POCKET_TTS_MODELS SUPERTONIC_MODELS WHISPERCPP_MODEL WHISTLE_STT_MODEL SMARTTURN_V3_MODEL TURN1MINI_MODEL)
         set(VASDK_DOWNLOAD_${_switch} OFF)
     endforeach()
     message(STATUS "VASDK: VASDK_DOWNLOAD_MODELS is off: no model is downloaded at configure time")
@@ -201,6 +202,11 @@ endif()
 if(VASDK_BUILD_SMART_TURN_V3 AND NOT ANDROID AND _vasdk_fetch_models)
     set(VASDK_DOWNLOAD_SMARTTURN_V3_MODEL ON CACHE BOOL "Download SmartTurn V3 ONNX model file")
     include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/DownloadSmartTurnModel.cmake)
+endif()
+
+if(VASDK_BUILD_TURN1MINI AND NOT ANDROID AND _vasdk_fetch_models)
+    set(VASDK_DOWNLOAD_TURN1MINI_MODEL ON CACHE BOOL "Download the turn-1-mini ONNX model file")
+    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/DownloadTurn1MiniModel.cmake)
 endif()
 
 if(VASDK_BUILD_PYANNOTE_SPEAKER AND NOT ANDROID AND _vasdk_fetch_models)
@@ -436,6 +442,7 @@ if(VASDK_ENABLE_CTRACK AND TARGET vasdk_ctrack_iface)
         vasdk_pocket_tts
         vasdk_moss_tts
         vasdk_smartturn_v3
+        vasdk_turn1mini
     )
         if(TARGET ${_tgt})
             # Header-only: its headers and defines, no link (kept out of the C++ package's link interface)
@@ -580,6 +587,10 @@ endif()
 
 if(VASDK_BUILD_SMART_TURN_V3)
     add_subdirectory(SmartTurnV3)
+endif()
+
+if(VASDK_BUILD_TURN1MINI)
+    add_subdirectory(Turn1Mini)
 endif()
 
 if(VASDK_BUILD_PYANNOTE_SPEAKER)

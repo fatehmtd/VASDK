@@ -8,7 +8,7 @@ Every row is an independent target under `VASDK_3P_IMPL/`, and each name links t
 | --- | --- | --- |
 | Audio I/O | [MiniAudio](providers/miniaudio.md) (config id `miniaudio`), [AAudio](providers/aaudio.md) (Android only, config id `aaudio`), [SDL3](providers/sdl.md) | - |
 | VAD | [Silero](providers/silero.md) (ONNX), [Energy+ZCR](providers/energy-zcr-vad.md) | - |
-| Turn detection | [SmartTurn v3](providers/smartturn-v3.md) | - |
+| Turn detection | [turn-1-mini](providers/turn-1-mini.md) (ONNX, streaming, English; preferred), [SmartTurn v3](providers/smartturn-v3.md) (ONNX, multilingual) | - |
 | Speaker identification | [pyannote](providers/pyannote.md) (WeSpeaker ResNet34-LM, ONNX) | - |
 | Noise suppression | [RNNoise](providers/rnnoise.md) (not on Android) | - |
 | Intent understanding | [all-MiniLM-L6-v2](providers/minilm.md) sentence encoder (ONNX) | - |
@@ -22,7 +22,7 @@ Every row is an independent target under `VASDK_3P_IMPL/`, and each name links t
 
 Mix and match freely. With the default build options, both showcase apps run Whistle STT, Phonon TTS (PocketTTS if Phonon is off), pyannote speaker tracking, and a cloud LLM from `.env`. Without an engine config that names one, each app uses the first STT and TTS that was built, in this order ([`ProviderCatalog.cpp`](../VASDK_3P_IMPL/ProviderCatalog/ProviderCatalog.cpp)). STT: Gradium, Soniox, Deepgram, Cartesia, Fish Audio, Gladia, then Whistle, Moonshine, Parakeet. TTS: Gradium, Soniox, Supertonic, Deepgram, Cartesia, Fish Audio, then MOSS-TTS-Nano, Phonon, PocketTTS. Whisper.cpp is a provider target, but none of the apps offers it yet.
 
-Default build options: on are MiniAudio, Silero VAD, SmartTurn v3, pyannote, MiniLM, Whistle, PocketTTS, Phonon, RNNoise and VizAnim. Everything else is off, including every cloud STT/TTS and llama.cpp.
+Default build options: on are MiniAudio, Silero VAD, turn-1-mini, SmartTurn v3, pyannote, MiniLM, Whistle, PocketTTS, Phonon, RNNoise and VizAnim. Everything else is off, including every cloud STT/TTS and llama.cpp.
 
 Platforms: every provider builds on macOS, Linux and Windows, with these gaps. On Android, CMake turns RNNoise and FFmpegAudio off with a warning (their dependencies are only fetched for desktop builds). Voz runs only where the platform supplies a recognizer, which so far is the Android app. Whistle needs Cactus's prebuilt engine, which exists for 64-bit Windows, Linux, macOS and Android (arm64, armv7); elsewhere configure warns, and 32-bit Windows stops with an error. A config that selects a provider the build doesn't have fails with "no provider registered" and falls back to the next id in its `fallback` list.
 
@@ -62,6 +62,8 @@ The [ManniX-ITA/whistle-GGUF](https://huggingface.co/ManniX-ITA/whistle-GGUF) re
 
 Voz STT ([Desert Ant Labs](https://huggingface.co/desert-ant-labs/voz)) is NVIDIA's Parakeet TDT 0.6B v3 repackaged for on-device runtimes (25 European languages, word timestamps). Its license only covers running it through Desert Ant Labs' own SDKs, which download the model and send the device-count telemetry the license relies on. `VozTranscriptionProvider` (`VASDK_BUILD_VOZ_STT`, off by default) therefore doesn't run the model itself. It buffers each utterance and passes it to a `VozRecognizer` callback that the platform implements on top of the SDK. The Android app is the only platform with a recognizer so far: it calls `ai.desertant:voz` over JNI. The SDK only transcribes whole clips, so results arrive at the end of each utterance, and partials are off by default. Apps that offer Voz must credit Desert Ant Labs where users can see it (the Android app does this in Settings). Above 100,000 monthly active devices per platform, you need a commercial license.
 
+turn-1-mini ([p99lab](https://huggingface.co/p99lab/turn-1-mini), Apache 2.0) is the preferred end-of-turn model: a config whose `turn` spec names no id gets it first. It streams all the audio in 160 ms steps (about 1 ms each), and on the turn evaluation it cuts off 10% of unfinished sentences against SmartTurn v3's 75%, ending finished ones a median 0.10 s after the speech ([its page](providers/turn-1-mini.md#evaluation)). It is English only: for other languages, name `smartturn-v3`.
+
 GLiNER ([urchade/GLiNER](https://github.com/urchade/GLiNER), Apache 2.0) is the on-device [entity model](reference/flows.md#entity-models), `providers { entity_model { id: "gliner" } }`. It is off by default: `-DVASDK_BUILD_GLINER_NER=ON` downloads the int8 ONNX export of gliner_small-v2.1 (English, 183 MB), or gliner_multi-v2.1 with `-DVASDK_GLINER_MODEL=multi` (349 MB), each file pinned by revision and SHA-256, into `models/gliner`. `GlinerOptions { model_dir threshold }` (default 0.5). A parity test (`vasdk_gliner_ner`) checks its scores against those of the Python reference on the same ONNX Runtime. Not built for Android yet. The other two entity models, `tagger` (needs MiniLM) and `llm`, are in the core library and need no build option.
 
 ## How well they do
@@ -76,6 +78,7 @@ Where each provider's underlying code or API actually comes from, and under what
 | --- | --- | --- | --- | --- |
 | <a href="https://github.com/snakers4/silero-vad"><img src="../assets/logos/snakers4.png" width="48"  alt=""></a> | Silero VAD | - | [snakers4/silero-vad](https://github.com/snakers4/silero-vad) | MIT |
 | | Energy+ZCR VAD | - | custom, in-repo | Apache 2.0 (VASDK) |
+| | turn-1-mini | [p99lab.com](https://p99lab.com) | [p99lab/turn-1-mini](https://huggingface.co/p99lab/turn-1-mini) (model and its ONNX step graphs) · [microsoft/onnxruntime](https://github.com/microsoft/onnxruntime) (runtime) | Apache 2.0 (model, with a NOTICE) · MIT (ONNX Runtime) |
 | <a href="https://www.pipecat.ai"><img src="../assets/logos/pipecat.svg" width="48" height="48" alt=""></a> | SmartTurn v3 | - | [pipecat-ai/smart-turn-v3](https://huggingface.co/pipecat-ai/smart-turn-v3) (model) · [marton78/pffft](https://github.com/marton78/pffft) (FFT dependency) | BSD 2-Clause (model) · permissive NCAR/UCAR license (pffft) |
 | | pyannote speaker embedding | - | [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) (pipeline) · [wespeaker_en_voxceleb_resnet34_LM.onnx](https://github.com/k2-fsa/sherpa-onnx/releases/tag/speaker-recongition-models) (ONNX export by sherpa-onnx) | MIT (pyannote) · CC BY 4.0 (WeSpeaker model) |
 | <a href="https://github.com/xiph/rnnoise"><img src="../assets/logos/xiph.png" width="48" height="48" alt=""></a> | RNNoise | - | [xiph/rnnoise](https://github.com/xiph/rnnoise) | BSD 3-Clause |

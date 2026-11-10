@@ -24,7 +24,7 @@ constexpr LocalIds kLocal[] = {
     {"stt", {"whistle", "moonshine", "parakeet", nullptr}},
     {"tts", {"pocket", "phonon", "supertonic", "moss"}},
     {"vad", {"silero", nullptr, nullptr, nullptr}},
-    {"turn", {"smartturn-v3", nullptr, nullptr, nullptr}},
+    {"turn", {"turn-1-mini", "smartturn-v3", nullptr, nullptr}},
     {"speaker", {"pyannote", nullptr, nullptr, nullptr}},
     {"denoise", {"rnnoise", nullptr, nullptr, nullptr}},
 };

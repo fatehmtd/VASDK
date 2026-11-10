@@ -112,7 +112,7 @@ flowchart LR
         direction LR
         TIn["Transport input<br/>mic/ws/file/mock"]
         VAD["VAD processor<br/><i>Silero · Energy+ZCR</i>"]
-        Turn["Turn detection<br/><i>SmartTurn v3</i>"]
+        Turn["Turn detection<br/><i>turn-1-mini, SmartTurn v3</i>"]
         STT["STT processor<br/><i>Whistle · Parakeet · Moonshine<br/>Whisper.cpp · Gradium · Deepgram</i>"]
         LLM["LLM + Tool dispatch<br/><i>llama.cpp · OpenAI · Anthropic</i>"]
         TTS["TTS processor<br/><i>PocketTTS · Phonon · MOSS-TTS-Nano<br/>Gradium · Deepgram</i>"]
@@ -147,7 +147,7 @@ Swapping a provider never touches processor or pipeline code. Read the reference
 | --- | --- | --- |
 | Audio I/O | [MiniAudio](docs/providers/miniaudio.md), [SDL3](docs/providers/sdl.md) | - |
 | VAD | [Silero](docs/providers/silero.md) (ONNX), [Energy+ZCR](docs/providers/energy-zcr-vad.md) | - |
-| Turn detection | [SmartTurn v3](docs/providers/smartturn-v3.md) | - |
+| Turn detection | [turn-1-mini](docs/providers/turn-1-mini.md) (English), [SmartTurn v3](docs/providers/smartturn-v3.md) | - |
 | Speaker identification | [pyannote](docs/providers/pyannote.md) (WeSpeaker ResNet34-LM, ONNX) | - |
 | Noise suppression | [RNNoise](docs/providers/rnnoise.md) (not on Android) | - |
 | Intent understanding | [all-MiniLM-L6-v2](docs/providers/minilm.md) sentence encoder (ONNX) | - |
@@ -158,7 +158,7 @@ Swapping a provider never touches processor or pipeline code. Read the reference
 | File / batch audio | [FFmpeg-backed file transport](docs/providers/ffmpeg.md) (not on Android) | - |
 | WebRTC (browser calls) | [libdatachannel + Opus](docs/providers/webrtc.md) | - |
 
-On by default: MiniAudio, Silero VAD, SmartTurn v3, pyannote, MiniLM, Whistle, PocketTTS, Phonon, RNNoise and VizAnim. Each name links to the provider's own page. The [provider catalog](docs/provider-catalog.md) covers how apps pick between them, each provider's options and models, and every source and license. To write one, follow the [provider checklist](docs/reference/providers.md#writing-a-new-provider-the-checklist).
+On by default: MiniAudio, Silero VAD, turn-1-mini, SmartTurn v3, pyannote, MiniLM, Whistle, PocketTTS, Phonon, RNNoise and VizAnim. Each name links to the provider's own page. The [provider catalog](docs/provider-catalog.md) covers how apps pick between them, each provider's options and models, and every source and license. To write one, follow the [provider checklist](docs/reference/providers.md#writing-a-new-provider-the-checklist).
 
 ## Documentation
 
