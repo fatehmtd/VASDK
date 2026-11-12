@@ -161,4 +161,5 @@ jobs:
       - run: python3 skills/check_skills.py
       - run: python3 VASDK_3P_IMPL/check_rules.py
       - run: python3 cmake/check_versions.py
+      - run: python3 cmake/next_version.py --self-test
       - run: python3 skills/vasdk-binding-parity/check_parity.py --bindings c,python,kotlin
