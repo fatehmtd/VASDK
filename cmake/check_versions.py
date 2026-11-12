@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Checks that every place stating VASDK's version agrees with the VERSION file (docs/releasing.md).
 
-  python3 cmake/check_versions.py            check this repository
-  python3 cmake/check_versions.py --tag v1.2.3   also check a release tag against it
+  python3 cmake/check_versions.py               check this repository
+  python3 cmake/check_versions.py --set 1.2.3   write 1.2.3 everywhere it's stated, then check
 
 The CMake projects, the Kotlin binding, the Android build and conanfile.py read VERSION themselves;
-the Python binding's pyproject.toml states it (release-please updates it with VERSION). Also checks
+the Python binding's pyproject.toml states it (--set writes both; a release does it with the version
+cmake/next_version.py gives). Also checks
 that conanfile.py requires the dependency versions the CMake build fetches. Standard library only.
 """
 
@@ -42,13 +43,27 @@ def conan_dependency_problems():
     return problems
 
 
+PYPROJECT_VERSION = re.compile(r'^version\s*=\s*"([^"]+)"', re.MULTILINE)
+
+
+def set_version(version):
+    """Writes `version` into VERSION and the Python binding's pyproject.toml."""
+    (ROOT / "VERSION").write_text(version + "\n", encoding="utf-8")
+    pyproject_path = ROOT / "bindings" / "python" / "pyproject.toml"
+    pyproject = pyproject_path.read_text(encoding="utf-8")
+    pyproject_path.write_text(PYPROJECT_VERSION.sub(f'version = "{version}"', pyproject, count=1),
+                              encoding="utf-8")
+
+
 def main(arguments):
+    if "--set" in arguments:
+        set_version(arguments[arguments.index("--set") + 1])
     version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
     problems = []
     if not re.fullmatch(r"\d+\.\d+\.\d+", version):
         problems.append(f"VERSION is '{version}': MAJOR.MINOR.PATCH")
     pyproject = (ROOT / "bindings" / "python" / "pyproject.toml").read_text(encoding="utf-8")
-    stated = re.search(r'^version\s*=\s*"([^"]+)"', pyproject, re.MULTILINE)
+    stated = PYPROJECT_VERSION.search(pyproject)
     if not stated or stated.group(1) != version:
         problems.append(f"bindings/python/pyproject.toml says {stated.group(1) if stated else 'nothing'}, VERSION says {version}")
     for path, needle in [("CMakeLists.txt", "VERSION ${VASDK_VERSION}"),
@@ -59,10 +74,6 @@ def main(arguments):
         if needle not in (ROOT / path).read_text(encoding="utf-8"):
             problems.append(f"{path} doesn't read the VERSION file")
     problems += conan_dependency_problems()
-    if "--tag" in arguments:
-        tag = arguments[arguments.index("--tag") + 1]
-        if tag != f"v{version}":
-            problems.append(f"the tag is {tag}, VERSION says {version}: tag v{version}")
     for problem in problems:
         print(problem)
     if problems:

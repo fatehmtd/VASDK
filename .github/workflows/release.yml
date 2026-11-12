@@ -1,22 +1,27 @@
-# A tag v<VERSION> releases VASDK (docs/releasing.md): the C library for each platform and flavor as
-# an archive of an install prefix, with SHA256SUMS, an SBOM and build provenance, on a GitHub
-# release. The package channels (Conan, Homebrew, PyPI, Maven Central) are built from it.
+# Releases VASDK, only when started by hand (docs/releasing.md): Actions > Release > Run workflow, on
+# master. Nothing runs on a merge. The version comes from the commits since the last release
+# (cmake/next_version.py: breaking -> major, feat -> minor, else patch). Each platform and flavor
+# builds the C library as an archive of an install prefix. With "publish" ticked, and every archive
+# but the full flavor's built, it commits the version to master, tags v<version> and puts the
+# archives, SHA256SUMS, an SBOM and build provenance on a GitHub release. Unticked, it's a dry run:
+# the archives stay on the run as artifacts. The package channels are built from the release.
 name: Release
 
 on:
-  push:
-    tags: ["v*"]
   workflow_dispatch:
     inputs:
-      tag:
-        description: "Tag to build (v1.2.3); a dry run without a release when it isn't a pushed tag"
-        required: true
+      publish:
+        description: "Publish: commit the version, tag it and create the GitHub release (unticked: a dry run)"
+        type: boolean
+        default: false
+      bump:
+        description: "Version bump: auto (from the commits), or forced"
+        type: choice
+        options: [auto, patch, minor, major]
+        default: auto
 
 permissions:
   contents: read
-
-env:
-  TAG: ${{ github.event.inputs.tag || github.ref_name }}
 
 jobs:
   version:
@@ -25,10 +30,17 @@ jobs:
       version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
-      - name: The tag is v<VERSION>
-        run: python3 cmake/check_versions.py --tag "$TAG"
+        with:
+          fetch-depth: 0       # the tags and the commits since the last release
+      - name: A release is from master
+        if: inputs.publish
+        run: |
+          [ "$GITHUB_REF" = refs/heads/master ] || { echo "::error::publish from master, not $GITHUB_REF"; exit 1; }
       - id: version
-        run: echo "version=$(cat VERSION)" >> "$GITHUB_OUTPUT"
+        run: |
+          version=$(python3 cmake/next_version.py --bump "${{ inputs.bump }}")
+          python3 cmake/check_versions.py --set "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
   archive:
     name: ${{ matrix.name }} ${{ matrix.flavor }}
@@ -51,6 +63,12 @@ jobs:
       NAME: vasdk-${{ matrix.flavor }}-${{ needs.version.outputs.version }}-${{ matrix.name }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: The version
+        shell: bash
+        run: python cmake/check_versions.py --set "${{ needs.version.outputs.version }}"
       - uses: lukka/get-cmake@latest
       - name: Linux packages
         if: runner.os == 'Linux'
@@ -83,14 +101,19 @@ jobs:
 
   publish:
     needs: [version, archive]
-    if: always() && needs.version.result == 'success'
+    # A dry run sums up whatever was built; a release needs every core and default archive
+    if: always() && needs.version.result == 'success' && (needs.archive.result == 'success' || !inputs.publish)
     runs-on: ubuntu-24.04
     permissions:
-      contents: write        # the GitHub release
+      contents: write        # the version commit, the tag and the GitHub release
       id-token: write        # build provenance
       attestations: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}   # the commit the archives were built from
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -105,13 +128,33 @@ jobs:
           output-file: dist/vasdk-${{ needs.version.outputs.version }}.cdx.json
           upload-artifact: false
       - name: Build provenance
+        if: inputs.publish
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: dist/vasdk-*
+      - name: Commit the version and tag it
+        if: inputs.publish
+        run: |
+          tag="v$VERSION"
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null; then
+            echo "::error::$tag already exists"; exit 1
+          fi
+          python3 cmake/check_versions.py --set "$VERSION"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if ! git diff --quiet; then
+            git commit -am "chore: release $VERSION"
+            # A fast-forward only: when master moved during the build, nothing is pushed
+            git push origin HEAD:refs/heads/master || {
+              echo "::error::master moved while the archives were built: run the release again"; exit 1; }
+          fi
+          git tag "$tag"
+          git push origin "$tag"
       - name: GitHub release
-        if: github.event_name == 'push'
+        if: inputs.publish
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ needs.version.outputs.version }}
           files: |
             dist/vasdk-*
             dist/SHA256SUMS
