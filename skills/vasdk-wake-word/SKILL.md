@@ -45,6 +45,8 @@ virtual void reset() {}   // forget partial matches
 
 ## Tests
 
+How to write, label and register them: [vasdk-testing](../vasdk-testing/SKILL.md).
+
 - Unit: `VASDK_3P_IMPL/<Name>/tests/<name>_test.cpp`. Detects the phrase in a recording, stays quiet on speech without it and on silence, detects once per utterance, `reset()` clears partial matches.
 - Integration: `vasdk_activation` and `vasdk_follow_up_window` (`VASDK/tests/`) with the real provider in place of the fake (a variant that skips without the model), then a spoken session through the catalog in the style of `vasdk_offline_conversation`.
 

@@ -50,6 +50,8 @@ An agent with no C++ extensions uses `vasdk_agentc` itself; one with extensions 
 
 ## Tests
 
+How to write, label and register them: [vasdk-testing](../vasdk-testing/SKILL.md).
+
 - **Conversations** (`tests/*.txtpb`): one file per behaviour; cover the happy path, a correction mid-form, a not-understood turn, a digression and back, a handoff. Registered in the app's CMakeLists, like `vasdk_agent_garage_menu` in `VASDK_APP/CMakeLists.txt`.
 - **Understanding** (`nlu_eval.txtpb`): registered with `eval ... --min-accuracy`, like `vasdk_agent_garage_menu_nlu`.
 - **Extensions** (C++): a unit test of each step or tool against the agent, like the car's `vasdk_car_<vertical>_code`.

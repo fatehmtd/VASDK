@@ -114,6 +114,7 @@ if(NOT ANDROID)
         add_test(NAME vasdk_command
                  COMMAND ${CMAKE_COMMAND} -DVASDK_COMMAND=$<TARGET_FILE:vasdk_command>
                          -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/vasdk_command_test -P ${CMAKE_CURRENT_SOURCE_DIR}/test_vasdk_command.cmake)
+        vasdk_label_tests(packaging vasdk_command)
     endif()
 endif()
 

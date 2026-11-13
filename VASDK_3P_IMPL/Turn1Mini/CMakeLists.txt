@@ -39,6 +39,7 @@ if(VASDK_BUILD_TESTS)
     vasdk_test_dlls(turn1mini_test)
     add_test(NAME turn1mini_stream
              COMMAND turn1mini_test ${_turn1mini_model} ${CMAKE_CURRENT_SOURCE_DIR}/tests/golden/scores_golden.txt)
+    vasdk_label_tests(model turn1mini_stream)
     set_tests_properties(turn1mini_stream PROPERTIES SKIP_RETURN_CODE 77)
 endif()
 

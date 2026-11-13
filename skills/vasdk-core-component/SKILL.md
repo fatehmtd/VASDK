@@ -45,6 +45,8 @@ Templates, in the order to read them:
 
 ## Tests
 
+How to write, label and register them: [vasdk-testing](../vasdk-testing/SKILL.md).
+
 - **Unit** (`VASDK/tests/<component>_test.cpp`, registered in `VASDK/CMakeLists.txt` like the others): the processor driven by a fake provider (put shared fakes in `VASDK/tests/engine_test_fakes.h`), covering normal flow, interrupt, stop while busy, and a provider that fails to initialize.
 - **Integration:** a `Session` built from an engine config that selects the stage (`vasdk_engine_assembly`, `vasdk_session` show how), plus the C API (`vasdk_c_session`) and Python (`bindings/python/tests/`) paths from [vasdk-bindings](../vasdk-bindings/SKILL.md).
 

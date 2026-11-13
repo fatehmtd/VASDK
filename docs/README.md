@@ -22,6 +22,7 @@ Start here and pick your path.
 
 - **[Building VASDK](building.md)** - prerequisites, presets, build options, dependencies, model files, air-gapped builds.
 - **[Using VASDK in your project](integrating.md)** - the C library (`VASDK::c`) and the C++ targets, FetchContent, `find_package`, pkg-config, flavors, packages.
+- **[Testing VASDK](testing.md)** - the test layers and their labels, GoogleTest and the shared test support, running a subset, what CI runs.
 - **[Releasing VASDK](releasing.md)** - the version, the release workflow, what each channel publishes.
 - **[Models](models.md)** - the model store: downloading, checking and finding the files local providers load; the `vasdk` command; licenses and gated models; offline machines.
 - **[Providers](provider-catalog.md)** - every implementation, how the apps choose between them, per-provider options, sources and licenses.

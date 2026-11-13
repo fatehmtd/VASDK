@@ -61,7 +61,9 @@ A recognizer's `language` must match the agent's `locale` ([languages](../../doc
 
 ## Tests
 
-- Unit: `VASDK_3P_IMPL/<Name>/tests/<name>_test.cpp`. Transcribe a known WAV and check the words (lower-cased, punctuation stripped); check partials arrive before the final when streaming; check `clearAudioBuffer()` drops audio. Template: `VASDK_3P_IMPL/MoonshineSTT/tests/stream_test.cpp` (`moonshine_stt_stream`). Exit 77 without the model or key.
+How to write, label and register them: [vasdk-testing](../vasdk-testing/SKILL.md).
+
+- Unit: `VASDK_3P_IMPL/<Name>/tests/<name>_test.cpp`. Transcribe a known WAV and check the words (lower-cased, punctuation stripped); check partials arrive before the final when streaming; check `clearAudioBuffer()` drops audio. Template: `VASDK_3P_IMPL/MoonshineSTT/tests/stream_test.cpp` (`moonshine_stt_stream`). Skipped (`GTEST_SKIP()`) without the model or key.
 - Integration: `vasdk_offline_conversation` with the new id; `vasdk_network_fallback` for a cloud one; accuracy on an agent's eval set with `vasdk_spoken_eval` and `garage_agentc eval` ([docs](../../docs/reference/flows.md#checking-and-testing-vasdk_agentc)).
 
 ## Done when

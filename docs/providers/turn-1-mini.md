@@ -126,7 +126,7 @@ Lower is snappier and cuts off more; 0.25 cuts off nothing but waits about 0.3 s
 | --- | --- | --- | --- |
 | `turn1mini_stream` | unit. The stream's scores against p99lab's streaming loop (golden by `tests/gen_scores_golden.py`, ONNX Runtime 1.19.2: the same scores on x86-64, within 0.005 on Arm, whose int8 kernels differ); chunking, `reset()`, a "now" score that leaves the state alone, the state's effect; the provider's decisions in a pause, after the VAD's end, and on barge-in; ms per step | the model (skipped without) | `ctest --test-dir build -R turn1mini_stream` |
 | `vasdk_turn1mini_options` | unit, through the catalog: every option, none, the environment variables, a missing model, another message refused | the model (skipped without) | `ctest --test-dir build -R vasdk_turn1mini_options` |
-| `vasdk_offline_conversation_turn1mini` | integration: a spoken conversation through the C API, with turn-1-mini ending the user's turns | the offline models (skipped without) | `ctest --test-dir build -R offline_conversation_turn1mini` |
+| `vasdk_offline_conversation` (`Turn1Mini` case) | integration: a spoken conversation through the C API, with turn-1-mini ending the user's turns | the offline models (skipped without) | `ctest --test-dir build -R "vasdk_offline_conversation.*Turn1Mini"` |
 | `vasdk_eval_turn_turn_1_mini` | evaluation ([Evaluation](../evaluation.md)), held to its baselines | the evaluation set (skipped without) | `ctest --test-dir build -L eval` |
 
 A test that needs a model reports "skipped" without it.

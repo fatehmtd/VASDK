@@ -67,7 +67,9 @@ Real examples of the whole list: `git show --stat 2a31dc4` (three cloud STT/TTS 
 
 ## Tests
 
-- **Unit**, `VASDK_3P_IMPL/<Name>/tests/<name>_test.cpp`: a plain `main()` returning non-zero on failure, registered in its CMakeLists under `if(VASDK_BUILD_TESTS)` with `add_test` and `set_tests_properties(... SKIP_RETURN_CODE 77)`. Exit 77 when its model or `*_API_KEY` is missing. On Windows call `vasdk_test_dlls(<test target>)`. Examples: `VASDK_3P_IMPL/SupertonicTTS/tests/synth_test.cpp`, `VASDK_3P_IMPL/SmartTurnV3/tests/features_test.cpp` (golden outputs), `VASDK_3P_IMPL/MoonshineSTT/tests/stream_test.cpp`.
+How to write, label and register them: [vasdk-testing](../vasdk-testing/SKILL.md).
+
+- **Unit**, `VASDK_3P_IMPL/<Name>/tests/<name>_test.cpp`: GoogleTest cases, registered in its CMakeLists under `if(VASDK_BUILD_TESTS)` with `vasdk_add_gtest(<test> LABEL model ... MODELS_DIR <folder>)` (it copies the Windows DLLs too). Skipped (`VA_REQUIRE_FILE`, `GTEST_SKIP()`) when its model or `*_API_KEY` is missing. Template: `VASDK_3P_IMPL/MiniLmNlu/minilm_nlu_test.cpp`. Older examples, converted in time: `VASDK_3P_IMPL/SupertonicTTS/tests/synth_test.cpp`, `VASDK_3P_IMPL/SmartTurnV3/tests/features_test.cpp` (golden outputs), `VASDK_3P_IMPL/MoonshineSTT/tests/stream_test.cpp`.
 - **Options**: a case in the unit test that builds it through `ProviderRegistry` with an engine config that sets every option, and one with none set (the defaults).
 - **Evaluation** (local providers): `vasdk_eval_<stage>_<id>` measures it on real speech (word error rate, F1, ...) and holds it to its baselines; it skips until the set is downloaded (`-DVASDK_DOWNLOAD_EVAL_DATA=ON`). See [Evaluation](../../docs/evaluation.md).
 - **Integration**: the provider in a real session through the catalog: `VASDK_3P_IMPL/ProviderCatalog/offline_conversation_test.cpp` drives VAD, STT, agent and TTS over the C API; add the new provider as a variant there or write a sibling test next to it. Cloud providers skip without their key.

@@ -50,7 +50,7 @@ while IFS= read -r line; do
     echo "$name" | grep -Eq "$FILTER" || continue
     [ -f "$executable" ] || { echo "SKIP $name (not built)"; continue; }
     if [ "$name" = vasdk_offline_conversation_test ] && [ -n "$MODELS" ]; then
-        target=$(on_device "$(echo "$arguments" | tr -d '"')")
+        target=$(on_device "$(echo "$arguments" | tr -d '"' | sed 's/^--vasdk-models-dir=//')")
         adb shell "mkdir -p '$target'" < /dev/null
         for model in silero_vad.onnx smart_turn_v3.onnx turn_1_mini.onnx whistle parakeet pocket_tts phonon_tts; do
             [ -e "$MODELS/$model" ] || continue

@@ -18,6 +18,7 @@ add_custom_target(vasdk_kotlin_jar COMMAND ${_vasdk_gradle} jar
 
 if(VASDK_BUILD_TESTS)
     add_test(NAME vasdk_kotlin COMMAND ${_vasdk_gradle} test --rerun)
+    vasdk_label_tests(binding vasdk_kotlin)
     set_tests_properties(vasdk_kotlin PROPERTIES
         ENVIRONMENT "VASDK_LIBRARY=$<TARGET_FILE:vasdk_c>;VASDK_GARAGE_DIR=${VASDK_ROOT_DIR}/VASDK_APP/agents/garage-menu"
         TIMEOUT 900)

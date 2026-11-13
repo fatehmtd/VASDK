@@ -35,6 +35,8 @@ A session runs it from the engine config: `providers { speaker_embedding { id: "
 
 ## Tests
 
+How to write, label and register them: [vasdk-testing](../vasdk-testing/SKILL.md).
+
 - Unit: like `pyannote_fbank_parity` (`VASDK_3P_IMPL/PyannoteSpeaker/tests/`): features match the reference, the same speaker's utterances score above the threshold and different speakers below it. Skip without the model.
 - Integration: a session whose config names it (`vasdk_dsp_speaker` in `VASDK_3P_IMPL/ProviderCatalog/dsp_speaker_test.cpp` is the template); the enroll-then-identify flow is covered with an app-written provider in `VASDK/tests/c_providers_test.cpp` and both bindings' provider tests.
 

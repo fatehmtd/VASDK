@@ -48,7 +48,9 @@ Measure before you tune: `garage_agentc eval agent.txtpb nlu_eval.txtpb --sweep`
 
 ## Tests
 
-- Unit: `VASDK_3P_IMPL/<Name>/tests/` or a test next to it, as `vasdk_minilm_nlu` and `vasdk_gliner_ner`: known sentences give similar vectors, known spans are found, a missing model skips (exit 77).
+How to write, label and register them: [vasdk-testing](../vasdk-testing/SKILL.md).
+
+- Unit: `VASDK_3P_IMPL/<Name>/tests/` or a test next to it, as `vasdk_minilm_nlu` and `vasdk_gliner_ner`: known sentences give similar vectors, known spans are found, a missing model skips (`VA_REQUIRE_FILE`).
 - Integration: `vasdk_entity_extractor`, `vasdk_entity_model`, `vasdk_embedding_cache` (`VASDK/tests/`), and the garage eval sets (`vasdk_agent_garage_menu_nlu`, `vasdk_agent_garage_menu_nlu_spoken`) run with the new id through `--engine-config`; accuracy must not drop below their `--min-accuracy`.
 
 ## Done when

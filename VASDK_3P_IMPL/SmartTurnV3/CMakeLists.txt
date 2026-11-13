@@ -45,6 +45,7 @@ if(VASDK_BUILD_TESTS)
     vasdk_test_dlls(smartturn_features_test)
     add_test(NAME smartturn_features_parity
              COMMAND smartturn_features_test ${CMAKE_CURRENT_SOURCE_DIR}/tests/golden/features_golden.txt)
+    vasdk_label_tests(unit smartturn_features_parity)
 endif()
 
 install(TARGETS vasdk_smartturn_v3 COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL

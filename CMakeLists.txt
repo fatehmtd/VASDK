@@ -96,6 +96,13 @@ vasdk_dependency(nlohmann_json TARGET nlohmann_json::nlohmann_json
             GIT_TAG        v3.11.3  # pinned for reproducible builds
             OVERRIDE_FIND_PACKAGE)
 
+# Registering tests (vasdk_add_gtest, vasdk_test_dlls); how to write one: skills/vasdk-testing.
+# With the tests: GoogleTest, gMock and the shared test support (VASDK/tests/support)
+include(VASDKTesting)
+if(VASDK_BUILD_TESTS)
+    vasdk_add_test_support()
+endif()
+
 # The sample apps' own: CLI11 (command-line arguments) and dotenv-cpp (.env files into the environment)
 if(VASDK_BUILD_APP OR VASDK_BUILD_APPS OR VASDK_BUILD_CALLCENTER OR VASDK_BUILD_CAR)
     vasdk_dependency(CLI11 TARGET CLI11::CLI11
@@ -221,27 +228,48 @@ if(VASDK_BUILD_TESTS)
     add_test(NAME vasdk_model_downloads
              COMMAND ${CMAKE_COMMAND} -DWORK=${CMAKE_CURRENT_BINARY_DIR}/model_downloads_test
                      -P ${VASDK_ROOT_DIR}/VASDK_3P_IMPL/cmake/test_model_downloads.cmake)
+    vasdk_label_tests(packaging vasdk_model_downloads)
+    # Every test has a layer label (cmake/VASDKTesting.cmake)
+    string(REPLACE ";" "|" _vasdk_test_labels "${VASDK_TEST_LABELS}")
+    add_test(NAME vasdk_test_labels
+             COMMAND ${CMAKE_COMMAND} -DCTEST=${CMAKE_CTEST_COMMAND} -DBUILD_DIR=${VASDK_ROOT_BINARY_DIR} -DCONFIG=$<CONFIG>
+                     -DLABELS=${_vasdk_test_labels} -P ${VASDK_ROOT_DIR}/cmake/check_test_labels.cmake)
+    vasdk_label_tests(packaging vasdk_test_labels)
     find_package(Python3 COMPONENTS Interpreter QUIET)
     if(Python3_Interpreter_FOUND)
+        # Every test written and registered the one way (skills/vasdk-testing)
+        add_test(NAME vasdk_test_rules COMMAND ${Python3_EXECUTABLE} ${VASDK_ROOT_DIR}/skills/vasdk-testing/check_tests.py)
+        vasdk_label_tests(packaging vasdk_test_rules)
+        add_test(NAME vasdk_test_rules_self_test COMMAND ${Python3_EXECUTABLE} ${VASDK_ROOT_DIR}/skills/vasdk-testing/check_tests.py --self-test)
+        vasdk_label_tests(packaging vasdk_test_rules_self_test)
         add_test(NAME vasdk_skills COMMAND ${Python3_EXECUTABLE} ${VASDK_ROOT_DIR}/skills/check_skills.py)
+        vasdk_label_tests(packaging vasdk_skills)
         add_test(NAME vasdk_skills_self_test COMMAND ${Python3_EXECUTABLE} ${VASDK_ROOT_DIR}/skills/check_skills.py --self-test)
+        vasdk_label_tests(packaging vasdk_skills_self_test)
         add_test(NAME vasdk_thirdparty_rules COMMAND ${Python3_EXECUTABLE} ${VASDK_ROOT_DIR}/VASDK_3P_IMPL/check_rules.py)
+        vasdk_label_tests(packaging vasdk_thirdparty_rules)
         add_test(NAME vasdk_thirdparty_rules_self_test COMMAND ${Python3_EXECUTABLE} ${VASDK_ROOT_DIR}/VASDK_3P_IMPL/check_rules.py --self-test)
+        vasdk_label_tests(packaging vasdk_thirdparty_rules_self_test)
         # Every place stating the version agrees with the VERSION file (docs/releasing.md)
         add_test(NAME vasdk_versions COMMAND ${Python3_EXECUTABLE} ${VASDK_ROOT_DIR}/cmake/check_versions.py)
+        vasdk_label_tests(packaging vasdk_versions)
         # The next release's version from the commits, on a throwaway git repository
         find_package(Git QUIET)
         if(Git_FOUND)
             add_test(NAME vasdk_next_version COMMAND ${Python3_EXECUTABLE} ${VASDK_ROOT_DIR}/cmake/next_version.py --self-test)
+            vasdk_label_tests(packaging vasdk_next_version)
         endif()
         # The model store from Python (the other Python suites run the sample apps' agents: VASDK_APP)
         if(VASDK_BUILD_PYTHON_BINDING)
             add_test(NAME vasdk_python_models COMMAND ${Python3_EXECUTABLE} ${VASDK_ROOT_DIR}/bindings/python/tests/test_models.py)
+            vasdk_label_tests(binding vasdk_python_models)
             set_tests_properties(vasdk_python_models PROPERTIES ENVIRONMENT "${VASDK_PYTHON_TEST_ENVIRONMENT}")
             add_test(NAME vasdk_python_score COMMAND ${Python3_EXECUTABLE} ${VASDK_ROOT_DIR}/bindings/python/tests/test_score.py)
+            vasdk_label_tests(binding vasdk_python_score)
             set_tests_properties(vasdk_python_score PROPERTIES ENVIRONMENT "${VASDK_PYTHON_TEST_ENVIRONMENT}")
             # Where the binding finds a build: build/ and its preset folders (build/dev), the newest first
             add_test(NAME vasdk_python_build_trees COMMAND ${Python3_EXECUTABLE} ${VASDK_ROOT_DIR}/bindings/python/tests/test_build_trees.py)
+            vasdk_label_tests(binding vasdk_python_build_trees)
             set_tests_properties(vasdk_python_build_trees PROPERTIES ENVIRONMENT "${VASDK_PYTHON_TEST_ENVIRONMENT}")
         endif()
         # C and the bindings that are on level with the C++ API (skills/vasdk-binding-parity)
@@ -256,8 +284,10 @@ if(VASDK_BUILD_TESTS)
             add_test(NAME vasdk_binding_parity
                      COMMAND ${Python3_EXECUTABLE} ${VASDK_ROOT_DIR}/skills/vasdk-binding-parity/check_parity.py
                              --bindings ${_vasdk_parity_bindings})
+            vasdk_label_tests(packaging vasdk_binding_parity)
             add_test(NAME vasdk_binding_parity_self_test
                      COMMAND ${Python3_EXECUTABLE} ${VASDK_ROOT_DIR}/skills/vasdk-binding-parity/check_parity.py --self-test)
+            vasdk_label_tests(packaging vasdk_binding_parity_self_test)
         else()
             message(WARNING "VASDK_BUILD_PYTHON_BINDING and VASDK_BUILD_KOTLIN_BINDING are off: the binding parity "
                             "checks (vasdk_binding_parity) are not registered, so a C++ API the bindings don't follow "
@@ -295,6 +325,7 @@ if(VASDK_BUILD_TESTS AND VASDK_INSTALL AND TARGET vasdk_c)
                          "-DGENERATOR=${CMAKE_GENERATOR}" "-DPLATFORM=${CMAKE_GENERATOR_PLATFORM}"
                          -DWORK_DIR=${VASDK_ROOT_BINARY_DIR}/consumer_${_mode}
                          -P ${VASDK_ROOT_DIR}/tests/consumer/run_consumer_test.cmake)
+        vasdk_label_tests(packaging vasdk_consumer_${_mode})
         set_tests_properties(vasdk_consumer_${_mode} PROPERTIES TIMEOUT 600 RESOURCE_LOCK vasdk_consumer)
     endforeach()
 endif()
@@ -312,6 +343,7 @@ if(VASDK_BUILD_TESTS AND VASDK_INSTALL AND VASDK_CPP_PACKAGE AND TARGET vasdk_c)
                          "-DDEPENDENCY_TOOLCHAIN=${CMAKE_TOOLCHAIN_FILE}" "-DDEPENDENCY_PREFIX_PATH=${_vasdk_prefix_path}"
                          -DWORK_DIR=${VASDK_ROOT_BINARY_DIR}/consumer_cpp_${_mode}
                          -P ${VASDK_ROOT_DIR}/tests/consumer/run_consumer_test.cmake)
+        vasdk_label_tests(packaging vasdk_consumer_cpp_${_mode})
         set_tests_properties(vasdk_consumer_cpp_${_mode} PROPERTIES TIMEOUT 900 RESOURCE_LOCK vasdk_consumer)
     endforeach()
 endif()

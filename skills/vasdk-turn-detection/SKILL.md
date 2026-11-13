@@ -45,6 +45,8 @@ If it cuts people off, use `PATIENT` or raise the pause threshold. If it answers
 
 ## Tests
 
+How to write, label and register them: [vasdk-testing](../vasdk-testing/SKILL.md).
+
 - Unit: `VASDK_3P_IMPL/<Name>/tests/`. Check feature extraction against goldens made by the reference implementation (as `smartturn_features_parity`), and the decision on a finished versus an unfinished utterance.
 - Integration: `vasdk_vad_turn_end`, `vasdk_turn_policy`, `vasdk_backchannel`, `vasdk_follow_up_window` and `vasdk_turn_assembler` in `VASDK/tests/` must stay green with the new provider; `vasdk_offline_conversation` with it in the engine config.
 

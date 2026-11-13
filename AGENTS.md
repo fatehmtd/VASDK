@@ -7,7 +7,7 @@ VASDK is a C++17 framework for voice assistants: a pipeline of typed frames thro
 ```bash
 cmake -B build -S . -DVASDK_BUILD_TESTS=ON -DVASDK_BUILD_APPS=ON   # add -DVASDK_BUILD_<NAME>=ON per optional provider
 cmake --build build --config Release -j
-ctest --test-dir build --output-on-failure          # tests needing models or API keys report "skipped" (exit 77)
+ctest --test-dir build --output-on-failure          # tests needing models or API keys report "skipped"; ctest -L unit for the fast loop
 ./build/VASDK_APP/VASDK_Pipeline --config VASDK_APP/config/engine.txtpb --env-file .env
 ```
 
@@ -46,6 +46,7 @@ Local providers are also measured on real speech (`-DVASDK_DOWNLOAD_EVAL_DATA=ON
 | A use case: agent, car vertical or new app | [vasdk-app](skills/vasdk-app/SKILL.md) |
 | Exposing a feature in C, Python and Android | [vasdk-bindings](skills/vasdk-bindings/SKILL.md) |
 | Bringing C, Python and Kotlin level with the C++ API (parity check and manifest) | [vasdk-binding-parity](skills/vasdk-binding-parity/SKILL.md) |
+| Writing, labelling and registering any test (GoogleTest, pytest, agent suites, the test checker) | [vasdk-testing](skills/vasdk-testing/SKILL.md) |
 | How other projects get VASDK: the C library, `find_package`, presets, flavors, dependencies, packages and releases | [vasdk-packaging](skills/vasdk-packaging/SKILL.md) |
 
 ## House rules
@@ -72,9 +73,9 @@ A change is finished when all of these hold, not before:
 1. **Documented.** The reference page that owns the logic is updated, the header comments state the contract, and a new component or integration has its own page with its options, a usage example and a mermaid flow.
 2. **README updated** where the change shows: the provider table, the app table, "on by default", the quick start.
 3. **Licenses recorded.** Every new library, model or dataset is in `THIRD_PARTY_NOTICES.md` and in "Sources and licenses" of `docs/provider-catalog.md`. An app ships the licenses of what it uses ([vasdk-app](skills/vasdk-app/SKILL.md)).
-4. **Unit test.** A plain executable registered with `add_test` under `if(VASDK_BUILD_TESTS)` (no test framework): core logic in `VASDK/tests/<feature>_test.cpp`, a provider's own in `VASDK_3P_IMPL/<Name>/tests/`.
+4. **Unit test.** GoogleTest cases registered with `vasdk_add_gtest` and a layer label under `if(VASDK_BUILD_TESTS)`, written as [vasdk-testing](skills/vasdk-testing/SKILL.md) says: core logic in `VASDK/tests/<feature>_test.cpp`, a provider's own in `VASDK_3P_IMPL/<Name>/tests/`. Python tests are pytest.
 5. **Integration test** that drives the real path: a provider through the catalog and a session (as `VASDK_3P_IMPL/ProviderCatalog/offline_conversation_test.cpp`) or a `MockTransport` pipeline; an agent through `<app>_agentc test`; a binding through `bindings/python/tests/`.
-6. **Skips, not failures, without models or keys:** such tests exit 77 and set `SKIP_RETURN_CODE 77`.
+6. **Skips, not failures, without models or keys:** `VA_REQUIRE_FILE` or `GTEST_SKIP()` in C++, `pytest.skip` in Python; a script exits 77 with `SKIP_RETURN_CODE 77`. `ctest` checks the tests' form (`vasdk_test_rules`) and labels (`vasdk_test_labels`); see [docs/testing.md](docs/testing.md).
 7. **`ctest` passes**, reported as passed, failed or skipped, never summarized as "should work".
 8. **Platforms checked.** Built on the platforms at hand; the others are named as not built. Unsupported platforms have their warning and their note.
 9. **The rules above hold.**

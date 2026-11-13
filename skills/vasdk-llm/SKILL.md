@@ -48,8 +48,10 @@ llm { api: ANTHROPIC api_key: "${ANTHROPIC_API_KEY}" effort: "low" }
 
 ## Tests
 
+How to write, label and register them: [vasdk-testing](../vasdk-testing/SKILL.md).
+
 - Unit: in `VASDK/tests/`, fake the HTTP layer and check the request payload (messages, tools, effort), the parsing of a recorded streamed reply, cancel mid-stream, and a tool round trip. Existing ones to extend or copy: `vasdk_llm_stream_speech`, `vasdk_streaming_reply_extractor`, `vasdk_tool_dispatch_race`, `vasdk_http_cancel`, `vasdk_llm_assist`.
-- Integration: a real call that skips without its key (exit 77), through a `Session` with an engine config. For a local runtime: `vasdk_llamacpp_completion` (`VASDK_3P_IMPL/LlamaCpp/llamacpp_completion_test.cpp`) skips without a GGUF file.
+- Integration: a real call that skips without its key (`GTEST_SKIP()`), through a `Session` with an engine config. For a local runtime: `vasdk_llamacpp_completion` (`VASDK_3P_IMPL/LlamaCpp/llamacpp_completion_test.cpp`) skips without a GGUF file.
 
 ## Done when
 

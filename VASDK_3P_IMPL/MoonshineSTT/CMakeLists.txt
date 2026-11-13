@@ -68,6 +68,7 @@ if(VASDK_BUILD_TESTS)
     vasdk_test_dlls(moonshine_stt_stream_test)   # ONNX Runtime beside it on Windows, not System32's older one
     add_test(NAME moonshine_stt_stream
              COMMAND moonshine_stt_stream_test ${MOONSHINE_MODEL_DIR} "${MOONSHINE_TEST_WAV}" "${MOONSHINE_TEST_EXPECTED}")
+    vasdk_label_tests(model moonshine_stt_stream)
     set_tests_properties(moonshine_stt_stream PROPERTIES SKIP_RETURN_CODE 77)
 endif()
 

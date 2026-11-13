@@ -16,6 +16,7 @@ include(FetchContent)
 list(APPEND CMAKE_MODULE_PATH ${VASDK_ROOT_DIR}/cmake)
 include(GNUInstallDirs)
 include(VASDKDependencies)
+include(VASDKTesting)   # vasdk_test_dlls, vasdk_add_gtest
 
 #  Disable desktop-only features before pulling in VASDK core 
 set(VASDK_BUILD_THIRDPARTY_IMPL ON CACHE BOOL "" FORCE)
@@ -164,6 +165,7 @@ endif()
 #  device or emulator over adb (see README, "Tests on a device")
 if(VASDK_BUILD_TESTS)
     enable_testing()
+    vasdk_add_test_support()
 endif()
 
 #  VASDK core library

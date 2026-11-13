@@ -47,6 +47,7 @@ if(VASDK_BUILD_TESTS)
     vasdk_test_dlls(supertonic_tts_synth_test)   # ONNX Runtime beside it on Windows, not System32's older one
     add_test(NAME supertonic_tts_synth
              COMMAND supertonic_tts_synth_test ${SUPERTONIC_MODEL_DIR} ${CMAKE_CURRENT_BINARY_DIR}/supertonic_tts_test.wav)
+    vasdk_label_tests(model supertonic_tts_synth)
     set_tests_properties(supertonic_tts_synth PROPERTIES SKIP_RETURN_CODE 77)
 endif()
 

@@ -43,7 +43,9 @@ SDL3 and FFmpeg are not in the provider catalog: an app constructs them and hand
 
 ## Tests
 
-- Unit: in `VASDK_3P_IMPL/<Name>/tests/`. For a sink, feed a known signal through a null or loopback device (skip with 77 when there is no audio device, as on CI), and check `flushAudio()`, the resume position after `holdPlayback()`, and `getPendingAudioBytes()` reaching 0. For DSP, check the sample count is kept and a noisy tone comes out with less noise.
+How to write, label and register them: [vasdk-testing](../vasdk-testing/SKILL.md).
+
+- Unit: in `VASDK_3P_IMPL/<Name>/tests/`. For a sink, feed a known signal through a null or loopback device (`GTEST_SKIP()` when there is no audio device, as on CI), and check `flushAudio()`, the resume position after `holdPlayback()`, and `getPendingAudioBytes()` reaching 0. For DSP, check the sample count is kept and a noisy tone comes out with less noise.
 - Integration: a session whose config names the DSP (`vasdk_dsp_speaker`), or a pipeline with `MockTransport` and `AudioDSPProcessor` ([testing without a microphone](../../docs/examples/testing-with-mock-transport.md)); `vasdk_backchannel` for hold behaviour; a run of `VASDK_Pipeline` with the backend for a device backend.
 
 ## Done when

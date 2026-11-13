@@ -7,21 +7,38 @@
 
 #include <VASDK/TTSFrameProcessor.h>
 
+#include "TestSupport.h"
+
+#include <gtest/gtest.h>
+
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
-#include <cstdio>
 #include <deque>
 #include <mutex>
+#include <ostream>
 #include <string>
 #include <thread>
 #include <vector>
 
+namespace va::transport {
+// The states by name in a failure's report
+void PrintTo(SynthesisState state, std::ostream* out) { *out << toString(state); }
+} // namespace va::transport
+
 using namespace va;
 using namespace std::chrono_literals;
 using transport::SynthesisState;
+using va::test::waitUntil;
 
 namespace {
+
+using States = std::vector<SynthesisState>;
+
+// Milliseconds from `from` to `to`, a number a failed check prints
+long long millisecondsBetween(std::chrono::steady_clock::time_point from, std::chrono::steady_clock::time_point to) {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(to - from).count();
+}
 
 // Behaves like the local providers: a worker drains a FIFO, fires Started when it goes busy and
 // Completed only when the queue runs dry. Each sentence yields 100 ms of 16 kHz audio.
@@ -86,7 +103,7 @@ private:
                 l.unlock();
                 std::vector<char> pcm(3200, 1);  // 100 ms of 16 kHz mono int16
                 _listener->onAudioDataReceived(pcm.data(), pcm.size());
-                std::this_thread::sleep_for(20ms);
+                std::this_thread::sleep_for(20ms);  // fixed wait: the fake's synthesis time
                 l.lock();
             }
             _busy = false;
@@ -117,12 +134,12 @@ public:
         states.push_back(std::static_pointer_cast<transport::SynthesisStateFrame>(f)->state);
         times.push_back(std::chrono::steady_clock::now());
     }
-    std::vector<SynthesisState> snapshot() {
+    States snapshot() {
         std::lock_guard<std::mutex> l(m);
         return states;
     }
     std::mutex m;
-    std::vector<SynthesisState> states;
+    States states;
     std::vector<std::chrono::steady_clock::time_point> times;
 };
 
@@ -133,30 +150,25 @@ std::shared_ptr<transport::TextFrame> text(const std::string& t, bool isFinal) {
     return f;
 }
 
+std::shared_ptr<transport::TextFrame> reply(const std::string& t, bool isFinal, uint64_t turnId) {
+    auto f = text(t, isFinal);
+    f->turnId = turnId;
+    return f;
+}
+
+std::shared_ptr<transport::TurnReplacedFrame> replaced(uint64_t turnId) {
+    auto f = std::make_shared<transport::TurnReplacedFrame>();
+    f->turnId = turnId;
+    return f;
+}
+
 std::shared_ptr<transport::AgentStateFrame> agent(transport::AgentStateTransition t) {
     auto f = std::make_shared<transport::AgentStateFrame>();
     f->transition = t;
     return f;
 }
 
-// Until `condition` holds, at most `timeout`. A check that something happens waits for it, not a
-// fixed time: a loaded machine (a shared CI runner) runs late. Lower bounds on timings stay as they
-// are (late never makes them fail); a check that something doesn't happen still waits a fixed time.
-template <class Condition>
-bool waitUntil(Condition condition, std::chrono::milliseconds timeout = 5s) {
-    const auto deadline = std::chrono::steady_clock::now() + timeout;
-    while (!condition()) {
-        if (std::chrono::steady_clock::now() >= deadline) return false;
-        std::this_thread::sleep_for(2ms);
-    }
-    return true;
-}
-
-int failures = 0;
-void check(bool ok, const char* what, const char* mode) {
-    if (!ok) { ++failures; std::fprintf(stderr, "FAIL [%s] %s\n", mode, what); }
-}
-
+// The processor under test, its provider and what it reported, started; stopped when it goes.
 struct Rig {
     std::shared_ptr<FakeProvider> provider;
     std::shared_ptr<pipeline::TTSFrameProcessor> tts;
@@ -180,54 +192,35 @@ struct Rig {
     void send(std::shared_ptr<transport::Frame> f) { tts->processFrame(f, pipeline::FlowDirection::DOWNSTREAM); }
 };
 
-void streamedReply(bool queued) {
-    const char* mode = queued ? "queued" : "sequential";
-    Rig rig(queued, false);
+// A provider that queues calls, and one that must get them one at a time.
+class TtsTurnProviderTest : public testing::TestWithParam<bool> {
+protected:
+    bool queued() const { return GetParam(); }
+};
+
+std::string providerName(const testing::TestParamInfo<bool>& info) { return info.param ? "Queued" : "OneAtATime"; }
+
+TEST_P(TtsTurnProviderTest, StreamedReplyIsOneTurn) {
+    Rig rig(queued(), false);
     const auto t0 = std::chrono::steady_clock::now();
     rig.send(text("One. ", false));
     rig.send(text("Two. ", false));
-    std::this_thread::sleep_for(300ms);  // provider goes idle mid-reply (LLM slower than TTS)
+    std::this_thread::sleep_for(300ms);  // fixed wait: the provider goes idle mid-reply (LLM slower than TTS)
     rig.send(text("Three.", true));
-    waitUntil([&] { return rig.recorder->snapshot().size() >= 2; });
+    waitUntil([&] { return rig.recorder->snapshot().size() >= 2; }, 5s);
 
     const auto states = rig.recorder->snapshot();
-    check(states == std::vector<SynthesisState>{SynthesisState::STARTED, SynthesisState::COMPLETED},
-          "exactly one STARTED then one COMPLETED", mode);
-    check(rig.provider->received == std::vector<std::string>{"One. ", "Two. ", "Three."}, "all sentences in order", mode);
-    check(rig.provider->violations == 0, "no call while the provider was busy", mode);
+    EXPECT_EQ(states, (States{SynthesisState::STARTED, SynthesisState::COMPLETED})) << "exactly one STARTED then one COMPLETED";
+    EXPECT_EQ(rig.provider->received, (std::vector<std::string>{"One. ", "Two. ", "Three."})) << "all sentences in order";
+    EXPECT_EQ(rig.provider->violations, 0) << "no call while the provider was busy";
     if (states.size() == 2) {
         // 300 ms of audio, the last 100 ms starting after the 300 ms gap.
-        const auto completedAfter = std::chrono::duration_cast<std::chrono::milliseconds>(rig.recorder->times[1] - t0);
-        check(completedAfter >= 400ms, "COMPLETED only after the last sentence played", mode);
+        EXPECT_GE(millisecondsBetween(t0, rig.recorder->times[1]), 400) << "COMPLETED only after the last sentence played";
     }
 }
 
-void bargeIn(bool syncCancel) {
-    const char* mode = syncCancel ? "barge-in, sync cancel" : "barge-in";
-    Rig rig(true, syncCancel);
-    const auto t0 = std::chrono::steady_clock::now();
-    rig.send(text("Alpha. ", false));
-    std::this_thread::sleep_for(50ms);
-    if (std::chrono::steady_clock::now() - t0 > 90ms) {   // Alpha's 100 ms may have played out: no barge-in to test
-        std::printf("[%s] skipped: the machine overslept\n", mode);
-        return;
-    }
-    rig.send(agent(transport::AgentStateTransition::BARGE_IN_INTERRUPT));
-    rig.send(text("Beta.", true));  // stale sentence of the interrupted reply
-    std::this_thread::sleep_for(100ms);
-    rig.send(agent(transport::AgentStateTransition::INTERRUPT_RESOLVED));
-    rig.send(text("Gamma.", true));
-    waitUntil([&] { return rig.recorder->snapshot().size() >= 4; });
-
-    check(rig.recorder->snapshot() == std::vector<SynthesisState>{SynthesisState::STARTED, SynthesisState::INTERRUPTED,
-                                                                 SynthesisState::STARTED, SynthesisState::COMPLETED},
-          "STARTED, INTERRUPTED, then a clean new turn", mode);
-    check(rig.provider->received == std::vector<std::string>{"Alpha. ", "Gamma."}, "stale sentence dropped", mode);
-}
-
-void protectedPart(bool queued) {
-    const char* mode = queued ? "can't be interrupted, queued" : "can't be interrupted, sequential";
-    Rig rig(queued, false);
+TEST_P(TtsTurnProviderTest, UninterruptiblePartIsReportedOnlyWhilePlaying) {
+    Rig rig(queued(), false);
     const auto t0 = std::chrono::steady_clock::now();
     rig.send(text("Intro.", false));
     auto disclaimer = text("Disclaimer.", false);
@@ -242,22 +235,52 @@ void protectedPart(bool queued) {
         const auto now = std::chrono::steady_clock::now();
         if (protectedNow && on == std::chrono::steady_clock::time_point{}) on = now;
         if (!protectedNow && on != std::chrono::steady_clock::time_point{}) off = now;
-        std::this_thread::sleep_for(2ms);
+        std::this_thread::sleep_for(2ms);  // fixed wait: the sampling period
     }
-    check(on != std::chrono::steady_clock::time_point{}, "while it plays", mode);
-    check(on == std::chrono::steady_clock::time_point{} || on - t0 >= 80ms, "not during the part before", mode);
-    check(off != std::chrono::steady_clock::time_point{}, "not during the part after", mode);
-    waitUntil([&] { return rig.provider->received.size() >= 3 && rig.recorder->snapshot().size() >= 2; });
-    check(rig.provider->received == std::vector<std::string>{"Intro.", "Disclaimer.", "Question?"}, "all parts in order", mode);
-    check(rig.recorder->snapshot() == std::vector<SynthesisState>{SynthesisState::STARTED, SynthesisState::COMPLETED},
-          "still one turn", mode);
+    ASSERT_TRUE(on != std::chrono::steady_clock::time_point{}) << "reported while it plays";
+    EXPECT_GE(millisecondsBetween(t0, on), 80) << "not during the part before";
+    EXPECT_TRUE(off != std::chrono::steady_clock::time_point{}) << "not during the part after";
+    waitUntil([&] { return rig.provider->received.size() >= 3 && rig.recorder->snapshot().size() >= 2; }, 5s);
+    EXPECT_EQ(rig.provider->received, (std::vector<std::string>{"Intro.", "Disclaimer.", "Question?"})) << "all parts in order";
+    EXPECT_EQ(rig.recorder->snapshot(), (States{SynthesisState::STARTED, SynthesisState::COMPLETED})) << "still one turn";
 }
 
-void pausedReply() {
-    const char* mode = "pause hold";
-    Rig rig(true, false);
-    std::mutex holdMutex;
+INSTANTIATE_TEST_SUITE_P(Providers, TtsTurnProviderTest, testing::Bool(), providerName);
+
+// A provider that confirms a cancel later, and one that confirms it synchronously (the cloud ones).
+class TtsTurnBargeInTest : public testing::TestWithParam<bool> {
+protected:
+    bool syncCancel() const { return GetParam(); }
+};
+
+std::string cancelName(const testing::TestParamInfo<bool>& info) { return info.param ? "SyncCancel" : "LaterCancel"; }
+
+TEST_P(TtsTurnBargeInTest, DropsTheStaleReply) {
+    Rig rig(true, syncCancel());
+    const auto t0 = std::chrono::steady_clock::now();
+    rig.send(text("Alpha. ", false));
+    std::this_thread::sleep_for(50ms);  // fixed wait: the user cuts in 50 ms into Alpha
+    if (std::chrono::steady_clock::now() - t0 > 90ms)   // Alpha's 100 ms may have played out: no barge-in to test
+        GTEST_SKIP() << "the machine overslept";
+    rig.send(agent(transport::AgentStateTransition::BARGE_IN_INTERRUPT));
+    rig.send(text("Beta.", true));  // stale sentence of the interrupted reply
+    std::this_thread::sleep_for(100ms);  // fixed wait: the interruption lasts 100 ms
+    rig.send(agent(transport::AgentStateTransition::INTERRUPT_RESOLVED));
+    rig.send(text("Gamma.", true));
+    waitUntil([&] { return rig.recorder->snapshot().size() >= 4; }, 5s);
+
+    EXPECT_EQ(rig.recorder->snapshot(), (States{SynthesisState::STARTED, SynthesisState::INTERRUPTED,
+                                                SynthesisState::STARTED, SynthesisState::COMPLETED}))
+        << "STARTED, INTERRUPTED, then a clean new turn";
+    EXPECT_EQ(rig.provider->received, (std::vector<std::string>{"Alpha. ", "Gamma."})) << "stale sentence dropped";
+}
+
+INSTANTIATE_TEST_SUITE_P(Cancels, TtsTurnBargeInTest, testing::Bool(), cancelName);
+
+TEST(TtsTurn, PauseHoldDelaysCompleted) {
+    std::mutex holdMutex;   // before the rig: stopping it may still report a hold
     std::vector<bool> holds;
+    Rig rig(true, false);
     rig.tts->setPendingPlayback(transport::PendingPlaybackMode::Pause, -12.0f);
     rig.tts->setPlaybackHold([&](transport::PendingPlaybackMode playbackMode, bool held, float) {
         std::lock_guard<std::mutex> lock(holdMutex);
@@ -267,148 +290,127 @@ void pausedReply() {
     rig.send(text("One. ", false));
     rig.send(text("Two.", true));
     // Text complete but still synthesizing: unknown, not "0 ms left" (that read as the tail and blocked barge-in)
-    check(rig.tts->getRemainingReplyPlaybackMs() == -1, "still synthesizing: remaining playback unknown", mode);
+    EXPECT_EQ(rig.tts->getRemainingReplyPlaybackMs(), -1) << "still synthesizing: remaining playback unknown";
     // Synthesis takes about 40 ms here; wait for it rather than for a fixed time (Windows timers tick every 15.6 ms).
     // The remaining playback is known only until the 200 ms reply has played: a thread that oversleeps
     // past it finds the turn over (COMPLETED), with no reply left to pause.
-    waitUntil([&] { return rig.tts->getRemainingReplyPlaybackMs() >= 0 || rig.recorder->snapshot().size() >= 2; });
-    const auto overslept = [&] {
-        if (rig.recorder->snapshot().size() < 2) return false;
-        std::printf("[%s] skipped: the machine overslept\n", mode);
-        return true;
-    };
-    if (overslept()) return;
-    check(rig.tts->getRemainingReplyPlaybackMs() >= 0, "reply text complete: remaining playback known", mode);
+    waitUntil([&] { return rig.tts->getRemainingReplyPlaybackMs() >= 0 || rig.recorder->snapshot().size() >= 2; }, 5s);
+    if (rig.recorder->snapshot().size() >= 2) GTEST_SKIP() << "the machine overslept";
+    EXPECT_GE(rig.tts->getRemainingReplyPlaybackMs(), 0) << "reply text complete: remaining playback known";
     rig.send(agent(transport::AgentStateTransition::BARGE_IN_PENDING));
-    if (overslept()) return;  // the reply ended between the look and the barge-in
-    std::this_thread::sleep_for(400ms);  // longer than the 200 ms reply: only the pause keeps it going
-    check(rig.recorder->snapshot() == std::vector<SynthesisState>{SynthesisState::STARTED}, "no COMPLETED while paused", mode);
+    if (rig.recorder->snapshot().size() >= 2)   // the reply ended between the look and the barge-in
+        GTEST_SKIP() << "the machine overslept";
+    std::this_thread::sleep_for(400ms);  // fixed wait: longer than the 200 ms reply, only the pause keeps it going
+    EXPECT_EQ(rig.recorder->snapshot(), (States{SynthesisState::STARTED})) << "no COMPLETED while paused";
     rig.send(agent(transport::AgentStateTransition::BACKCHANNEL));
-    waitUntil([&] { return rig.recorder->snapshot().size() >= 2; });
+    waitUntil([&] { return rig.recorder->snapshot().size() >= 2; }, 5s);
 
     const auto states = rig.recorder->snapshot();
-    check(states == std::vector<SynthesisState>{SynthesisState::STARTED, SynthesisState::COMPLETED},
-          "one STARTED, one COMPLETED", mode);
-    if (states.size() == 2) {
-        const auto completedAfter = std::chrono::duration_cast<std::chrono::milliseconds>(rig.recorder->times[1] - t0);
-        check(completedAfter >= 560ms, "COMPLETED is pushed back by the paused time", mode);
-    }
+    EXPECT_EQ(states, (States{SynthesisState::STARTED, SynthesisState::COMPLETED})) << "one STARTED, one COMPLETED";
+    if (states.size() == 2) EXPECT_GE(millisecondsBetween(t0, rig.recorder->times[1]), 560) << "COMPLETED is pushed back by the paused time";
     std::lock_guard<std::mutex> lock(holdMutex);
-    check(holds == std::vector<bool>{true, false}, "held once, released once", mode);
+    EXPECT_EQ(holds, (std::vector<bool>{true, false})) << "held once, released once";
 }
 
-void duckLastsMinimumDuration() {
-    const char* mode = "duck duration";
-    Rig rig(true, false);
-    std::mutex holdMutex;
-    std::vector<std::pair<bool, std::chrono::steady_clock::time_point>> holds;
-    rig.tts->setPendingPlayback(transport::PendingPlaybackMode::Duck, -9.0f, 300);
-    rig.tts->setPlaybackHold([&](transport::PendingPlaybackMode playbackMode, bool held, float duckGainDecibels) {
-        std::lock_guard<std::mutex> lock(holdMutex);
-        if (playbackMode == transport::PendingPlaybackMode::Duck && duckGainDecibels == -9.0f)
-            holds.emplace_back(held, std::chrono::steady_clock::now());
-    });
-    auto snapshot = [&] { std::lock_guard<std::mutex> lock(holdMutex); return holds; };
+// The duck holds, and when each was released: a duck lasts at least its minimum duration (300 ms here).
+class TtsTurnDuckTest : public testing::Test {
+protected:
+    TtsTurnDuckTest() {
+        rig.tts->setPendingPlayback(transport::PendingPlaybackMode::Duck, -9.0f, 300);
+        rig.tts->setPlaybackHold([this](transport::PendingPlaybackMode playbackMode, bool held, float duckGainDecibels) {
+            std::lock_guard<std::mutex> lock(_holdMutex);
+            if (playbackMode == transport::PendingPlaybackMode::Duck && duckGainDecibels == -9.0f)
+                _holds.emplace_back(held, std::chrono::steady_clock::now());
+        });
+    }
+    std::vector<std::pair<bool, std::chrono::steady_clock::time_point>> holds() {
+        std::lock_guard<std::mutex> lock(_holdMutex);
+        return _holds;
+    }
+    void send(transport::AgentStateTransition transition) { rig.send(agent(transition)); }
 
+private:
+    // Before the rig: stopping it may still report a hold
+    std::mutex _holdMutex;
+    std::vector<std::pair<bool, std::chrono::steady_clock::time_point>> _holds;
+
+protected:
+    Rig rig{true, false};
+};
+
+TEST_F(TtsTurnDuckTest, LastsTheMinimumDuration) {
     // Back-channel dismissed after 50 ms: the duck still lasts 300 ms from its start.
     const auto duckStart = std::chrono::steady_clock::now();
-    rig.send(agent(transport::AgentStateTransition::BARGE_IN_PENDING));
-    std::this_thread::sleep_for(50ms);
-    rig.send(agent(transport::AgentStateTransition::BACKCHANNEL));
-    std::this_thread::sleep_for(150ms);
+    send(transport::AgentStateTransition::BARGE_IN_PENDING);
+    std::this_thread::sleep_for(50ms);  // fixed wait: the back-channel lasts 50 ms
+    send(transport::AgentStateTransition::BACKCHANNEL);
+    std::this_thread::sleep_for(150ms);  // fixed wait: checking no release comes before the minimum duration
     const bool stillShort = std::chrono::steady_clock::now() - duckStart < 280ms;   // a loaded machine may oversleep
-    const auto early = snapshot();
-    check(early.size() == 1 || (!stillShort && early.size() == 2), "still ducked before the minimum duration", mode);
-    waitUntil([&] { return snapshot().size() >= 2; });
-    auto events = snapshot();
-    check(events.size() == 2 && !events[1].first, "released once the minimum duration passed", mode);
-    if (events.size() == 2) {
-        // Not much longer than 300 ms: a release that waited for anything else would be far later. A
-        // loaded machine wakes the release late, so the bound isn't tight.
-        const auto heldFor = std::chrono::duration_cast<std::chrono::milliseconds>(events[1].second - events[0].second);
-        check(heldFor >= 290ms && heldFor < 600ms, "held for about the minimum duration", mode);
-    }
+    const auto early = holds();
+    EXPECT_TRUE(early.size() == 1 || (!stillShort && early.size() == 2)) << "still ducked before the minimum duration";
+    waitUntil([&] { return holds().size() >= 2; }, 5s);
+    const auto events = holds();
+    ASSERT_EQ(events.size(), 2u) << "released once the minimum duration passed";
+    EXPECT_FALSE(events[1].first) << "the second hold is the release";
+    // Not much longer than 300 ms: a release that waited for anything else would be far later. A
+    // loaded machine wakes the release late, so the bound isn't tight.
+    const auto heldFor = millisecondsBetween(events[0].second, events[1].second);
+    EXPECT_GE(heldFor, 290) << "held for about the minimum duration";
+    EXPECT_LT(heldFor, 600) << "held for about the minimum duration";
+}
 
+TEST_F(TtsTurnDuckTest, NewOverlapCancelsTheScheduledRelease) {
     // Speech over the agent again while the release is pending: stays ducked from the new start.
-    rig.send(agent(transport::AgentStateTransition::BARGE_IN_PENDING));
-    const auto secondStart = std::chrono::steady_clock::now();
-    rig.send(agent(transport::AgentStateTransition::BACKCHANNEL));
-    std::this_thread::sleep_for(200ms);
-    const bool beforeRelease = std::chrono::steady_clock::now() - secondStart < 280ms;   // a loaded machine may oversleep
-    rig.send(agent(transport::AgentStateTransition::BARGE_IN_PENDING));
-    std::this_thread::sleep_for(200ms);
-    if (beforeRelease) check(snapshot().size() == 4, "a new overlap cancels the scheduled release", mode);
-    else std::printf("[%s] a new overlap: skipped, the machine overslept\n", mode);
+    send(transport::AgentStateTransition::BARGE_IN_PENDING);
+    const auto start = std::chrono::steady_clock::now();
+    send(transport::AgentStateTransition::BACKCHANNEL);
+    std::this_thread::sleep_for(200ms);  // fixed wait: the release is still 100 ms away
+    if (std::chrono::steady_clock::now() - start >= 280ms) GTEST_SKIP() << "the machine overslept";
+    send(transport::AgentStateTransition::BARGE_IN_PENDING);
+    std::this_thread::sleep_for(200ms);  // fixed wait: checking the cancelled release doesn't come
+    EXPECT_EQ(holds().size(), 2u) << "a new overlap cancels the scheduled release";
+}
 
+TEST_F(TtsTurnDuckTest, InterruptResolutionReleasesAtOnce) {
     // A committed barge-in releases as soon as the interrupt resolves, without waiting.
-    const size_t beforeInterrupt = snapshot().size();
-    rig.send(agent(transport::AgentStateTransition::BARGE_IN_INTERRUPT));
-    rig.send(agent(transport::AgentStateTransition::INTERRUPT_RESOLVED));
-    waitUntil([&] { return snapshot().size() > beforeInterrupt; }, 1000ms);
-    events = snapshot();
-    check(events.size() == beforeInterrupt + 1 && !events.back().first, "interrupt resolution releases at once", mode);
-    const size_t afterInterrupt = events.size();
-    std::this_thread::sleep_for(400ms);
-    check(snapshot().size() == afterInterrupt, "no stray release later", mode);
-}
-
-std::shared_ptr<transport::TextFrame> reply(const std::string& t, bool isFinal, uint64_t turnId) {
-    auto f = text(t, isFinal);
-    f->turnId = turnId;
-    return f;
-}
-
-std::shared_ptr<transport::TurnReplacedFrame> replaced(uint64_t turnId) {
-    auto f = std::make_shared<transport::TurnReplacedFrame>();
-    f->turnId = turnId;
-    return f;
+    send(transport::AgentStateTransition::BARGE_IN_PENDING);
+    send(transport::AgentStateTransition::BARGE_IN_INTERRUPT);
+    send(transport::AgentStateTransition::INTERRUPT_RESOLVED);
+    waitUntil([&] { return holds().size() >= 2; }, 1000ms);
+    const auto events = holds();
+    ASSERT_EQ(events.size(), 2u) << "interrupt resolution releases at once";
+    EXPECT_FALSE(events.back().first) << "the second hold is the release";
+    std::this_thread::sleep_for(400ms);  // fixed wait: checking no stray release comes later
+    EXPECT_EQ(holds().size(), 2u) << "no stray release later";
 }
 
 // The user resumed turn 3: what's queued of its reply goes, and other speech stays.
-void replacedTurnQueued() {
-    const char* mode = "replaced turn, queued";
+TEST(TtsTurn, ReplacedTurnDropsItsQueuedSentences) {
     Rig rig(false, false);   // one sentence at a time: the reply's waits in the queue
     rig.send(text("Intro. ", false));          // not a reply: never dropped
     rig.send(reply("Got it. ", false, 3));
     rig.send(reply("Anything else?", false, 3));
     rig.send(replaced(3));                     // its final never comes
-    waitUntil([&] { return rig.recorder->snapshot().size() >= 2; });
-    check(rig.provider->received == std::vector<std::string>{"Intro. "}, "the replaced turn's sentences dropped", mode);
-    check(rig.recorder->snapshot() == std::vector<SynthesisState>{SynthesisState::STARTED, SynthesisState::COMPLETED},
-          "the turn still completes", mode);
+    waitUntil([&] { return rig.recorder->snapshot().size() >= 2; }, 5s);
+    EXPECT_EQ(rig.provider->received, (std::vector<std::string>{"Intro. "})) << "the replaced turn's sentences dropped";
+    EXPECT_EQ(rig.recorder->snapshot(), (States{SynthesisState::STARTED, SynthesisState::COMPLETED})) << "the turn still completes";
 }
 
 // Turn 3's reply is playing: it stops, the turn completes (no INTERRUPTED: the user didn't cut in),
 // its late text is dropped, and turn 4's reply is a clean new turn.
-void replacedTurnPlaying() {
-    const char* mode = "replaced turn, playing";
+TEST(TtsTurn, ReplacedTurnStopsThePlayingReply) {
     Rig rig(true, false);
     rig.send(reply("Alpha. ", false, 3));
-    std::this_thread::sleep_for(30ms);
+    std::this_thread::sleep_for(30ms);  // fixed wait: the user resumes 30 ms into Alpha
     rig.send(replaced(3));
     rig.send(reply("Beta.", true, 3));          // the stale reply's rest, arriving after
-    waitUntil([&] { return rig.recorder->snapshot().size() >= 2; });
+    waitUntil([&] { return rig.recorder->snapshot().size() >= 2; }, 5s);
     rig.send(reply("Gamma.", true, 4));
-    waitUntil([&] { return rig.recorder->snapshot().size() >= 4; });
-    check(rig.provider->received == std::vector<std::string>{"Alpha. ", "Gamma."}, "late text of the replaced turn dropped", mode);
-    check(rig.recorder->snapshot() == std::vector<SynthesisState>{SynthesisState::STARTED, SynthesisState::COMPLETED,
-                                                                 SynthesisState::STARTED, SynthesisState::COMPLETED},
-          "stopped turn completes, then a clean new one", mode);
+    waitUntil([&] { return rig.recorder->snapshot().size() >= 4; }, 5s);
+    EXPECT_EQ(rig.provider->received, (std::vector<std::string>{"Alpha. ", "Gamma."})) << "late text of the replaced turn dropped";
+    EXPECT_EQ(rig.recorder->snapshot(), (States{SynthesisState::STARTED, SynthesisState::COMPLETED,
+                                                SynthesisState::STARTED, SynthesisState::COMPLETED}))
+        << "stopped turn completes, then a clean new one";
 }
 
 } // namespace
-
-int main() {
-    streamedReply(true);
-    streamedReply(false);
-    bargeIn(false);
-    bargeIn(true);
-    pausedReply();
-    duckLastsMinimumDuration();
-    protectedPart(true);
-    protectedPart(false);
-    replacedTurnQueued();
-    replacedTurnPlaying();
-    std::printf("tts turn scenarios done, %d failure(s)\n", failures);
-    return failures == 0 ? 0 : 1;
-}

@@ -50,6 +50,8 @@ An app carries the license of every integration and model it uses, so whoever sh
 
 ## Tests
 
+How to write, label and register them: [vasdk-testing](../vasdk-testing/SKILL.md).
+
 - **Unit:** the app's own code (tools, verticals, adapters): plain test executables registered under `if(VASDK_BUILD_TESTS)`, like `vasdk_car_<name>_code`.
 - **Integration:** its agent's conversations through `<app>_agentc test` (like `vasdk_agent_garage_menu`), and a spoken run where the models are present (skips otherwise), like `vasdk_offline_conversation`. Python apps: `VASDK_PYTHON_APP/CMakeLists.txt` registers `vasdk_python_kitchen` and `vasdk_python_session`.
 
