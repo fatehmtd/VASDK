@@ -14,7 +14,7 @@ The C library is one shared library: the C API and every provider of its build, 
 The C++ API depends on protobuf, spdlog and nlohmann/json in its public headers. That means your program must build against the same versions VASDK did. Two ways give you that:
 
 - **From source** (FetchContent, `add_subdirectory`): VASDK builds inside your project, with its dependencies. This works with any dependency source.
-- **From an install** (`find_package(VASDK COMPONENTS cpp)`): VASDK was built against installed packages (Conan, vcpkg, a distro), and your program finds the same ones. See [The C++ libraries from an install](#the-c-libraries-from-an-install).
+- **From an install** (`find_package(VASDK COMPONENTS cpp)`): VASDK was built against installed packages (Conan, a distro), and your program finds the same ones. See [The C++ libraries from an install](#the-c-libraries-from-an-install).
 
 ```mermaid
 flowchart LR
@@ -153,7 +153,7 @@ The [C API reference](reference/c-api.md) has the rest: agents, sessions, runtim
 The C++ libraries are static. A program that links them also links their dependencies, so `find_package(VASDK COMPONENTS cpp)` finds those again in your program with `find_dependency`. That only works when they are installed packages. Build VASDK against installed dependencies, then install the component:
 
 ```bash
-# The recipe's dependencies from Conan (conanfile.py); vcpkg or your distro's packages work the same way
+# The recipe's dependencies from Conan (conanfile.py); your distro's packages work the same way
 conan install . -s compiler.cppstd=17 --build=missing
 # conan_toolchain.cmake is in the generators folder Conan prints: build-conan/generators with Visual
 # Studio, build-conan/Release/generators elsewhere

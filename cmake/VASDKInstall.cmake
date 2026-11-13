@@ -224,7 +224,7 @@ if(NOT "VASDK" IN_LIST _vasdk_cpp_exportable)
     message(STATUS "VASDK: no find_package(VASDK COMPONENTS cpp) (${_vasdk_cpp_left_out}): the component "
                    "vasdk_cpp_development installs the C++ libraries and headers alone. The package needs the "
                    "dependencies installed: VASDK_DEPENDENCY_SOURCE SYSTEM or AUTO with spdlog, nlohmann_json, "
-                   "protobuf, cpp-httplib, curl and highway from Conan, vcpkg or a package manager (docs/integrating.md)")
+                   "protobuf, cpp-httplib, curl and highway from Conan or a package manager (docs/integrating.md)")
 else()
     set(VASDK_CPP_PACKAGE ON)
     # The find_dependency() calls of what remains, and the providers in it

@@ -51,7 +51,7 @@ flowchart LR
 | `macos-arm64`, `macos-x64` | macOS 15 (Apple silicon, Intel) | |
 | `windows-x64` | Windows Server 2022, MSVC | curl over Schannel. The remote control's HTTPS uses the runner's OpenSSL, whose two DLLs ship beside `vasdk_c.dll` |
 
-The `full` flavor carries many third-party clients. A failure there doesn't hold the other archives.
+Every archive is required, the `full` flavor's too: a release publishes only when all 15 built.
 
 ## Channels
 

@@ -36,9 +36,13 @@ endif()
 add_library(VASDK::c ALIAS vasdk_c)
 
 # VASDK whole: every C API function, not only those something here calls. The catalog links VASDK
-# too, so the override applies the feature wherever it comes up in the link.
+# too, so the override applies the feature wherever it comes up in the link. With the catalog,
+# VASDK comes through it alone: linked here as well, CMake would place it twice (here, and again
+# after the provider libraries that need it), and GNU ld would take both copies whole.
 if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.24)
-    target_link_libraries(vasdk_c PRIVATE VASDK)
+    if(NOT TARGET vasdk_provider_catalog)
+        target_link_libraries(vasdk_c PRIVATE VASDK)
+    endif()
     set_property(TARGET vasdk_c PROPERTY LINK_LIBRARY_OVERRIDE_VASDK WHOLE_ARCHIVE)
 elseif(MSVC)
     target_link_libraries(vasdk_c PRIVATE VASDK)

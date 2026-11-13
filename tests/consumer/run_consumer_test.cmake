@@ -4,8 +4,8 @@
 #   PACKAGE=c        tests/consumer/c_library: the C library, VASDK::c (the default)
 #   PACKAGE=cpp      tests/consumer/cpp_library: the C++ libraries, find_package(VASDK COMPONENTS cpp).
 #                    The install adds the component vasdk_cpp_development. The program finds VASDK's
-#                    dependencies as VASDK's build did: DEPENDENCY_TOOLCHAIN (its toolchain file: Conan,
-#                    vcpkg) and DEPENDENCY_PREFIX_PATH (its CMAKE_PREFIX_PATH, entries joined by |).
+#                    dependencies as VASDK's build did: DEPENDENCY_TOOLCHAIN (its toolchain file, Conan's)
+#                    and DEPENDENCY_PREFIX_PATH (its CMAKE_PREFIX_PATH, entries joined by |).
 # cmake -DMODE=... [-DPACKAGE=...] -DVASDK_BUILD_DIR=... -DCONFIG=... -DGENERATOR=... [-DPLATFORM=...]
 #       [-DDEPENDENCY_TOOLCHAIN=...] [-DDEPENDENCY_PREFIX_PATH=...] -DWORK_DIR=... -P run_consumer_test.cmake
 

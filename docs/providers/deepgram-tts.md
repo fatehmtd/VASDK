@@ -18,7 +18,7 @@ In C++, `va::thirdparty::tts::DeepgramppVoiceSynthesisOptions` (in [`DeepgramppV
 | --- | --- | --- |
 | `apiKey` | `""` | API key of the service; required (the catalog falls back to the service's *_API_KEY variable). |
 | `model` | `deepgram::speak::models::aura_2::en::THALIA` | Model to use. |
-| `caBundlePath` | `""` | PEM file of certificates to trust; empty uses the TLS library's own (Android's mbedTLS can't read the system store). |
+| `caBundlePath` | `""` | PEM file of certificates to trust. The WebSocket goes through libwebsockets over mbedTLS on every platform, which can't read the system's certificate store: set it (`VASDK_CA_BUNDLE`, e.g. `/etc/ssl/certs/ca-certificates.crt`). |
 
 In an engine config, its own `DeepgramTtsOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) fills them: a field the config leaves unset falls back to its environment variable, then to the struct's default. The shared `CloudOptions` of configs written before it had its own message is still accepted.
 
