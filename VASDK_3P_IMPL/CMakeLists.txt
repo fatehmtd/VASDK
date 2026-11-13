@@ -249,7 +249,7 @@ if(VASDK_BUILD_GLADIAPP)
     fetchcontent_declare(
         gladiapp
         GIT_REPOSITORY https://github.com/fatehmtd/gladiapp.git
-        GIT_TAG        ae1607b2b084745418b6d0d3d5928332bb2b2d93   # no release tags: a commit, for reproducible builds
+        GIT_TAG        bae8f608f8547d55b8304253bf074b14deea49be   # no release tags: a commit, for reproducible builds
         ${VASDK_FETCH_EXCLUDE}   # its own install rules stay out of VASDK's
     )
     fetchcontent_makeavailable(gladiapp)
@@ -261,7 +261,7 @@ if(VASDK_BUILD_DEEPGRAMPP_STT OR VASDK_BUILD_DEEPGRAMPP_TTS)
     fetchcontent_declare(
         deepgrampp
         GIT_REPOSITORY https://github.com/fatehmtd/deepgrampp.git
-        GIT_TAG        d8ad481de5e1ab22d8a2d0f09d92ae7df3d267b9   # no release tags: a commit, for reproducible builds
+        GIT_TAG        d8a47447b0fbd5fe6b7c86455bc320db31173c51   # no release tags: a commit, for reproducible builds
         ${VASDK_FETCH_EXCLUDE}   # its own install rules stay out of VASDK's
     )
     fetchcontent_makeavailable(deepgrampp)
@@ -325,8 +325,7 @@ if(VASDK_BUILD_GRADIUMPP_STT OR VASDK_BUILD_GRADIUMPP_TTS)
     fetchcontent_declare(
         gradiumpp
         GIT_REPOSITORY https://github.com/fatehmtd/GradiumPP.git
-        GIT_TAG        2cf6ec2e07c71e802660303950babb87bedf173f   # no release tags: a commit, for reproducible builds
-        PATCH_COMMAND  ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/patch-gradiumpp-cppcodec-guard.cmake
+        GIT_TAG        ac05df7e4de39be77e7880a7a12b38ef2cd29965   # no release tags: a commit, for reproducible builds
         ${VASDK_FETCH_EXCLUDE}   # its own install rules stay out of VASDK's
     )
     fetchcontent_makeavailable(gradiumpp)

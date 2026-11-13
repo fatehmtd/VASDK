@@ -19,7 +19,7 @@ In C++, `va::thirdparty::stt::DeepgramppTranscriptionOptions` (in [`DeepgramppTr
 | `apiKey` | `""` | API key of the service; required (the catalog falls back to the service's *_API_KEY variable). |
 | `model` | `deepgram::listen::models::nova_3::GENERAL` | Model to use. |
 | `language` | `deepgram::listen::languages::nova_3::MULTILINGUAL` | Language code; empty lets the service detect it or use its default. |
-| `caBundlePath` | `""` | PEM file of certificates to trust; empty uses the TLS library's own (Android's mbedTLS can't read the system store). |
+| `caBundlePath` | `""` | PEM file of certificates to trust. Streaming goes through libwebsockets over mbedTLS on every platform, which can't read the system's certificate store: set it for streaming (`VASDK_CA_BUNDLE`, e.g. `/etc/ssl/certs/ca-certificates.crt`). Whole segments go through curl, which uses the system's store when it's empty. |
 | `interimResults` | `true` | Streaming: send partial results as the user speaks. |
 | `smartFormat` | `true` | Punctuation, numbers and casing in the transcript (streaming and whole segments). |
 | `endpointingMs` | `300` | Streaming: silence, in ms, after which the service ends an utterance. |
