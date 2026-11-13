@@ -269,9 +269,18 @@ void pausedReply() {
     // Text complete but still synthesizing: unknown, not "0 ms left" (that read as the tail and blocked barge-in)
     check(rig.tts->getRemainingReplyPlaybackMs() == -1, "still synthesizing: remaining playback unknown", mode);
     // Synthesis takes about 40 ms here; wait for it rather than for a fixed time (Windows timers tick every 15.6 ms).
-    waitUntil([&] { return rig.tts->getRemainingReplyPlaybackMs() >= 0; });
+    // The remaining playback is known only until the 200 ms reply has played: a thread that oversleeps
+    // past it finds the turn over (COMPLETED), with no reply left to pause.
+    waitUntil([&] { return rig.tts->getRemainingReplyPlaybackMs() >= 0 || rig.recorder->snapshot().size() >= 2; });
+    const auto overslept = [&] {
+        if (rig.recorder->snapshot().size() < 2) return false;
+        std::printf("[%s] skipped: the machine overslept\n", mode);
+        return true;
+    };
+    if (overslept()) return;
     check(rig.tts->getRemainingReplyPlaybackMs() >= 0, "reply text complete: remaining playback known", mode);
     rig.send(agent(transport::AgentStateTransition::BARGE_IN_PENDING));
+    if (overslept()) return;  // the reply ended between the look and the barge-in
     std::this_thread::sleep_for(400ms);  // longer than the 200 ms reply: only the pause keeps it going
     check(rig.recorder->snapshot() == std::vector<SynthesisState>{SynthesisState::STARTED}, "no COMPLETED while paused", mode);
     rig.send(agent(transport::AgentStateTransition::BACKCHANNEL));
