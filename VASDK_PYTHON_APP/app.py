@@ -60,9 +60,13 @@ def find_env(given):
 
 
 def find_models(given):
-    """The speech models: --models, VASDK_MODELS_DIR, else the build tree's download folder."""
+    """The speech models: --models, VASDK_MODELS_DIR, else the download folder of the build VASDK was
+    loaded from (build/dev after cmake --preset dev), else a build/ beside the app or above it."""
     if given or os.environ.get("VASDK_MODELS_DIR"):
         return Path(given or os.environ["VASDK_MODELS_DIR"])
+    build = vasdk.build_dir()
+    if build is not None and (build / "VASDK_3P_IMPL" / "models").is_dir():
+        return build / "VASDK_3P_IMPL" / "models"
     for folder in [APP, *APP.parents]:
         for candidate in (folder / "build" / "VASDK_3P_IMPL" / "models", folder / "VASDK_3P_IMPL" / "models"):
             if candidate.is_dir():

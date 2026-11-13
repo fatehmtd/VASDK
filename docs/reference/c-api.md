@@ -169,7 +169,7 @@ std::string reply = conversation.start();
 
 ## From Python and Kotlin
 
-[`bindings/python/vasdk`](../../bindings/python/vasdk/__init__.py) wraps the C API with `ctypes`, so it needs no compiler: point `VASDK_LIBRARY` at the C library (`build/cmake/c_library/libvasdk_c.dylib`; without it the build tree's is found), and add `bindings/python` to `PYTHONPATH`. It uses the proto functions, with Python classes the build generates from the same `.proto` files: replies are `vasdk.ConversationReply` messages and events `vasdk.Event` ([Messages](../../bindings/python/README.md#messages)). It needs `pip install protobuf`.
+[`bindings/python/vasdk`](../../bindings/python/vasdk/__init__.py) wraps the C API with `ctypes`, so it needs no compiler: point `VASDK_LIBRARY` at the C library (`build/cmake/c_library/libvasdk_c.dylib`; without it the most recently built one in `build/` or a preset's `build/<preset>` is found, or in `VASDK_BUILD_DIR`), and add `bindings/python` to `PYTHONPATH`. It uses the proto functions, with Python classes the build generates from the same `.proto` files: replies are `vasdk.ConversationReply` messages and events `vasdk.Event` ([Messages](../../bindings/python/README.md#messages)). It needs `pip install protobuf`.
 
 ```python
 import vasdk
