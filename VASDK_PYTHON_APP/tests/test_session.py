@@ -66,7 +66,7 @@ class Heard:
 
 def main():
     models = Path(sys.argv[1] if len(sys.argv) > 1 else os.environ.get("VASDK_MODELS_DIR", APP.parent / "build" / "VASDK_3P_IMPL" / "models"))
-    if not (models / "silero_vad.onnx").exists() or not (models / "phonon_tts").exists() or not (models / "whistle").exists():
+    if not (models / "silero_vad.onnx").exists() or not (models / "phonon_tts" / "model.q8.gguf").exists() or not (models / "whistle").exists():
         print(f"skipped: the speech models aren't in {models}")
         return 77
     vasdk.set_log_level("warn")
