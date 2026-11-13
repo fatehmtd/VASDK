@@ -43,6 +43,8 @@ A lower `threshold` catches quiet speakers, and more noise. Timing (how long a p
 
 ## Tests
 
+How to write, label and register them: [vasdk-testing](../vasdk-testing/SKILL.md).
+
 - Unit: `VASDK_3P_IMPL/<Name>/tests/<name>_test.cpp`. Feed speech (synthesized by a local TTS, as `vasdk_offline_conversation` does) followed by silence, and check the regions found and the silence left alone, at 16 kHz and at one rate it must reject.
 - Integration: `vasdk_vad_turn_end` (`VASDK/tests/vad_turn_end_test.cpp`) for how VAD states end a turn, and `vasdk_offline_conversation` with the new id in its engine config.
 

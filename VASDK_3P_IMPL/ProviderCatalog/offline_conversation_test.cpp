@@ -3,9 +3,8 @@
 // The user's lines are spoken by a second voice (Phonon) and pushed in as audio, a 100 ms frame
 // every 100 ms (a microphone's pace), through a C API session (vasdk_session), so the whole path
 // runs: VAD, STT, the agent's turn, its spoken reply. The assistant's speech isn't fed back
-// (headphones). Exits 77 (skipped) when the models aren't there.
-//   offline_conversation_test <models dir> [assistant voice: pocket] [stt: whistle, else parakeet]
-//                             [turn: none (VAD silence), else a turn provider id, e.g. turn-1-mini]
+// (headphones). One case per way of ending the user's turn and per recognizer; each is skipped
+// when its provider isn't built or its models aren't in the models folder.
 
 #include "ProviderCatalog.h"
 
@@ -16,6 +15,9 @@
 #include <VASDK/c/vasdk_cpp.h>
 #include "vasdk/engine/engine_config.pb.h"
 
+#include "TestSupport.h"
+
+#include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
@@ -27,6 +29,7 @@
 #include <deque>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -35,12 +38,6 @@
 using namespace std::chrono_literals;
 
 namespace {
-
-int failures = 0;
-void check(bool ok, const std::string& what) {
-    std::fprintf(ok ? stdout : stderr, "%s %s\n", ok ? "ok  " : "FAIL", what.c_str());
-    if (!ok) ++failures;
-}
 
 // The user's voice: a TTS whose audio is gathered until it's done.
 class UserVoice : public va::audio::VoiceSynthesisResultListener {
@@ -151,7 +148,7 @@ private:
             }
             vasdk_session_push_audio(_session, frame.data(), frame.size());
             next += 100ms;
-            std::this_thread::sleep_until(next);
+            std::this_thread::sleep_until(next);  // fixed wait: a microphone delivers a frame every 100 ms
         }
     }
     vasdk_session* _session;
@@ -170,7 +167,9 @@ bool mentions(const std::string& text, std::initializer_list<const char*> words)
     return false;
 }
 
-const char* kAgent = R"(
+// The garage agent the user talks to.
+std::string agentText() {
+    return R"(
   start_flow: "main"
   intents { name: "hours" examples: ["when are you open", "opening hours", "what time do you open"] }
   intents { name: "book" examples: ["book", "book an @service", "I'd like to book an @service", "appointment"] }
@@ -190,61 +189,73 @@ const char* kAgent = R"(
     pages { name: "booking" form { goal: "booking" } routes { condition: "$form.confirmed" target: "booked" } }
     pages { name: "booked" on_enter { say { text: "You're booked. See you then." } } on_enter { end {} } } }
 )";
+}
 
-} // namespace
+// A way through the conversation: the recognizer ("" for Whistle when built, else Parakeet) and
+// what ends the user's turn ("" for VAD silence, else a turn provider id).
+struct Variant {
+    std::string name;
+    std::string stt;
+    std::string turn;
+};
 
-int main(int argc, char** argv) {
-    if (argc < 2) {
-        std::fprintf(stderr, "usage: offline_conversation_test <models dir>\n");
-        return 2;
+class OfflineConversationTest : public testing::TestWithParam<Variant> {
+protected:
+    void SetUp() override {
+        providers = vasdk_providers_create();
+        vasdk_providers_add_all(providers);
     }
-    const std::filesystem::path models = std::filesystem::absolute(argv[1]);
-    vasdk_providers* providers = vasdk_providers_create();
-    vasdk_providers_add_all(providers);
+    void TearDown() override {
+        if (session) vasdk_session_free(session);
+        if (userVoice) userVoice->stopVoiceSynthesisProvider();
+        if (agent) vasdk_agent_free(agent);
+        vasdk_providers_free(providers);
+    }
+
+    template <class Provider>
+    bool built(const std::string& id) {
+        const auto ids = vasdk_providers_registry(providers).ids<Provider>();
+        return std::find(ids.begin(), ids.end(), id) != ids.end();
+    }
+
+    vasdk_providers* providers = nullptr;
+    vasdk_agent* agent = nullptr;
+    vasdk_session* session = nullptr;
+    std::shared_ptr<va::audio::GenericVoiceSynthesisProvider> userVoice;
+    std::unique_ptr<UserVoice> user;   // the voice's listener: it goes after the voice stops (TearDown)
+    va::test::UniqueTemporaryDirectory folder{"vasdk_offline_conversation"};
+};
+
+TEST_P(OfflineConversationTest, BooksAServiceBySpeaking) {
+    const Variant& variant = GetParam();
+    if (va::test::modelsDirectory().empty()) GTEST_SKIP() << "no models folder given (--vasdk-models-dir)";
+    const std::filesystem::path models = std::filesystem::absolute(va::test::modelsDirectory());
     // The recognizer: as asked, else Whistle when this binary has it, else Parakeet.
-    const auto recognizers = vasdk_providers_registry(providers).ids<va::audio::GenericTranscriptionProvider>();
-    auto built = [&](const std::string& id) { return std::find(recognizers.begin(), recognizers.end(), id) != recognizers.end(); };
-    const std::string stt = argc > 3 && *argv[3] ? argv[3] : built("whistle") ? "whistle" : "parakeet";
-    // The end of turn: VAD silence, or a turn model by id (its model must be there too)
-    const std::string turn = argc > 4 ? argv[4] : "";
-    if (!turn.empty()) {
-        const auto turns = vasdk_providers_registry(providers).ids<va::audio::TurnDetectionProvider>();
-        if (std::find(turns.begin(), turns.end(), turn) == turns.end()) {
-            std::printf("skipped: no %s turn provider in this binary\n", turn.c_str());
-            return 77;
-        }
-    }
-    const std::string turnModel = turn == "turn-1-mini" ? "turn_1_mini.onnx" : turn == "smartturn-v3" ? "smart_turn_v3.onnx" : "";
-    if (!built(stt)) {
-        std::printf("skipped: no %s recognizer in this binary\n", stt.c_str());
-        return 77;
-    }
+    const bool whistle = built<va::audio::GenericTranscriptionProvider>("whistle");
+    if (variant.stt == "parakeet" && !whistle) GTEST_SKIP() << "the default case already recognizes with Parakeet";
+    const std::string stt = !variant.stt.empty() ? variant.stt : whistle ? "whistle" : "parakeet";
+    if (!built<va::audio::GenericTranscriptionProvider>(stt)) GTEST_SKIP() << "no " << stt << " recognizer in this binary";
+    if (!variant.turn.empty() && !built<va::audio::TurnDetectionProvider>(variant.turn))
+        GTEST_SKIP() << "no " << variant.turn << " turn provider in this binary";
+    const std::string turnModel = variant.turn == "turn-1-mini" ? "turn_1_mini.onnx" : variant.turn == "smartturn-v3" ? "smart_turn_v3.onnx" : "";
     const std::string sttModel = stt == "whistle" ? "whistle/whistle.cact" : stt + "/vocab.txt";
     for (const std::string& needed : {std::string("silero_vad.onnx"), sttModel, std::string("pocket_tts/voices.bin"),
-                                      std::string("phonon_tts/model.q8.gguf"), turnModel}) {
-        if (!needed.empty() && !std::filesystem::exists(models / needed)) {
-            std::printf("skipped: %s isn't in %s\n", needed.c_str(), models.string().c_str());
-            return 77;
-        }
-    }
-    const auto dir = std::filesystem::temp_directory_path() / "vasdk_offline_conversation";
-    std::filesystem::create_directories(dir);
-    const auto configPath = (dir / "engine.txtpb").string();
-    const std::string assistantVoice = argc > 2 ? argv[2] : "pocket";   // offline_conversation_test <models> phonon
+                                      std::string("phonon_tts/model.q8.gguf"), turnModel})
+        if (!needed.empty()) VA_REQUIRE_FILE(models / needed);
+
     // The voice through its own options message, the STT through the shared one older configs use: both paths.
-    const std::string voiceOptions = assistantVoice == "phonon" ? "PhononOptions" : "PocketOptions";
+    const auto configPath = (folder / "engine.txtpb").string();
     std::ofstream(configPath) << "models_dir: \"" << models.generic_string() << "\"\n"
                               << "providers { vad { id: \"silero\" }\n"
                               << "  stt { id: \"" << stt << "\" options { [type.googleapis.com/vasdk.providers.LocalSttOptions] { idle_timeout_ms: 550 } } }\n"
-                              << "  tts { id: \"" << assistantVoice << "\" options { [type.googleapis.com/vasdk.providers." << voiceOptions
-                              << "] { prebuffer_ms: 250 silence_duration_seconds: 0.3 } } }\n"
-                              << (turn.empty() ? std::string() : "  turn { id: \"" + turn + "\" }\n") << "}\n";
-    std::printf("STT: %s, the assistant's voice: %s, the end of turn: %s\n", stt.c_str(), assistantVoice.c_str(),
-                turn.empty() ? "VAD silence" : turn.c_str());
+                              << "  tts { id: \"pocket\" options { [type.googleapis.com/vasdk.providers.PocketOptions]"
+                              << " { prebuffer_ms: 250 silence_duration_seconds: 0.3 } } }\n"
+                              << (variant.turn.empty() ? std::string() : "  turn { id: \"" + variant.turn + "\" }\n") << "}\n";
+    std::printf("STT: %s, the end of turn: %s\n", stt.c_str(), variant.turn.empty() ? "VAD silence" : variant.turn.c_str());
     char* error = nullptr;
-    vasdk_agent* agent = vasdk_agent_parse(kAgent, std::strlen(kAgent), VASDK_FORMAT_TEXT, nullptr, &error);
-    check(agent != nullptr, std::string("the agent parses ") + (error ? error : ""));
-    if (!agent) return 1;
+    const std::string agentDefinition = agentText();
+    agent = vasdk_agent_parse(agentDefinition.c_str(), agentDefinition.size(), VASDK_FORMAT_TEXT, nullptr, &error);
+    ASSERT_NE(agent, nullptr) << "the agent parses " << (error ? error : "");
 
     // The user's voice, at the session's input rate.
     vasdk::engine::ProviderSpec phonon;
@@ -254,46 +265,45 @@ int main(int argc, char** argv) {
     context.audio = va::audio::AudioConfig{16000, va::audio::AudioFormat::SHORT, 1};
     context.frameSize = 1600;
     std::string reason;
-    auto userTts = vasdk_providers_registry(providers).create<va::audio::GenericVoiceSynthesisProvider>(phonon, context, &reason);
-    check(userTts != nullptr && userTts->startVoiceSynthesisProvider(), "the user's voice (Phonon) starts " + reason);
-    if (!userTts) return 1;
-    UserVoice user(userTts);
+    userVoice = vasdk_providers_registry(providers).create<va::audio::GenericVoiceSynthesisProvider>(phonon, context, &reason);
+    ASSERT_NE(userVoice, nullptr) << "the user's voice (Phonon): " << reason;
+    ASSERT_TRUE(userVoice->startVoiceSynthesisProvider()) << "the user's voice (Phonon) starts";
+    user = std::make_unique<UserVoice>(userVoice);
 
     Conversation conversation;
-    vasdk_session* session = vasdk_session_create(configPath.c_str(), providers, agent, nullptr, &error);
-    check(session != nullptr, std::string("the offline session: VAD, STT and TTS on this machine ") + (error ? error : ""));
-    if (!session) return 1;
+    session = vasdk_session_create(configPath.c_str(), providers, agent, nullptr, &error);
+    ASSERT_NE(session, nullptr) << "the offline session: VAD, STT and TTS on this machine " << (error ? error : "");
     vasdk_session_on_event(session, onEvent, &conversation);
-    check(vasdk_session_start(session, &error) == 1, "it starts");
-    {
-        Microphone mic(session, vasdk_session_input_rate(session));
-        const auto greeting = conversation.replyPlayed(1, 90s);
-        check(greeting.find("How can I help?") != std::string::npos, "the greeting, spoken: " + greeting);
+    ASSERT_EQ(vasdk_session_start(session, &error), 1) << "it starts " << (error ? error : "");
 
-        struct Line { const char* said; std::initializer_list<const char*> expect; const char* what; };
-        const Line lines[] = {
-            {"When are you open?", {"8 to 6"}, "the hours"},
-            {"I'd like to book an oil change.", {"which day"}, "the form, the service read from the words"},
-            {"Next Tuesday.", {"oil change on tuesday"}, "the day, then the read-back, the day as said"},
-            {"Yes, please.", {"booked"}, "booked"},
-        };
-        size_t replies = 1;
-        for (const auto& line : lines) {
-            const auto start = std::chrono::steady_clock::now();
-            mic.speak(user.say(line.said));
-            const auto reply = conversation.replyPlayed(++replies, 120s);
-            const auto seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
-            check(mentions(reply, line.expect), std::string(line.what) + ": \"" + line.said + "\" heard as \"" +
-                                                    conversation.lastHeard() + "\" → \"" + reply + "\" (" +
-                                                    std::to_string(static_cast<int>(seconds)) + " s)");
-            if (!mentions(reply, line.expect)) break;
-        }
+    Microphone mic(session, vasdk_session_input_rate(session));
+    const auto greeting = conversation.replyPlayed(1, 90s);
+    ASSERT_NE(greeting.find("How can I help?"), std::string::npos) << "the greeting, spoken: " << greeting;
+
+    struct Line { const char* said; std::initializer_list<const char*> expect; const char* what; };
+    const Line lines[] = {
+        {"When are you open?", {"8 to 6"}, "the hours"},
+        {"I'd like to book an oil change.", {"which day"}, "the form, the service read from the words"},
+        {"Next Tuesday.", {"oil change on tuesday"}, "the day, then the read-back, the day as said"},
+        {"Yes, please.", {"booked"}, "booked"},
+    };
+    size_t replies = 1;
+    for (const auto& line : lines) {
+        const auto start = std::chrono::steady_clock::now();
+        mic.speak(user->say(line.said));
+        const auto reply = conversation.replyPlayed(++replies, 120s);
+        const auto seconds = static_cast<int>(std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count());
+        std::printf("\"%s\" heard as \"%s\" -> \"%s\" (%d s)\n", line.said, conversation.lastHeard().c_str(), reply.c_str(), seconds);
+        ASSERT_TRUE(mentions(reply, line.expect)) << line.what << ": \"" << line.said << "\" heard as \""
+                                                  << conversation.lastHeard() << "\" -> \"" << reply << "\"";
     }
-    vasdk_session_free(session);
-    userTts->stopVoiceSynthesisProvider();
-    vasdk_agent_free(agent);
-    vasdk_providers_free(providers);
-    std::filesystem::remove_all(dir);
-    std::printf("offline_conversation_test: %s\n", failures == 0 ? "all passed" : "failures");
-    return failures == 0 ? 0 : 1;
 }
+
+std::string variantName(const testing::TestParamInfo<Variant>& info) { return info.param.name; }
+
+INSTANTIATE_TEST_SUITE_P(Variants, OfflineConversationTest,
+                         testing::Values(Variant{"VadSilence", "", ""}, Variant{"Turn1Mini", "", "turn-1-mini"},
+                                         Variant{"Parakeet", "parakeet", ""}),
+                         variantName);
+
+} // namespace

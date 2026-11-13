@@ -45,6 +45,7 @@ if(VASDK_BUILD_TESTS)
     target_link_libraries(pyannote_fbank_test PRIVATE PFFFT)
     add_test(NAME pyannote_fbank_parity
              COMMAND pyannote_fbank_test ${CMAKE_CURRENT_SOURCE_DIR}/tests/golden/fbank_golden.txt)
+    vasdk_label_tests(unit pyannote_fbank_parity)
 endif()
 
 install(TARGETS vasdk_pyannote_speaker COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL

@@ -80,6 +80,7 @@ if(VASDK_BUILD_TESTS)
     target_link_libraries(vasdk_webrtc_provider_test PRIVATE
         vasdk_libdatachannel_webrtc LibDataChannel::LibDataChannelStatic Opus::opus)
     add_test(NAME vasdk_webrtc_provider COMMAND vasdk_webrtc_provider_test)
+    vasdk_label_tests(timing vasdk_webrtc_provider)
 endif()
 
 install(TARGETS vasdk_libdatachannel_webrtc COMPONENT vasdk_cpp_development EXCLUDE_FROM_ALL

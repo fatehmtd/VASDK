@@ -43,6 +43,8 @@ The core transport holds the protocol-independent logic: frames, state, threadin
 
 ## Tests
 
+How to write, label and register them: [vasdk-testing](../vasdk-testing/SKILL.md).
+
 - Unit: in `VASDK/tests/`, like `vasdk_webrtc_transport` (`VASDK/tests/webrtc_transport_test.cpp`), with a fake seam: frames in, frames out, stop unblocks, interrupt goes upstream.
 - Integration: the real library against itself or a local peer, like `vasdk_webrtc_provider` (`VASDK_3P_IMPL/LibDataChannelWebRtc/tests/`); a full session over it, skipping when the network isn't available.
 

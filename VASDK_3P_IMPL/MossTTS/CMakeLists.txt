@@ -54,6 +54,7 @@ if(VASDK_BUILD_TESTS)
     endif()
     add_test(NAME moss_normalize
              COMMAND moss_normalize_test ${CMAKE_CURRENT_SOURCE_DIR}/tests/golden/robust_golden.jsonl)
+    vasdk_label_tests(unit moss_normalize)
 
     # End-to-end synthesis smoke test; reports "skipped" when the models have not been downloaded.
     add_executable(moss_tts_synth_test tests/synth_test.cpp)
@@ -61,6 +62,7 @@ if(VASDK_BUILD_TESTS)
     vasdk_test_dlls(moss_tts_synth_test)
     add_test(NAME moss_tts_synth
              COMMAND moss_tts_synth_test ${MOSS_TTS_MODEL_DIR} ${CMAKE_CURRENT_BINARY_DIR}/moss_tts_test.wav)
+    vasdk_label_tests(model moss_tts_synth)
     set_tests_properties(moss_tts_synth PROPERTIES SKIP_RETURN_CODE 77)
 endif()
 

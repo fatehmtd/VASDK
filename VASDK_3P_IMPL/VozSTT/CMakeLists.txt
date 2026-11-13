@@ -24,6 +24,7 @@ if(VASDK_BUILD_TESTS)
     add_executable(voz_stt_provider_test tests/provider_test.cpp)
     target_link_libraries(voz_stt_provider_test PRIVATE vasdk_voz_stt)
     add_test(NAME voz_stt_provider COMMAND voz_stt_provider_test)
+    vasdk_label_tests(timing voz_stt_provider)
 endif()
 
 include(GNUInstallDirs)

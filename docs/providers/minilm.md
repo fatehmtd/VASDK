@@ -76,6 +76,6 @@ flowchart LR
 
 | Test | Kind | Needs | Run |
 | --- | --- | --- | --- |
-| `vasdk_minilm_nlu` | unit | the model | `ctest --test-dir build -R vasdk_minilm_nlu` |
+| `vasdk_minilm_nlu` | model: WordPiece, the vector, similar sentences closer, paraphrases the rules miss, a knowledge question by meaning (one case each) | the model (skipped without) | `ctest --test-dir build -R vasdk_minilm_nlu` |
 
 A test that needs a model or a key reports "skipped" without it.

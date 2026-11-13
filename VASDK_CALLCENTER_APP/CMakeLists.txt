@@ -22,6 +22,7 @@ if(VASDK_ENABLE_ENGINE_CONFIG AND TARGET VASDK)
         file(GLOB CALLCENTER_TESTS ${CALLCENTER_AGENT_DIR}/tests/*.txtpb)
         add_test(NAME vasdk_agent_callcenter
                  COMMAND callcenter_agentc test ${CALLCENTER_AGENT_DIR}/agent.txtpb ${CALLCENTER_TESTS})
+        vasdk_label_tests(agent vasdk_agent_callcenter)
         # The same calls with an LLM after the rules: nothing the agent understands changes
         add_executable(callcenter_suite_test crm/callcenter_suite_test.cpp)
         target_link_libraries(callcenter_suite_test PRIVATE callcenter_tools)
@@ -37,6 +38,7 @@ if(VASDK_ENABLE_ENGINE_CONFIG AND TARGET VASDK)
             endif()
         endif()
         add_test(NAME vasdk_agent_callcenter_with_llm COMMAND callcenter_suite_test ${CALLCENTER_AGENT_DIR})
+        vasdk_label_tests(agent vasdk_agent_callcenter_with_llm)
     endif()
 endif()
 

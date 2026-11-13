@@ -1,29 +1,28 @@
 // The MiniLM sentence encoder after an agent's rules: paraphrases the examples miss are understood
 // (the eval gains over the rules alone), and a knowledge question is answered by its meaning.
-// Skipped (77) without the model: cmake/DownloadMiniLmModel.cmake fetches it.
+// Skipped without the model: cmake/DownloadMiniLmModel.cmake fetches it.
 
 #include "MiniLmNlu/MiniLmSentenceEncoder.h"
 
 #include <VASDK/flow/CompiledAgent.h>
 #include <VASDK/flow/FlowRuntime.h>
 
-#include <google/protobuf/text_format.h>
+#include "TestSupport.h"
 
-#include <cstdio>
-#include <filesystem>
+#include <google/protobuf/text_format.h>
+#include <gtest/gtest.h>
+
+#include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace va;
 
 namespace {
 
-int failures = 0;
-void check(bool ok, const std::string& what) {
-    if (!ok) { ++failures; std::fprintf(stderr, "FAIL %s\n", what.c_str()); }
-}
-
-const char* kAgent = R"agent(
+std::string agentText() {
+    return R"agent(
 start_flow: "main"
 intents { name: "book" examples: ["book an appointment", "bring my car in", "schedule a service"] }
 intents { name: "hours" examples: ["opening hours", "when are you open"] }
@@ -34,35 +33,59 @@ flows { name: "main" start_page: "p" pages {
   name: "p" on_enter { ask { say { text: "How can I help?" } } }
   routes { intent: "book" } routes { intent: "hours" } routes { intent: "price" } routes { intent: "person" } } }
 )agent";
+}
 
-} // namespace
-
-int main(int argc, char** argv) {
-    const std::string modelDir = argc > 1 ? argv[1] : "models/minilm";
-    if (!std::filesystem::exists(modelDir + "/model.onnx")) {
-        std::printf("minilm_nlu_test: skipped, no model in %s\n", modelDir.c_str());
-        return 77;
+// The encoder, loaded from the model vasdk_add_gtest(... MODELS_DIR) names; skipped without it.
+class MiniLmSentenceEncoderTest : public testing::Test {
+protected:
+    void SetUp() override {
+        const auto modelDirectory = va::test::modelsDirectory();
+        VA_REQUIRE_FILE(modelDirectory / "model.onnx");
+        encoder = std::make_shared<thirdparty::nlu::MiniLmSentenceEncoder>(
+            thirdparty::nlu::MiniLmSentenceEncoderOptions{modelDirectory.string()});
+        ASSERT_TRUE(encoder->initialize()) << "the model loads";
     }
-    auto encoder = std::make_shared<thirdparty::nlu::MiniLmSentenceEncoder>(thirdparty::nlu::MiniLmSentenceEncoderOptions{modelDir});
-    check(encoder->initialize(), "the model loads");
-    check(encoder->tokenize("Hello, world!").size() == 6, "WordPiece: [CLS] hello , world ! [SEP]");
-    const auto vector = encoder->encode("is the shop open on saturday");
-    check(vector.size() == 384, "a 384-number vector");
-    check(va::nlu::cosine(encoder->encode("when are you open"), encoder->encode("what time do you close")) >
-              va::nlu::cosine(encoder->encode("when are you open"), encoder->encode("I want to book a service")),
-          "similar sentences are closer");
+
+    std::shared_ptr<thirdparty::nlu::MiniLmSentenceEncoder> encoder;
+};
+
+// The agent and its rules, then the rules followed by the encoder.
+class MiniLmAgentTest : public MiniLmSentenceEncoderTest {
+protected:
+    void SetUp() override {
+        MiniLmSentenceEncoderTest::SetUp();
+        if (IsSkipped() || HasFatalFailure()) return;
+        ASSERT_TRUE(google::protobuf::TextFormat::ParseFromString(agentText(), &definition)) << "the agent's text parses";
+        std::string error;
+        agent = flow::CompiledAgent::compile(definition, &error);
+        ASSERT_NE(agent, nullptr) << "the agent compiles: " << error;
+        embeddings = std::make_shared<va::nlu::EmbeddingNluProvider>(encoder, definition.intents());
+        cascade = std::make_shared<va::nlu::CascadeNluProvider>(
+            std::vector<std::shared_ptr<const va::nlu::NluProvider>>{agent->rules(), embeddings});
+    }
 
     vasdk::flow::Agent definition;
-    (void)google::protobuf::TextFormat::ParseFromString(kAgent, &definition);
-    std::string error;
-    auto agent = flow::CompiledAgent::compile(definition, &error);
-    check(agent != nullptr, "the agent compiles: " + error);
-    if (!agent) return 1;
-    auto embeddings = std::make_shared<va::nlu::EmbeddingNluProvider>(encoder, definition.intents());
-    auto cascade = std::make_shared<va::nlu::CascadeNluProvider>(
-        std::vector<std::shared_ptr<const va::nlu::NluProvider>>{agent->rules(), embeddings});
+    std::shared_ptr<const flow::CompiledAgent> agent;
+    std::shared_ptr<va::nlu::EmbeddingNluProvider> embeddings;
+    std::shared_ptr<va::nlu::CascadeNluProvider> cascade;
+};
 
-    // Paraphrases: the rules alone against the cascade.
+TEST_F(MiniLmSentenceEncoderTest, TokenizesWithWordPiece) {
+    EXPECT_EQ(encoder->tokenize("Hello, world!").size(), 6u) << "WordPiece: [CLS] hello , world ! [SEP]";
+}
+
+TEST_F(MiniLmSentenceEncoderTest, EncodesA384NumberVector) {
+    EXPECT_EQ(encoder->encode("is the shop open on saturday").size(), 384u);
+}
+
+TEST_F(MiniLmSentenceEncoderTest, PutsSimilarSentencesCloser) {
+    const auto open = encoder->encode("when are you open");
+    EXPECT_GT(va::nlu::cosine(open, encoder->encode("what time do you close")),
+              va::nlu::cosine(open, encoder->encode("I want to book a service")));
+}
+
+// Paraphrases: the rules alone against the rules followed by the model.
+TEST_F(MiniLmAgentTest, UnderstandsParaphrasesTheRulesMiss) {
     const std::vector<std::pair<std::string, std::string>> said{
         {"is the shop open on saturday", "hours"},   {"what time do you close", "hours"},
         {"I'd like to get my car serviced", "book"}, {"can you fit me in next week", "book"},
@@ -81,17 +104,17 @@ int main(int argc, char** argv) {
         return static_cast<double>(right) / static_cast<double>(said.size());
     };
     const double rules = accuracy(agent->rules()), withModel = accuracy(cascade);
-    std::printf("intent accuracy: rules %.0f%%, rules + minilm %.0f%%\n", rules * 100, withModel * 100);
-    check(withModel > rules && withModel >= 0.7, "the model gains over the rules");
+    EXPECT_GT(withModel, rules) << "the model gains over the rules";
+    EXPECT_GE(withModel, 0.7) << "rules + MiniLM understand most paraphrases";
+}
 
-    // A knowledge question by meaning.
+TEST_F(MiniLmAgentTest, AnswersAKnowledgeQuestionByMeaning) {
     flow::FlowRuntime conversation(agent);
     conversation.setNlu(cascade);
     conversation.setEmbeddings(embeddings);
     conversation.start();
     const auto reply = conversation.handleText("could you repair a dent in my door");
-    check(reply.text.rfind("We don't do bodywork.", 0) == 0, "a knowledge question by meaning: " + reply.text);
-
-    if (failures == 0) std::printf("minilm_nlu_test: all passed\n");
-    return failures == 0 ? 0 : 1;
+    EXPECT_EQ(reply.text.rfind("We don't do bodywork.", 0), 0u) << "a knowledge question by meaning: " << reply.text;
 }
+
+} // namespace

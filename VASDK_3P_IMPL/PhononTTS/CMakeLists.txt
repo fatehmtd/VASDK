@@ -92,6 +92,7 @@ if(VASDK_BUILD_TESTS)
     endif()
     add_test(NAME phonon_normalize_parity
              COMMAND phonon_normalize_test ${CMAKE_CURRENT_SOURCE_DIR}/tests/golden/normalize_golden.jsonl)
+    vasdk_label_tests(unit phonon_normalize_parity)
 
     # Parity of the text planner (sentence grouping and cutting). The golden half needs the
     # checkpoint's tokenizer.model and reports "skipped" when it has not been downloaded.
@@ -102,9 +103,11 @@ if(VASDK_BUILD_TESTS)
         target_compile_options(phonon_chunk_test PRIVATE /utf-8)
     endif()
     add_test(NAME phonon_chunk_unit COMMAND phonon_chunk_test)
+    vasdk_label_tests(unit phonon_chunk_unit)
     add_test(NAME phonon_chunk_parity
              COMMAND phonon_chunk_test ${PHONON_TTS_MODEL_DIR}/tokenizer.model
                      ${CMAKE_CURRENT_SOURCE_DIR}/tests/golden/chunk_golden.jsonl)
+    vasdk_label_tests(model phonon_chunk_parity)
     set_tests_properties(phonon_chunk_parity PROPERTIES SKIP_RETURN_CODE 77)
 endif()
 

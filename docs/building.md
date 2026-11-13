@@ -8,7 +8,7 @@
 - Git on your `PATH` - needed both to clone the repo and by CMake's `FetchContent` to pull every C++ dependency at configure time.
 - libcurl, for every HTTP-based transport (OpenAI/Anthropic/OpenRouter LLM calls, Gladia/Deepgram/Cartesia/Fish Audio cloud STT/TTS). No install is needed: configure uses an installed libcurl when CMake finds one (system package, Homebrew, or a prefix in `CMAKE_PREFIX_PATH`), and otherwise builds curl 8.21 from source as a static library. On Windows that build uses Schannel, the OS TLS stack, so OpenSSL isn't required. Pass `-DVASDK_FETCH_CURL=ON` to always build it from source, or `-DVASDK_ENABLE_HTTP_TRANSPORT=OFF` to drop it (which also disables every cloud provider, leaving only local/offline ones). On Linux/macOS a from-source build picks up OpenSSL (`apt install libssl-dev` / `brew install openssl`). Note that CMake also reads `CMAKE_TOOLCHAIN_FILE` from the environment, so a machine-wide toolchain file applies to every new build directory.
 - protobuf, for engine config files. Configure uses an installed one (`brew install protobuf`, `apt install libprotobuf-dev protobuf-compiler`) and otherwise builds it from source, which makes the first configure slower.
-- Python 3.8+ for the Python binding, the Python app and their tests, with the packages in [`VASDK_PYTHON_APP/pyproject.toml`](../VASDK_PYTHON_APP/pyproject.toml) (uv) or [`requirements.txt`](../VASDK_PYTHON_APP/requirements.txt) (pip); pass `-DPython3_EXECUTABLE=` to test with that environment ([docs/apps/python.md](apps/python.md#testing)). The checkers that ctest runs (`skills/check_skills.py`, `VASDK_3P_IMPL/check_rules.py`) use the standard library only. The two golden generators (`VASDK_3P_IMPL/SmartTurnV3/tests/gen_features_golden.py`, `VASDK_3P_IMPL/PyannoteSpeaker/tests/gen_fbank_golden.py`) declare their packages inline: `uv run <script>` installs them.
+- Python 3.8+ for the Python binding, the Python app and their tests, with the packages in [`VASDK_PYTHON_APP/pyproject.toml`](../VASDK_PYTHON_APP/pyproject.toml) (uv) or [`requirements.txt`](../VASDK_PYTHON_APP/requirements.txt) (pip); pass `-DPython3_EXECUTABLE=` to test with that environment ([docs/apps/python.md](apps/python.md#testing)). The checkers that ctest runs (`skills/check_skills.py`, `VASDK_3P_IMPL/check_rules.py`, `skills/vasdk-testing/check_tests.py`) use the standard library only. The two golden generators (`VASDK_3P_IMPL/SmartTurnV3/tests/gen_features_golden.py`, `VASDK_3P_IMPL/PyannoteSpeaker/tests/gen_fbank_golden.py`) declare their packages inline: `uv run <script>` installs them.
 - A network connection for the first configure - everything else (C++ deps and model files) is fetched for you, and re-configures skip anything already downloaded.
 
 ## What a build makes
@@ -26,7 +26,7 @@ cmake -B build -S . -DVASDK_BUILD_APPS=ON          # VASDK_Pipeline, VASDK_CallC
 cmake -B build -S . -DVASDK_BUILD_APP=ON           # the pipeline app alone (VASDK_BUILD_CALLCENTER, VASDK_BUILD_CAR)
 ```
 
-The tests run with `-DVASDK_BUILD_TESTS=ON`; the garage agent's suites live in `VASDK_APP`, so a full test run also turns on the apps (`-DVASDK_BUILD_APPS=ON`). `-DVASDK_DOWNLOAD_EVAL_DATA=ON` also downloads the evaluation set (about 37 MB), so the `vasdk_eval_*` tests measure the local providers on real speech instead of skipping ([Evaluation](evaluation.md)).
+The tests run with `-DVASDK_BUILD_TESTS=ON`, which also fetches GoogleTest (only for the tests; it is never installed). Each test has a layer label (`unit`, `timing`, `integration`, `model`, `agent`, `eval`, `binding`, `packaging`), so `ctest -L unit` is the fast loop ([Testing VASDK](testing.md)). The garage agent's suites live in `VASDK_APP`, so a full test run also turns on the apps (`-DVASDK_BUILD_APPS=ON`). `-DVASDK_DOWNLOAD_EVAL_DATA=ON` also downloads the evaluation set (about 37 MB), so the `vasdk_eval_*` tests measure the local providers on real speech instead of skipping ([Evaluation](evaluation.md)).
 
 ### Presets
 
@@ -34,6 +34,8 @@ The tests run with `-DVASDK_BUILD_TESTS=ON`; the garage agent's suites live in `
 
 ```bash
 cmake --preset dev && cmake --build --preset dev && ctest --preset dev   # tests and apps
+ctest --preset unit                                                      # the fast loop: unit tests only
+ctest --preset offline                                                   # every test that needs no download
 cmake --preset apps && cmake --build --preset apps                       # the sample apps
 cmake --preset release && cmake --build --preset release                 # the C library as packages ship it
 ```
@@ -45,6 +47,7 @@ cmake --preset release && cmake --build --preset release                 # the C
 | `ci` | Tests, apps and the Python binding: what CI runs |
 | `release`, `release-core`, `release-full` | The C library in a flavor ([Flavors](integrating.md#flavors)), no models, without AVX2 so it runs on any x86_64 CPU |
 | `system-deps` | `release` with every dependency from `find_package` (`VASDK_DEPENDENCY_SOURCE=SYSTEM`) |
+| `unit`, `offline` (test presets) | On the `dev` build: the `unit` label only; everything but the `model` and `eval` labels ([Testing VASDK](testing.md)) |
 
 ## Build options
 

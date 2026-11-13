@@ -101,6 +101,18 @@
       "configuration": "Release",
       "output": { "outputOnFailure": true },
       "execution": { "noTestsAction": "error" }
+    },
+    {
+      "name": "unit",
+      "inherits": "dev",
+      "description": "The fast loop: deterministic logic only (docs/testing.md)",
+      "filter": { "include": { "label": "^unit$" } }
+    },
+    {
+      "name": "offline",
+      "inherits": "dev",
+      "description": "Every test that needs no download: no models, no evaluation set (docs/testing.md)",
+      "filter": { "exclude": { "label": "^(model|eval)$" } }
     }
   ]
 }

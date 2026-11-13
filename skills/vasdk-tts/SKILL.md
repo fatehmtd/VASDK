@@ -57,7 +57,9 @@ An agent can say part of a reply in another voice or at another pace (`say { voi
 
 ## Tests
 
-- Unit: `VASDK_3P_IMPL/<Name>/tests/<name>_test.cpp`. Synthesize a sentence at the pipeline's 16 kHz int16, check non-silent audio of a sane length, cancel mid-sentence and check the completion still fires. Write a WAV for listening. Template: `VASDK_3P_IMPL/SupertonicTTS/tests/synth_test.cpp` (`supertonic_tts_synth`). Exit 77 without the model or key.
+How to write, label and register them: [vasdk-testing](../vasdk-testing/SKILL.md).
+
+- Unit: `VASDK_3P_IMPL/<Name>/tests/<name>_test.cpp`. Synthesize a sentence at the pipeline's 16 kHz int16, check non-silent audio of a sane length, cancel mid-sentence and check the completion still fires. Write a WAV for listening. Template: `VASDK_3P_IMPL/SupertonicTTS/tests/synth_test.cpp` (`supertonic_tts_synth`). Skipped (`GTEST_SKIP()`) without the model or key.
 - Integration: `vasdk_tts_turn` and `vasdk_speech_style` (`VASDK/tests/`) for the processor contract, `vasdk_llm_stream_speech` for streamed replies, and `vasdk_offline_conversation` with the new id as the assistant voice.
 
 ## Done when

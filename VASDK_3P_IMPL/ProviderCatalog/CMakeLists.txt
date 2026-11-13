@@ -129,12 +129,14 @@ if(VASDK_BUILD_TESTS)
     add_executable(vasdk_cloud_key_test cloud_key_test.cpp)
     target_link_libraries(vasdk_cloud_key_test PRIVATE vasdk_provider_catalog)
     add_test(NAME vasdk_cloud_key COMMAND vasdk_cloud_key_test)
+    vasdk_label_tests(unit vasdk_cloud_key)
     vasdk_test_dlls(vasdk_cloud_key_test)
 
     # A local voice's pre-buffer: its own prebuffer_ms, else audio.tts_prebuffer_ms, else 250 ms.
     add_executable(vasdk_tts_prebuffer_test tts_prebuffer_test.cpp)
     target_link_libraries(vasdk_tts_prebuffer_test PRIVATE vasdk_provider_catalog)
     add_test(NAME vasdk_tts_prebuffer COMMAND vasdk_tts_prebuffer_test)
+    vasdk_label_tests(model vasdk_tts_prebuffer)
     set_tests_properties(vasdk_tts_prebuffer PROPERTIES SKIP_RETURN_CODE 77)
     vasdk_test_dlls(vasdk_tts_prebuffer_test)
 
@@ -142,6 +144,7 @@ if(VASDK_BUILD_TESTS)
     add_executable(vasdk_provider_options_test provider_options_test.cpp)
     target_link_libraries(vasdk_provider_options_test PRIVATE vasdk_provider_catalog)
     add_test(NAME vasdk_provider_options COMMAND vasdk_provider_options_test)
+    vasdk_label_tests(model vasdk_provider_options)
     set_tests_properties(vasdk_provider_options PROPERTIES SKIP_RETURN_CODE 77)
     vasdk_test_dlls(vasdk_provider_options_test)
 endif()
@@ -151,24 +154,18 @@ if(VASDK_BUILD_TESTS AND TARGET vasdk_turn1mini)
     add_executable(vasdk_turn1mini_options_test ${CMAKE_CURRENT_SOURCE_DIR}/../Turn1Mini/tests/options_test.cpp)
     target_link_libraries(vasdk_turn1mini_options_test PRIVATE vasdk_provider_catalog)
     add_test(NAME vasdk_turn1mini_options COMMAND vasdk_turn1mini_options_test ${CMAKE_CURRENT_BINARY_DIR}/../models)
+    vasdk_label_tests(model vasdk_turn1mini_options)
     set_tests_properties(vasdk_turn1mini_options PROPERTIES SKIP_RETURN_CODE 77)
     vasdk_test_dlls(vasdk_turn1mini_options_test)
 endif()
 
 # A spoken conversation with no network, through the C API: VAD, STT and TTS on this machine.
 if(VASDK_BUILD_TESTS AND TARGET vasdk_silero_vad AND TARGET vasdk_whistle_stt AND TARGET vasdk_pocket_tts AND TARGET vasdk_phonon_tts)
-    add_executable(vasdk_offline_conversation_test offline_conversation_test.cpp)
-    target_link_libraries(vasdk_offline_conversation_test PRIVATE vasdk_provider_catalog nlohmann_json::nlohmann_json)
-    add_test(NAME vasdk_offline_conversation
-             COMMAND vasdk_offline_conversation_test ${CMAKE_CURRENT_BINARY_DIR}/../models)
-    set_tests_properties(vasdk_offline_conversation PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 600)
-    vasdk_test_dlls(vasdk_offline_conversation_test)
-    # The same conversation with turn-1-mini deciding where each of the user's turns ends
-    if(TARGET vasdk_turn1mini)
-        add_test(NAME vasdk_offline_conversation_turn1mini
-                 COMMAND vasdk_offline_conversation_test ${CMAKE_CURRENT_BINARY_DIR}/../models pocket "" turn-1-mini)
-        set_tests_properties(vasdk_offline_conversation_turn1mini PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 600)
-    endif()
+    # One case per end of turn (VAD silence, turn-1-mini) and recognizer; those not built are skipped
+    vasdk_add_gtest(vasdk_offline_conversation LABEL integration TIMEOUT 600
+        SOURCES offline_conversation_test.cpp
+        LIBRARIES vasdk_provider_catalog nlohmann_json::nlohmann_json
+        MODELS_DIR ${CMAKE_CURRENT_BINARY_DIR}/../models)
 endif()
 
 # The audio DSP and speaker embedding picked by config id (rnnoise, pyannote), and a session with both.
@@ -176,6 +173,7 @@ if(VASDK_BUILD_TESTS AND TARGET vasdk_pyannote_speaker)
     add_executable(vasdk_dsp_speaker_test dsp_speaker_test.cpp)
     target_link_libraries(vasdk_dsp_speaker_test PRIVATE vasdk_provider_catalog)
     add_test(NAME vasdk_dsp_speaker COMMAND vasdk_dsp_speaker_test ${CMAKE_CURRENT_BINARY_DIR}/../models)
+    vasdk_label_tests(integration vasdk_dsp_speaker)
     set_tests_properties(vasdk_dsp_speaker PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 120)
     vasdk_test_dlls(vasdk_dsp_speaker_test)
 endif()
@@ -187,6 +185,7 @@ if(VASDK_BUILD_TESTS AND TARGET vasdk_libdatachannel_webrtc AND TARGET vasdk_sil
     target_link_libraries(vasdk_webrtc_session_test PRIVATE vasdk_provider_catalog nlohmann_json::nlohmann_json
         LibDataChannel::LibDataChannelStatic Opus::opus httplib::httplib)
     add_test(NAME vasdk_webrtc_session COMMAND vasdk_webrtc_session_test ${CMAKE_CURRENT_BINARY_DIR}/../models)
+    vasdk_label_tests(integration vasdk_webrtc_session)
     set_tests_properties(vasdk_webrtc_session PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 300)
     vasdk_test_dlls(vasdk_webrtc_session_test)
 endif()

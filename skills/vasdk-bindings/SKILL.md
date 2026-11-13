@@ -43,6 +43,8 @@ The bindings are optional and off by default: configure with `-DVASDK_BUILD_PYTH
 
 ## Tests
 
+How to write, label and register them: [vasdk-testing](../vasdk-testing/SKILL.md).
+
 - **Unit:** a C test in `VASDK/tests/vasdk_c_test.c` or `VASDK/tests/c_session_test.cpp` covering the new call, its errors, and its callback.
 - **Integration:** the same scenario from Python in `bindings/python/tests/` (registered with `VASDK_LIBRARY` set, as `vasdk_python_garage` is in `VASDK_APP/CMakeLists.txt`), and on Android in the device suite.
 

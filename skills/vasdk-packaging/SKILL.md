@@ -57,6 +57,8 @@ flowchart LR
 
 ## Tests
 
+How to write, label and register them: [vasdk-testing](../vasdk-testing/SKILL.md).
+
 - **Integration:** `vasdk_consumer_install` installs this build into a fresh prefix, checks that no app is in it, runs the installed `bin/vasdk`, and builds and runs `tests/consumer/c_library` (C, and C++ through `vasdk.hpp`) against it with `find_package(VASDK)`. `vasdk_consumer_build_tree` does the same from the build tree (`VASDK_DIR`).
 - **The C++ package:** `vasdk_consumer_cpp_install` and `vasdk_consumer_cpp_build_tree` do the same for `tests/consumer/cpp_library` with `find_package(VASDK COMPONENTS cpp)`, the install adding `vasdk_cpp_development`. They exist only in a build that makes the package (dependencies from installed packages, e.g. Conan's toolchain file and `VASDK_DEPENDENCY_SOURCE=AUTO`), and they pass that build's toolchain file and `CMAKE_PREFIX_PATH` on to the program. In a `FETCH` build, the configure log says the package isn't made.
 - **Models:** `vasdk_model_store` (offline), `vasdk_model_store_network` (skipped without network), `vasdk_command`, `vasdk_model_downloads` (the configure-time downloads, and every id they use is in the manifest).
