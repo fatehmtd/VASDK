@@ -221,7 +221,7 @@ int main(int argc, char** argv) {
     }
     const std::string sttModel = stt == "whistle" ? "whistle/whistle.cact" : stt + "/vocab.txt";
     for (const std::string& needed : {std::string("silero_vad.onnx"), sttModel, std::string("pocket_tts/voices.bin"),
-                                      std::string("phonon_tts"), turnModel}) {
+                                      std::string("phonon_tts/model.q8.gguf"), turnModel}) {
         if (!needed.empty() && !std::filesystem::exists(models / needed)) {
             std::printf("skipped: %s isn't in %s\n", needed.c_str(), models.string().c_str());
             return 77;
