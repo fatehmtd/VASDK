@@ -48,6 +48,26 @@ void check(bool ok, const char* what) {
     if (!ok) { ++failures; std::fprintf(stderr, "FAIL %s\n", what); }
 }
 
+// Until `condition` holds, at most `timeout`. A check that something happens waits for it, not a
+// fixed time: a loaded machine (a shared CI runner) runs the sender late. A check that something
+// doesn't happen still waits a fixed time.
+template <class Condition>
+bool waitUntil(Condition condition, std::chrono::milliseconds timeout = 2s) {
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (!condition()) {
+        if (std::chrono::steady_clock::now() >= deadline) return false;
+        std::this_thread::sleep_for(2ms);
+    }
+    return true;
+}
+
+// Index of the first chunk that starts with `value`, or the chunk count.
+size_t firstChunkStartingWith(const std::vector<std::vector<int16_t>>& chunks, int16_t value) {
+    size_t index = 0;
+    while (index < chunks.size() && chunks[index][0] != value) ++index;
+    return index;
+}
+
 std::shared_ptr<transport::SynthesisFrame> synth(size_t samples, int16_t value) {
     auto f = std::make_shared<transport::SynthesisFrame>();
     std::vector<int16_t> pcm(samples, value);
@@ -94,7 +114,11 @@ int main() {
     { std::lock_guard<std::mutex> l(peer->m); peer->chunks.clear(); }
     const auto sent = std::chrono::steady_clock::now();
     t.sendFrame(synth(500, 1000));
-    std::this_thread::sleep_for(130ms);
+    // Speech, its padded tail and one idle chunk: three ticks once speech starts.
+    waitUntil([&] {
+        std::lock_guard<std::mutex> l(peer->m);
+        return firstChunkStartingWith(peer->chunks, 1000) + 2 < peer->chunks.size();
+    });
     {
         std::lock_guard<std::mutex> l(peer->m);
         // One chunk per 20 ms of the time that really passed (a loaded machine sleeps longer than asked),
@@ -106,8 +130,7 @@ int main() {
         check(sized, "paced sender emits 320-sample (20 ms) chunks");
         check(ch.size() <= static_cast<size_t>(elapsed.count() / 20 + 2), "sender is paced, not bursting");
         // A silence tick may land between clear() and sendFrame(); find where speech starts.
-        size_t k = 0;
-        while (k < ch.size() && ch[k][0] != 1000) ++k;
+        const size_t k = firstChunkStartingWith(ch, 1000);
         check(k <= 1 && k + 2 < ch.size(), "speech starts on the next tick");
         if (k + 2 < ch.size()) {
             check(ch[k][319] == 1000, "first chunk is all speech");
@@ -115,39 +138,45 @@ int main() {
             check(ch[k + 2][0] == 0, "idle sends silence");
         }
     }
-    check(t.getPendingOutputAudioBytes() == 0, "queue drained");
+    check(waitUntil([&] { return t.getPendingOutputAudioBytes() == 0; }), "queue drained");
 
     // Pending barge-in: Pause sends silence and keeps the queue; release resumes from the same
     // sample. Duck plays the audio at -12 dB after a 20 ms ramp.
     { std::lock_guard<std::mutex> l(peer->m); peer->chunks.clear(); }
     t.holdOutputAudio(transport::PendingPlaybackMode::Pause, true, -12.0f);
     t.sendFrame(synth(3200, 1000));  // 200 ms
-    std::this_thread::sleep_for(120ms);
+    // The pause fades the first chunk of speech out; once a chunk has followed it, the queue is held.
+    waitUntil([&] {
+        std::lock_guard<std::mutex> l(peer->m);
+        return firstChunkStartingWith(peer->chunks, 997) + 1 < peer->chunks.size();  // 1000 at the ramp's first step
+    });
     const int pausedPending = t.getPendingOutputAudioBytes();
     std::this_thread::sleep_for(100ms);
     check(pausedPending > 0 && t.getPendingOutputAudioBytes() == pausedPending, "paused: queue kept, nothing consumed");
     {
         std::lock_guard<std::mutex> l(peer->m);
-        bool silent = !peer->chunks.empty();
-        for (size_t c = 1; c < peer->chunks.size(); ++c) silent &= peer->chunks[c][319] == 0;
-        check(silent, "paused: silence is sent");
-        peer->chunks.clear();
+        auto& ch = peer->chunks;
+        const size_t ramp = firstChunkStartingWith(ch, 997);
+        bool silent = ramp + 1 < ch.size() && ch[ramp][319] == 0;
+        for (size_t c = ramp + 1; c < ch.size(); ++c)
+            for (int16_t sample : ch[c]) silent &= sample == 0;
+        check(silent, "paused: the speech fades out, then silence is sent");
+        ch.clear();
     }
     t.holdOutputAudio(transport::PendingPlaybackMode::Pause, false, -12.0f);
-    std::this_thread::sleep_for(300ms);
-    check(t.getPendingOutputAudioBytes() == 0, "released: the paused audio plays out");
+    check(waitUntil([&] { return t.getPendingOutputAudioBytes() == 0; }), "released: the paused audio plays out");
     t.holdOutputAudio(transport::PendingPlaybackMode::Duck, true, -12.0f);
     { std::lock_guard<std::mutex> l(peer->m); peer->chunks.clear(); }
     t.sendFrame(synth(3200, 1000));
-    std::this_thread::sleep_for(150ms);
-    {
-        std::lock_guard<std::mutex> l(peer->m);
-        bool ducked = false;
-        for (auto& c : peer->chunks) ducked |= c[319] > 240 && c[319] < 260;  // 1000 * 10^(-12/20) = 251
-        check(ducked, "ducked chunks play at -12 dB");
-    }
+    check(waitUntil([&] {
+              std::lock_guard<std::mutex> l(peer->m);
+              for (auto& c : peer->chunks)
+                  if (c[319] > 240 && c[319] < 260) return true;  // 1000 * 10^(-12/20) = 251
+              return false;
+          }),
+          "ducked chunks play at -12 dB");
     t.holdOutputAudio(transport::PendingPlaybackMode::Duck, false, -12.0f);
-    std::this_thread::sleep_for(150ms);
+    waitUntil([&] { return t.getPendingOutputAudioBytes() == 0; });
 
     // Barge-in: a second of audio flushes down to a <= 50 ms faded tail ending in zero.
     t.sendFrame(synth(16000, 1000));
