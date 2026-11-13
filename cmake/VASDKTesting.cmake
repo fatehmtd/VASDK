@@ -112,8 +112,10 @@ function(vasdk_add_gtest name)
     if(_vasdk_test_MODELS_DIR)
         list(APPEND _arguments "--vasdk-models-dir=${_vasdk_test_MODELS_DIR}")
     endif()
-    # GTEST_SKIP() prints "[  SKIPPED ]"; ctest reports the case as skipped, not passed
-    set(_properties LABELS ${_vasdk_test_LABEL} SKIP_REGULAR_EXPRESSION "\\[  SKIPPED \\]")
+    # GTEST_SKIP() prints "[  SKIPPED ]": gtest_discover_tests sets that SKIP_REGULAR_EXPRESSION itself,
+    # so ctest reports the case as skipped. Never set it here: CMake 4.5 writes these properties in a
+    # [[...]] bracket argument, which a "]]" in a value ends early
+    set(_properties LABELS ${_vasdk_test_LABEL})
     if(_vasdk_test_TIMEOUT)
         list(APPEND _properties TIMEOUT ${_vasdk_test_TIMEOUT})
     endif()
