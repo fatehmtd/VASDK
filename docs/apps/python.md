@@ -47,7 +47,7 @@ python VASDK_PYTHON_APP/app.py             # talk to it: the microphone and spea
 
 With uv, either run these through `uv run --project VASDK_PYTHON_APP`, or first activate `VASDK_PYTHON_APP/.venv`.
 
-From the source tree, the app finds the binding beside it, VASDK in `build/VASDK`, and the providers in `build/VASDK_3P_IMPL/ProviderCatalog`; `VASDK_LIBRARY`, `VASDK_PROVIDERS_LIBRARY` and `--models` point elsewhere. The voice engine prints its loading lines on stderr (`2>/dev/null` hides them).
+From the source tree, the app finds the binding beside it, and the binding finds VASDK's build in `build/` or a preset's folder in it (`build/dev` after `cmake --preset dev`), the most recently built one when there are several. The models come from that build's `VASDK_3P_IMPL/models`. `VASDK_BUILD_DIR` (a build folder), `VASDK_LIBRARY` (the library itself) and `--models` point elsewhere. The voice engine prints its loading lines on stderr (`2>/dev/null` hides them).
 
 With an LLM, cooking questions and what the agent doesn't understand go to it. Put its settings in `.env.local` (here, or at the repository root, or `--env-file`):
 

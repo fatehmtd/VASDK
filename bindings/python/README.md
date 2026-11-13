@@ -76,6 +76,7 @@ session = vasdk.Session(config, providers, agent, models_dir="models")   # vasdk
 | `fire_trigger`, `set_context`, `set_param` | The agent's app events, the app's state, a declared `$session` param. |
 | `snapshot()`, `start(resume=...)` | Where the agent's conversation is, to pick it up in a later session: a `vasdk.ConversationSnapshot` (store it with `SerializeToString()`; `start` takes the message, its bytes or its JSON). |
 | `vasdk.set_log_level("warn")` | How much VASDK (and the providers) log to the console. |
+| `vasdk.build_dir()` | The build tree the C library was loaded from (`build/dev` after `cmake --preset dev`), whose `VASDK_3P_IMPL/models` holds the downloaded models; `None` for `VASDK_LIBRARY` or a wheel ([Without a wheel](#without-a-wheel)). |
 
 Everything else a C++ session does is here too:
 
@@ -197,7 +198,7 @@ To remove the copied libraries from the source tree, run `python bindings/python
 
 ## Without a wheel
 
-To use the package from the source tree instead, install it editable (`uv pip install -e bindings/python` or `pip install -e bindings/python`), or put `bindings/python` on `sys.path` as the tests do, and set `VASDK_LIBRARY` to the C library. If it isn't set, the package looks in `./build/cmake/c_library` (then `./build/VASDK`, for a shared VASDK). The messages are found in `build/bindings/python/vasdk`, or where `VASDK_PYTHON_PROTOS` points.
+To use the package from the source tree instead, install it editable (`uv pip install -e bindings/python` or `pip install -e bindings/python`), or put `bindings/python` on `sys.path` as the tests do, and set `VASDK_LIBRARY` to the C library. If it isn't set, the package looks in the build trees: `VASDK_BUILD_DIR` when set, else `build/` and the preset folders in it (`build/dev` after `cmake --preset dev`, `build/release`, ...), under the current folder and the source tree. In each it looks for `cmake/c_library` (then `VASDK`, for a shared VASDK), and the most recently built library wins; `vasdk.build_dir()` says which tree that was. The messages are found in that tree's `bindings/python/vasdk`, or where `VASDK_PYTHON_PROTOS` points.
 
 ```sh
 VASDK_LIBRARY=build/cmake/c_library/Release/vasdk_c.dll python bindings/python/tests/test_garage.py VASDK_APP/agents/garage-menu
