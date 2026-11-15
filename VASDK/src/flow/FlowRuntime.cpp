@@ -9,6 +9,7 @@
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
+#include <cmath>
 
 #include <cctype>
 #include <cstdlib>
@@ -29,6 +30,16 @@ std::string slotText(const Value& value) {
     std::string json;
     (void)google::protobuf::util::MessageToJsonString(value.struct_value(), &json);
     return json;
+}
+
+// A number, or a string that reads entirely as one ("15"); nullopt otherwise.
+std::optional<double> numberIn(const Value& value) {
+    if (value.kind_case() == Value::kNumberValue) return value.number_value();
+    if (value.kind_case() != Value::kStringValue || value.string_value().empty()) return std::nullopt;
+    char* end = nullptr;
+    const double number = std::strtod(value.string_value().c_str(), &end);
+    if (end == value.string_value().c_str() || *end != '\0') return std::nullopt;
+    return number;
 }
 
 // "$session.tier" → {"session", "tier"}; set keys were checked when the agent loaded.
@@ -251,8 +262,102 @@ bool FlowRuntime::setSessionParam(const std::string& name, const Value& value, s
                             vasdk::flow::SessionParam::Type_Name(param->type()) + ")";
         return false;
     }
+    // An ENUM keeps one of its values (a synonym is stored as its value); a bounded NUMBER, as its
+    // out_of_range says: ALLOW as given, CLAMP the nearest bound, REJECT not at all.
+    using Param = vasdk::flow::SessionParam;
+    _refusedOutOfRange = false;
+    if (param->type() == Param::ENUM && stored.kind_case() == Value::kStringValue) {
+        const auto index = enumIndex(*param, stored);
+        if (!index) {
+            _refusedOutOfRange = param->out_of_range() == Param::REJECT;
+            if (error) *error = "\"" + toText(value) + "\" isn't one of session param \"" + name + "\"'s values (" + param->entity() + ")";
+            return false;
+        }
+        stored = stringValue(enumValues(*param)[*index].value());
+    } else if (param->type() == Param::NUMBER && stored.kind_case() == Value::kNumberValue &&
+               (!param->min().empty() || !param->max().empty())) {
+        const auto bounds = numberBounds(*param);
+        const double number = stored.number_value();
+        const bool below = bounds.min && number < *bounds.min, above = bounds.max && number > *bounds.max;
+        if ((below || above) && param->out_of_range() == Param::REJECT) {
+            _refusedOutOfRange = true;
+            if (error) *error = toText(value) + " is outside session param \"" + name + "\"'s min and max";
+            return false;
+        }
+        if ((below || above) && param->out_of_range() == Param::CLAMP) stored = numberValue(below ? *bounds.min : *bounds.max);
+    }
     (*_session.mutable_fields())[name] = stored;
     return true;
+}
+
+FlowRuntime::NumberBounds FlowRuntime::numberBounds(const vasdk::flow::SessionParam& param) const {
+    auto read = [this](const std::string& expression) -> std::optional<double> {
+        if (expression.empty()) return std::nullopt;
+        const auto number = numberIn(evaluate(expression));
+        return number;
+    };
+    NumberBounds bounds;
+    bounds.min = read(param.min());
+    bounds.max = read(param.max());
+    if (const auto step = read(param.step()); step && *step > 0) bounds.step = *step;
+    return bounds;
+}
+
+std::vector<vasdk::nlu::EntityValue> FlowRuntime::enumValues(const vasdk::flow::SessionParam& param) const {
+    return _agent->entities().values(entityName(param.entity()), _dynamicEntities);
+}
+
+// Where `value` is among an ENUM's values: by its value or one of its synonyms, ignoring case.
+std::optional<size_t> FlowRuntime::enumIndex(const vasdk::flow::SessionParam& param, const Value& value) const {
+    if (value.kind_case() != Value::kStringValue) return std::nullopt;
+    auto same = [](const std::string& a, const std::string& b) {
+        return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(), [](unsigned char x, unsigned char y) {
+                   return std::tolower(x) == std::tolower(y);
+               });
+    };
+    const auto values = enumValues(param);
+    for (size_t i = 0; i < values.size(); ++i) {
+        if (same(values[i].value(), value.string_value())) return i;
+        for (const auto& synonym : values[i].synonyms())
+            if (same(synonym, value.string_value())) return i;
+    }
+    return std::nullopt;
+}
+
+// $bounds.<param>.<field>: a NUMBER's min, max, step, at_min and at_max; an ENUM's first and last
+// values as min and max, its values, the index of the one it holds, and that one's attributes.
+Value FlowRuntime::boundsValue(const vasdk::flow::SessionParam& param, const Path& path) const {
+    const std::string field = path.size() > 2 ? path[2] : "";
+    const Value current = sessionParam(param.name());
+    if (param.type() == vasdk::flow::SessionParam::ENUM) {
+        const auto values = enumValues(param);
+        const auto index = enumIndex(param, current);
+        if (field == "values") {
+            Value list;
+            for (const auto& value : values) *list.mutable_list_value()->add_values() = stringValue(value.value());
+            return list;
+        }
+        if (values.empty()) return nullValue();
+        if (field == "min") return stringValue(values.front().value());
+        if (field == "max") return stringValue(values.back().value());
+        if (field == "index") return index ? numberValue(static_cast<double>(*index)) : nullValue();
+        if (field == "at_min") return boolValue(index && *index == 0);
+        if (field == "at_max") return boolValue(index && *index + 1 == values.size());
+        if (field == "attributes" && index) {
+            Value attributes;
+            *attributes.mutable_struct_value() = values[*index].attributes();
+            return valueAt(attributes, path, 3);
+        }
+        return nullValue();
+    }
+    const auto bounds = numberBounds(param);
+    const auto number = numberIn(current);
+    if (field == "min") return bounds.min ? numberValue(*bounds.min) : nullValue();
+    if (field == "max") return bounds.max ? numberValue(*bounds.max) : nullValue();
+    if (field == "step") return numberValue(bounds.step);
+    if (field == "at_min") return boolValue(number && bounds.min && *number <= *bounds.min);
+    if (field == "at_max") return boolValue(number && bounds.max && *number >= *bounds.max);
+    return nullValue();
 }
 
 Value FlowRuntime::sessionParam(const std::string& name) const {
@@ -308,6 +413,10 @@ Value FlowRuntime::resolve(const Path& path, bool spoken) const {
         return list;
     }
     if (root == "context" && _context) return fromFields(_context(), field, 2);
+    if (root == "bounds") {
+        const auto* param = _agent->sessionParam(field);
+        return param ? boundsValue(*param, path) : nullValue();
+    }
     if (root == "trigger" && _trigger) {
         if (field == "name") return stringValue(_trigger->first);
         Value payload;
@@ -1049,8 +1158,20 @@ FlowRuntime::Outcome FlowRuntime::run(const google::protobuf::RepeatedPtrField<v
             offerChoices(reply);
             break;
         }
-        case vasdk::flow::Step::kSet:
+        case vasdk::flow::Step::kSet: {
+            _refusedOutOfRange = false;
             store(step.set().key(), evaluate(step.set().value()));
+            const Path path = splitReference(step.set().key());
+            const auto* param = path.size() == 2 && path[0] == "session" ? _agent->sessionParam(path[1]) : nullptr;
+            if (_refusedOutOfRange && param)   // out_of_range REJECT: the value stays, the steps after it don't run
+                if (auto outcome = refuseOutOfRange(*param, reply); outcome.moves()) return outcome;
+            break;
+        }
+        case vasdk::flow::Step::kIncrease:
+            if (auto outcome = adjust(step.increase(), true, reply); outcome.moves()) return outcome;
+            break;
+        case vasdk::flow::Step::kDecrease:
+            if (auto outcome = adjust(step.decrease(), false, reply); outcome.moves()) return outcome;
             break;
         case vasdk::flow::Step::kExtract:
             if (const auto match = _agent->entities().find(entityName(step.extract().entity()), _inputText, _dynamicEntities, now(), entitySpans(_inputText)))
@@ -1120,6 +1241,78 @@ FlowRuntime::Outcome FlowRuntime::run(const google::protobuf::RepeatedPtrField<v
             break;
         }
     }
+    return {};
+}
+
+// An event the conversation raises itself: its handler on the page, else the engine's own words and
+// the page's question again; either way the steps after it and the route's target are skipped.
+FlowRuntime::Outcome FlowRuntime::raiseEvent(const char* event, const std::string& defaultText, Reply& reply) {
+    reply.event = event;
+    Outcome outcome;
+    if (const auto* handler = findHandler(event)) {
+        outcome = runHandler(*handler, reply);
+    } else {
+        append(reply, defaultText);
+        askAgain(reply);
+    }
+    outcome.halted = true;
+    return outcome;
+}
+
+FlowRuntime::Outcome FlowRuntime::refuseOutOfRange(const vasdk::flow::SessionParam& param, Reply& reply) {
+    std::string low, high;
+    if (param.type() == vasdk::flow::SessionParam::ENUM) {
+        const auto values = enumValues(param);
+        if (!values.empty()) {
+            low = values.front().spoken().empty() ? values.front().value() : values.front().spoken();
+            high = values.back().spoken().empty() ? values.back().value() : values.back().spoken();
+        }
+    } else {
+        const auto bounds = numberBounds(param);
+        if (bounds.min) low = toText(numberValue(*bounds.min));
+        if (bounds.max) high = toText(numberValue(*bounds.max));
+    }
+    spdlog::info("[FlowRuntime] session param \"{}\": out of range, on page \"{}\"", param.name(), pageName());
+    return raiseEvent(kEventOutOfRange, withValues(replies().out_of_range(), {{"min", low}, {"max", high}}), reply);
+}
+
+// increase and decrease: a NUMBER by `by` (else its step) within its min and max; an ENUM to its
+// next or previous value (wrap: round). At its bound already, it stays and at-limit is raised.
+FlowRuntime::Outcome FlowRuntime::adjust(const vasdk::flow::Adjust& adjust, bool up, Reply& reply) {
+    const Path path = splitReference(adjust.key());
+    const auto* param = path.size() == 2 && path[0] == "session" ? _agent->sessionParam(path[1]) : nullptr;
+    if (!param) return {};   // checked when the agent loaded
+    const Value current = sessionParam(param->name());
+    const auto by = adjust.by().empty() ? std::nullopt : numberIn(evaluate(adjust.by()));
+    auto atLimit = [&](const std::string& said) {
+        spdlog::info("[FlowRuntime] session param \"{}\" is already at its {}", param->name(), up ? "max" : "min");
+        return raiseEvent(kEventAtLimit, withValues(replies().at_limit(), {{"value", said}}), reply);
+    };
+    if (param->type() == vasdk::flow::SessionParam::ENUM) {
+        const auto values = enumValues(*param);
+        if (values.empty()) return {};
+        const long count = static_cast<long>(values.size());
+        const long steps = by ? std::max(1L, std::lround(std::fabs(*by))) : 1;
+        const auto index = enumIndex(*param, current);
+        if (index && !param->wrap() && ((up && static_cast<long>(*index) == count - 1) || (!up && *index == 0))) {
+            const auto& value = values[*index];
+            return atLimit(value.spoken().empty() ? value.value() : value.spoken());
+        }
+        // None held yet: up starts before the first value, down after the last.
+        const long from = index ? static_cast<long>(*index) : (up ? -1 : count);
+        long next = from + (up ? steps : -steps);
+        next = param->wrap() ? ((next % count) + count) % count : std::clamp(next, 0L, count - 1);
+        (*_session.mutable_fields())[param->name()] = stringValue(values[static_cast<size_t>(next)].value());
+        return {};
+    }
+    const auto bounds = numberBounds(*param);
+    const double now = numberIn(current).value_or(bounds.min.value_or(0));
+    if ((up && bounds.max && now >= *bounds.max) || (!up && bounds.min && now <= *bounds.min))
+        return atLimit(toText(numberValue(now)));
+    double next = now + (up ? 1 : -1) * (by ? std::fabs(*by) : bounds.step);
+    if (bounds.max) next = std::min(next, *bounds.max);
+    if (bounds.min) next = std::max(next, *bounds.min);
+    (*_session.mutable_fields())[param->name()] = numberValue(next);
     return {};
 }
 

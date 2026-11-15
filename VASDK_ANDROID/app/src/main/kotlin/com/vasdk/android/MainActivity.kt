@@ -127,6 +127,9 @@ class MainActivity : ComponentActivity(), VasdkEngine.Listener {
         engine.agentAsset = "agents/phone/agent.txtpb"
         engine.registerAgentTool("place_call") { args -> ContactsEntity.placeCall(applicationContext, args) }
         engine.registerAgentTool("set_flashlight") { args -> MediaTools.handle(applicationContext, "set_flashlight", args) }
+        engine.registerAgentTool("get_volume") { args -> MediaTools.handle(applicationContext, "get_volume", args) }
+        engine.registerAgentTool("set_volume") { args -> MediaTools.handle(applicationContext, "set_volume", args) }
+        engine.registerAgentTool("set_screen_brightness") { args -> SystemTools.handle(applicationContext, "set_screen_brightness", args) }
         viewModel.setInitialConfig(
             sttProvider = engine.sttProvider,
             sttStreaming = engine.sttStreaming,

@@ -136,6 +136,11 @@ message Replies {
   // Fewer digits than a slot needs: forms by plural_rules, {count} the digits heard:
   // ["I only got {count} digit.", "I only got {count} digits."].
   repeated string too_few_digits = 8;
+  // increase or decrease at a bound (the at-limit event), {value} the value: "It's already at {value}."
+  string at_limit = 9;
+  // A value a param doesn't take (out_of_range: REJECT), {min} and {max} its bounds or first and
+  // last values: "That goes from {min} to {max}."
+  string out_of_range = 10;
 }
 
 // How values are said in replies, and in text for a voice that doesn't read numbers itself.

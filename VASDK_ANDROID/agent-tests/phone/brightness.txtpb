@@ -1,0 +1,19 @@
+# proto-file: vasdk/flow/test_case.proto
+# proto-message: vasdk.flow.FlowTestCase
+# The brightness, an ENUM: dim, low, mid, high, said in many ways, each with the setting Android takes.
+name: "the brightness: one level at a time, stopping at the ends, levels by their names and synonyms"
+turns { expect { page: "idle" } }
+turns { user: "brighter" tool_results { key: "set_screen_brightness" value: "{\"brightness_set\": 255}" }
+        expect { said: "Brightness high." tools_called: ["set_screen_brightness"] session { key: "brightness" value: "high" } } }
+turns { user: "make the screen brighter"
+        expect { said: "That's as bright as it goes." event: "at-limit" page: "idle" } }   # the tool isn't called
+turns { user: "set the screen to dark" tool_results { key: "set_screen_brightness" value: "{\"brightness_set\": 10}" }
+        expect { said: "Brightness dim." session { key: "brightness" value: "dim" } } }   # a synonym, stored as its value
+turns { user: "a bit dimmer" expect { said: "That's as dim as it goes." event: "at-limit" } }
+turns { user: "screen up" tool_results { key: "set_screen_brightness" value: "{\"brightness_set\": 64}" }
+        expect { said: "Brightness low." } }
+turns { user: "brightness to half" tool_results { key: "set_screen_brightness" value: "{\"brightness_set\": 140}" }
+        expect { said: "Brightness mid." } }
+# No permission to modify system settings: told, not told it's done
+turns { user: "brighter" tool_results { key: "set_screen_brightness" value: "{\"error\": \"Modify system settings permission not granted\"}" }
+        expect { said: "I couldn't change that: the app may need permission to modify system settings." event: "tool-error" } }

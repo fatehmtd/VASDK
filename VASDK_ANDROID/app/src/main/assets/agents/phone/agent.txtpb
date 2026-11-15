@@ -33,10 +33,39 @@ phrase_sets { name: "off_cmd" phrases: ["${off} [the] ${light}", "(turn|switch|p
 intents { name: "flashlight_on"  examples: ["${on_cmd}"] }
 intents { name: "flashlight_off" examples: ["${off_cmd}"] }
 
+# The volume, a bounded NUMBER: from 0 to the phone's own maximum, which get_volume gives
+# ($session.audio.max, read each time it's used). "louder" goes up a step and stops at the max
+# (the at-limit handler below says so); "set the volume to 50" is clamped to it (out_of_range: CLAMP).
+session_params { name: "audio" type: STRUCT }   # get_volume's result: {"current": 7, "max": 15}
+session_params { name: "volume" type: NUMBER min: "0" max: "$session.audio.max" step: "1" out_of_range: CLAMP }
+phrase_sets { name: "sound" phrases: ["[the] (volume|sound)"] }
+intents { name: "volume_up"   examples: ["louder", "volume up", "${raise} ${sound}", "turn it up"] }
+intents { name: "volume_down" examples: ["quieter", "softer", "volume down", "${lower} ${sound}", "turn it down"] }
+intents { name: "set_volume"  examples: ["(set|put|turn) ${sound} to @sys.integer", "volume [to] @sys.integer"] }
+
+# The screen's brightness, an ENUM: four levels in order, said in many ways ("dark", "half", "full"),
+# each with the setting Android takes (attributes.level, 0 to 255). "brighter" moves one level up.
+# The level starts at mid: the agent doesn't read the screen's own brightness. Matched exactly: with
+# misspellings allowed, the word "brightness" itself would read as "brightest", so high.
+entity_types { name: "brightness_level" matching { fuzzy: false } list {
+  values { value: "dim"  synonyms: ["dark", "darkest", "lowest", "minimum"] attributes { fields { key: "level" value { number_value: 10 } } } }
+  values { value: "low"  attributes { fields { key: "level" value { number_value: 64 } } } }
+  values { value: "mid"  synonyms: ["medium", "middle", "half", "normal"] attributes { fields { key: "level" value { number_value: 140 } } } }
+  values { value: "high" synonyms: ["bright", "brightest", "full", "maximum"] attributes { fields { key: "level" value { number_value: 255 } } } } } }
+session_params { name: "brightness" type: ENUM entity: "@brightness_level" default { string_value: "mid" } }
+phrase_sets { name: "screen" phrases: ["[the] (brightness|screen)"] }
+intents { name: "brightness_up"   examples: ["[a bit] brighter", "${raise} ${screen}", "(brightness|screen) up", "make ${screen} brighter"] }
+intents { name: "brightness_down" examples: ["[a bit] (dimmer|darker)", "${lower} ${screen}", "(brightness|screen) down", "dim ${screen}"] }
+intents { name: "set_brightness"  examples: ["(set|put|make|turn) ${screen} [to] @brightness_level", "brightness [to] @brightness_level"] }
+
 # Written in Kotlin (VasdkEngine.registerAgentTool): starts the call.
 tools { name: "place_call" description: "Calls a phone number" }
 # Written in Kotlin: turns the flashlight on or off ({"on": true|false}).
 tools { name: "set_flashlight" description: "Turns the flashlight on or off" }
+# Written in Kotlin: the music volume ({"current", "max"}), setting it ({"level"}), the screen's brightness ({"level"}, 0-255).
+tools { name: "get_volume" description: "The music volume and its maximum" }
+tools { name: "set_volume" description: "Sets the music volume" }
+tools { name: "set_screen_brightness" description: "Sets the screen brightness, 0 to 255" }
 
 flows {
   name: "main"
@@ -58,8 +87,59 @@ flows {
              steps { call_tool { name: "set_flashlight" args { key: "on" value: "false" } } }
              steps { say { text: "Flashlight off." } }
              target: "idle" }
-    # No flash on this phone, or the camera is busy
-    handlers { event: "tool-error" steps { say { text: "I couldn't use the flashlight." } } target: "idle" }
+    # The volume: read the phone's (it may have changed with its buttons), move or set it, apply it.
+    routes { intent: "volume_up"
+             steps { call_tool { name: "get_volume" into: "$session.audio" } }
+             steps { set { key: "$session.volume" value: "$session.audio.current" } }
+             steps { increase { key: "$session.volume" } }   # at the max: at-limit, below, and nothing after it runs
+             steps { call_tool { name: "set_volume" args { key: "level" value: "$session.volume" } } }
+             steps { say { text: "Volume $session.volume." } }
+             target: "idle" }
+    routes { intent: "volume_down"
+             steps { call_tool { name: "get_volume" into: "$session.audio" } }
+             steps { set { key: "$session.volume" value: "$session.audio.current" } }
+             steps { decrease { key: "$session.volume" } }
+             steps { call_tool { name: "set_volume" args { key: "level" value: "$session.volume" } } }
+             steps { say { text: "Volume $session.volume." } }
+             target: "idle" }
+    routes { intent: "set_volume" entity: "@sys.integer"
+             steps { call_tool { name: "get_volume" into: "$session.audio" } }
+             steps { set { key: "$session.volume" value: "$entity" } }   # CLAMP: 50 is the max
+             steps { call_tool { name: "set_volume" args { key: "level" value: "$session.volume" } } }
+             steps { branch { if: "$entity > $bounds.volume.max"
+                              then { say { text: "Volume $session.volume, as loud as it goes." } }
+                              else { say { text: "Volume $session.volume." } } } }
+             target: "idle" }
+    # The brightness: one level up or down, or the level named; the phone takes its attributes.level.
+    routes { intent: "brightness_up"
+             steps { increase { key: "$session.brightness" } }
+             steps { call_tool { name: "set_screen_brightness" args { key: "level" value: "$bounds.brightness.attributes.level" } } }
+             steps { say { text: "Brightness $session.brightness." } }
+             target: "idle" }
+    routes { intent: "brightness_down"
+             steps { decrease { key: "$session.brightness" } }
+             steps { call_tool { name: "set_screen_brightness" args { key: "level" value: "$bounds.brightness.attributes.level" } } }
+             steps { say { text: "Brightness $session.brightness." } }
+             target: "idle" }
+    routes { intent: "set_brightness" entity: "@brightness_level"
+             steps { set { key: "$session.brightness" value: "$entity" } }   # "dark" is stored as dim
+             steps { call_tool { name: "set_screen_brightness" args { key: "level" value: "$bounds.brightness.attributes.level" } } }
+             steps { say { text: "Brightness $session.brightness." } }
+             target: "idle" }
+    # Already at the bound: say which, and nothing else runs.
+    handlers { event: "at-limit"
+               steps { branch { if: "$nlu.intent : ('volume_up', 'volume_down')"
+                                then { branch { if: "$bounds.volume.at_max" then { say { text: "That's as loud as it goes." } }
+                                                                            else { say { text: "It's as quiet as it goes." } } } }
+                                else { branch { if: "$bounds.brightness.at_max" then { say { text: "That's as bright as it goes." } }
+                                                                                else { say { text: "That's as dim as it goes." } } } } } }
+               target: "idle" }
+    # No flash on this phone, the camera busy, or no permission to change the screen's brightness
+    handlers { event: "tool-error"
+               steps { branch { if: "$nlu.intent : ('flashlight_on', 'flashlight_off')"
+                                then { say { text: "I couldn't use the flashlight." } }
+                                else { say { text: "I couldn't change that: the app may need permission to modify system settings." } } } }
+               target: "idle" }
   }
   pages {
     name: "confirm"

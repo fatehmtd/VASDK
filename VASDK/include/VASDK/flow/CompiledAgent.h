@@ -155,6 +155,10 @@ inline constexpr const char* kEventNoInput = "no-input";
 inline constexpr const char* kEventMaxReprompts = "max-reprompts";
 inline constexpr const char* kEventToolError = "tool-error";
 inline constexpr const char* kEventClarify = "clarify";
+/** increase or decrease at a param's bound: the value stays, the steps after it are skipped. */
+inline constexpr const char* kEventAtLimit = "at-limit";
+/** A set the param refuses (out_of_range: REJECT): the value stays, the steps after it are skipped. */
+inline constexpr const char* kEventOutOfRange = "out-of-range";
 
 /** "@service" → "service"; "" when it doesn't start with @. */
 VASDK_EXPORT std::string entityName(const std::string& reference);

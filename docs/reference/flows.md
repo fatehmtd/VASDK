@@ -357,6 +357,8 @@ envelope_defs {
 | `no-input` | Silence for `no_input_ms` after a question has played | The question again |
 | `max-reprompts` | More than `max_reprompts` (default 2) no-match or no-input in a row on a page | The no-match or no-input behaviour again |
 | `resumed` | The conversation picked up where an earlier one left it (below): its steps run before the page is entered, its `target` isn't used | Nothing: the page is entered |
+| `at-limit` | An `increase` or `decrease` found its param already at its bound ([bounded numbers and enums](#bounded-numbers-and-enums)): the value stays, the steps after it and the route's target are skipped | "It's already at {value}." and the question again |
+| `out-of-range` | A `set` its param refused (`out_of_range: REJECT`): the value stays, the steps after it and the route's target are skipped | "That goes from {min} to {max}." and the question again |
 
 **Picking up a conversation later.** `FlowRuntime::snapshot()` says where a conversation is, as a [`vasdk.flow.ConversationSnapshot`](../../VASDK/proto/vasdk/flow/snapshot.proto): its flow and page, the form's filled slots and the session params. Sensitive slots and params are left out, so it can be stored. `FlowRuntime::resume(snapshot)` starts there instead of at the start page: the params are set, the page is entered with the form's saved slots already filled, so only the rest are asked, and the page's `resumed` handler speaks first ("Welcome back."). A snapshot whose page the agent no longer has starts over. A `Session` gives the last snapshot with `conversationSnapshotMessage()`, or its JSON form with `conversationSnapshot()`, and `resumeConversation(snapshot)` (either) before `start()` makes its greeting resume. VASDK_CallCenter uses them for callers who hang up mid-form (`--persist-dir`).
 
@@ -547,7 +549,7 @@ Each fired trigger is reported in a `trigger_fired` event, with its decision: `S
 An agent can remember things and branch on them. Declare the values a conversation keeps:
 
 ```textproto
-session_params { name: "tier"    type: STRING default { string_value: "standard" } }   # STRING, NUMBER, BOOL, LIST or STRUCT
+session_params { name: "tier"    type: STRING default { string_value: "standard" } }   # STRING, NUMBER, BOOL, LIST, STRUCT or ENUM
 session_params { name: "service" type: STRING }                                        # no default: null
 ```
 
@@ -578,6 +580,7 @@ Routes take a `condition` too: `routes { intent: "hours" condition: "$context.cl
 | `$context.<name>…` | App data from `Session::Options::context`: device state, location, anything the app's `ContextProvider` holds. |
 | `$nlu.entities.<entity>`, `$entity`, `$entities.<entity>` | Entities in this turn's words, a route's entity, and every value of a list entity: see [Entities](#entities). |
 | `$form.<slot>`, `$form.complete`, `$form.confirmed`, `$form.failed` | On a form page: see [Forms](#forms). |
+| `$bounds.<param>.min`, `.max`, `.step`, `.at_min`, `.at_max`; an ENUM's `.values`, `.index`, `.attributes.<name>` | A bounded NUMBER's or an ENUM's bounds now, and where it is: see [Bounded numbers and enums](#bounded-numbers-and-enums). |
 
 Objects and lists are walked with `.field` and `[index]`: `$context.system.battery`, `$session.cars[0]`.
 
@@ -590,7 +593,7 @@ Objects and lists are walked with `.field` and `[index]`: `$context.system.batte
 | In a list, or contains (ignoring case): `:` | `$session.tier : ('gold', 'platinum')`, `$input.text : 'oil'` |
 | Logic: `AND` `OR` `NOT`, parentheses | `$session.verified AND NOT ($session.tier = 'basic')` |
 | Values | `'text'` or `"text"`, `42`, `3.5`, `true`, `false`, `null`, lists `('a', 'b')` |
-| Functions | `exists(x)`, `empty(x)`, `len(x)`, `lower(x)`, `upper(x)`, `number(x)`, `round(x)` or `round(x, digits)`, `floor(x)`, `ceil(x)`, `abs(x)`, `min(a, b, …)`, `max(a, b, …)` (or of one list) |
+| Functions | `exists(x)`, `empty(x)`, `len(x)`, `lower(x)`, `upper(x)`, `number(x)`, `round(x)` or `round(x, digits)`, `floor(x)`, `ceil(x)`, `abs(x)`, `min(a, b, …)`, `max(a, b, …)` (or of one list), `index_of(list, x)` (from 0; null when it isn't there) |
 | Dates | `now()` (`"2026-11-05T14:30:00"`), `today()` (`"2026-11-05"`), `days_until(date)`, `days_since(date)`, `add_days(date, n)`, `weekday(date)` (1 Monday … 7 Sunday) |
 
 Operators bind as usual: `-x`, then `*` `/` `%`, then `+` `-`, then the comparisons, `NOT`, `AND`, `OR`. A missing value is `null` and compares false to anything but `null`; in `+` and `-` it counts as 0. A string that reads as a number compares and adds as one (`"7" = 7`), and `+` joins text when either side isn't a number (`'Hi ' + $session.name`). Dividing by zero gives `null`.
@@ -617,6 +620,63 @@ A reference is said as a reply says it, unless a filter needs the value itself (
 **Checked at load.** Every expression and reply, with its filters, is parsed when the agent loads; an error says where it is: `flow "main" page "welcome" on_enter step 3 branch if: "$session.tier = gold": column 17: unknown word 'gold' (strings need quotes)`. References must name a declared session param or one of the roots above, `set` keys must be `$session.<name>`, `$page.locals.<name>` or (on a form page) `$form.<slot>`, and defaults must fit their type.
 
 **From the app:** `session->setSessionParam("tier", value)` (a `google::protobuf::Value`) sets one, for example from a CRM when a call starts. Values are kept for the whole conversation, also after it ends and starts over, until the caller disconnects. A wrong type is logged and ignored; a number given for a STRING param, or a numeric string for a NUMBER one, is converted.
+
+### Bounded numbers and enums
+
+A value with a range (a volume, a temperature) or with levels (off, low, mid, high) is a session param that knows its bounds. The steps that move it stay short, and the agent can tell "louder" at full volume apart from a change.
+
+**A bounded NUMBER:**
+
+```textproto
+session_params { name: "audio"  type: STRUCT }   # a tool's result: {"current": 7, "max": 15}
+session_params { name: "volume" type: NUMBER min: "0" max: "$session.audio.max" step: "1" out_of_range: CLAMP }
+```
+
+`min`, `max` and `step` are expressions, read each time they're used, so a bound can come from a tool or the app's context. Unset, there's no bound, and the step is 1.
+
+**An ENUM** holds one of a list entity's values, in their order:
+
+```textproto
+entity_types { name: "brightness_level" list {
+  values { value: "dim"  synonyms: ["dark"] attributes { fields { key: "level" value { number_value: 10 } } } }
+  values { value: "low"                     attributes { fields { key: "level" value { number_value: 64 } } } }
+  values { value: "mid"  synonyms: ["half"] attributes { fields { key: "level" value { number_value: 140 } } } }
+  values { value: "high" synonyms: ["full"] attributes { fields { key: "level" value { number_value: 255 } } } } } }
+session_params { name: "brightness" type: ENUM entity: "@brightness_level" default { string_value: "mid" } }
+```
+
+A synonym is stored as its value: setting "dark" stores `dim`. Its bounds are its first and last values, and `wrap: true` makes it go round (`heat` → `auto`), for modes. Values' `attributes` carry what a device needs for each level: `$bounds.brightness.attributes.level`.
+
+| Step | Example | What it does |
+|---|---|---|
+| `increase` | `increase { key: "$session.volume" }` | A NUMBER up by its `step` (or `by`), to its `max` at most; an ENUM to its next value (`by` values on). |
+| `decrease` | `decrease { key: "$session.volume" by: "$entity" }` | The same, down. |
+
+When the value is already at the bound, it stays, the `at-limit` event is raised, and the steps after it and the route's target are skipped. Its handler says so ("That's as loud as it goes."); without one, the engine says "It's already at {value}." A step that would go past the bound stops at it: 14 + 2 with `max: 15` is 15.
+
+**A `set` outside the bounds** does what the param's `out_of_range` says. Neither clamping nor rejecting is on unless asked:
+
+| `out_of_range` | A NUMBER outside min and max | An ENUM given a value it doesn't have |
+|---|---|---|
+| `ALLOW` (unset) | Kept as given: the bounds only limit `increase` and `decrease` | Refused, logged; the value stays |
+| `CLAMP` | The nearest bound: 50 with `max: 15` is 15 | Not allowed (there's no nearest value): a load error |
+| `REJECT` | Refused: the value stays, `out-of-range` is raised, and the steps after it are skipped | The same |
+
+`$bounds.<param>` reads where a param stands now: `.min`, `.max`, `.step`, `.at_min` and `.at_max` for a NUMBER; for an ENUM, `.min` and `.max` (its first and last values), `.values` (all of them, in order), `.index` (of the one it holds, from 0), `.at_min`, `.at_max` and `.attributes.<name>` (of the one it holds). `index_of($bounds.brightness.values, 'mid')` is where a value sits, for comparing levels: `$bounds.brightness.index >= index_of($bounds.brightness.values, 'mid')`. Text compares as text, so `'mid' < 'high'` is alphabetical: compare positions.
+
+```textproto
+routes { intent: "volume_up"
+         steps { call_tool { name: "get_volume" into: "$session.audio" } }          # the device's own value and max
+         steps { set { key: "$session.volume" value: "$session.audio.current" } }
+         steps { increase { key: "$session.volume" } }                              # at the max: at-limit, nothing after
+         steps { call_tool { name: "set_volume" args { key: "level" value: "$session.volume" } } }
+         steps { say { text: "Volume $session.volume." } } target: "idle" }
+handlers { event: "at-limit"
+           steps { branch { if: "$bounds.volume.at_max" then { say { text: "That's as loud as it goes." } }
+                                                        else { say { text: "It's as quiet as it goes." } } } } target: "idle" }
+```
+
+Checked when the agent loads: bounds only on a NUMBER (an ENUM's are its values) with expressions whose references exist, `min` not above `max`, a `step` above 0, a default within the bounds; an ENUM's `entity` a list entity and its default one of its values; `CLAMP` and `wrap` where they apply; `increase` and `decrease` on a NUMBER or an ENUM `$session` param; `$bounds` on one. A worked example on a phone, with the volume and the screen's brightness: [Device controls](../examples/device-controls.md).
 
 ## Forms
 
@@ -815,7 +875,7 @@ turns { user: "I have a flat" expect { page: "service" } }
 turns { user: "my windshield is cracked" expect { matched: false said_contains: "can't help with that" } }
 ```
 
-  Expectations: `page`, `flow`, `said` (the whole reply), `choices` (the labels offered, in order), `said_contains` (case-insensitive), `matched`, `expects_reply`, `ends_session`, `session { key: "service" value: "an oil change" }` (a param as a reply would say it), `form { key: "day" value: "tuesday" }` (a slot, or `complete`/`confirmed`/`failed`; `""` when empty), `entities { key: "service" value: "oil_change" }` (`$nlu.entities`), and `event` (`no-match`, `no-input`, `max-reprompts`, `tool-error`, `clarify`). A turn with `no_input: true` is silence instead of words. `fire_trigger: "car-ready"` (with `trigger_payload`) fires a trigger instead, and `trigger_decision: QUEUED` checks what became of it. `after_ms` moves the clock on before a turn, from the case's `start_time` (local, `"2026-11-09T08:00:00"`). A turn's `tool_results` stand in for tools, and `tools_called` checks which ran. A case can set session params and context before the first turn: `session { fields { key: "tier" value { string_value: "gold" } } }`, `context { … }`. The same runs from C++ with `va::flow::runFlowTest`, and the example's cases run in `ctest` (`vasdk_agent_garage_menu`).
+  Expectations: `page`, `flow`, `said` (the whole reply), `choices` (the labels offered, in order), `said_contains` (case-insensitive), `matched`, `expects_reply`, `ends_session`, `session { key: "service" value: "an oil change" }` (a param as a reply would say it), `form { key: "day" value: "tuesday" }` (a slot, or `complete`/`confirmed`/`failed`; `""` when empty), `entities { key: "service" value: "oil_change" }` (`$nlu.entities`), and `event` (`no-match`, `no-input`, `max-reprompts`, `tool-error`, `clarify`, `at-limit`, `out-of-range`). A turn with `no_input: true` is silence instead of words. `fire_trigger: "car-ready"` (with `trigger_payload`) fires a trigger instead, and `trigger_decision: QUEUED` checks what became of it. `after_ms` moves the clock on before a turn, from the case's `start_time` (local, `"2026-11-09T08:00:00"`). A turn's `tool_results` stand in for tools, and `tools_called` checks which ran. A case can set session params and context before the first turn: `session { fields { key: "tier" value { string_value: "gold" } } }`, `context { … }`. The same runs from C++ with `va::flow::runFlowTest`, and the example's cases run in `ctest` (`vasdk_agent_garage_menu`).
 - **`chat`** talks to the agent by typing, showing the page (and any event) after each reply, the choices offered, and the parts that can't be interrupted. An empty line is silence (no-input). `--session tier=gold` sets a session param first.
 - **`eval`** measures understanding on a set of [`NluEvalSet`](../../VASDK/proto/vasdk/flow/test_case.proto) utterances: `cases { text: "how much is an oil change" intent: "price" entities { key: "service" value: "oil_change" } }`. It reports intent accuracy, precision, recall and F1 per entity, and each miss. `--min-accuracy 0.9` fails below it, for CI; the example's set runs in `ctest` (`vasdk_agent_garage_menu_nlu`). A case with `mid_chat: true` was said mid-chat with the LLM, and is judged as the agent judges it then. `--sweep chat_min_share=0.15,0.25,0.5` (also `keyword_words`, `min_confidence`; several flags make a grid) prints the accuracy at each value of the engine config's `understanding` settings, to choose them by measurement; with `--llm`, the LLM is asked once per sentence. To build a set from real speech, run `VASDK_Pipeline --record-turns turns.txtpb`: each user turn is appended as STT heard it, with the agent's intent and `mid_chat`, for you to correct. Without recordings, `vasdk_spoken_eval <models> nlu_eval.txtpb heard.txtpb [voices] [stt]` says each case in local voices (Phonon's) and writes the set again as a local recognizer (Whistle) heard it; synthetic voices are cleaner than callers, so it's a floor for what speech costs. The garage set's is [`nlu_eval.spoken.txtpb`](../../VASDK_APP/agents/garage-menu/nlu_eval.spoken.txtpb), in `ctest` too.
 - **With an LLM.** `--llm` adds one after the rules to `test`, `chat`, `try` and `eval`: its endpoint, model and key come from `LLM_ENDPOINT`, `LLM_MODEL` and `LLM_API_KEY` (or `OPENROUTER_API_KEY`, `OPENAI_API_KEY`). `--llm-endpoint <url>`, `--llm-model` and `--llm-api-key` give them instead. Any OpenAI-compatible chat completions URL works: OpenAI, OpenRouter, a local LM Studio, llama.cpp server or Ollama. In `chat`, a turn the LLM understood shows `understood by: llm (book)`. Without the flag the LLM isn't used, even when the variables are set, so `ctest` stays the same everywhere.

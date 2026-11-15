@@ -312,6 +312,19 @@ private:
     std::optional<std::string> readSlot(const vasdk::goal::Slot& slot, const std::string& text) const;
     Outcome run(const google::protobuf::RepeatedPtrField<vasdk::flow::Step>& steps, Reply& reply);
     Outcome callTool(const vasdk::flow::CallTool& call, Reply& reply);
+    // Bounded NUMBERs and ENUMs (SessionParam min, max, step, entity): their bounds now (expressions
+    // are read when used), increase and decrease, $bounds, and the events they raise.
+    struct NumberBounds {
+        std::optional<double> min, max;
+        double step = 1;
+    };
+    NumberBounds numberBounds(const vasdk::flow::SessionParam& param) const;
+    std::vector<vasdk::nlu::EntityValue> enumValues(const vasdk::flow::SessionParam& param) const;
+    std::optional<size_t> enumIndex(const vasdk::flow::SessionParam& param, const Value& value) const;
+    Value boundsValue(const vasdk::flow::SessionParam& param, const Path& path) const;
+    Outcome adjust(const vasdk::flow::Adjust& adjust, bool up, Reply& reply);
+    Outcome refuseOutOfRange(const vasdk::flow::SessionParam& param, Reply& reply);
+    Outcome raiseEvent(const char* event, const std::string& defaultText, Reply& reply);
     // What the LLM made of the turn: where it moves, how many form slots it filled, whether it spoke.
     struct LlmTurn {
         Outcome outcome;
@@ -401,6 +414,7 @@ private:
     CompiledAgent::PageRef _position;
     bool _ended = false;
     google::protobuf::Struct _session;      // declared params, with their defaults
+    bool _refusedOutOfRange = false;         // the last setSessionParam refused a value (out_of_range REJECT)
     google::protobuf::Struct _pageLocals;   // cleared on entering a page
     std::string _inputText;                 // the user's words this turn
     std::string _intent;                    // the matched route's intent this turn

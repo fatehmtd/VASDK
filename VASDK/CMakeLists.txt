@@ -537,6 +537,7 @@ if(VASDK_BUILD_TESTS)
         vasdk_add_gtest(vasdk_phrase_set_scopes LABEL unit SOURCES tests/phrase_set_scopes_test.cpp LIBRARIES VASDK)
         target_compile_definitions(vasdk_phrase_set_scopes_test PRIVATE VASDK_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
         vasdk_add_gtest(vasdk_pattern_matching LABEL unit SOURCES tests/pattern_matching_test.cpp LIBRARIES VASDK)
+        vasdk_add_gtest(vasdk_bounded_values LABEL unit SOURCES tests/bounded_values_test.cpp LIBRARIES VASDK)
 
         add_executable(vasdk_entity_model_test tests/entity_model_test.cpp)
         target_link_libraries(vasdk_entity_model_test PRIVATE VASDK)

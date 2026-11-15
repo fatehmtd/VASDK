@@ -7,5 +7,7 @@
 name: "phone"
 description: "Switching something of the phone on or off"
 
-phrase_sets { name: "on"  phrases: ["(turn|switch|put|power) on"] }
-phrase_sets { name: "off" phrases: ["(turn|switch|put|power) off"] }
+phrase_sets { name: "on"    phrases: ["(turn|switch|put|power) on"] }
+phrase_sets { name: "off"   phrases: ["(turn|switch|put|power) off"] }
+phrase_sets { name: "raise" phrases: ["(turn|bring|put) up", "raise", "increase"] }
+phrase_sets { name: "lower" phrases: ["(turn|bring|put) down", "lower", "decrease", "reduce"] }

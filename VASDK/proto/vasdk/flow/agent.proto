@@ -191,11 +191,28 @@ message SessionParam {
     BOOL = 2;
     LIST = 3;
     STRUCT = 4;    // fields, read as $session.<name>.<field>: a tool's result
+    // One of a list entity's values (`entity`), in their order: levels such as off, low, mid, high.
+    // A synonym is stored as its value ("dim" → "low"); increase and decrease move along them.
+    ENUM = 5;
+  }
+  // What a set does with a value outside a NUMBER's min and max, or not one of an ENUM's.
+  enum OutOfRange {
+    ALLOW = 0;    // a NUMBER keeps it as given; an ENUM refuses it (logged)
+    CLAMP = 1;    // a NUMBER takes the nearest bound: 50 with max 15 is 15 (not for an ENUM)
+    REJECT = 2;   // the value stays as it was, and the out-of-range event is raised
   }
   string name = 1;
   Type type = 2;
   google.protobuf.Value default = 3;   // unset: null
   bool sensitive = 4;                  // masked in events and logs, never given to an LLM
+  // A NUMBER's bounds and step, as expressions read when they're used, so a tool may give them:
+  // max: "$session.audio.max". Unset: no bound; a step of 1. $bounds.<name> reads them.
+  string min = 5;
+  string max = 6;
+  string step = 7;
+  OutOfRange out_of_range = 8;
+  string entity = 9;   // an ENUM's values: "@brightness_level", a list entity, in its values' order
+  bool wrap = 10;      // an ENUM's increase past the last value goes to the first (modes), and back
 }
 
 // What the user wants, recognised by its examples: the intent matches when the user's words
@@ -284,6 +301,12 @@ message Step {
     End end = 17;
     CallTool call_tool = 20;
     Llm llm = 22;
+    // A NUMBER session param up or down by `by` (else its step), within its min and max; an ENUM's
+    // to its next or previous value. Already at its bound, it stays, the steps after it are
+    // skipped, and the at-limit event is raised:
+    //   increase { key: "$session.volume" }   decrease { key: "$session.volume" by: "$entity" }
+    Adjust increase = 23;
+    Adjust decrease = 24;
     // A step written in C++ (FlowRegistry::addStep), chosen by its params' type:
     //   custom { [type.googleapis.com/acme.LoyaltyPoints] { into: "$page.locals.points" } }
     google.protobuf.Any custom = 100;
@@ -327,6 +350,13 @@ message Choice {
 message Set {
   string key = 1;
   string value = 2;
+}
+
+// increase and decrease: the $session param, and by how much (an expression; unset: its step, 1
+// for an ENUM: the next value).
+message Adjust {
+  string key = 1;
+  string by = 2;
 }
 
 // Runs `then` when the condition holds, else `else`.

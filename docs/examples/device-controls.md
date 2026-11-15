@@ -1,6 +1,6 @@
 # Example: device controls in an agent
 
-This walks through voice commands for a device: the phone's flashlight, the car's volume and heat. They're written in the agent with patterns and phrase sets rather than left to an LLM. It covers when a phrase set, an entity or a pack fits, how an agent of several files keeps its wordings apart, wildcards for words nobody can list, and how each piece is tested. The reference is [Agents: Patterns and phrase sets](../reference/flows.md#patterns-and-phrase-sets). The complete agents are the Android app's [phone agent](../../VASDK_ANDROID/app/src/main/assets/agents/phone/agent.txtpb) and VASDK_Car's [media](../../VASDK_CAR_APP/verticals/media/media.txtpb) and [climate](../../VASDK_CAR_APP/verticals/climate/climate.txtpb) parts.
+This walks through voice commands for a device: the phone's flashlight, the car's volume and heat. They're written in the agent with patterns and phrase sets rather than left to an LLM. It covers when a phrase set, an entity or a pack fits, how an agent of several files keeps its wordings apart, wildcards for words nobody can list, the volume as a number with bounds and the screen's brightness as an enum, and how each piece is tested. The reference is [Agents: Patterns and phrase sets](../reference/flows.md#patterns-and-phrase-sets). The complete agents are the Android app's [phone agent](../../VASDK_ANDROID/app/src/main/assets/agents/phone/agent.txtpb) and VASDK_Car's [media](../../VASDK_CAR_APP/verticals/media/media.txtpb) and [climate](../../VASDK_CAR_APP/verticals/climate/climate.txtpb) parts.
 
 ## Why commands belong in the agent
 
@@ -115,7 +115,68 @@ Wildcards count no words when examples are compared, so where a specific example
 
 The pitfall is `*`. `"turn * on"` matches "turn on the radio", and also "turn off the radio and put the light on": it only asks for "turn" somewhere before "on". Prefer `_` (one word, so "turn the radio on" but not a whole clause), or a phrase set listing what may be there. Lint stops an example that's only wildcards (it would match anything), and warns about a `*` at an example's start or end (it adds nothing: examples are found anywhere in the words).
 
-## 6. A phrase set, an entity, or a pack?
+## 6. The volume: a number with bounds
+
+"Louder", "quieter", "set the volume to 8": a value with a range. Declare the range on the param, and the steps that move it stay short:
+
+```textproto
+session_params { name: "audio"  type: STRUCT }   # get_volume's result: {"current": 7, "max": 15}
+session_params { name: "volume" type: NUMBER min: "0" max: "$session.audio.max" step: "1" out_of_range: CLAMP }
+
+routes { intent: "volume_up"
+         steps { call_tool { name: "get_volume" into: "$session.audio" } }        # the phone's own, it has buttons too
+         steps { set { key: "$session.volume" value: "$session.audio.current" } }
+         steps { increase { key: "$session.volume" } }
+         steps { call_tool { name: "set_volume" args { key: "level" value: "$session.volume" } } }
+         steps { say { text: "Volume $session.volume." } } target: "idle" }
+```
+
+- **Bounds from the device.** `max: "$session.audio.max"` is read each time it's used: phones differ (15 steps on one, 25 on another), and the agent asks, rather than assuming.
+- **At the bound.** "Louder" at 15 doesn't say "Volume 15." again. `increase` raises `at-limit`, skips the steps after it (so `set_volume` isn't called), and the page's handler answers:
+
+```textproto
+handlers { event: "at-limit"
+           steps { branch { if: "$bounds.volume.at_max" then { say { text: "That's as loud as it goes." } }
+                                                        else { say { text: "It's as quiet as it goes." } } } } target: "idle" }
+```
+
+- **A value too big.** What "set the volume to 50" does is the param's `out_of_range`, and the param chooses. Neither clamping nor rejecting is on unless asked:
+
+| `out_of_range` | "set the volume to 50", max 15 | Good for |
+|---|---|---|
+| `ALLOW` (unset) | Stored as 50; the bounds only limit `increase` and `decrease` | Values a tool checks itself |
+| `CLAMP` | Stored as 15: "Volume 15, as loud as it goes." (`$entity > $bounds.volume.max` tells you it was) | A volume, a brightness percentage: the nearest is what was meant |
+| `REJECT` | Kept as it was; `out-of-range` is raised: "That goes from 0 to 15." | A thermostat, a timer: a wrong number deserves a question, not a guess |
+
+A step that would go past a bound stops at it: from 14 with a step of 2 and a max of 15, "louder" is 15.
+
+## 7. The brightness: levels, as an enum
+
+The screen has levels people name: "dim", "half", "full", "a bit brighter". An `ENUM` param holds one of a list entity's values, in their order:
+
+```textproto
+entity_types { name: "brightness_level" matching { fuzzy: false } list {
+  values { value: "dim"  synonyms: ["dark", "lowest"]           attributes { fields { key: "level" value { number_value: 10 } } } }
+  values { value: "low"                                         attributes { fields { key: "level" value { number_value: 64 } } } }
+  values { value: "mid"  synonyms: ["medium", "half", "normal"] attributes { fields { key: "level" value { number_value: 140 } } } }
+  values { value: "high" synonyms: ["bright", "full", "maximum"] attributes { fields { key: "level" value { number_value: 255 } } } } } }
+session_params { name: "brightness" type: ENUM entity: "@brightness_level" default { string_value: "mid" } }
+
+routes { intent: "brightness_up"
+         steps { increase { key: "$session.brightness" } }                        # mid → high; at high: at-limit
+         steps { call_tool { name: "set_screen_brightness" args { key: "level" value: "$bounds.brightness.attributes.level" } } }
+         steps { say { text: "Brightness $session.brightness." } } target: "idle" }
+routes { intent: "set_brightness" entity: "@brightness_level"
+         steps { set { key: "$session.brightness" value: "$entity" } }            # "dark" is stored as dim
+         ... }
+```
+
+- **The levels' order is the values' order.** `increase` moves to the next, `decrease` to the previous, and `at-limit` is raised at either end. `wrap: true` goes round instead, for modes (a fan's auto, cool, heat; a repeat mode's off, all, one).
+- **Each level's device setting is an attribute.** `$bounds.brightness.attributes.level` is 140 at mid, so the agent speaks of levels and the tool gets numbers.
+- **Comparing levels:** `$bounds.brightness.index` is the level's place, from 0, and `index_of($bounds.brightness.values, 'mid')` is a named level's. `'mid' < 'high'` compares text, alphabetically, so it's no use for levels.
+- **Fuzzy matching and synonyms.** With misspellings allowed, "brightness" is 80% like "brightest", so "set the brightness to half" read "brightness" as the value `high`. Synonyms close to the words of the commands themselves want `matching { fuzzy: false }`, as here.
+
+## 8. A phrase set, an entity, or a pack?
 
 | You want | Use | Because |
 |---|---|---|
@@ -124,10 +185,12 @@ The pitfall is `*`. `"turn * on"` matches "turn on the radio", and also "turn of
 | Values that change while the app runs: the phone book, the stations | a dynamic list entity | `setEntityValues` replaces them |
 | The same wording in several files | a pack | One file, each part says it uses it |
 | A wording one intent needs differently | the intent's own `phrase_sets` | It hides the file's set of the same name, for that intent only (lint notes it) |
+| A value with a range: volume, temperature | a NUMBER param with `min`, `max`, `step` | `increase`, `decrease`, `at-limit`; `out_of_range` for a value too big |
+| Levels in an order: dim to high, a fan's speeds, modes | an ENUM param over a list entity | Synonyms understood, one level at a time, `attributes` for the device, `wrap` for modes |
 
 "The lights" on a phone is a phrase set: there's one light to switch. In a smart home, where "the kitchen light" and "the bedroom light" are different things, it's an entity.
 
-## 7. Testing it
+## 9. Testing it
 
 - `vasdk_agentc lint` checks the patterns and the sets: unclosed brackets, unknown sets, loops, unused sets and packs, and the collisions above. Given a pack, it checks the pack alone.
 - `vasdk_agentc expand` shows every sentence. Read it once: a pattern often spells something nobody says, or misses something everybody does.
