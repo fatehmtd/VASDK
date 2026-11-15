@@ -34,7 +34,7 @@ Models(directory = filesDir.resolve("models").path).use { models ->
 }
 ```
 
-Build and test it against a VASDK build (it loads the C library, `vasdk_c`):
+It isn't on Maven Central yet ([what's left](../../docs/releasing.md#python-and-kotlin)). Until then, build and test it against a VASDK build (it loads the C library, `vasdk_c`), or build the [Android AAR](../../docs/apps/android.md#the-kotlin-binding-as-an-aar):
 
 ```bash
 cmake -B build -S . -DVASDK_BUILD_TESTS=ON -DVASDK_BUILD_KOTLIN_BINDING=ON && cmake --build build -j
