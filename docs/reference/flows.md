@@ -109,9 +109,14 @@ intents { name: "flashlight_on" examples: ["(turn|switch|put) on [the] ${light}"
 | `[x]` | optional; `[a\|b]` is optional one of them | `turn on [the] light`: "turn on the light", "turn on light" |
 | `light[s]` | next to a word, part of it | "lights", "light" |
 | `${name}` | one of a phrase set's phrases | `${light}`: "flashlight", "torch", "light", "lights" |
+| `_` | exactly one word, of any kind | `turn _ light on`: "turn **my** light on", not "turn light on" |
+| `+` | one or more words | `call + back`: "call **my brother** back", not "call back" |
+| `*` | any number of words, none too | `turn * on`: "turn on", "turn **the big fan** on" |
 | `\c` | the character itself: `\(` `\)` `\[` `\]` `\|` `\$` `\\` | `price in \$`: "price in $" |
 
-Patterns are expanded when the agent loads, so everything that reads examples afterwards sees plain sentences: the rules, a sentence encoder, an LLM stage, speech-recognition hints, `vasdk_agentc eval`. The longest sentence found still wins: "turn on the light" picks `"turn on [the] ${light}"` (4 words) over `"turn on"` (2). An example may spell at most 256 sentences, and lint warns when an agent's spell more than 5,000 in all. A sentence encoder is given at most 64 of an intent's, an LLM's prompt 8, spread across them. The built-in intents' phrases in a [language pack](languages.md) may be patterns too, without phrase sets.
+Patterns are expanded when the agent loads, so everything that reads examples afterwards sees plain sentences: the rules, a sentence encoder, an LLM stage, speech-recognition hints, `vasdk_agentc eval`. The longest sentence found still wins: "turn on the light" picks `"turn on [the] ${light}"` (4 words) over `"turn on"` (2).
+
+**Wildcards** (`_`, `+`, `*`) are words of their own: in `@fan_level` the `_` is part of the name. Side by side they add up (`_ _` is two words, `_ *` one or more). They count no words when examples are compared, so a specific example wins over a loose one: "turn the radio on" picks `"turn the radio on"` (4 words) over `"turn * on"` (2). Before the first word, `_` and `+` ask for that many words first. At the end they ask for that many words after it: `"remind me to _"` needs a word after "to". A `*` at either end adds nothing, since examples are found anywhere in the words, and lint warns about it. An example that is only wildcards would match anything, and fails the load. A sentence encoder, an LLM stage and speech hints get the examples without their wildcards ("turn light on"). Wildcards are loose: `"turn * on"` also matches "turn off the radio and put the light on". Prefer `_` or a phrase set to `*`. An example may spell at most 256 sentences, and lint warns when an agent's spell more than 5,000 in all. A sentence encoder is given at most 64 of an intent's, an LLM's prompt 8, spread across them. The built-in intents' phrases in a [language pack](languages.md) may be patterns too, without phrase sets.
 
 **Phrase sets.** `phrase_sets { name: "light" phrases: [...] }` names phrases an example uses as `${light}`. A set's phrases are patterns themselves, written as examples are, so sets can be built from sets:
 
@@ -145,7 +150,7 @@ A file uses one with `phrase_set_files: ["phrases/devices.txtpb"]`, relative to 
 
 **Two intents, one sentence.** Patterns make it easy to give two intents the same sentence by accident, for instance "turn it up" for both the volume and the heat. Where both compete on a page (routes of the page itself, or of envelopes applied at the same level), the better match wins and then the first route, which is rarely what was meant, so lint warns, naming both intents and their files. A page's own route overriding an envelope's isn't warned about: it always wins. `vasdk_agentc expand <agent> --collisions` lists them all, and `vasdk_agentc expand <agent> <intent>` shows every sentence an intent's examples spell.
 
-**What lint checks.** Brackets that don't close, a `${name}` found nowhere, sets in a loop, a pattern spelling too many sentences, a pack without a name, a set declared twice, a set or a pack never used, a nearer set hiding another. `vasdk_agentc lint` also checks a pack on its own: `vasdk_agentc lint phrases/devices.txtpb`.
+**What lint checks.** Brackets that don't close, a `${name}` found nowhere, sets in a loop, a pattern spelling too many sentences, a pack without a name, a set declared twice, an example of only wildcards; and, as warnings, a set or a pack never used, a nearer set hiding another, a `*` at an example's start or end. `vasdk_agentc lint` also checks a pack on its own: `vasdk_agentc lint phrases/devices.txtpb`.
 
 A worked example of device commands (the flashlight, the volume, the screen) with phrase sets, and when to use a set, an entity or an enum: [Device controls](../examples/device-controls.md).
 

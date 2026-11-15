@@ -12,5 +12,10 @@ turns { user: "put the light off please" tool_results { key: "set_flashlight" va
         expect { said: "Flashlight off." tools_called: "set_flashlight" } }
 turns { user: "switch on torch" tool_results { key: "set_flashlight" value: "{\"flashlight\": \"on\"}" }
         expect { said: "Flashlight on." tools_called: "set_flashlight" } }
+# A word of any kind before the light: "(turn|switch) _ ${light} on"
+turns { user: "turn my light on" tool_results { key: "set_flashlight" value: "{\"flashlight\": \"on\"}" }
+        expect { said: "Flashlight on." tools_called: "set_flashlight" } }
+turns { user: "switch that torch off" tool_results { key: "set_flashlight" value: "{\"flashlight\": \"off\"}" }
+        expect { said: "Flashlight off." tools_called: "set_flashlight" } }
 # Not the flashlight: "turn on" alone names nothing to switch
 turns { user: "turn on" expect { matched: false } }

@@ -21,7 +21,8 @@ entity_types {
   }
 }
 
-intents { name: "set_temperature" examples: ["set the temperature to @temperature", "temperature to @temperature", "temperature at @temperature",
+intents { name: "set_temperature" examples: ["set the temperature to @temperature", "set _ temperature to @temperature",   # _: my, cabin, inside...
+                                             "temperature to @temperature", "temperature at @temperature",
                                              "@temperature degrees", "make it @temperature", "set it to @temperature", "set @zone to @temperature",
                                              "set the temperature", "change the temperature", "degrees"] }
 # Warmer and cooler: this file's own "up" and "down" (media.txtpb has an "up" of its own, about the

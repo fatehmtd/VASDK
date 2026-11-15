@@ -345,7 +345,7 @@ int runAgentTool(int argc, char** argv, std::shared_ptr<const FlowRegistry> regi
         if (entityModel == "tagger") {
             std::vector<std::string> examples;
             for (const auto& intent : agent->definition().intents()) {   // at most 64 each, as a session trains it
-                const auto some = sampleExamples({intent.examples().begin(), intent.examples().end()}, kMostEncodedExamples);
+                const auto some = plainExamples({intent.examples().begin(), intent.examples().end()}, kMostEncodedExamples);
                 examples.insert(examples.end(), some.begin(), some.end());
             }
             auto tagger = std::make_shared<nlu::TaggerEntityExtractor>(encoder, agent->entities().modelLabels(), examples);

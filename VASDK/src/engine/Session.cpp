@@ -670,7 +670,7 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
             if (auto encoder = runtime->sentenceEncoder()) {
                 std::vector<std::string> examples;
                 for (const auto& intent : options.agent->definition().intents()) {   // at most 64 each: patterns spell many
-                    const auto some = flow::sampleExamples({intent.examples().begin(), intent.examples().end()}, flow::kMostEncodedExamples);
+                    const auto some = flow::plainExamples({intent.examples().begin(), intent.examples().end()}, flow::kMostEncodedExamples);
                     examples.insert(examples.end(), some.begin(), some.end());
                 }
                 // shortcut: trained per session (about a second); share it across sessions if many start at once.

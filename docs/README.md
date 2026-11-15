@@ -68,7 +68,7 @@ Full guides to the five apps in the repository, with what each shows and how it'
 - [Defining a goal in JSON](examples/goal-definitions.md) - slot types, conditions, loading.
 - [Testing without a microphone](examples/testing-with-mock-transport.md) - `MockTransport` and the goal conversation simulator.
 - [An agent in another language](examples/languages.md) - a language pack, an agent in French that understands English, tested with `vasdk_agentc`; packs from C++, C and Python, and a C++ language for grammar a pack can't express.
-- [Device controls in an agent](examples/device-controls.md) - the flashlight, the volume and the heat as agent commands: patterns, phrase sets inside phrase sets, packs shared between files, each file's own wording, colliding sentences, and testing them.
+- [Device controls in an agent](examples/device-controls.md) - the flashlight, the volume and the heat as agent commands: patterns, phrase sets inside phrase sets, packs shared between files, each file's own wording, colliding sentences, wildcards and their pitfalls, and testing them.
 
 ## Repository layout
 

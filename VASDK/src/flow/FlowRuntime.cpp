@@ -1,5 +1,6 @@
 #include "flow/FlowRuntime.h"
 
+#include "flow/ExamplePattern.h"
 #include "flow/SlotExtraction.h"
 #include "nlu/Language.h"
 #include "goal/GoalState.h"
@@ -1769,7 +1770,7 @@ void FlowRuntime::listenFor(Reply& reply) const {
             for (const auto& intent : _agent->definition().intents())
                 if (intent.name() == route.intent())
                     for (const auto& example : intent.examples())
-                        if (example.find('@') == std::string::npos) add(example);
+                        if (example.find('@') == std::string::npos) add(withoutWildcards(example));
     expect.clear_hints();
     for (const auto& hint : hints) expect.add_hints(hint);
 }

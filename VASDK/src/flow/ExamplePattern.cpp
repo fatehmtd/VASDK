@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <functional>
+#include <sstream>
 
 namespace va {
 namespace flow {
@@ -142,6 +143,27 @@ std::vector<std::string> sampleExamples(const std::vector<std::string>& examples
     sample.reserve(most);
     for (size_t i = 0; i < most; ++i) sample.push_back(examples[i * examples.size() / most]);
     return sample;
+}
+
+bool isWildcard(const std::string& word) { return word == "*" || word == "+" || word == "_"; }
+
+std::string withoutWildcards(const std::string& example) {
+    std::string plain;
+    std::string word;
+    std::istringstream words(example);
+    while (words >> word)
+        if (!isWildcard(word)) plain += (plain.empty() ? "" : " ") + word;
+    return plain;
+}
+
+std::vector<std::string> plainExamples(const std::vector<std::string>& examples, size_t most) {
+    std::vector<std::string> plain;
+    std::set<std::string> seen;
+    for (const auto& example : sampleExamples(examples, most)) {
+        auto words = withoutWildcards(example);
+        if (!words.empty() && seen.insert(words).second) plain.push_back(std::move(words));
+    }
+    return plain;
 }
 
 std::optional<std::vector<std::string>> expandPattern(const std::string& pattern, std::string* error, size_t limit) {

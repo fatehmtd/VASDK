@@ -4,6 +4,7 @@
 #include "NluProvider.h"
 #include "vasdk/flow/agent.pb.h"
 
+#include <limits>
 #include <map>
 #include <string>
 #include <vector>
@@ -39,10 +40,19 @@ public:
     std::vector<std::string> entitiesUsed() const;
 
 private:
+    // How many words may come before a segment: after the previous one (or, for the first, from
+    // the start of what was said). An entity or nothing between them: any number; wildcards:
+    // `*` any, `+` one or more, `_` exactly one, added up when several are side by side.
+    struct Gap {
+        size_t fewest = 0;
+        size_t most = std::numeric_limits<size_t>::max();
+    };
     struct Example {
-        std::vector<std::vector<std::string>> segments;   // the words between entities, in order
+        std::vector<std::vector<std::string>> segments;   // the words between entities and wildcards, in order
+        std::vector<Gap> gaps;                            // before each segment
+        size_t trailing = 0;                              // words wildcards at the end need after the last
         std::vector<std::string> entities;
-        size_t size = 0;                                  // words and entities
+        size_t size = 0;                                  // words and entities; wildcards count none
     };
     struct Intent {
         std::vector<Example> examples;

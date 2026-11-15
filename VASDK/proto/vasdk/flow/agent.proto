@@ -211,6 +211,8 @@ message SessionParam {
 //   ${name}   one of a phrase set's phrases: the intent's own phrase_sets, else its file's,
 //             else a pack the file uses (${pack.name} names the pack)
 //   \c        the character itself: \( \) \[ \] \| \$ \\
+//   _ + *     words of their own: exactly one word, one or more, any number (none too); they count
+//             no words when examples are compared, so a specific example wins
 // An example may spell at most 256 sentences.
 message Intent {
   string name = 1;
