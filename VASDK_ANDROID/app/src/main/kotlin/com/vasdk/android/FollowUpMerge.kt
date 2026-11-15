@@ -7,7 +7,7 @@ internal data class FollowUpMerge(
     val mergedId: Long,
     /** Ids no longer in the conversation (the later parts). */
     val removedIds: Set<Long>,
-    /** The assistant's replies between the parts: cut off and void, now marked interrupted. */
+    /** The assistant's replies between the parts: void, now marked retracted. */
     val voidIds: Set<Long>
 )
 
@@ -15,7 +15,7 @@ internal data class FollowUpMerge(
  * A follow-up transcript (vasdk.engine.Transcript.is_follow_up): the user picked up again after a
  * pause that ended their turn, and the SDK merged their words into one turn. Its last
  * [replacesTranscripts] user messages (back-channels aside) become one message with [text], in
- * the place of the first; a reply the assistant began between them is marked interrupted.
+ * the place of the first; a reply the assistant began between them is void, and marked retracted.
  * Without any user message to merge, [text] is added as a new one with id [newId]. [nowMs] stamps
  * the merged message (MainMessage.mergedAtMs).
  */
@@ -55,7 +55,7 @@ internal fun mergeFollowUp(
             index in partSet -> { removed += message.id; null }
             index > first && message.role == MainMessageRole.ASSISTANT -> {
                 void += message.id
-                message.copy(isInterrupted = true)
+                message.copy(isRetracted = true)
             }
             else -> message
         }

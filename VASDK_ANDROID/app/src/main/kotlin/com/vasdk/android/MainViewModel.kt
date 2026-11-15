@@ -46,8 +46,9 @@ data class MainMessage(
     val mergedAtMs: Long = 0L,
     /** A user message: a back-channel ("mm-hmm") the assistant heard but doesn't answer. */
     val isBackchannel: Boolean = false,
-    /** An assistant message: cut off because the user went on with the turn it answered. */
-    val isInterrupted: Boolean = false,
+    /** An assistant message: void because the user went on with the turn it answered. It shows redacted,
+     *  then the new answer streams into it (or it goes, if none comes). */
+    val isRetracted: Boolean = false,
     val speechDurationMs: Long = 0L,
     val llmTokens: Int = 0,
     val llmDurationMs: Long = 0L
@@ -119,6 +120,9 @@ class MainViewModel : ViewModel() {
         private const val BAND_PEAK_DECAY = 0.98f
 
         private const val BAR_MIN_SCALE = 0.15f
+
+        // How long a retracted reply's redaction plays before it goes (MessageItems' sweep, 450 ms).
+        private const val RETRACTION_MS = 700L
         private const val BAR_MAX_SCALE = 1.5f
     }
 
@@ -144,6 +148,8 @@ class MainViewModel : ViewModel() {
     private var speechStartMs = 0L
     private var speechEndMs = 0L
     private var lastUserMessageId: Long? = null
+    // A reply the user's follow-up made void, shown redacted: the next reply streams into it.
+    private var retractedMessageId: Long? = null
     private var llmStartMs = 0L
     private val llmResponseText = StringBuilder()
 
@@ -322,6 +328,7 @@ class MainViewModel : ViewModel() {
         thinkingMessageId = null
         userSpeakingMessageId = null
         lastUserMessageId = null
+        retractedMessageId = null
         expectationJob?.cancel()
         expectationJob = null
         pendingExpectation = false
@@ -473,6 +480,8 @@ class MainViewModel : ViewModel() {
             userId?.let { id -> mutateMessage(id) { it.copy(isBackchannel = true) } }
             return
         }
+        // A new turn: a retracted reply still waiting for its answer won't get one.
+        retractedMessageId?.let { dropRetracted(it) }
 
         lastUserMessageId = userId
 
@@ -526,7 +535,25 @@ class MainViewModel : ViewModel() {
         if (streamingMessageId in gone) streamingMessageId = null   // a new reply starts its own message
         if (partialMessageId in merge.removedIds) partialMessageId = null
         lastUserMessageId = merge.mergedId
-        logger.info("Follow-up merged ${merge.removedIds.size + 1} messages, ${merge.voidIds.size} reply(ies) cut off")
+        // The last void reply stays, redacted, as the place of the answer to come (instead of the
+        // thinking bubble); any other goes once its redaction has played.
+        val placeholder = merge.messages.lastOrNull { it.id in merge.voidIds }?.id
+        if (placeholder != null) {
+            retractedMessageId?.takeIf { it != placeholder }?.let { dropRetracted(it) }
+            retractedMessageId = placeholder
+            removeThinkingBubble()
+        }
+        merge.voidIds.filter { it != placeholder }.forEach { dropRetracted(it) }
+        logger.info("Follow-up merged ${merge.removedIds.size + 1} messages, ${merge.voidIds.size} reply(ies) retracted")
+    }
+
+    // A retracted reply no answer came for: gone once its redaction has played (the list animates it out).
+    private fun dropRetracted(id: Long) {
+        if (retractedMessageId == id) retractedMessageId = null
+        viewModelScope.launch {
+            delay(RETRACTION_MS)
+            removeMessage(id)
+        }
     }
 
     private fun onSpeechStartedOrOngoing(isStarting: Boolean) {
@@ -564,6 +591,19 @@ class MainViewModel : ViewModel() {
                 statusText = "Thinking...",
                 typingVisible = false
             )
+        }
+    }
+
+    // A false start (a cough, a door): the VAD fell silent before it heard speech. Undo what
+    // SPEECH_STARTING showed; nothing was said, so nothing to think about.
+    private fun onSpeechCancelled() {
+        speechStartMs = 0L
+        removeUserSpeakingBubble()
+        if (_uiState.value.waveformSource == WaveformSource.MIC) {
+            hideWaveform()
+        }
+        _uiState.update {
+            it.copy(statusText = if (it.isThinking) "Thinking..." else "Waiting for speech...")
         }
     }
 
@@ -627,6 +667,9 @@ class MainViewModel : ViewModel() {
             status == "SPEECH_ENDED" -> {
                 onSpeechEnded()
             }
+            status == "SPEECH_CANCELLED" -> {
+                onSpeechCancelled()
+            }
             status.startsWith("AGENT_STATE:") -> {
                 onAgentStateChanged(status)
             }
@@ -638,7 +681,14 @@ class MainViewModel : ViewModel() {
             llmResponseText.append(chunk)
         }
 
-        if (streamingMessageId == null && chunk.isNotEmpty()) {
+        val retracted = retractedMessageId
+        if (streamingMessageId == null && chunk.isNotEmpty() && retracted != null) {
+            // The answer to the merged turn takes the place of the reply it replaces
+            retractedMessageId = null
+            removeThinkingBubble()
+            mutateMessage(retracted) { it.copy(text = chunk, isRetracted = false, llmTokens = 0, llmDurationMs = 0L) }
+            streamingMessageId = retracted
+        } else if (streamingMessageId == null && chunk.isNotEmpty()) {
             removeThinkingBubble()
             streamingMessageId = appendMessage(
                 MainMessage(
@@ -863,6 +913,7 @@ class MainViewModel : ViewModel() {
         if (thinkingMessageId == id) thinkingMessageId = null
         if (userSpeakingMessageId == id) userSpeakingMessageId = null
         if (lastUserMessageId == id) lastUserMessageId = null
+        if (retractedMessageId == id) retractedMessageId = null
     }
 
     private fun nextId(): Long {

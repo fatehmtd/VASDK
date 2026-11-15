@@ -5,7 +5,7 @@ import org.junit.Test
 
 /**
  * mergeFollowUp: a follow-up transcript turns the user's messages it replaces into one, in the place
- * of the first, marks the assistant's cut-off reply between them, leaves back-channels and earlier
+ * of the first, retracts the assistant's void reply between them, leaves back-channels and earlier
  * turns alone, and counts an earlier follow-up as the parts it holds.
  */
 class FollowUpMergeTest {
@@ -23,7 +23,7 @@ class FollowUpMergeTest {
         when (message.role) {
             MainMessageRole.USER -> "user: ${message.text}" + (if (message.mergedParts > 1) " (${message.mergedParts} parts)" else "") +
                 (if (message.isBackchannel) " (back-channel)" else "")
-            MainMessageRole.ASSISTANT -> "assistant: ${message.text}" + (if (message.isInterrupted) " (interrupted)" else "")
+            MainMessageRole.ASSISTANT -> "assistant: ${message.text}" + (if (message.isRetracted) " (retracted)" else "")
             MainMessageRole.THINKING -> "thinking"
             else -> message.role.name
         }
@@ -45,11 +45,11 @@ class FollowUpMergeTest {
     }
 
     @Test
-    fun replyCutOffByTheResumeIsMarkedInterrupted() {
+    fun replyCutOffByTheResumeIsRetracted() {
         val conversation = listOf(user("Book a flight"), assistant("Sure, where"), user("to Paris"), thinking())
         val merge = mergeFollowUp(conversation, "Book a flight to Paris", 2, newId = 100, nowMs = 5)
         assertEquals(
-            listOf("user: Book a flight to Paris (2 parts)", "assistant: Sure, where (interrupted)", "thinking"),
+            listOf("user: Book a flight to Paris (2 parts)", "assistant: Sure, where (retracted)", "thinking"),
             shown(merge.messages)
         )
         assertEquals(setOf(conversation[1].id), merge.voidIds)

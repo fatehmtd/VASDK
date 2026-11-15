@@ -107,12 +107,16 @@ fun MainScreen(
                 state = listState
             ) {
                 items(state.messages, key = { it.id }) { message ->
-                    when (message.role) {
-                        MainMessageRole.USER -> UserMessageItem(message)
-                        MainMessageRole.ASSISTANT -> AssistantMessageItem(message)
-                        MainMessageRole.THINKING -> ThinkingMessageItem()
-                        MainMessageRole.USER_SPEAKING -> UserSpeakingItem()
-                        MainMessageRole.ERROR -> ErrorMessageItem(message)
+                    // Messages fade in and out and slide into place: a merge folding the user's
+                    // parts together, or a retracted reply going, is seen happening
+                    Box(modifier = Modifier.animateItem()) {
+                        when (message.role) {
+                            MainMessageRole.USER -> UserMessageItem(message)
+                            MainMessageRole.ASSISTANT -> AssistantMessageItem(message)
+                            MainMessageRole.THINKING -> ThinkingMessageItem()
+                            MainMessageRole.USER_SPEAKING -> UserSpeakingItem()
+                            MainMessageRole.ERROR -> ErrorMessageItem(message)
+                        }
                     }
                 }
             }

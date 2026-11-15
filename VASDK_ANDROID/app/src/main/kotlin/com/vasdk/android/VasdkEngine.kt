@@ -149,6 +149,12 @@ data class ModelInfo(
 class VasdkEngine private constructor(
     private val contextWrapper: ContextWrapper
 ) {
+    // The native library loads with the engine, not with the class: its presets and constants
+    // (LFM2_5Meta, ...) are read by the UI and its JVM tests without the native code.
+    init {
+        System.loadLibrary("vasdk_android")
+    }
+
     var useLocalLLM: Boolean = LlmPreferences.isLocalLlmEnabled(contextWrapper)
         private set
     var llmModelMeta: LLMModelMeta = LOCAL_LLM_MODELS.firstOrNull {
@@ -1160,10 +1166,6 @@ class VasdkEngine private constructor(
                 instance = VasdkEngine(cw)
             }
             return instance!!
-        }
-
-        init {
-            System.loadLibrary("vasdk_android")
         }
     }
 }

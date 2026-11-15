@@ -1,6 +1,13 @@
 package com.vasdk.android.ui
 
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -17,14 +24,21 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vasdk.android.MainMessage
@@ -99,24 +113,26 @@ internal fun AssistantMessageItem(message: MainMessage) {
     ) {
         LogoAvatar(size = 28.dp)
         Column(modifier = Modifier.padding(start = 10.dp).widthIn(max = 360.dp)) {
-            Surface(color = SurfaceElevated, shape = RoundedCornerShape(22.dp)) {
-                Text(
-                    text = message.text,
-                    // Cut off: the user went on, and this answered only the first part of their turn
-                    color = if (message.isInterrupted) TextSecondary.copy(alpha = 0.6f) else TextPrimary,
-                    fontSize = 15.sp,
-                    textDecoration = if (message.isInterrupted) TextDecoration.LineThrough else null,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 11.dp)
-                )
+            // Resizes smoothly when a retracted reply gives way to the answer that replaces it
+            Surface(
+                color = SurfaceElevated,
+                shape = RoundedCornerShape(22.dp),
+                modifier = Modifier.animateContentSize(tween(durationMillis = 250))
+            ) {
+                Crossfade(targetState = message.isRetracted, animationSpec = tween(durationMillis = 250), label = "retraction") { retracted ->
+                    if (retracted) {
+                        RedactedText(message.text)
+                    } else {
+                        Text(
+                            text = message.text,
+                            color = TextPrimary,
+                            fontSize = 15.sp,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 11.dp)
+                        )
+                    }
+                }
             }
-            if (message.isInterrupted) {
-                Text(
-                    text = "interrupted · you went on",
-                    color = TextSecondary.copy(alpha = 0.65f),
-                    fontSize = 11.sp,
-                    modifier = Modifier.padding(start = 2.dp, top = 5.dp)
-                )
-            } else if (message.llmTokens > 0 && message.llmDurationMs > 0L) {
+            if (!message.isRetracted && message.llmTokens > 0 && message.llmDurationMs > 0L) {
                 Text(
                     text = formatLlmStats(message.llmTokens, message.llmDurationMs),
                     color = TextSecondary.copy(alpha = 0.65f),
@@ -127,6 +143,58 @@ internal fun AssistantMessageItem(message: MainMessage) {
         }
     }
 }
+
+/**
+ * A reply the user's follow-up made void: bars sweep over its words, word by word (REDACTION_SWEEP_MS),
+ * as the text fades under them; then they pulse while the answer that replaces it is on its way.
+ */
+@Composable
+private fun RedactedText(text: String) {
+    val sweep = remember { Animatable(0f) }
+    LaunchedEffect(Unit) { sweep.animateTo(1f, tween(durationMillis = REDACTION_SWEEP_MS, easing = FastOutSlowInEasing)) }
+    val pulse by rememberInfiniteTransition(label = "redacted").animateFloat(
+        initialValue = 0.45f,
+        targetValue = 0.8f,
+        animationSpec = infiniteRepeatable(tween(durationMillis = 700), RepeatMode.Reverse),
+        label = "redactedPulse"
+    )
+    var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
+    val words = remember(text) { Regex("\\S+").findAll(text).map { it.range }.toList() }
+    Text(
+        text = text,
+        color = TextPrimary.copy(alpha = 1f - sweep.value),
+        fontSize = 15.sp,
+        onTextLayout = { layout = it },
+        modifier = Modifier
+            .padding(horizontal = 16.dp, vertical = 11.dp)
+            .drawWithContent {
+                drawContent()
+                val laidOut = layout ?: return@drawWithContent
+                if (words.isEmpty()) return@drawWithContent
+                // Words covered so far; the one being covered grows from its left edge
+                val covered = sweep.value * words.size
+                val barAlpha = if (sweep.value < 1f) 0.8f else pulse
+                for ((index, range) in words.withIndex()) {
+                    val fraction = (covered - index).coerceIn(0f, 1f)
+                    if (fraction <= 0f) break
+                    val first = laidOut.getBoundingBox(range.first)
+                    val last = laidOut.getBoundingBox(range.last)
+                    // A word laid out over two lines: cover the part on its first line
+                    val right = if (last.top == first.top) last.right else laidOut.getLineRight(laidOut.getLineForOffset(range.first))
+                    val height = first.bottom - first.top
+                    val inset = height * 0.15f
+                    drawRoundRect(
+                        color = RedactionBar.copy(alpha = barAlpha),
+                        topLeft = Offset(first.left, first.top + inset),
+                        size = Size((right - first.left) * fraction, height - 2 * inset),
+                        cornerRadius = CornerRadius(height / 2f)
+                    )
+                }
+            }
+    )
+}
+
+private const val REDACTION_SWEEP_MS = 450
 
 @Composable
 internal fun ThinkingMessageItem() {
