@@ -22,9 +22,9 @@ In C++, `va::thirdparty::turn::Turn1MiniOptions` (in [`Turn1MiniProvider.h`](../
 | `threshold` | `0.15f` | End-of-turn score (0-1) that ends the turn after the VAD's end. |
 | `postAudioFrames` | `3` | Audio frames after the VAD's end that are still evaluated. |
 | `evaluateOnPause` | `true` | Also evaluate while the user pauses, so a clearly finished turn ends at the pause (`TurnDetectionProvider::setEvaluateOnPause`). |
-| `pauseThreshold` | `0.15f` | End-of-turn score (0-1) a pause needs to end the turn (`TurnDetectionProvider::setPauseThreshold`). |
+| `pauseThreshold` | `0.25f` | End-of-turn score (0-1) a pause needs to end the turn (`TurnDetectionProvider::setPauseThreshold`). |
 
-The scores are not calibrated probabilities. 0.15 is the best accuracy on the [evaluation](#evaluation). The model card's own thresholds (0.36, and its eot-bench operating points of 0.06 to 0.21) come from other read-outs and other audio. Tune them on your own audio with the environment variables below, which `vasdk_provider_eval` also picks up.
+The scores are not calibrated probabilities. A pause needs 0.25: on the [evaluation](#evaluation) it cuts off no sentence stopped mid-phrase, where 0.15 (the best accuracy there, and the default before) cut off one in ten and, on a phone, cut people off mid-sentence. It costs about 0.2 s before a finished sentence ends. The model card's own thresholds (0.36, and its eot-bench operating points of 0.06 to 0.21) come from other read-outs and other audio. Tune them on your own audio with the environment variables below, which `vasdk_provider_eval` also picks up.
 
 In an engine config, its own `Turn1MiniOptions` message ([options.proto](../../VASDK_3P_IMPL/ProviderCatalog/proto/vasdk/providers/options.proto)) fills them: a field the config leaves unset falls back to its environment variable, then to the struct's default.
 
@@ -54,7 +54,7 @@ From an engine config:
 providers {
   turn {
     id: "turn-1-mini"
-    options { [type.googleapis.com/vasdk.providers.Turn1MiniOptions] { pause_threshold: 0.15 } }
+    options { [type.googleapis.com/vasdk.providers.Turn1MiniOptions] { pause_threshold: 0.25 } }
   }
 }
 ```
@@ -97,24 +97,24 @@ The [turn stage](../evaluation.md) on its full tier: 40 FLEURS English clips, 20
 
 | | SmartTurn v3 | turn-1-mini |
 | --- | --- | --- |
-| accuracy | 62.5% | **87.5%** |
-| finished sentences ended at the pause (recall) | **100%** | 85% |
-| unfinished sentences cut off (false_end) | 75% | **10%** |
-| cut off within 0.5 s (false_end_500ms) | 30% | **5%** |
-| precision of an early end | 57% | **89.5%** |
-| median end, after the speech | **0.08 s** | 0.10 s |
+| accuracy | 62.5% | **85%** |
+| finished sentences ended at the pause (recall) | **100%** | 70% |
+| unfinished sentences cut off (false_end) | 75% | **0%** |
+| cut off within 0.5 s (false_end_500ms) | 30% | **0%** |
+| precision of an early end | 57% | **100%** |
+| median end, after the speech | **0.08 s** | 0.29 s |
 | time for the 40 clips (model load included) | 7.3 s | **2.3 s** |
 
-On the smoke tier (10 clips), accuracy is 90% against 60%, and false_end 20% against 80%. The pause threshold was swept on the same set:
+On the smoke tier (10 clips), accuracy is 100% against 60%, and false_end 0% against 80%. The pause threshold was swept on the same set:
 
-| `pause_threshold` | 0.06 | 0.10 | 0.12 | **0.15** | 0.18 | 0.25 | 0.36 | 0.45 |
+| `pause_threshold` | 0.06 | 0.10 | 0.12 | 0.15 | 0.18 | **0.25** | 0.36 | 0.45 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| accuracy | 77.5% | 80% | 82.5% | **87.5%** | 80% | 85% | 75% | 62.5% |
-| recall | 100% | 90% | 85% | **85%** | 70% | 70% | 50% | 25% |
-| false_end | 45% | 30% | 20% | **10%** | 10% | 0% | 0% | 0% |
-| median end | 0.08 s | 0.10 s | 0.10 s | **0.10 s** | 0.13 s | 0.29 s | 0.53 s | 0.74 s |
+| accuracy | 77.5% | 80% | 82.5% | 87.5% | 80% | **85%** | 75% | 62.5% |
+| recall | 100% | 90% | 85% | 85% | 70% | **70%** | 50% | 25% |
+| false_end | 45% | 30% | 20% | 10% | 10% | **0%** | 0% | 0% |
+| median end | 0.08 s | 0.10 s | 0.10 s | 0.10 s | 0.13 s | **0.29 s** | 0.53 s | 0.74 s |
 
-Lower is snappier and cuts off more; 0.25 cuts off nothing but waits about 0.3 s. Bear the caveats in mind: the set is small (one clip moves a score 2.5 points), the threshold was chosen on it, and read speech isn't conversation. p99lab's own results are on its [model card](https://huggingface.co/p99lab/turn-1-mini).
+Lower is snappier and cuts off more; 0.25 cuts off nothing but waits about 0.3 s. 0.15 has the best accuracy here, but on a phone, where people pause to think, it ended turns mid-sentence (scores 0.15 to 0.29 in the pauses that cut them off), so the default is 0.25. A turn end in a pause can also wait for the pause to last ([`turn_taking.min_pause_ms`](../reference/engine-config.md#turn-taking), for any turn model). The clips here end in silence, so they can't show what that's for: a pause the user talks on after. Waiting 160 to 480 ms of pause left false_end where it was at 0.15 and added that much to every turn's end. Bear the caveats in mind: the set is small (one clip moves a score 2.5 points), the threshold was chosen on it, and read speech isn't conversation. p99lab's own results are on its [model card](https://huggingface.co/p99lab/turn-1-mini).
 
 **Cost:** about 1.0 ms per 160 ms step on one thread (median 0.97 ms, slowest 1.06 ms, `turn1mini_test` on the machine above), 1.6 ms on a Pixel 9 Pro XL (median 1.57 ms, slowest 1.76 ms). That is about 0.6% of a core while the session listens, plus one extra step for each frame scored in a pause.
 

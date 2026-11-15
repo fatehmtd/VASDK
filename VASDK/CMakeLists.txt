@@ -458,6 +458,8 @@ if(VASDK_BUILD_TESTS)
 
     vasdk_add_gtest(vasdk_llm_failure_reply LABEL timing RUN_SERIAL SOURCES tests/llm_failure_reply_test.cpp LIBRARIES VASDK)
     vasdk_add_gtest(vasdk_llm_system_message LABEL unit SOURCES tests/llm_system_message_test.cpp LIBRARIES VASDK)
+    # A turn end in a short pause waits for the pause to last (turn_taking.min_pause_ms)
+    vasdk_add_gtest(vasdk_turn_min_pause LABEL timing RUN_SERIAL SOURCES tests/turn_min_pause_test.cpp LIBRARIES VASDK)
 
     vasdk_add_gtest(vasdk_webrtc_transport LABEL timing RUN_SERIAL SOURCES tests/webrtc_transport_test.cpp LIBRARIES VASDK)
 
@@ -516,6 +518,10 @@ if(VASDK_BUILD_TESTS)
         target_link_libraries(vasdk_activation_test PRIVATE VASDK)
         add_test(NAME vasdk_activation COMMAND vasdk_activation_test)
         vasdk_label_tests(timing vasdk_activation)
+
+        # A resumed turn as events: one follow-up replacing the transcripts of its parts
+        vasdk_add_gtest(vasdk_event_tap LABEL unit SOURCES tests/event_tap_test.cpp LIBRARIES VASDK)
+        vasdk_add_gtest(vasdk_follow_up_transcript LABEL integration SOURCES tests/follow_up_transcript_test.cpp LIBRARIES VASDK)
 
         add_executable(vasdk_follow_up_window_test tests/follow_up_window_test.cpp)
         target_link_libraries(vasdk_follow_up_window_test PRIVATE VASDK)

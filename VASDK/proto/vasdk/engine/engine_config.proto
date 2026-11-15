@@ -120,6 +120,10 @@ message TurnTaking {
   VoiceActivity voice_activity = 3;    // each value set here replaces the preset's
   Backchannel backchannel = 4;         // each value set here replaces Session::Options::backchannel's
   optional int32 interrupt_timeout_ms = 5;  // INTERRUPTED falls back to LISTENING after this; unset: 500
+  // How long a pause must last before the turn model may end the turn in it, whichever model: a
+  // shorter one is often a breath mid-sentence. Its turn end is held until then, and dropped if the
+  // user speaks again (the VAD's end then ends the turn). unset: 0, at once.
+  optional int32 min_pause_ms = 6;
 }
 
 // When speech starts and ends (VADFrameProcessor). Unset values come from the preset.

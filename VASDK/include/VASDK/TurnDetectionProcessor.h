@@ -2,6 +2,7 @@
 #include <functional>
 #include <unordered_map>
 #include <atomic>
+#include <optional>
 #include "FrameProcessor.h"
 #include "TurnDetectionProvider.h"
 #include "metrics/MetricHandles.h"
@@ -41,6 +42,15 @@ namespace va {
             void setAgentSpeaking(bool speaking) { _agentIsSpeaking = speaking; }
             bool isAgentSpeaking() const { return _agentIsSpeaking; }
 
+            /**
+             * @brief How long a pause must last before a provider's turn end during it counts (default
+             *        0: at once). A shorter pause is often a breath mid-sentence: the end is held until
+             *        the pause has lasted this long, and dropped if the user speaks again first (the
+             *        VAD's end then ends the turn). Whatever the provider. Before start().
+             */
+            void setMinPauseMs(uint32_t ms) { _minPauseMs = ms; }
+            uint32_t minPauseMs() const { return _minPauseMs; }
+
             void setMetricsConfig(const va::metrics::TurnDetectionMetricsConfig& config);
             const va::metrics::TurnDetectionMetricsConfig& getTurnDetectionMetricsConfig() const { return _metrics.config; }
 
@@ -57,6 +67,10 @@ namespace va {
             void processVadStateFrame(std::shared_ptr<transport::VADStateFrame> frame, FlowDirection direction);
             void processWithProvider(std::shared_ptr<transport::Frame> frame, FlowDirection direction);
             void processSynthesisStateFrame(std::shared_ptr<transport::SynthesisStateFrame> frame, FlowDirection direction);
+            // The provider called the user's turn over during a pause: end it, and have the VAD close the segment.
+            void endUserTurnAtPause(const audio::TurnDetectionProvider::TurnEvaluation& evaluation);
+            // Pause bookkeeping for setMinPauseMs: true when a held end is due (the pause has lasted).
+            bool trackPause(const transport::Frame& frame);
 
             /** Emit a TURN_STATE frame downstream. */
             void emitTurnFrame(
@@ -72,6 +86,13 @@ namespace va {
             // A turn end at a pause held back because the agent was speaking: the VAD's end ends the turn
             // (the provider, having called it, won't again).
             bool _pauseEndHeld{ false };
+            uint32_t _minPauseMs{ 0 };
+            uint64_t _pauseSamples{ 0 };       // audio heard since the current pause began
+            uint32_t _pauseSampleRate{ 16000 };
+            bool     _inPause{ false };        // VAD PAUSED or ENDING
+            // A turn end the provider called before the pause lasted _minPauseMs: sent when it has, dropped if
+            // the user goes on.
+            std::optional<audio::TurnDetectionProvider::TurnEvaluation> _heldPauseEnd;
             // A user turn START is held while the VAD is only STARTING and sent once speech is
             // confirmed (ONGOING): a noise blip (STARTING -> QUIET) must not barge in on the agent.
             transport::VADState _vadState{ transport::VADState::QUIET };

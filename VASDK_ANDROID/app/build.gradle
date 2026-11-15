@@ -165,6 +165,10 @@ dependencies {
     // Desert Ant Labs Voz STT (source-available license: free below 100k monthly devices, attribution required)
     implementation 'ai.desertant:voz:4.2.3'
 
+    // JVM tests of the app's own logic (src/test): ./gradlew :app:testDebugUnitTest
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0'   // MainViewModel's scope, on the JVM
+
     debugImplementation 'androidx.compose.ui:ui-tooling'
     debugImplementation 'androidx.compose.ui:ui-test-manifest'
 }

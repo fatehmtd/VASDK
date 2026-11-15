@@ -121,6 +121,8 @@ void EventTapProcessor::processFrame(std::shared_ptr<transport::Frame> frame, pi
         transcript->set_is_final(transcription->isFinal);
         transcript->set_confidence(transcription->transcriptionResult.confidence);
         transcript->set_is_backchannel(transcription->isBackchannel);
+        transcript->set_is_follow_up(transcription->isFollowUp);
+        transcript->set_replaces_transcripts(transcription->replacesTranscripts);
         break;
     }
     case transport::FrameType::TEXT: {
@@ -166,10 +168,25 @@ void EventTapProcessor::processFrame(std::shared_ptr<transport::Frame> frame, pi
         if (direction != pipeline::FlowDirection::DOWNSTREAM) break;
         using State = vasdk::engine::UserSpeech;
         switch (std::static_pointer_cast<transport::VADStateFrame>(frame)->state) {
-        case transport::VADState::STARTING: event.mutable_user_speech()->set_state(State::STARTED); break;
+        case transport::VADState::STARTING:
+            event.mutable_user_speech()->set_state(State::STARTED);
+            _userSpeechOpen = true;
+            _userSpeechConfirmed = false;
+            break;
         case transport::VADState::ONGOING:
-        case transport::VADState::RESUMING: event.mutable_user_speech()->set_state(State::ONGOING); break;
-        case transport::VADState::ENDED: event.mutable_user_speech()->set_state(State::ENDED); break;
+        case transport::VADState::RESUMING:
+            event.mutable_user_speech()->set_state(State::ONGOING);
+            _userSpeechConfirmed = true;
+            break;
+        case transport::VADState::ENDED:
+            event.mutable_user_speech()->set_state(State::ENDED);
+            _userSpeechOpen = false;
+            break;
+        case transport::VADState::QUIET:
+            // Quiet with no ENDED: a false start (STARTING then QUIET), or speech that ended unannounced
+            if (_userSpeechOpen) event.mutable_user_speech()->set_state(_userSpeechConfirmed ? State::ENDED : State::CANCELLED);
+            _userSpeechOpen = false;
+            break;
         default: break;
         }
         break;

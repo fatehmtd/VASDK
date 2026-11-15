@@ -85,12 +85,12 @@ Processors that read the mic audio directly use `inputRingBuffer()`.
 
 | Event | When |
 |---|---|
-| `transcript` | The user said something (partial and final results), or `injectUserText` sent it. Back-channels ("mm-hmm") are marked. |
+| `transcript` | The user said something (partial and final results), or `injectUserText` sent it. Back-channels ("mm-hmm") are marked. When the user picks up again after a pause that ended their turn and their words are merged ([Follow-ups](llm.md#follow-ups)), a final with `is_follow_up` follows the last part's final: `text` is the whole turn the assistant answers, and it stands for the last `replaces_transcripts` final transcripts (back-channels aside, an earlier follow-up counting as one), so a UI shows them as one message. |
 | `agent_reply` | Once per streamed piece of the reply; `text` is the whole reply so far, `is_final` marks the end, with `expects_reply`, `choices` (with `choice_values`, what each sends back), `ui_json` (an agent's `ui`) and `expect` (an agent's [expected input](flows.md#expected-input): a keypad, a yes/no). `say()` text arrives as one final piece. |
 | `agent_state` | Every state change: `IDLE`, `LISTENING`, `THINKING`, `SPEAKING`, `INTERRUPTED`, with the transition that caused it. |
 | `tool_call` | A tool the LLM or an agent's `call_tool` called, with its arguments and result, when it returns. Sensitive values are masked. |
 | `trigger_fired` | With an agent: a trigger fired, and its decision: `STARTED`, `QUEUED`, `DROPPED`, `EXPIRED` or `SUPPRESSED` (quiet hours), with the reason. |
-| `user_speech` | The user's voice as voice activity detection hears it: `STARTED`, `ONGOING` (after a pause), `ENDED`. For a "you're speaking" indicator. |
+| `user_speech` | The user's voice as voice activity detection hears it: `STARTED`, `ONGOING` (after a pause), `ENDED`, or `CANCELLED` when what `STARTED` fell quiet before it was confirmed as speech (a cough, a door). For a "you're speaking" indicator, which `ENDED` and `CANCELLED` both take away. |
 | `error` | A processor or transport reported a failure, e.g. the LLM endpoint is unreachable. |
 | `listening_window` | The mic stays open after a reply: `OPENED` (with `closes_in_ms`), `EXTENDED` when the user starts answering, `CLOSED` when it times out. For a live mic indicator. |
 | `page_changed` | With an agent: the conversation moved to another page (`from_flow`/`from_page` → `to_flow`/`to_page`), with the reason: `start`, `restart`, `route:<intent>` or `goto`. |

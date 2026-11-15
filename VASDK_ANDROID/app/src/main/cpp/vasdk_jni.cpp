@@ -111,13 +111,18 @@ struct Callbacks {
             });
         }
         switch (event.kind_case()) {
-        case Event::kTranscript:
+        case Event::kTranscript: {
+            const auto &transcript = event.transcript();
             call([&](JNIEnv *env, jobject callback) {
-                jstring jText = env->NewStringUTF(event.transcript().text().c_str());
-                env->CallVoidMethod(callback, onTranscript, jText, event.transcript().is_final() ? JNI_TRUE : JNI_FALSE);
+                jstring jText = env->NewStringUTF(transcript.text().c_str());
+                env->CallVoidMethod(callback, onTranscript, jText, transcript.is_final() ? JNI_TRUE : JNI_FALSE,
+                                    transcript.is_follow_up() ? JNI_TRUE : JNI_FALSE,
+                                    static_cast<jint>(transcript.replaces_transcripts()),
+                                    transcript.is_backchannel() ? JNI_TRUE : JNI_FALSE);
                 env->DeleteLocalRef(jText);
             });
             break;
+        }
         case Event::kAgentReply: {
             const auto &reply = event.agent_reply();
             const std::string chunk =
@@ -146,7 +151,10 @@ struct Callbacks {
         case Event::kUserSpeech: {
             using Speech = vasdk::engine::UserSpeech;
             const auto state = event.user_speech().state();
-            status(state == Speech::STARTED ? "SPEECH_STARTING" : state == Speech::ONGOING ? "SPEECH_ONGOING" : "SPEECH_ENDED");
+            status(state == Speech::STARTED     ? "SPEECH_STARTING"
+                   : state == Speech::ONGOING   ? "SPEECH_ONGOING"
+                   : state == Speech::CANCELLED ? "SPEECH_CANCELLED"   // a false start: nothing was said
+                                                : "SPEECH_ENDED");
             break;
         }
         case Event::kError: {
@@ -300,7 +308,8 @@ Java_com_vasdk_android_VasdkEngine_nativeInit(JNIEnv *env, jobject thiz, jbyteAr
     jclass cls = env->GetObjectClass(thiz);
     auto callbacks = std::make_shared<Callbacks>();
     callbacks->target = session->callbackRef;
-    callbacks->onTranscript = env->GetMethodID(cls, "onTranscriptReceived", "(Ljava/lang/String;Z)V");
+    // (text, isFinal, isFollowUp, replacesTranscripts, isBackchannel)
+    callbacks->onTranscript = env->GetMethodID(cls, "onTranscriptReceived", "(Ljava/lang/String;ZZIZ)V");
     callbacks->onStatus = env->GetMethodID(cls, "onStatusChanged", "(Ljava/lang/String;)V");
     callbacks->onLlmResponse = env->GetMethodID(cls, "onLlmResponse", "(Ljava/lang/String;ZZLjava/lang/String;)V");
     callbacks->onError = env->GetMethodID(cls, "onError", "(ILjava/lang/String;)V");

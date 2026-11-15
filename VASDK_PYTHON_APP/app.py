@@ -74,6 +74,14 @@ def find_models(given):
     sys.exit("No speech models found: build VASDK (CMake downloads them), or pass --models <folder>.")
 
 
+def heard_line(label, heard):
+    """A final transcript (a vasdk.Transcript) as printed. A follow-up is the user's turn merged
+    from the parts printed just before it: "you (merged 2 parts): Book a flight to Paris"."""
+    if heard.is_follow_up:
+        return f"{label} (merged {heard.replaces_transcripts} parts): {heard.text}"
+    return f"{label}: {heard.text}"
+
+
 class Printer:
     """The session's events, as a transcript: what was heard, what was said, the tools and triggers."""
 
@@ -87,7 +95,7 @@ class Printer:
         if kind == "transcript":
             heard = event.transcript
             if heard.is_final and not heard.is_backchannel and self.show_heard and heard.text:
-                print(f"{self.heard_label}: {heard.text}")
+                print(heard_line(self.heard_label, heard))
         elif kind == "agent_reply":
             reply = event.agent_reply
             if reply.is_final:

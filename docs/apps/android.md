@@ -165,6 +165,27 @@ sequenceDiagram
 
 If `confirmed=true` doesn't match the cached `PendingAction` (a small model can emit `confirmed=true` without ever actually asking), the tool re-issues a fresh confirmation request instead of trusting the flag. The same `ExpectationBanner` also fires for the LLM's own `isExpecting` flag on ordinary spoken questions, not just tool confirmations - `awaitingResponse` in `MainViewModel`'s UI state is the single source of truth either way.
 
+## Merged turns in the chat
+
+When the user pauses mid-sentence, the end-of-turn model can end the turn early. If they go on, the SDK answers both parts as one turn ([Follow-ups](../reference/llm.md#follow-ups)). The chat shows that: each part's final transcript first appears as its own message, then the follow-up transcript (`is_follow_up`, `replaces_transcripts`) folds them into one. The merged message takes the place of the first part, flashes briefly and is labelled "merged · N parts". A reply the assistant had begun to the first part is retracted, since the SDK dropped it. Grey bars sweep over its words, then pulse in place of the thinking bubble. The answer to the merged turn then streams into that same bubble, which resizes to fit, so the void reply turns into the one that replaces it. If no answer comes before the user speaks again, the retracted bubble animates out. Back-channels ("mm-hmm") are dimmed, labelled "not answered", and left out of the merge.
+
+```mermaid
+sequenceDiagram
+    participant J as vasdk_jni.cpp
+    participant V as MainViewModel
+    participant C as Chat
+    J->>V: onTranscriptReceived("Book a flight", final)
+    V->>C: user message, thinking
+    J->>V: onTranscriptReceived("to Paris", final)
+    V->>C: user message, thinking
+    J->>V: onTranscriptReceived("Book a flight to Paris", final, isFollowUp, replaces 2)
+    V->>C: mergeFollowUp: one message "merged · 2 parts", thinking
+```
+
+The merge is `mergeFollowUp` in [`FollowUpMerge.kt`](../../VASDK_ANDROID/app/src/main/kotlin/com/vasdk/android/FollowUpMerge.kt), a pure function. `MainViewModel` keeps the retracted reply as the placeholder, and `RedactedText` in `MessageItems.kt` draws the bars. The JVM tests (`./gradlew :app:testDebugUnitTest`) are [`FollowUpMergeTest`](../../VASDK_ANDROID/app/src/test/kotlin/com/vasdk/android/FollowUpMergeTest.kt) and [`MainViewModelFollowUpTest`](../../VASDK_ANDROID/app/src/test/kotlin/com/vasdk/android/MainViewModelFollowUpTest.kt). `VasdkEngine` loads its native library when an engine is made, so they run without it.
+
+A false start (the VAD starts on a cough or a door, then falls quiet) arrives as `user_speech` `CANCELLED`. The JNI layer turns it into `SPEECH_CANCELLED`, which takes away the "speaking" bubble and the mic waveform.
+
 ## Voice orb and waveform visualization
 
 `VoiceOrb.kt` renders a ChatGPT-style animated orb - five per-band blobs (bass through treble) plus three additively-blended combination blobs - driven by `level` (overall loudness) and `bars` (per-band magnitudes), with a `thinking` mode that swaps the audio-driven energy for a metronome pulse while the LLM is still generating. It uses a blue palette while the mic is live and a red palette while the assistant is speaking. The older five-bar `WaveformIndicator` is still in the codebase but disabled (`USE_WAVEFORM_BARS = false`) in favor of the orb.

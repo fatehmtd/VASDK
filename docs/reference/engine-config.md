@@ -175,6 +175,12 @@ turn_taking {
 
 `interrupt_timeout_ms` is how long the assistant waits in `INTERRUPTED` for the TTS to confirm it stopped before listening anyway (default 500).
 
+`min_pause_ms` is how long a pause must last before the turn model may end the turn in it, whichever model it is (`TurnDetectionProcessor::setMinPauseMs`, default 0: at once). A model that scores pauses (turn-1-mini, SmartTurn v3) can call the turn over a moment into a breath mid-sentence. With `min_pause_ms: 400`, that call is held until the pause has lasted 400 ms. If the user speaks again first, it's dropped and the VAD's end ends the turn. Every turn that ends in a pause then ends up to that much later.
+
+```textproto
+turn_taking { min_pause_ms: 400 }   # a breath isn't the end
+```
+
 ## Audio
 
 ```textproto

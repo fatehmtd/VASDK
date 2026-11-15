@@ -8,6 +8,7 @@
 #include <condition_variable>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 
@@ -29,8 +30,11 @@ namespace pipeline {
  * Resumed turns: when the user picks up again after a pause that ended their turn, their earlier
  * words go in front of the next turn, so "Book a flight ... to Paris" is one turn. Words that were
  * never sent are always kept. A turn already sent is merged (and the UserTurnFrame marked
- * replacesPrevious) when the user resumes while the agent is still thinking, or barges in within
- * setResumeMergeMs() of it. A TranscriptionFrame{isFollowUp} announces the merged text.
+ * replacesPrevious) when the user resumes while the agent is still thinking, or starts talking over
+ * its reply within setResumeMergeMs() of it (the barge-in may be confirmed later). A TranscriptionFrame{isFollowUp} announces the merged text, just before
+ * its UserTurnFrame; its replacesTranscripts is how many of the final transcriptions passed on
+ * before it hold the same words (back-channels aside, an earlier follow-up counting as one), so a
+ * UI can show them as one message.
  */
 class VASDK_EXPORT TurnAssemblerProcessor : public FrameProcessor {
 public:
@@ -95,8 +99,14 @@ private:
     bool        _partialAlreadySent{false};   // sent on the partial: drop the turn's late final
     std::string _lastTurnText;                // last turn sent, for merging a resumed one
     std::chrono::steady_clock::time_point _lastTurnAt;
+    // When the user started talking over the agent (BARGE_IN_PENDING), for the resume window
+    std::optional<std::chrono::steady_clock::time_point> _bargeInStartedAt;
     std::string _carriedText;                 // earlier words to put in front of the next turn
     bool        _carriedReplacesPrevious{false};
+    // Final transcriptions passed on (what a UI shows), for TranscriptionFrame::replacesTranscripts:
+    int         _transcriptsSinceTurn{0};     // since the last turn was sent: the next turn's
+    int         _transcriptsOfLastTurn{0};    // the last turn sent's (1 once merged: its follow-up)
+    int         _carriedTranscripts{0};       // _carriedText's
     uint64_t    _nextTurnId{1};
 
     std::thread             _watchdogThread;

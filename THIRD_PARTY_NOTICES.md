@@ -91,6 +91,8 @@ Every VAD/STT/TTS/LLM/audio provider under `VASDK_3P_IMPL/`, plus the core libra
 | [CLIUtils/CLI11](https://github.com/CLIUtils/CLI11) | CLI parsing (showcase apps) | GitHub | BSD 3-Clause |
 | [google/googletest](https://github.com/google/googletest) (GoogleTest, gMock) | The tests only (`VASDK_BUILD_TESTS`); never installed or shipped | GitHub | BSD 3-Clause |
 | [pytest-dev/pytest](https://github.com/pytest-dev/pytest) | The Python tests only, a development tool; never shipped | PyPI | MIT |
+| [junit-team/junit4](https://github.com/junit-team/junit4) | The Android app's JVM tests only (`testImplementation`); never in the APK | Maven Central | EPL 1.0 |
+| [Kotlin/kotlinx.coroutines](https://github.com/Kotlin/kotlinx.coroutines) (`kotlinx-coroutines-test`) | The Android app's JVM tests only (`testImplementation`); never in the APK | Maven Central | Apache 2.0 |
 | [google/highway](https://github.com/google/highway) | SIMD (core library) | GitHub | Apache 2.0 / BSD 3-Clause, dual |
 | [Compaile/ctrack](https://github.com/Compaile/ctrack) | Profiling (core library) | GitHub | MIT |
 | [laserpants/dotenv-cpp](https://github.com/laserpants/dotenv-cpp) | `.env` file loading | GitHub | BSD 3-Clause |

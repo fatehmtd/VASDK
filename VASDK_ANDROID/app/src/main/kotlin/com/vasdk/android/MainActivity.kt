@@ -360,8 +360,14 @@ class MainActivity : ComponentActivity(), VasdkEngine.Listener {
         Thread { engine.setEntityValues("contact", ContactsEntity.values(applicationContext)) }.start()
     }
 
-    override fun onTranscriptReceived(text: String, isFinal: Boolean) {
-        viewModel.onTranscriptReceived(text, isFinal)
+    override fun onTranscriptReceived(
+        text: String,
+        isFinal: Boolean,
+        isFollowUp: Boolean,
+        replacesTranscripts: Int,
+        isBackchannel: Boolean
+    ) {
+        viewModel.onTranscriptReceived(text, isFinal, isFollowUp, replacesTranscripts, isBackchannel)
     }
 
     override fun onStatusChanged(status: String) {
