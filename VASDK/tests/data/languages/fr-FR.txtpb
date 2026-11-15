@@ -180,6 +180,8 @@ replies {
   declined: "D'accord."
   ask_slot: "Quel est votre {slot} ?"
   too_few_digits: ["Je n'ai entendu que {count} chiffre.", "Je n'ai entendu que {count} chiffres."]
+  at_limit: "C'est déjà à {value}."
+  out_of_range: "Cela va de {min} à {max}."
 }
 
 speaking {

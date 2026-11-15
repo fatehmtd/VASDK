@@ -23,8 +23,10 @@
 #include <cctype>
 #include <deque>
 #include <filesystem>
+#include <cstdlib>
 #include <fstream>
 #include <functional>
+#include <optional>
 #include <regex>
 #include <set>
 #include <sstream>
@@ -685,6 +687,22 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::build(vasdk::flow::Agent age
                 known = (field == "name" && path.size() == 2) || (field == "payload" && path.size() >= 2);
             } else if (root == "context") {
                 known = path.size() >= 2;
+            } else if (root == "bounds") {   // $bounds.<param>.<field>: a NUMBER's bounds, an ENUM's values
+                const auto found = compiled->_sessionParams.find(field);
+                if (found == compiled->_sessionParams.end()) {
+                    check.error(where, pathText(path) + ": no session param " + quoted(field) + " is declared");
+                    continue;
+                }
+                const auto& param = definition.session_params(found->second);
+                const bool isEnum = param.type() == vasdk::flow::SessionParam::ENUM;
+                const std::string part = path.size() > 2 ? path[2] : "";
+                if (param.type() != vasdk::flow::SessionParam::NUMBER && !isEnum) {
+                    check.error(where, pathText(path) + ": $bounds reads a NUMBER or ENUM param");
+                    continue;
+                }
+                known = (path.size() == 3 && (part == "min" || part == "max" || part == "at_min" || part == "at_max" ||
+                                              (part == "step" && !isEnum) || (isEnum && (part == "values" || part == "index")))) ||
+                        (isEnum && part == "attributes" && path.size() >= 4);
             } else if (root == "params") {
                 if (!paramsType) {
                     check.error(where, pathText(path) + ": the page has no params");
@@ -707,7 +725,8 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::build(vasdk::flow::Agent age
                 check.error(where, "unknown reference " + pathText(path) +
                                        " (use $session.<name>, $page.name, $page.locals.<name>, $input.text, "
                                        "$nlu.intent, $nlu.entities.<entity>, $entities.<list entity>, $context.<name>, "
-                                       "$params.<field> or, on a form page, $form.<slot>)");
+                                       "$params.<field>, $bounds.<param>.<min|max|step|at_min|at_max|values|index|attributes> "
+                                       "or, on a form page, $form.<slot>)");
         }
     };
     auto compileExpression = [&](const std::string& text, const std::string& where) {
@@ -744,6 +763,52 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::build(vasdk::flow::Agent age
         if (expect.has_follow_up_listen_ms()) checkListenMs(expect.follow_up_listen_ms(), where + " expect");
         for (const auto& text : expect.partial_reprompt()) checkTemplate(text, where + " expect partial_reprompt");
     };
+
+    // Bounded NUMBERs and ENUMs: bounds that are expressions, an ENUM's list entity, what fits which.
+    for (const auto& param : definition.session_params()) {
+        using Param = vasdk::flow::SessionParam;
+        const std::string where = "session param " + quoted(param.name());
+        const bool isNumber = param.type() == Param::NUMBER, isEnum = param.type() == Param::ENUM;
+        auto literal = [](const std::string& text) -> std::optional<double> {
+            char* end = nullptr;
+            const double number = std::strtod(text.c_str(), &end);
+            if (text.empty() || end == text.c_str() || *end != '\0') return std::nullopt;
+            return number;
+        };
+        if (!isNumber && !isEnum) {
+            if (!param.min().empty() || !param.max().empty() || !param.step().empty() || param.out_of_range() != Param::ALLOW)
+                check.error(where, "min, max, step and out_of_range are for a NUMBER (an ENUM's bounds are its values)");
+            if (!param.entity().empty() || param.wrap()) check.error(where, "entity and wrap are for an ENUM");
+            continue;
+        }
+        if (isNumber) {
+            if (!param.entity().empty() || param.wrap()) check.error(where, "entity and wrap are for an ENUM");
+            for (const auto& [label, text] : {std::pair<std::string, std::string>{"min", param.min()}, {"max", param.max()},
+                                              {"step", param.step()}})
+                if (!text.empty()) compileExpression(text, where + " " + label);
+            const auto low = literal(param.min()), high = literal(param.max()), step = literal(param.step());
+            if (low && high && *low > *high) check.error(where, "min is more than max");
+            if (step && *step <= 0) check.error(where, "step must be more than 0");
+            if (param.default_().kind_case() == Value::kNumberValue &&
+                ((low && param.default_().number_value() < *low) || (high && param.default_().number_value() > *high)))
+                check.error(where, "default is outside min and max");
+            continue;
+        }
+        if (!param.min().empty() || !param.max().empty() || !param.step().empty())
+            check.error(where, "an ENUM's bounds are its first and last values, and it moves one value at a time (or `by`)");
+        if (param.out_of_range() == Param::CLAMP) check.error(where, "out_of_range CLAMP is for a NUMBER: an ENUM has no nearest value");
+        const auto* type = compiled->_entities.type(entityName(param.entity()));
+        if (!type || !type->has_list()) {
+            check.error(where, "an ENUM needs `entity`, a list entity whose values are its levels (\"@brightness_level\")");
+            continue;
+        }
+        if (param.default_().kind_case() == Value::kStringValue && !type->dynamic()) {
+            const auto& values = type->list().values();
+            if (std::none_of(values.begin(), values.end(),
+                             [&](const vasdk::nlu::EntityValue& value) { return value.value() == param.default_().string_value(); }))
+                check.error(where, "default " + quoted(param.default_().string_value()) + " isn't one of " + param.entity() + "'s values");
+        }
+    }
 
     for (const auto& goal : definition.goals()) {
         const std::string where = "goal " + quoted(goal.name());
@@ -916,6 +981,22 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::build(vasdk::flow::Agent age
                 compileExpression(step.set().value(), stepWhere + " set value");
                 checkWritable(step.set().key(), stepWhere, "set key");
                 break;
+            case vasdk::flow::Step::kIncrease:
+            case vasdk::flow::Step::kDecrease: {
+                const auto& adjust = step.has_increase() ? step.increase() : step.decrease();
+                const std::string name = step.has_increase() ? " increase" : " decrease";
+                const auto parsed = Expression::parse(adjust.key());
+                const Path* key = parsed ? parsed->reference() : nullptr;
+                const auto found = key && key->size() == 2 && (*key)[0] == "session" ? compiled->_sessionParams.find((*key)[1])
+                                                                                      : compiled->_sessionParams.end();
+                if (found == compiled->_sessionParams.end())
+                    check.error(stepWhere + name, quoted(adjust.key()) + ": a declared $session.<param>, a NUMBER or an ENUM");
+                else if (const auto type = definition.session_params(found->second).type();
+                         type != vasdk::flow::SessionParam::NUMBER && type != vasdk::flow::SessionParam::ENUM)
+                    check.error(stepWhere + name, quoted(adjust.key()) + ": only a NUMBER or an ENUM goes up and down");
+                if (!adjust.by().empty()) compileExpression(adjust.by(), stepWhere + name + " by");
+                break;
+            }
             case vasdk::flow::Step::kExtract:
                 checkEntity(step.extract().entity(), stepWhere + " extract");
                 checkWritable(step.extract().into(), stepWhere, "extract into");
@@ -995,9 +1076,10 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::build(vasdk::flow::Agent age
             const auto& handler = handlers.Get(h);
             const std::string handlerWhere = where + " handler " + std::to_string(h + 1);
             if (handler.event() != kEventNoMatch && handler.event() != kEventNoInput && handler.event() != kEventMaxReprompts &&
-                handler.event() != kEventToolError && handler.event() != kEventClarify && handler.event() != "resumed")
+                handler.event() != kEventToolError && handler.event() != kEventClarify && handler.event() != "resumed" &&
+                handler.event() != kEventAtLimit && handler.event() != kEventOutOfRange)
                 check.error(handlerWhere, "unknown event " + quoted(handler.event()) +
-                                              " (no-match, no-input, max-reprompts, tool-error, clarify or resumed)");
+                                              " (no-match, no-input, max-reprompts, tool-error, clarify, resumed, at-limit or out-of-range)");
             checkSteps(handler.steps(), handlerWhere);
             checkTarget(handler.target(), handlerWhere);
         }
@@ -1389,7 +1471,7 @@ bool fitsType(vasdk::flow::SessionParam::Type type, const Value& value) {
     switch (value.kind_case()) {
     case Value::KIND_NOT_SET:
     case Value::kNullValue: return true;
-    case Value::kStringValue: return type == vasdk::flow::SessionParam::STRING;
+    case Value::kStringValue: return type == vasdk::flow::SessionParam::STRING || type == vasdk::flow::SessionParam::ENUM;
     case Value::kNumberValue: return type == vasdk::flow::SessionParam::NUMBER;
     case Value::kBoolValue: return type == vasdk::flow::SessionParam::BOOL;
     case Value::kListValue: return type == vasdk::flow::SessionParam::LIST;

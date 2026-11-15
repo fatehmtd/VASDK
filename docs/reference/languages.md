@@ -55,7 +55,7 @@ Copy `en-US.txtpb` and change it; `language_test.cpp` uses [a French pack](../..
 | `negations`, `articles`, `stop_words` | Words that negate what follows, articles before a day or a choice ("the fifth"), words ignored when knowledge questions are matched by words. |
 | `spelling_alphabet` | Spelled letters for `spelled` patterns ("alpha" → a). |
 | `turn_taking` | Back-channels and interruptions. The engine config's `turn_taking.backchannel` lists replace them. |
-| `replies` | The engine's own replies: not understood, a tool failed, a slot's answer not read, "say yes or no", the slot question (`{slot}`), too few digits (`{count}`, one form per plural). |
+| `replies` | The engine's own replies: not understood, a tool failed, a slot's answer not read, "say yes or no", the slot question (`{slot}`), too few digits (`{count}`, one form per plural), a param already at its bound (`at_limit`, `{value}`), a value it refuses (`out_of_range`, `{min}` and `{max}`). |
 | `speaking` | Formats with placeholders: date (`{weekday}, {month} {day_ordinal}`), time (`{hour}:{minute} {period}`), whole hour, date and time. Also 12 or 24 hours, am and pm, ordinal suffixes, plural rules, duration units, list separators, and digit names for phone numbers read one by one. |
 
 **Numbers.** Words follow each other while each fills a smaller place: "twenty" "five" is 25, while "five" "five" is two numbers. A scale multiplies what comes before it: "two hundred and five" is 205. Where a language builds numbers some other way, list the phrase with its value: "soixante dix": 70, "quatre vingt": 80. A language that writes compounds as one word lists each one ("einundzwanzig": 21). Phone numbers can be said digit by digit or in pairs ("zéro six, douze, trente-quatre").

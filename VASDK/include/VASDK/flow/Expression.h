@@ -39,7 +39,8 @@ using TimePoint = std::chrono::system_clock::time_point;
  * Functions:
  *   exists(x) empty(x) len(x) lower(x) upper(x) number(x)
  *   round(x) round(x, digits) floor(x) ceil(x) abs(x) min(a, b, ...) max(a, b, ...)
- *   now()               the local date and time: "2026-11-05T14:30:00"
+ *   index_of(list, x)   where x is in the list, from 0; null when it isn't: index_of($bounds.fan.values, 'mid')
+ *   now()             the local date and time: "2026-11-05T14:30:00"
  *   today()             the local date: "2026-11-05"
  *   days_until(date)    whole days from today to a date (or the date of a date and time); null when it isn't one
  *   days_since(date)    the same, the other way

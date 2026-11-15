@@ -1,0 +1,25 @@
+# proto-file: vasdk/flow/test_case.proto
+# proto-message: vasdk.flow.FlowTestCase
+# The volume, a bounded NUMBER: 0 to the max get_volume gives, a step at a time, clamped when set.
+name: "the volume: up and down a step, stopping at the bounds, and clamped when set too high"
+turns { expect { page: "idle" } }
+turns { user: "louder"
+        tool_results { key: "get_volume" value: "{\"current\": 13, \"max\": 15}" } tool_results { key: "set_volume" value: "{\"set_to\": 14}" }
+        expect { said: "Volume 14." tools_called: ["get_volume", "set_volume"] } }
+turns { user: "turn up the volume" tool_results { key: "get_volume" value: "{\"current\": 15, \"max\": 15}" }
+        expect { said: "That's as loud as it goes." event: "at-limit" tools_called: ["get_volume"] page: "idle" } }   # set_volume isn't called
+turns { user: "set the volume to 50"
+        tool_results { key: "get_volume" value: "{\"current\": 15, \"max\": 15}" } tool_results { key: "set_volume" value: "{\"set_to\": 15}" }
+        expect { said: "Volume 15, as loud as it goes." session { key: "volume" value: "15" } } }
+turns { user: "volume 5"
+        tool_results { key: "get_volume" value: "{\"current\": 15, \"max\": 15}" } tool_results { key: "set_volume" value: "{\"set_to\": 5}" }
+        expect { said: "Volume 5." } }
+turns { user: "softer"
+        tool_results { key: "get_volume" value: "{\"current\": 5, \"max\": 15}" } tool_results { key: "set_volume" value: "{\"set_to\": 4}" }
+        expect { said: "Volume 4." } }
+turns { user: "quieter" tool_results { key: "get_volume" value: "{\"current\": 0, \"max\": 15}" }
+        expect { said: "It's as quiet as it goes." event: "at-limit" } }
+# Another phone's maximum, read from get_volume each time
+turns { user: "louder"
+        tool_results { key: "get_volume" value: "{\"current\": 24, \"max\": 25}" } tool_results { key: "set_volume" value: "{\"set_to\": 25}" }
+        expect { said: "Volume 25." } }

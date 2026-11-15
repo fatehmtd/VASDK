@@ -216,7 +216,7 @@ std::optional<std::pair<int, int>> arity(const std::string& name) {
         name == "weekday")
         return std::pair{1, 1};
     if (name == "round") return std::pair{1, 2};
-    if (name == "add_days") return std::pair{2, 2};
+    if (name == "add_days" || name == "index_of") return std::pair{2, 2};
     if (name == "min" || name == "max") return std::pair{1, 64};
     return std::nullopt;
 }
@@ -527,6 +527,13 @@ private:
             const auto count = asNumber(arguments[1]);
             if (!count) return nullValue();
             return stringValue(nlu::iso(nlu::civilFromDays(*days + static_cast<long>(std::lround(*count)))));
+        }
+        if (name == "index_of") {   // where a value is in a list, from 0; null when it isn't
+            if (argument.kind_case() != Value::kListValue) return nullValue();
+            const auto& items = argument.list_value().values();
+            for (int i = 0; i < items.size(); ++i)
+                if (valuesEqual(items[i], arguments[1])) return numberValue(i);
+            return nullValue();
         }
         if (name == "min" || name == "max") {
             std::vector<Value> values;   // min($session.prices) takes a list's items

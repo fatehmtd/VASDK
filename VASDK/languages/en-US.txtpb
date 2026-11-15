@@ -223,6 +223,8 @@ replies {
   declined: "Okay."
   ask_slot: "What's the {slot}?"
   too_few_digits: ["I only got {count} digit.", "I only got {count} digits."]
+  at_limit: "It's already at {value}."
+  out_of_range: "That goes from {min} to {max}."
 }
 
 speaking {
