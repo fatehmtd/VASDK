@@ -168,6 +168,7 @@ dependencies {
     // JVM tests of the app's own logic (src/test): ./gradlew :app:testDebugUnitTest
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0'   // MainViewModel's scope, on the JVM
+    testImplementation 'org.json:json:20240303'   // org.json for the tools' JVM tests (Android's is a stub there)
 
     debugImplementation 'androidx.compose.ui:ui-tooling'
     debugImplementation 'androidx.compose.ui:ui-test-manifest'

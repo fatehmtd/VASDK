@@ -58,6 +58,11 @@ void ToolRegistry::registerWebTools() {
     session->toolDispatcher->registerTool(FetchUrlTool{callKotlinTool});
 }
 
+void ToolRegistry::registerWeatherTool() {
+    // The current weather for a place (web_tools.h), from Open-Meteo through WeatherTools.kt
+    session->toolDispatcher->registerTool(GetWeatherTool{callKotlinTool});
+}
+
 void ToolRegistry::registerCameraTools() {
     // Camera tools (camera_tools.h)
     session->toolDispatcher->registerTool(CapturePhotoTool{callKotlinTool});

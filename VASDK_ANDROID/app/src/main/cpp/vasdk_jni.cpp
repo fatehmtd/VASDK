@@ -414,6 +414,10 @@ Java_com_vasdk_android_VasdkEngine_nativeInit(JNIEnv *env, jobject thiz, jbyteAr
     session->toolRegistry->registerNotificationAndAlarmTools();
     session->toolRegistry->registerCalendarTools();
     session->toolRegistry->registerCameraTools();
+    // The weather is asked for often: one tool, offered to every LLM
+    session->toolRegistry->registerWeatherTool();
+    // Searching and reading the web: a cloud LLM handles the longer tool list; on device it stays short
+    if (!session->useLocalLLM) session->toolRegistry->registerWebTools();
 
     if (session->useLocalLLM && session->llmTransport) {
         // llama.cpp renders requests with the GGUF's own template: the tool descriptions go into

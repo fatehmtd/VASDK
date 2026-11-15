@@ -22,3 +22,15 @@ public:
         addParameter({"url", "Full URL to fetch (must start with https://)", "string", true});
     }
 };
+
+//  get_weather 
+class GetWeatherTool : public BridgeTool {
+public:
+    explicit GetWeatherTool(AndroidToolBridge bridge)
+        : BridgeTool("get_weather",
+                     "Get the current weather for a place: conditions, temperature, humidity and wind",
+                     std::move(bridge)) {
+        addParameter({"location", "The place: a city, a region or a country, e.g. \"Tokyo\"", "string", true});
+        addParameter({"unit", "\"celsius\" (default) or \"fahrenheit\"", "string", false});
+    }
+};

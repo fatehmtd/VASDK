@@ -20,7 +20,8 @@ object WebTools {
 
     private const val CONNECT_TIMEOUT_MS = 8_000
     private const val READ_TIMEOUT_MS    = 10_000
-    private const val MAX_BODY_BYTES     = 4 * 1024
+    private const val PREVIEW_CHARS      = 4 * 1024     // fetch_url: the start of a page
+    private const val MAX_JSON_CHARS     = 256 * 1024   // an API's JSON, read whole (a cut one doesn't parse)
 
     //  web_search 
     // Uses DuckDuckGo Instant Answer API (JSON, no key needed).
@@ -31,7 +32,7 @@ object WebTools {
         val urlStr  = "https://api.duckduckgo.com/?q=$encoded&format=json&no_html=1&skip_disambig=1"
 
         return try {
-            val raw = httpGet(urlStr) ?: return JSONObject().put("error", "Network request failed").toString()
+            val raw = httpGet(urlStr, MAX_JSON_CHARS) ?: return JSONObject().put("error", "Network request failed").toString()
             val ddg = JSONObject(raw)
 
             val results = JSONArray()
@@ -81,7 +82,7 @@ object WebTools {
             return JSONObject().put("error", "URL must start with https:// or http://").toString()
 
         return try {
-            val body = httpGet(url) ?: return JSONObject().put("error", "Network request failed").toString()
+            val body = httpGet(url, PREVIEW_CHARS, truncate = true) ?: return JSONObject().put("error", "Network request failed").toString()
             JSONObject().apply {
                 put("url",         url)
                 put("length",      body.length)
@@ -94,7 +95,9 @@ object WebTools {
 
     //  HTTP helper 
 
-    private fun httpGet(urlStr: String): String? {
+    /** The body of [urlStr], or null when the request fails or the body is over [maxChars] (with
+     *  [truncate], its first [maxChars] instead, marked as cut). */
+    fun httpGet(urlStr: String, maxChars: Int = MAX_JSON_CHARS, truncate: Boolean = false): String? {
         val conn = URL(urlStr).openConnection() as HttpURLConnection
         return try {
             conn.connectTimeout = CONNECT_TIMEOUT_MS
@@ -109,7 +112,12 @@ object WebTools {
                 var read: Int
                 while (reader.read(buf).also { read = it } != -1) {
                     sb.append(buf, 0, read)
-                    if (sb.length >= MAX_BODY_BYTES) { sb.append("\n[...truncated]"); break }
+                    if (sb.length >= maxChars) {
+                        if (!truncate) return null   // a cut JSON wouldn't parse
+                        sb.setLength(maxChars)
+                        sb.append("\n[...truncated]")
+                        break
+                    }
                 }
                 sb.toString()
             }

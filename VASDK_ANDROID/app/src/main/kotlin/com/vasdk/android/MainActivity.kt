@@ -28,6 +28,7 @@ import com.vasdk.android.tools.MediaTools
 import com.vasdk.android.tools.NotificationTools
 import com.vasdk.android.tools.SystemTools
 import com.vasdk.android.tools.VasdkNotificationListener
+import com.vasdk.android.tools.WeatherTools
 import com.vasdk.android.tools.WebTools
 import com.vasdk.android.ui.MainScreen
 import com.vasdk.android.ui.VasdkTheme
@@ -399,6 +400,8 @@ class MainActivity : ComponentActivity(), VasdkEngine.Listener {
             CommunicationTools.owns(toolName)-> CommunicationTools.handle(this, toolName, argsJson)
             LocationTools.owns(toolName)     -> LocationTools.handle(this, toolName, argsJson)
             WebTools.owns(toolName)          -> WebTools.handle(this, toolName, argsJson)
+            WeatherTools.owns(toolName)      -> WeatherTools.handle(toolName, argsJson) { url -> WebTools.httpGet(url) }
+            CameraTools.owns(toolName)       -> CameraTools.handle(this, toolName, argsJson)
             else -> JSONObject().put("error", "unknown tool: $toolName").toString()
         }
     } catch (e: Exception) {

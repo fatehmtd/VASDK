@@ -132,10 +132,13 @@ Tool calls cross the JNI boundary too: when the LLM requests a tool, the native 
 | `NotificationTools.kt` | `notification_tools.h` | `send_notification`, `set_alarm_or_timer` |
 | `CommunicationTools.kt` | `communication_tools.h` | `get_contacts`, `get_call_logs`, `make_phone_call`\*, `get_calendar_events`, `add_calendar_event`, `send_sms`\* |
 | `LocationTools.kt` | `location_tools.h` | `get_location`, `navigate_to` |
-| `WebTools.kt` | `web_tools.h` | `web_search`, `fetch_url` |
+| `WebTools.kt` | `web_tools.h` | `web_search`, `fetch_url`: the cloud LLM only |
+| `WeatherTools.kt` | `web_tools.h` | `get_weather` |
 | `CameraTools.kt` | `camera_tools.h` | `capture_photo`, `scan_qr_code` |
 
-\* confirmation-gated, see below. `set_alarm_or_timer` used to be two separate tools (`set_alarm`/`set_timer`); they were merged because a small on-device model reliably mishandled the arithmetic ("an alarm in five seconds" became hour=5, minute=0). The merged tool forwards the time expression close to verbatim and does the classification/parsing deterministically in Kotlin instead of asking the model to do it.
+\* confirmation-gated, see below.
+
+Not every tool is offered to the LLM. Small on-device models choose tools less reliably as the list grows, so `nativeInit` registers groups (`ToolRegistry`): communication, notifications and alarms, calendar, camera, and `get_weather` for every LLM, plus `web_search` and `fetch_url` for a cloud one. `get_weather` looks the place up with Open-Meteo's geocoding API, then reads its current conditions (no API key). The data is CC BY 4.0, credited in Settings. `web_search` reads DuckDuckGo's Instant Answer API, which answers encyclopedic questions, not live ones such as the weather. `set_alarm_or_timer` used to be two separate tools (`set_alarm`/`set_timer`); they were merged because a small on-device model reliably mishandled the arithmetic ("an alarm in five seconds" became hour=5, minute=0). The merged tool forwards the time expression close to verbatim and does the classification/parsing deterministically in Kotlin instead of asking the model to do it.
 
 Sensitive actions (`make_phone_call`, `send_sms`) aren't blocked behind a UI dialog - there's no one to tap it in a voice-only flow. Instead the tool itself asks the LLM to get a *spoken* confirmation, and re-validates that the confirmed call matches what was actually offered before it fires:
 

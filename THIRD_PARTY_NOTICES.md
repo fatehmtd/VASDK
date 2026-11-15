@@ -93,6 +93,8 @@ Every VAD/STT/TTS/LLM/audio provider under `VASDK_3P_IMPL/`, plus the core libra
 | [pytest-dev/pytest](https://github.com/pytest-dev/pytest) | The Python tests only, a development tool; never shipped | PyPI | MIT |
 | [junit-team/junit4](https://github.com/junit-team/junit4) | The Android app's JVM tests only (`testImplementation`); never in the APK | Maven Central | EPL 1.0 |
 | [Kotlin/kotlinx.coroutines](https://github.com/Kotlin/kotlinx.coroutines) (`kotlinx-coroutines-test`) | The Android app's JVM tests only (`testImplementation`); never in the APK | Maven Central | Apache 2.0 |
+| [stleary/JSON-java](https://github.com/stleary/JSON-java) (`org.json:json`) | The Android app's JVM tests only (`testImplementation`; Android has its own); never in the APK | Maven Central | Public Domain |
+| [Open-Meteo](https://open-meteo.com) weather and geocoding APIs | The Android app's `get_weather` tool, called at run time (no code or data shipped); credited in its Settings as the license requires | open-meteo.com | Data: CC BY 4.0 |
 | [google/highway](https://github.com/google/highway) | SIMD (core library) | GitHub | Apache 2.0 / BSD 3-Clause, dual |
 | [Compaile/ctrack](https://github.com/Compaile/ctrack) | Profiling (core library) | GitHub | MIT |
 | [laserpants/dotenv-cpp](https://github.com/laserpants/dotenv-cpp) | `.env` file loading | GitHub | BSD 3-Clause |

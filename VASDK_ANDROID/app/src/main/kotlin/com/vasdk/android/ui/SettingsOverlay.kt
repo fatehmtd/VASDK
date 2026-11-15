@@ -142,6 +142,11 @@ internal fun SettingsOverlay(
                         }
                     }
                 }
+
+                Column(modifier = Modifier.padding(top = 28.dp)) {
+                    SectionHeader("Credits")
+                    WeatherCredit()
+                }
             }
 
             Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
@@ -284,6 +289,24 @@ internal fun LlmModeRow(useLocalLlm: Boolean, onToggle: (Boolean) -> Unit) {
             )
         }
     }
+}
+
+/** Attribution Open-Meteo's data license (CC BY 4.0) requires: get_weather's data comes from it. */
+@Composable
+private fun WeatherCredit() {
+    Text(
+        text = buildAnnotatedString {
+            append("Weather data by ")
+            withLink(LinkAnnotation.Url(
+                "https://open-meteo.com",
+                TextLinkStyles(SpanStyle(textDecoration = TextDecoration.Underline))
+            )) { append("Open-Meteo.com") }
+            append(" (CC BY 4.0)")
+        },
+        color = TextSecondary,
+        fontSize = 12.sp,
+        modifier = Modifier.padding(top = 8.dp)
+    )
 }
 
 /** Attribution the Desert Ant Labs license requires wherever Voz is offered. */
