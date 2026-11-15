@@ -90,7 +90,7 @@ Processors that read the mic audio directly use `inputRingBuffer()`.
 | `agent_state` | Every state change: `IDLE`, `LISTENING`, `THINKING`, `SPEAKING`, `INTERRUPTED`, with the transition that caused it. |
 | `tool_call` | A tool the LLM or an agent's `call_tool` called, with its arguments and result, when it returns. Sensitive values are masked. |
 | `trigger_fired` | With an agent: a trigger fired, and its decision: `STARTED`, `QUEUED`, `DROPPED`, `EXPIRED` or `SUPPRESSED` (quiet hours), with the reason. |
-| `user_speech` | The user's voice as voice activity detection hears it: `STARTED`, `ONGOING` (after a pause), `ENDED`. For a "you're speaking" indicator. |
+| `user_speech` | The user's voice as voice activity detection hears it: `STARTED`, `ONGOING` (after a pause), `ENDED`, or `CANCELLED` when what `STARTED` fell quiet before it was confirmed as speech (a cough, a door). For a "you're speaking" indicator, which `ENDED` and `CANCELLED` both take away. |
 | `error` | A processor or transport reported a failure, e.g. the LLM endpoint is unreachable. |
 | `listening_window` | The mic stays open after a reply: `OPENED` (with `closes_in_ms`), `EXTENDED` when the user starts answering, `CLOSED` when it times out. For a live mic indicator. |
 | `page_changed` | With an agent: the conversation moved to another page (`from_flow`/`from_page` → `to_flow`/`to_page`), with the reason: `start`, `restart`, `route:<intent>` or `goto`. |

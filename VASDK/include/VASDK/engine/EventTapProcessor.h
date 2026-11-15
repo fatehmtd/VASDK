@@ -77,6 +77,8 @@ private:
     std::string _reply;   // the agent reply streamed so far
     std::function<void(const std::string&, const std::string&)> _saidObserver;
     bool _listeningWindowOpen = false;
+    bool _userSpeechOpen = false;        // a user_speech STARTED not yet ENDED or CANCELLED
+    bool _userSpeechConfirmed = false;   // the VAD went on to ONGOING: speech, not a false start
     void postListeningWindow(const transport::AgentStateFrame& frame);
 };
 

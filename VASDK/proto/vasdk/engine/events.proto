@@ -113,6 +113,9 @@ message UserSpeech {
     STARTED = 0;
     ONGOING = 1;    // still speaking, after a pause
     ENDED = 2;
+    // Not speech after all: the voice activity that STARTED fell silent before it was confirmed
+    // (a cough, a door). Nothing was said; a "you're speaking" indicator goes away.
+    CANCELLED = 3;
   }
   State state = 1;
 }

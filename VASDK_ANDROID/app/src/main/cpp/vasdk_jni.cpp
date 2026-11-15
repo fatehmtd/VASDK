@@ -151,7 +151,10 @@ struct Callbacks {
         case Event::kUserSpeech: {
             using Speech = vasdk::engine::UserSpeech;
             const auto state = event.user_speech().state();
-            status(state == Speech::STARTED ? "SPEECH_STARTING" : state == Speech::ONGOING ? "SPEECH_ONGOING" : "SPEECH_ENDED");
+            status(state == Speech::STARTED     ? "SPEECH_STARTING"
+                   : state == Speech::ONGOING   ? "SPEECH_ONGOING"
+                   : state == Speech::CANCELLED ? "SPEECH_CANCELLED"   // a false start: nothing was said
+                                                : "SPEECH_ENDED");
             break;
         }
         case Event::kError: {
