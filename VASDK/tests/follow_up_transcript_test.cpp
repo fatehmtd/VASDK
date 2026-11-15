@@ -1,7 +1,8 @@
 // What a UI hears when the user resumes a turn: TurnAssemblerProcessor feeding EventTapProcessor, as
 // in a session. Each part's final arrives as a transcript, then one follow-up with the whole turn
 // that says how many of those transcripts it replaces: the turn sent while the agent thought, words
-// never sent, a turn resumed twice, a turn sent on its partial, and nothing when nothing merged.
+// never sent, a turn resumed twice, a turn sent on its partial, and nothing when nothing merged. Talking
+// over the reply merges when it starts within the resume window, even if confirmed after it.
 
 #include <VASDK/TurnAssemblerProcessor.h>
 #include <VASDK/engine/EventTapProcessor.h>
@@ -13,7 +14,9 @@
 
 #include <memory>
 #include <mutex>
+#include <chrono>
 #include <string>
+#include <thread>
 #include <vector>
 
 using namespace va;
@@ -21,6 +24,7 @@ using namespace va;
 namespace {
 
 using Transition = transport::AgentStateTransition;
+using namespace std::chrono_literals;
 
 // A transcript as a UI shows it: "text", or "text [follow-up replacing N]".
 std::string shown(const vasdk::engine::Transcript& transcript) {
@@ -143,6 +147,35 @@ TEST_F(FollowUpTranscriptTest, BackChannelIsNotCounted) {
     stopped();
     transcript("to Paris");
     EXPECT_EQ(finals(4), (Shown{"Book a flight", "mm-hmm", "to Paris", "Book a flight to Paris [follow-up replacing 2]"}));
+}
+
+TEST_F(FollowUpTranscriptTest, BargeInStartedInTheWindowMergesWhenConfirmedAfterIt) {
+    _assembler->setResumeMergeMs(300);
+    stopped();
+    transcript("What's the weather in Japan?");      // sent
+    agent(Transition::SYNTHESIS_STARTED);
+    std::this_thread::sleep_for(150ms);              // fixed wait: the user talks over the reply 150 ms in
+    agent(Transition::BARGE_IN_PENDING);
+    std::this_thread::sleep_for(250ms);              // fixed wait: confirming the barge-in takes 250 ms, past the window
+    agent(Transition::BARGE_IN_INTERRUPT);
+    stopped();
+    transcript("Maybe China instead.");
+    EXPECT_EQ(finals(3), (Shown{"What's the weather in Japan?", "Maybe China instead.",
+                                "What's the weather in Japan? Maybe China instead. [follow-up replacing 2]"}))
+        << "the window runs to when the user started talking, not to the confirmation";
+}
+
+TEST_F(FollowUpTranscriptTest, BargeInStartedAfterTheWindowIsANewTurn) {
+    _assembler->setResumeMergeMs(100);
+    stopped();
+    transcript("What's the weather in Japan?");
+    agent(Transition::SYNTHESIS_STARTED);
+    std::this_thread::sleep_for(250ms);              // fixed wait: the user talks over the reply after the window
+    agent(Transition::BARGE_IN_PENDING);
+    agent(Transition::BARGE_IN_INTERRUPT);
+    stopped();
+    transcript("And in China?");
+    EXPECT_EQ(finals(2), (Shown{"What's the weather in Japan?", "And in China?"}));
 }
 
 TEST_F(FollowUpTranscriptTest, SeparateTurnsHaveNoFollowUp) {

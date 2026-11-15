@@ -116,11 +116,19 @@ void TurnAssemblerProcessor::handleAgentState(const transport::AgentStateFrame& 
         keepUnsentTurn();
         break;
     }
+    case transport::AgentStateTransition::BARGE_IN_PENDING: {
+        // The user started talking over the agent: the resume window runs to now, not to when the
+        // barge-in is confirmed (which waits to rule out a back-channel).
+        std::lock_guard<std::mutex> lock(_mutex);
+        if (!_bargeInStartedAt) _bargeInStartedAt = std::chrono::steady_clock::now();
+        break;
+    }
     case transport::AgentStateTransition::BACKCHANNEL: {
         // The dismissed "mm-hmm" must not become the fallback text of the user's next turn.
         std::lock_guard<std::mutex> lock(_mutex);
         _latestPartialText.clear();
         _latestPartialConfidence = 0.0f;
+        _bargeInStartedAt.reset();
         break;
     }
     case transport::AgentStateTransition::TRANSCRIPTION_READY:
@@ -137,8 +145,10 @@ void TurnAssemblerProcessor::handleAgentState(const transport::AgentStateFrame& 
 void TurnAssemblerProcessor::handleInterrupt(transport::AgentStateTransition transition) {
     std::lock_guard<std::mutex> lock(_mutex);
     const bool stillThinking = transition == transport::AgentStateTransition::USER_SPOKE_WHILE_THINKING;
-    const bool withinWindow =
-        std::chrono::steady_clock::now() - _lastTurnAt <= std::chrono::milliseconds(_resumeMergeMs);
+    // From when the user started talking over the agent (an interrupt word commits at once: now)
+    const auto resumedAt = _bargeInStartedAt.value_or(std::chrono::steady_clock::now());
+    _bargeInStartedAt.reset();
+    const bool withinWindow = resumedAt - _lastTurnAt <= std::chrono::milliseconds(_resumeMergeMs);
     if (_resumeMergeMs > 0 && !_lastTurnText.empty() && (stillThinking || withinWindow)) {
         spdlog::info("[TurnAssembler] User resumed after a pause; \"{}\" will be merged into the next turn",
                      preview(_lastTurnText, _privateAnswer));
@@ -169,6 +179,7 @@ void TurnAssemblerProcessor::reset() {
         _transcriptsSinceTurn = 0;
         _transcriptsOfLastTurn = 0;
         _carriedTranscripts = 0;
+        _bargeInStartedAt.reset();
     }
     cancelFinalWatchdog();
 }
@@ -343,6 +354,7 @@ void TurnAssemblerProcessor::emitTurn(const std::string& said, float confidence)
             _transcriptsOfLastTurn = _transcriptsSinceTurn;
         }
         _transcriptsSinceTurn = 0;
+        _bargeInStartedAt.reset();   // a pending barge-in belongs to the reply before this turn
         _lastTurnText = turn->text;
         _lastTurnAt = std::chrono::steady_clock::now();
         turn->turnId = _nextTurnId++;
