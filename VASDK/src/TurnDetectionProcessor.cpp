@@ -171,24 +171,32 @@ namespace va {
         {
             if (frame->getType() == transport::FrameType::VAD_STATE) {
                 auto state = std::static_pointer_cast<transport::VADStateFrame>(frame)->state;
-                if (state == transport::VADState::STARTING) _userSpeechOpen = true, _pauseEndHeld = false;
+                if (state == transport::VADState::STARTING) _userSpeechOpen = true, _pauseEndHeld = false, _heldPauseEnd.reset();
                 else if (state == transport::VADState::ENDED || state == transport::VADState::QUIET) _userSpeechOpen = false;
             }
+            const bool heldEndDue = trackPause(*frame);
 
             audio::TurnDetectionProvider::TurnEvaluation evaluation;
             {
                 va::metrics::ScopedTimer t(_metrics.inference.get());
                 evaluation = _provider->evaluate(frame, isAgentSpeaking());
             }
+            if (heldEndDue) {   // the pause has lasted: the turn end the provider called stands
+                const auto held = *_heldPauseEnd;
+                _heldPauseEnd.reset();
+                spdlog::info("[{}] Pause lasted {} ms - turn end sent", getName(), _pauseSamples * 1000 / _pauseSampleRate);
+                endUserTurnAtPause(held);
+            }
             // Patient, or a pause's turn end held back: the speech has ended and the model still waits
             // (or already spoke); the silence is the end.
-            if ((_patient || _pauseEndHeld) && evaluation.decision == audio::TurnDetectionProvider::Decision::NONE &&
+            if ((_patient || _pauseEndHeld || _heldPauseEnd) && evaluation.decision == audio::TurnDetectionProvider::Decision::NONE &&
                 frame->getType() == transport::FrameType::VAD_STATE &&
                 std::static_pointer_cast<transport::VADStateFrame>(frame)->state == transport::VADState::ENDED) {
                 evaluation.decision = audio::TurnDetectionProvider::Decision::TURN_END;
                 evaluation.actor = transport::TurnStateFrame::TurnActor::USER;
-                evaluation.confidence = 1.0f;
+                evaluation.confidence = _heldPauseEnd ? _heldPauseEnd->confidence : 1.0f;
                 _pauseEndHeld = false;
+                _heldPauseEnd.reset();
             }
             switch (evaluation.decision) {
             case audio::TurnDetectionProvider::Decision::NONE:
@@ -209,17 +217,55 @@ namespace va {
                     _pauseEndHeld = true;
                     break;
                 }
-                emitTurnFrame(evaluation.actor, transport::TurnStateFrame::TurnState::END, evaluation.type, evaluation.confidence);
-                if (evaluation.actor == transport::TurnStateFrame::TurnActor::USER && _userSpeechOpen) {
-                    // The provider called it during a pause: have the VAD close the segment now.
-                    _userSpeechOpen = false;
-                    auto end = std::make_shared<transport::TurnStateFrame>(evaluation.actor,
-                        transport::TurnStateFrame::TurnState::END, evaluation.type, evaluation.confidence);
-                    end->sourceId = getName();
-                    pushUpstream(end);
+                // Too short a pause yet: a breath mid-sentence. Held until it has lasted, dropped if the user goes on.
+                if (evaluation.actor == transport::TurnStateFrame::TurnActor::USER && _userSpeechOpen && _inPause &&
+                    _pauseSamples * 1000 < static_cast<uint64_t>(_minPauseMs) * _pauseSampleRate) {
+                    spdlog::info("[{}] Turn end after a {} ms pause - held until it lasts {} ms", getName(),
+                                 _pauseSamples * 1000 / _pauseSampleRate, _minPauseMs);
+                    _heldPauseEnd = evaluation;
+                    break;
                 }
+                endUserTurnAtPause(evaluation);
             } break;
             }
+        }
+
+        void TurnDetectionProcessor::endUserTurnAtPause(const audio::TurnDetectionProvider::TurnEvaluation& evaluation)
+        {
+            emitTurnFrame(evaluation.actor, transport::TurnStateFrame::TurnState::END, evaluation.type, evaluation.confidence);
+            if (evaluation.actor != transport::TurnStateFrame::TurnActor::USER) return;
+            _pauseEndHeld = false;   // ended: the VAD's end mustn't end it again
+            if (_userSpeechOpen) {
+                // The provider called it during a pause: have the VAD close the segment now.
+                _userSpeechOpen = false;
+                auto end = std::make_shared<transport::TurnStateFrame>(evaluation.actor,
+                    transport::TurnStateFrame::TurnState::END, evaluation.type, evaluation.confidence);
+                end->sourceId = getName();
+                pushUpstream(end);
+            }
+        }
+
+        bool TurnDetectionProcessor::trackPause(const transport::Frame& frame)
+        {
+            if (frame.getType() == transport::FrameType::VAD_STATE) {
+                const auto state = static_cast<const transport::VADStateFrame&>(frame).state;
+                const bool paused = state == transport::VADState::PAUSED || state == transport::VADState::ENDING;
+                if (paused && !_inPause) _pauseSamples = 0;   // a new pause (PAUSED then ENDING is the same one)
+                if (_heldPauseEnd && (state == transport::VADState::ONGOING || state == transport::VADState::RESUMING)) {
+                    // The user went on: it wasn't the end. The provider has had its say, so the VAD's end ends the turn.
+                    spdlog::info("[{}] User went on after a {} ms pause - held turn end dropped", getName(),
+                                 _pauseSamples * 1000 / _pauseSampleRate);
+                    _heldPauseEnd.reset();
+                    _pauseEndHeld = true;
+                }
+                _inPause = paused;
+                return false;
+            }
+            if (frame.getType() != transport::FrameType::AUDIO || !_inPause) return false;
+            const auto& audio = static_cast<const transport::AudioFrame&>(frame);
+            if (audio.sampleRate > 0) _pauseSampleRate = audio.sampleRate;
+            _pauseSamples += audio.numSamples;
+            return _heldPauseEnd && _pauseSamples * 1000 >= static_cast<uint64_t>(_minPauseMs) * _pauseSampleRate;
         }
 
         void TurnDetectionProcessor::processSynthesisStateFrame(std::shared_ptr<transport::SynthesisStateFrame> frame, FlowDirection direction)

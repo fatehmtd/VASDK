@@ -7,6 +7,7 @@
 
 #include <VASDK/AgentStateProcessor.h>
 #include <VASDK/Pipeline.h>
+#include <VASDK/TurnDetectionProcessor.h>
 #include <VASDK/VADFrameProcessor.h>
 #include <VASDK/VAEngine.h>
 #include <VASDK/network/WebRtcInterface.h>
@@ -115,6 +116,7 @@ int main() {
     backchannel->set_commit_after_ms(800);
     backchannel->add_interrupt_words("halt");
     tuned.mutable_turn_taking()->set_interrupt_timeout_ms(700);
+    tuned.mutable_turn_taking()->set_min_pause_ms(400);
     auto* audioConfig = tuned.mutable_audio();
     audioConfig->mutable_input()->set_sample_rate(24000);
     audioConfig->mutable_output()->set_sample_rate(48000);
@@ -132,10 +134,13 @@ int main() {
         check(tunedTransport->frameSize == 1200, "frame_ms 50 at 24 kHz");
         std::shared_ptr<pipeline::VADFrameProcessor> vad;
         std::shared_ptr<pipeline::AgentStateProcessor> agentState;
+        std::shared_ptr<pipeline::TurnDetectionProcessor> turnDetection;
         for (const auto& processor : tunedEngine->pipeline()->getProcessors()) {
             if (!vad) vad = std::dynamic_pointer_cast<pipeline::VADFrameProcessor>(processor);
             if (!agentState) agentState = std::dynamic_pointer_cast<pipeline::AgentStateProcessor>(processor);
+            if (!turnDetection) turnDetection = std::dynamic_pointer_cast<pipeline::TurnDetectionProcessor>(processor);
         }
+        check(turnDetection && turnDetection->minPauseMs() == 400, "turn_taking.min_pause_ms reaches turn detection");
         check(vad && vad->getConfig().maxSpeechEndDurationMs == 900 && vad->getConfig().vadThresholdMs == 150,
               "end silence from the config, the rest from SNAPPY");
         if (agentState) {

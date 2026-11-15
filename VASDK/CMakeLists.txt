@@ -458,6 +458,8 @@ if(VASDK_BUILD_TESTS)
 
     vasdk_add_gtest(vasdk_llm_failure_reply LABEL timing RUN_SERIAL SOURCES tests/llm_failure_reply_test.cpp LIBRARIES VASDK)
     vasdk_add_gtest(vasdk_llm_system_message LABEL unit SOURCES tests/llm_system_message_test.cpp LIBRARIES VASDK)
+    # A turn end in a short pause waits for the pause to last (turn_taking.min_pause_ms)
+    vasdk_add_gtest(vasdk_turn_min_pause LABEL timing RUN_SERIAL SOURCES tests/turn_min_pause_test.cpp LIBRARIES VASDK)
 
     vasdk_add_gtest(vasdk_webrtc_transport LABEL timing RUN_SERIAL SOURCES tests/webrtc_transport_test.cpp LIBRARIES VASDK)
 

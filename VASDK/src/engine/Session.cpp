@@ -447,6 +447,8 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
     state->agentState->setBackchannelConfig(options.backchannel);
     if (turnTaking.has_interrupt_timeout_ms())
         state->agentState->setInterruptTimeoutMs(static_cast<uint32_t>(std::max(0, turnTaking.interrupt_timeout_ms())));
+    if (turnTaking.has_min_pause_ms())
+        state->turnDetection->setMinPauseMs(static_cast<uint32_t>(std::max(0, turnTaking.min_pause_ms())));
     state->vad->setAgentSpeaking([agentState = std::weak_ptr<pipeline::AgentStateProcessor>(state->agentState)] {
         auto current = agentState.lock();
         return current && current->getState() == transport::AgentState::SPEAKING;

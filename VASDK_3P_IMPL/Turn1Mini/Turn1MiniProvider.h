@@ -30,8 +30,10 @@ struct Turn1MiniOptions {
      *  (TurnDetectionProvider::setEvaluateOnPause). */
     bool evaluateOnPause = true;
     /** End-of-turn score (0-1) a pause needs to end the turn (TurnDetectionProvider::setPauseThreshold).
-     *  0.15: the best accuracy on the turn evaluation set (docs/providers/turn-1-mini.md, "Evaluation"). */
-    float pauseThreshold = 0.15f;
+     *  0.25: no sentence stopped mid-phrase was cut off on the turn evaluation set, for about 0.2 s more
+     *  before a finished one ends (docs/providers/turn-1-mini.md, "Evaluation"). 0.15 is snappier and
+     *  cut a phone's users off mid-sentence. */
+    float pauseThreshold = 0.25f;
 };
 
 /**
