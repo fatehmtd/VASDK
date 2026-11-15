@@ -1,0 +1,20 @@
+# proto-file: vasdk/flow/test_case.proto
+# proto-message: vasdk.flow.FlowTestCase
+name: "the flashlight: on and off as people say it, by the agent at once, never left to the LLM"
+turns { expect { page: "idle" } }
+turns { user: "Turn on the flashlight, please." tool_results { key: "set_flashlight" value: "{\"flashlight\": \"on\"}" }
+        expect { said: "Flashlight on." tools_called: "set_flashlight" page: "idle" } }
+turns { user: "Turn off the flashlight." tool_results { key: "set_flashlight" value: "{\"flashlight\": \"off\"}" }
+        expect { said: "Flashlight off." tools_called: "set_flashlight" page: "idle" } }
+turns { user: "Flashlight on." tool_results { key: "set_flashlight" value: "{\"flashlight\": \"on\"}" }
+        expect { said: "Flashlight on." tools_called: "set_flashlight" } }
+turns { user: "Can you turn the torch off?" tool_results { key: "set_flashlight" value: "{\"flashlight\": \"off\"}" }
+        expect { said: "Flashlight off." tools_called: "set_flashlight" } }
+turns { user: "switch the torch on" tool_results { key: "set_flashlight" value: "{\"flashlight\": \"on\"}" }
+        expect { said: "Flashlight on." tools_called: "set_flashlight" } }
+turns { user: "How are you doing?" expect { matched: false } }
+# The flashlight is done: nothing more is asked of the user. (Mid-chat with the LLM, a route
+# that stays on its page would expect a reply; these go back to idle. Seen on the device: the
+# test runner has no LLM.)
+turns { user: "turn on the flashlight" tool_results { key: "set_flashlight" value: "{\"flashlight\": \"on\"}" }
+        expect { said: "Flashlight on." expects_reply: false page: "idle" } }

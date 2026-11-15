@@ -455,6 +455,9 @@ if(VASDK_BUILD_TESTS)
     add_test(NAME vasdk_llm_stream_speech COMMAND vasdk_llm_stream_speech_test)
     vasdk_label_tests(timing vasdk_llm_stream_speech)
 
+    vasdk_add_gtest(vasdk_llm_failure_reply LABEL timing RUN_SERIAL SOURCES tests/llm_failure_reply_test.cpp LIBRARIES VASDK)
+    vasdk_add_gtest(vasdk_llm_system_message LABEL unit SOURCES tests/llm_system_message_test.cpp LIBRARIES VASDK)
+
     vasdk_add_gtest(vasdk_webrtc_transport LABEL timing RUN_SERIAL SOURCES tests/webrtc_transport_test.cpp LIBRARIES VASDK)
 
     add_executable(vasdk_vad_turn_end_test tests/vad_turn_end_test.cpp)

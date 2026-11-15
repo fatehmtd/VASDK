@@ -48,6 +48,8 @@ struct LlamaCppTransport::Impl {
     // -----------------------------------------------------------------------
     llama_pos kvPos             = 0;  // next write position in the KV cache
     size_t    cachedFormattedLen = 0; // byte offset into formatted string already decoded
+    std::string cachedFormatted;      // that string itself: a turn whose prompt doesn't start
+                                      // with it (a new system prompt, an edited history) re-encodes
 
     ~Impl() { destroy(); }
 
@@ -63,6 +65,20 @@ struct LlamaCppTransport::Impl {
         if (ctx) llama_memory_clear(llama_get_memory(ctx), false);
         kvPos              = 0;
         cachedFormattedLen = 0;
+        cachedFormatted.clear();
+    }
+
+    // Undo a turn's KV writes back to `position` (a cancelled or empty turn). A model with a
+    // recurrent state (LFM2's convolutions, Mamba) can't erase part of it, and llama.cpp then
+    // keeps the tokens: the cache is cleared instead, so the next turn re-encodes the history.
+    void rollBackTo(llama_pos position, size_t formattedLength) {
+        if (llama_memory_seq_rm(llama_get_memory(ctx), 0, position, kvPos)) {
+            kvPos              = position;
+            cachedFormattedLen = formattedLength;
+            return;
+        }
+        spdlog::debug("[LlamaCppTransport] The model's state can't be partly rolled back - clearing the cache");
+        resetKV();
     }
 
     // Apply chat template and return the formatted string, resizing fmtBuf as needed.
@@ -330,6 +346,7 @@ void LlamaCppTransport::release() {
     impl_->destroy();        // idempotent: safe even if already destroyed
     impl_->kvPos              = 0;
     impl_->cachedFormattedLen = 0;
+    impl_->cachedFormatted.clear();
     _initialized = false;
 }
 
@@ -470,8 +487,10 @@ std::string LlamaCppTransport::sendLLMRequest(const std::string& userMessage) {
         return "";
     }
 
-    // Guard: if state got out of sync (e.g. external clearHistory call), reset.
-    if (impl_->cachedFormattedLen > fullFormatted.size()) {
+    // Guard: the cache holds a prompt this one doesn't start with (the system prompt changed, the
+    // history was cleared or edited): start over, or the next turn reads stale tokens.
+    if (impl_->cachedFormattedLen > fullFormatted.size() ||
+        fullFormatted.compare(0, impl_->cachedFormattedLen, impl_->cachedFormatted) != 0) {
         spdlog::warn("[LlamaCppTransport] KV cache state inconsistent - resetting");
         impl_->resetKV();
     }
@@ -513,8 +532,10 @@ std::string LlamaCppTransport::sendLLMRequest(const std::string& userMessage) {
     llama_sampler_reset(impl_->sampler);
 
     if (!impl_->decodeTokens(newTokens, n_ctx, _config.maxTokens, true)) {
-        spdlog::warn("[LlamaCppTransport] Prefill overflow - re-encoding full prompt");
-        // impl_->resetKV() was already called inside decodeTokens
+        spdlog::warn("[LlamaCppTransport] Prefill overflow or decode failure - re-encoding full prompt");
+        // An overflow already reset the cache inside decodeTokens; a failed decode didn't, and
+        // re-encoding over what it left would fail the same way.
+        impl_->resetKV();
         std::string reencoded = fullFormatted;
         auto        fullTokens = Impl::tokenize(vocab, reencoded, true, true);
         bool        decoded    = impl_->decodeTokens(fullTokens, n_ctx, _config.maxTokens, true);
@@ -606,10 +627,7 @@ std::string LlamaCppTransport::sendLLMRequest(const std::string& userMessage) {
         if (impl_->cancelRequested.load(std::memory_order_relaxed)) {
             spdlog::info("[LlamaCppTransport] Generation cancelled after {} tokens", i);
             // Roll back KV cache to before this turn so next call re-encodes cleanly.
-            llama_memory_seq_rm(llama_get_memory(impl_->ctx), 0,
-                                savedKvPos, impl_->kvPos);
-            impl_->kvPos              = savedKvPos;
-            impl_->cachedFormattedLen = savedFormattedLen;
+            impl_->rollBackTo(savedKvPos, savedFormattedLen);
             // Also remove the user message that processIncomingFrame added to history
             // before calling sendLLMRequest.  Without this, the next request would see
             // two consecutive USER messages (cancelled turn + new turn) with no ASSISTANT
@@ -692,10 +710,7 @@ std::string LlamaCppTransport::sendLLMRequest(const std::string& userMessage) {
         // without also rolling back kvPos, the stale prefill tokens remain in the KV
         // cache at the wrong positions and corrupt every subsequent turn's context
         // (causing garbled short responses or repeated immediate-EOG 0-char outputs).
-        llama_memory_seq_rm(llama_get_memory(impl_->ctx), 0,
-                            savedKvPos, impl_->kvPos);
-        impl_->kvPos              = savedKvPos;
-        impl_->cachedFormattedLen = savedFormattedLen;
+        impl_->rollBackTo(savedKvPos, savedFormattedLen);
         llama_sampler_reset(impl_->sampler);
         rollbackUserMessage();
         return "";
@@ -882,6 +897,7 @@ std::string LlamaCppTransport::sendLLMRequest(const std::string& userMessage) {
         }
         const std::string afterAsst = impl_->applyTemplate(tmpl, m2, false);
         impl_->cachedFormattedLen = afterAsst.size();
+        impl_->cachedFormatted    = afterAsst;
     }
 
     // Return "" so LLMTransport::processIncomingFrame skips its own enqueue.

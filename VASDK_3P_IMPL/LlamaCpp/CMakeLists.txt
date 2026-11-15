@@ -50,6 +50,14 @@ if(VASDK_BUILD_TESTS)
     add_test(NAME vasdk_llamacpp_completion COMMAND vasdk_llamacpp_completion_test "${VASDK_LLAMACPP_TEST_MODEL}")
     vasdk_label_tests(model vasdk_llamacpp_completion)
     set_tests_properties(vasdk_llamacpp_completion PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 600)
+
+    # The transport through LLMProcessor, and a cancelled turn, on the same model
+    get_filename_component(_vasdk_llamacpp_test_model_dir "${VASDK_LLAMACPP_TEST_MODEL}" DIRECTORY)
+    get_filename_component(_vasdk_llamacpp_test_model_name "${VASDK_LLAMACPP_TEST_MODEL}" NAME)
+    vasdk_add_gtest(vasdk_llamacpp_transport LABEL model TIMEOUT 600 SOURCES tests/llamacpp_transport_test.cpp
+                    LIBRARIES vasdk_llamacpp MODELS_DIR "${_vasdk_llamacpp_test_model_dir}")
+    target_compile_definitions(vasdk_llamacpp_transport_test PRIVATE
+        VASDK_LLAMACPP_TEST_MODEL_NAME="${_vasdk_llamacpp_test_model_name}")
     if(WIN32)
         get_target_property(_vasdk_type VASDK TYPE)
         if(_vasdk_type STREQUAL "SHARED_LIBRARY")

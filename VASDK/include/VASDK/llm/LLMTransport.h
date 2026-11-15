@@ -37,6 +37,9 @@ public:
     // user message is rolled back from history and no response frame is emitted.
     virtual void cancel() { cancelHttpRequests(); }
 
+    // Replaces the config. The history's first message follows its system prompt (with the
+    // response format instruction after it): added when there was none, as for a transport made
+    // without a prompt and given one here, and removed when both are empty.
     void setConfig(const LLMConfig& config);
     const LLMConfig& getConfig() const { return _config; }
 
@@ -86,6 +89,10 @@ protected:
     std::string extractUserMessage(std::shared_ptr<transport::Frame> frame) const;
     void applyProviderAuthHeaders(std::map<std::string, std::string>& headers) const;
 
+    // The reply's text, which processIncomingFrame() adds to the history and delivers. A transport
+    // that delivers its reply itself (frames through fireOnFrameReceived, the last one isFinal, and
+    // its own history entry, as LlamaCppTransport does) returns "": sendFrame() is then false, and
+    // LLMProcessor counts the turn as answered by that final frame.
     virtual std::string sendLLMRequest(const std::string& userMessage);
     virtual std::string buildRequestPayload(const std::string& userMessage);
     virtual std::string parseResponse(const std::string& response);
@@ -102,6 +109,10 @@ protected:
     std::string renderTemplate();
 
     static const char* roleToString(MessageRole role);
+
+    // The history's SYSTEM message from the system prompt and the response format instruction;
+    // call with _historyMutex held.
+    void updateSystemMessage();
 
     LLMProvider _provider;
     LLMConfig _config;

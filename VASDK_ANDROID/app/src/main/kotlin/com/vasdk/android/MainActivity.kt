@@ -126,6 +126,7 @@ class MainActivity : ComponentActivity(), VasdkEngine.Listener {
         // "Call mom": answered by the phone agent from the phone book, before the LLM.
         engine.agentAsset = "agents/phone/agent.txtpb"
         engine.registerAgentTool("place_call") { args -> ContactsEntity.placeCall(applicationContext, args) }
+        engine.registerAgentTool("set_flashlight") { args -> MediaTools.handle(applicationContext, "set_flashlight", args) }
         viewModel.setInitialConfig(
             sttProvider = engine.sttProvider,
             sttStreaming = engine.sttStreaming,
