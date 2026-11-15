@@ -14,7 +14,7 @@ LlmNluProvider::LlmNluProvider(std::shared_ptr<const llm::Completion> completion
                                const google::protobuf::RepeatedPtrField<vasdk::flow::Intent>& intents, int timeLimitMs)
     : _completion(std::move(completion)), _timeLimitMs(timeLimitMs) {
     for (const auto& intent : intents)   // a few of each: patterns may spell hundreds
-        _intents.emplace_back(intent.name(), flow::sampleExamples({intent.examples().begin(), intent.examples().end()},
+        _intents.emplace_back(intent.name(), flow::plainExamples({intent.examples().begin(), intent.examples().end()},
                                                                   flow::kMostPromptedExamples));
 }
 

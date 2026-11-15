@@ -58,6 +58,13 @@ void RuleNluProvider::add(const std::string& name, const std::vector<std::string
     for (const auto& text : examples) {
         Example example;
         std::vector<std::string> segment;
+        // The gap before the next segment: any, unless wildcards since the last one say otherwise.
+        Gap pending;
+        bool wildcards = false;
+        auto close = [&] {
+            if (!segment.empty()) example.segments.push_back(std::move(segment));
+            segment.clear();
+        };
         std::istringstream tokens(text);
         std::string token;
         while (tokens >> token) {
@@ -65,14 +72,36 @@ void RuleNluProvider::add(const std::string& name, const std::vector<std::string
                 std::string entity = token.substr(1);
                 while (!entity.empty() && !std::isalnum(static_cast<unsigned char>(entity.back())) && entity.back() != '_')
                     entity.pop_back();
-                if (!segment.empty()) example.segments.push_back(std::move(segment));
-                segment.clear();
+                close();
                 example.entities.push_back(entity);
+                pending = Gap{};   // an entity is anywhere in the words
+                wildcards = false;
                 continue;
             }
-            for (auto& word : flow::splitWords(token)) segment.push_back(std::move(word));
+            if (flow::isWildcard(token)) {
+                close();
+                if (!wildcards) pending = Gap{0, 0};
+                wildcards = true;
+                if (token == "*") pending.most = Gap{}.most;
+                if (token == "+" || token == "_") ++pending.fewest;
+                if (token == "_" && pending.most != Gap{}.most) ++pending.most;
+                if (token == "+") pending.most = Gap{}.most;
+                continue;
+            }
+            for (auto& word : flow::splitWords(token)) {
+                if (segment.empty()) {
+                    // Before the first segment: at least so many words, but anywhere after them.
+                    Gap gap = wildcards ? pending : Gap{};
+                    if (example.segments.empty()) gap.most = Gap{}.most;
+                    example.gaps.push_back(gap);
+                    pending = Gap{};
+                    wildcards = false;
+                }
+                segment.push_back(std::move(word));
+            }
         }
-        if (!segment.empty()) example.segments.push_back(std::move(segment));
+        close();
+        if (wildcards) example.trailing = pending.fewest;   // "remind me to _": a word after the last
         for (const auto& words : example.segments) example.size += words.size();
         example.size += example.entities.size();
         if (example.size > 0) intent.examples.push_back(std::move(example));
@@ -95,14 +124,19 @@ float RuleNluProvider::score(const Example& example, const std::vector<std::stri
     float total = static_cast<float>(example.entities.size());
     size_t cursor = 0;
     size_t first = words.size();
-    for (const auto& segment : example.segments) {   // in order, each after the one before
+    for (size_t s = 0; s < example.segments.size(); ++s) {   // in order, each after the one before, its gap apart
+        const auto& segment = example.segments[s];
+        const Gap& gap = example.gaps[s];
         const auto found = findPhrase(words, segment, _minSimilarity);
-        const auto at = std::find_if(found.begin(), found.end(), [cursor](const auto& match) { return match.first >= cursor; });
+        const auto at = std::find_if(found.begin(), found.end(), [cursor, &gap](const auto& match) {
+            return match.first >= cursor && match.first - cursor >= gap.fewest && match.first - cursor <= gap.most;
+        });
         if (at == found.end()) return 0;
         first = std::min(first, at->first);
         total += at->second;
         cursor = at->first + segment.size();
     }
+    if (words.size() - std::min(cursor, words.size()) < example.trailing) return 0;
     if (negatable && first < words.size()) {   // "I don't want to book": a negation just before
         for (size_t at = first > 3 ? first - 3 : 0; at < first; ++at)
             if (_languages->negates(words[at])) return 0;

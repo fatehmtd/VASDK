@@ -1,6 +1,6 @@
 # Example: device controls in an agent
 
-This walks through voice commands for a device: the phone's flashlight, the car's volume and heat. They're written in the agent with patterns and phrase sets rather than left to an LLM. It covers when a phrase set, an entity or a pack fits, how an agent of several files keeps its wordings apart, and how each piece is tested. The reference is [Agents: Patterns and phrase sets](../reference/flows.md#patterns-and-phrase-sets). The complete agents are the Android app's [phone agent](../../VASDK_ANDROID/app/src/main/assets/agents/phone/agent.txtpb) and VASDK_Car's [media](../../VASDK_CAR_APP/verticals/media/media.txtpb) and [climate](../../VASDK_CAR_APP/verticals/climate/climate.txtpb) parts.
+This walks through voice commands for a device: the phone's flashlight, the car's volume and heat. They're written in the agent with patterns and phrase sets rather than left to an LLM. It covers when a phrase set, an entity or a pack fits, how an agent of several files keeps its wordings apart, wildcards for words nobody can list, and how each piece is tested. The reference is [Agents: Patterns and phrase sets](../reference/flows.md#patterns-and-phrase-sets). The complete agents are the Android app's [phone agent](../../VASDK_ANDROID/app/src/main/assets/agents/phone/agent.txtpb) and VASDK_Car's [media](../../VASDK_CAR_APP/verticals/media/media.txtpb) and [climate](../../VASDK_CAR_APP/verticals/climate/climate.txtpb) parts.
 
 ## Why commands belong in the agent
 
@@ -96,7 +96,26 @@ warning: intents "louder" (verticals/media/media.txtpb) and "warmer" (verticals/
 
 `car_agentc expand agents/car/agent.txtpb --collisions` lists every one. A page route overriding an envelope's isn't one: it always wins, which is how a page takes a word for itself ("options" on the route list).
 
-## 5. A phrase set, an entity, or a pack?
+## 5. Words you can't list: wildcards
+
+People put words where an example has none: "turn **my** light on", "switch **that** torch off", "set **cabin** temperature to 22". A wildcard stands for them:
+
+```textproto
+phrase_sets { name: "on_cmd" phrases: ["${on} [the] ${light}", "(turn|switch) _ ${light} on", "${light} on"] }   # phone
+intents { name: "set_temperature" examples: ["set the temperature to @temperature", "set _ temperature to @temperature"] }   # car
+```
+
+| Wildcard | Stands for | Use it for |
+|---|---|---|
+| `_` | exactly one word | a word you can't predict: "my", "that", "cabin" |
+| `+` | one or more words | a part that's never empty: "call **my brother** back" (`call + back`) |
+| `*` | any number, none too | rarely: see below |
+
+Wildcards count no words when examples are compared, so where a specific example and a loose one both fit, the specific one wins. A wildcard sentence never takes a turn a precise one was written for.
+
+The pitfall is `*`. `"turn * on"` matches "turn on the radio", and also "turn off the radio and put the light on": it only asks for "turn" somewhere before "on". Prefer `_` (one word, so "turn the radio on" but not a whole clause), or a phrase set listing what may be there. Lint stops an example that's only wildcards (it would match anything), and warns about a `*` at an example's start or end (it adds nothing: examples are found anywhere in the words).
+
+## 6. A phrase set, an entity, or a pack?
 
 | You want | Use | Because |
 |---|---|---|
@@ -108,7 +127,7 @@ warning: intents "louder" (verticals/media/media.txtpb) and "warmer" (verticals/
 
 "The lights" on a phone is a phrase set: there's one light to switch. In a smart home, where "the kitchen light" and "the bedroom light" are different things, it's an entity.
 
-## 6. Testing it
+## 7. Testing it
 
 - `vasdk_agentc lint` checks the patterns and the sets: unclosed brackets, unknown sets, loops, unused sets and packs, and the collisions above. Given a pack, it checks the pack alone.
 - `vasdk_agentc expand` shows every sentence. Read it once: a pattern often spells something nobody says, or misses something everybody does.

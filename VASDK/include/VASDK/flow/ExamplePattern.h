@@ -93,6 +93,17 @@ VASDK_EXPORT bool isPhraseSetName(const std::string& name);
  *  encoder (64) or an LLM's prompt (8) when its patterns spell many. */
 VASDK_EXPORT std::vector<std::string> sampleExamples(const std::vector<std::string>& examples, size_t most);
 
+/** A word of an example that stands for others, when it's a word of its own: `*` any number of
+ *  words (none too), `+` one or more, `_` exactly one. Inside a word ("@fan_level") it's itself. */
+VASDK_EXPORT bool isWildcard(const std::string& word);
+
+/** The example without its wildcards, for what reads examples as words rather than matching them:
+ *  a sentence encoder, an LLM's prompt, speech hints. "turn _ light on" → "turn light on". */
+VASDK_EXPORT std::string withoutWildcards(const std::string& example);
+
+/** At most `most` of `examples` (sampleExamples), without their wildcards, each once. */
+VASDK_EXPORT std::vector<std::string> plainExamples(const std::vector<std::string>& examples, size_t most);
+
 /** Most examples per intent a sentence encoder embeds, and an LLM is shown. */
 inline constexpr size_t kMostEncodedExamples = 64;
 inline constexpr size_t kMostPromptedExamples = 8;

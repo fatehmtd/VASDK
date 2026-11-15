@@ -44,7 +44,7 @@ EmbeddingNluProvider::EmbeddingNluProvider(std::shared_ptr<const SentenceEncoder
     : _encoder(std::move(encoder)), _minSimilarity(minSimilarity) {
     for (const auto& intent : intents) {
         std::vector<std::string> examples;   // at most 64, spread: patterns may spell hundreds
-        for (const auto& example : flow::sampleExamples({intent.examples().begin(), intent.examples().end()},
+        for (const auto& example : flow::plainExamples({intent.examples().begin(), intent.examples().end()},
                                                         flow::kMostEncodedExamples))
             examples.push_back(withEntityNames(example));
         _intents.emplace_back(intent.name(), std::move(examples));

@@ -74,6 +74,13 @@ TEST(ExamplePattern, EntitiesStayAsWritten) {
               (Sentences{"call @contact now", "call @contact", "phone @contact now", "phone @contact"}));
 }
 
+TEST(ExamplePattern, WildcardsArePassedOnAsWords) {
+    EXPECT_EQ(spelled("turn _ (light|lamp) on"), (Sentences{"turn _ light on", "turn _ lamp on"}));
+    EXPECT_EQ(spelled("call + back [*]"), (Sentences{"call + back *", "call + back"}));
+    EXPECT_TRUE(isWildcard("_"));
+    EXPECT_FALSE(isWildcard("fan_level")) << "inside a word it's the word's";
+}
+
 TEST(ExamplePattern, MistakesSayWhere) {
     EXPECT_NE(mistake("(turn on").find("column 1: a '(' with no ')'"), std::string::npos);
     EXPECT_NE(mistake("turn on)").find("column 8: unmatched ')'"), std::string::npos);

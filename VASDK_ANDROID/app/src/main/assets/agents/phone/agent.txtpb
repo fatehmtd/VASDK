@@ -25,8 +25,11 @@ intents { name: "call" examples: ["call @contact", "phone @contact", "ring @cont
 #   vasdk_agentc expand agents/phone/agent.txtpb flashlight_on   (every sentence they spell)
 phrase_set_files: ["phrases.txtpb"]
 phrase_sets { name: "light"   phrases: ["flashlight", "torch", "(light|lights)"] }
-phrase_sets { name: "on_cmd"  phrases: ["${on} [the] ${light}", "(turn|switch|put) [the] ${light} on", "${light} on"] }
-phrase_sets { name: "off_cmd" phrases: ["${off} [the] ${light}", "(turn|switch|put) [the] ${light} off", "${light} off"] }
+# "(turn|switch) _ ${light} on": any one word before the light, "turn my light on", "switch that torch on".
+phrase_sets { name: "on_cmd"  phrases: ["${on} [the] ${light}", "(turn|switch|put) [the] ${light} on", "(turn|switch) _ ${light} on",
+                                        "${light} on"] }
+phrase_sets { name: "off_cmd" phrases: ["${off} [the] ${light}", "(turn|switch|put) [the] ${light} off", "(turn|switch) _ ${light} off",
+                                        "${light} off"] }
 intents { name: "flashlight_on"  examples: ["${on_cmd}"] }
 intents { name: "flashlight_off" examples: ["${off_cmd}"] }
 

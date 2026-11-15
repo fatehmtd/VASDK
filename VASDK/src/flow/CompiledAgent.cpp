@@ -508,8 +508,17 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::build(vasdk::flow::Agent age
         const std::string where = "intent " + (intent.name().empty() ? std::to_string(i + 1) : quoted(intent.name()));
         if (intent.name().empty()) check.error(where, "has no name");
         else if (!intentNames.insert(intent.name()).second) check.error(where, "is declared twice");
-        for (const auto& example : intent.examples())
-            if (splitWords(example).empty()) check.error(where, "example " + quoted(example) + " has no words");
+        for (const auto& example : intent.examples()) {
+            std::vector<std::string> tokens;
+            std::istringstream read(example);
+            for (std::string token; read >> token;) tokens.push_back(token);
+            const bool onlyWildcards = !tokens.empty() && std::all_of(tokens.begin(), tokens.end(), isWildcard);
+            if (onlyWildcards) check.error(where, "example " + quoted(example) + " is only wildcards: it would match anything");
+            else if (splitWords(example).empty()) check.error(where, "example " + quoted(example) + " has no words");
+            else if (tokens.front() == "*" || tokens.back() == "*")
+                check.warn(where, "example " + quoted(example) +
+                                      ": a * at its start or end adds nothing, examples are found anywhere in the words");
+        }
         if (intent.examples().empty()) check.error(where, "has no examples");
     }
     // Its languages: the locale first, then the others; each from the agent's own packs, then
@@ -1252,8 +1261,12 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::build(vasdk::flow::Agent age
         for (const auto& intent : definition.intents()) {
             sentences += static_cast<size_t>(intent.examples_size());
             for (const auto& example : intent.examples()) {
-                std::string key;
-                for (const auto& word : splitWords(example)) key += (key.empty() ? "" : " ") + word;
+                std::string key;   // its words, and its wildcards: "turn _ light on" isn't "turn light on"
+                std::istringstream read(example);
+                for (std::string token; read >> token;) {
+                    if (isWildcard(token)) key += (key.empty() ? "" : " ") + token;
+                    else for (const auto& word : splitWords(token)) key += (key.empty() ? "" : " ") + word;
+                }
                 if (!key.empty()) intentsOf[key].insert(intent.name());
             }
         }
