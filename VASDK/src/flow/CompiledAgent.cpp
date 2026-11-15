@@ -1,6 +1,7 @@
 #include "flow/CompiledAgent.h"
 
 #include "engine/ProtoFileLoader.h"
+#include "flow/ExamplePattern.h"
 #include "flow/SlotExtraction.h"
 #include "goal/GoalState.h"
 
@@ -124,6 +125,121 @@ public:
     void warn(const std::string& where, const std::string& message) { warnings.push_back(where + ": " + message); }
 };
 
+// A scope's phrase sets, their names checked: letters, digits and _, each once.
+std::shared_ptr<PhraseScope> phraseScope(PhraseScope::Kind kind, const std::string& name, const std::string& where,
+                                         const google::protobuf::RepeatedPtrField<vasdk::flow::PhraseSet>& sets,
+                                         std::string& error) {
+    auto scope = std::make_shared<PhraseScope>();
+    scope->kind = kind;
+    scope->name = name;
+    scope->where = where;
+    for (const auto& set : sets) {
+        if (!isPhraseSetName(set.name())) {
+            error = where + ": phrase set " + quoted(set.name()) + ": a name is letters, digits and _";
+            return nullptr;
+        }
+        if (set.phrases().empty()) {
+            error = where + ": phrase set " + quoted(set.name()) + " has no phrases";
+            return nullptr;
+        }
+        if (!scope->sets.emplace(set.name(), std::vector<std::string>(set.phrases().begin(), set.phrases().end())).second) {
+            error = where + ": phrase set " + quoted(set.name()) + " is declared twice";
+            return nullptr;
+        }
+    }
+    return scope;
+}
+
+// Packs of phrase sets read while one agent loads, by path: a pack several parts use is read once.
+using PhrasePacks = std::map<std::string, std::shared_ptr<const PhraseScope>>;
+
+// One file's examples (its intents', and its knowledge questions) expanded in its own scope: the
+// intent's sets, the file's, then the packs it uses. Its sets are then cleared: no other part sees
+// them. `directory` is where its phrase_set_files are; nullptr for an agent built in code.
+bool expandFilePatterns(vasdk::flow::Agent& part, const std::filesystem::path* directory, const std::string& file,
+                        PhrasePacks& packs, std::string& error, std::vector<std::string>& warnings,
+                        std::map<std::string, std::string>& intentFiles) {
+    const std::string where = file.empty() ? "the agent" : file;
+    std::vector<std::shared_ptr<const PhraseScope>> scopes;
+    auto own = phraseScope(PhraseScope::Kind::File, "", where, part.phrase_sets(), error);
+    if (!own) return false;
+    scopes.push_back(own);
+    std::set<std::string> packNames;
+    for (const auto& name : part.phrase_set_files()) {
+        if (!directory) {
+            error = where + ": phrase_set_files " + quoted(name) + ": load the agent from its file to use packs";
+            return false;
+        }
+        const auto path = std::filesystem::absolute(*directory / name).lexically_normal().string();
+        auto found = packs.find(path);
+        if (found == packs.end()) {
+            vasdk::flow::PhraseSetPack pack;
+            std::string packError;
+            if (!engine::loadProtoFile(path, pack, &packError)) {
+                error = where + ": phrase_set_files " + quoted(name) + ": " + packError;
+                return false;
+            }
+            if (!isPhraseSetName(pack.name())) {
+                error = where + ": phrase_set_files " + quoted(name) + ": the pack needs a name, letters, digits and _ (${" +
+                        (pack.name().empty() ? std::string("name") : pack.name()) + ".set})";
+                return false;
+            }
+            auto scope = phraseScope(PhraseScope::Kind::Pack, pack.name(), "pack " + quoted(pack.name()) + " (" + name + ")",
+                                     pack.phrase_sets(), error);
+            if (!scope) return false;
+            found = packs.emplace(path, std::move(scope)).first;
+        }
+        if (!packNames.insert(found->second->name).second) {
+            error = where + ": phrase_set_files: two packs named " + quoted(found->second->name);
+            return false;
+        }
+        scopes.push_back(found->second);
+    }
+    ExampleExpander expander(scopes);
+    std::set<std::string> notes;
+    auto expandAll = [&](google::protobuf::RepeatedPtrField<std::string>& patterns, const PhraseScope* intentSets,
+                         const std::string& label) {
+        std::vector<std::string> sentences;
+        for (const auto& pattern : patterns) {
+            std::string patternError;
+            const auto spelled = expander.expand(pattern, intentSets, &patternError);
+            if (!spelled) {
+                error = where + ": " + label + " " + quoted(pattern) + ": " + patternError;
+                return false;
+            }
+            for (const auto& sentence : *spelled)
+                if (std::find(sentences.begin(), sentences.end(), sentence) == sentences.end()) sentences.push_back(sentence);
+        }
+        patterns.Clear();
+        for (auto& sentence : sentences) patterns.Add(std::move(sentence));
+        return true;
+    };
+    for (auto& intent : *part.mutable_intents()) {
+        const std::string label = "intent " + quoted(intent.name());
+        auto intentSets = phraseScope(PhraseScope::Kind::Intent, "", label, intent.phrase_sets(), error);
+        if (!intentSets) return false;
+        const PhraseScope* nearest = intentSets->sets.empty() ? nullptr : intentSets.get();
+        if (!expandAll(*intent.mutable_examples(), nearest, label + " example") ||
+            !expandAll(*intent.mutable_negative_examples(), nearest, label + " negative example"))
+            return false;
+        for (const auto& note : expander.hidingNotes(nearest)) notes.insert(note);
+        for (const auto& [name, phrases] : intentSets->sets)
+            if (!expander.used(*intentSets, name)) warnings.push_back(where + ": " + label + ": phrase set " + quoted(name) + " is never used");
+        intent.clear_phrase_sets();
+        if (!intent.name().empty()) intentFiles.emplace(intent.name(), where);
+    }
+    for (auto& knowledge : *part.mutable_knowledge())
+        if (!expandAll(*knowledge.mutable_questions(), nullptr, "knowledge question")) return false;
+    for (const auto& [name, phrases] : own->sets)
+        if (!expander.used(*own, name)) warnings.push_back(where + ": phrase set " + quoted(name) + " is never used");
+    for (size_t i = 1; i < scopes.size(); ++i)
+        if (!expander.usedAny(*scopes[i])) warnings.push_back(where + ": uses " + scopes[i]->where + ", but none of its sets");
+    for (const auto& note : notes) warnings.push_back("note: " + note);
+    part.clear_phrase_sets();
+    part.clear_phrase_set_files();
+    return true;
+}
+
 } // namespace
 
 // The types of proto_imports: the .proto files next to the agent, which may import those linked
@@ -232,10 +348,25 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::load(const std::string& path
     if (!engine::loadProtoFile(path, agent, error, false, imports ? &imports->pool : nullptr)) return nullptr;
     const auto* pool = imports ? &imports->pool : nullptr;
 
-    // A file's goal and entity files, relative to it; then the files it includes, merged in.
+    // A file's examples in its own scope (its phrase sets and packs); its goal and entity files,
+    // relative to it; then the files it includes, merged in.
     std::vector<std::filesystem::path> including{std::filesystem::absolute(path).lexically_normal()};
-    std::function<bool(vasdk::flow::Agent&, const std::filesystem::path&, const std::string&)> expand;
-    expand = [&](vasdk::flow::Agent& part, const std::filesystem::path& dir, const std::string& where) {
+    PhrasePacks packs;
+    std::map<std::string, std::string> intentFiles;   // which file declared each intent
+    std::vector<std::string> patternWarnings;
+    // A file as messages name it: relative to the main agent's folder.
+    auto fileLabel = [&](const std::filesystem::path& file) {
+        std::error_code ignored;
+        auto relative = std::filesystem::relative(file, std::filesystem::absolute(directory), ignored);
+        return (relative.empty() ? file : relative).generic_string();
+    };
+    std::function<bool(vasdk::flow::Agent&, const std::filesystem::path&, const std::string&, const std::string&)> expand;
+    expand = [&](vasdk::flow::Agent& part, const std::filesystem::path& dir, const std::string& where, const std::string& partFile) {
+        std::string patternError;
+        if (!expandFilePatterns(part, &dir, partFile, packs, patternError, patternWarnings, intentFiles)) {
+            if (error) *error = where + patternError;
+            return false;
+        }
         for (const auto& file : part.goal_files()) {
             vasdk::goal::GoalDefinition goal;
             std::string goalError;
@@ -300,25 +431,27 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::load(const std::string& path
                 return false;
             }
             including.push_back(included);
-            if (!expand(more, included.parent_path(), where + label)) return false;
+            if (!expand(more, included.parent_path(), where + label, fileLabel(included))) return false;
             including.pop_back();
             part.MergeFrom(more);   // repeated fields are appended: its intents, flows, envelopes...
         }
         return true;
     };
-    if (!expand(agent, directory, "")) return nullptr;
-    return build(std::move(agent), std::move(imports), std::move(registry), error, warnings);
+    if (!expand(agent, directory, "", fileLabel(including.front()))) return nullptr;
+    if (warnings) warnings->insert(warnings->end(), patternWarnings.begin(), patternWarnings.end());
+    return build(std::move(agent), std::move(imports), std::move(registry), error, warnings, true, std::move(intentFiles));
 }
 
 std::shared_ptr<const CompiledAgent> CompiledAgent::compile(vasdk::flow::Agent agent, std::string* error,
                                                             std::vector<std::string>* warnings,
                                                             std::shared_ptr<const FlowRegistry> registry) {
-    return build(std::move(agent), nullptr, std::move(registry), error, warnings);
+    return build(std::move(agent), nullptr, std::move(registry), error, warnings, false, {});
 }
 
 std::shared_ptr<const CompiledAgent> CompiledAgent::build(vasdk::flow::Agent agent, std::shared_ptr<const ImportedTypes> imports,
                                                           std::shared_ptr<const FlowRegistry> registry, std::string* error,
-                                                          std::vector<std::string>* warnings) {
+                                                          std::vector<std::string>* warnings, bool patternsExpanded,
+                                                          std::map<std::string, std::string> intentFiles) {
     std::shared_ptr<CompiledAgent> compiled(new CompiledAgent());
     compiled->_agent = std::move(agent);
     compiled->_imports = std::move(imports);
@@ -326,6 +459,15 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::build(vasdk::flow::Agent age
     const auto& definition = compiled->_agent;
     const auto& extensions = *compiled->_registry;
     Checker check;
+    // An agent built in code is one file: its examples are expanded here. A loaded one's were, file by file.
+    if (!patternsExpanded) {
+        PhrasePacks packs;
+        std::string patternError;
+        if (!expandFilePatterns(compiled->_agent, nullptr, "", packs, patternError, check.warnings, intentFiles)) {
+            if (error) *error = patternError;
+            return nullptr;
+        }
+    }
 
     // The well-known types an agent may name as params ("google.protobuf.Empty"): referenced, so a
     // static link (Android) keeps them in the generated pool.
@@ -1102,6 +1244,74 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::build(vasdk::flow::Agent age
     for (const auto& intent : definition.intents())
         if (!intent.name().empty() && !usedIntents.count(intent.name()))
             check.warn("intent " + quoted(intent.name()), "is not used by any route");
+    // The same sentence in two intents that can be matched on one page: the longest example wins,
+    // then the first route, which is rarely what was meant. Patterns make it easy to do by accident.
+    {
+        size_t sentences = 0;
+        std::map<std::string, std::set<std::string>> intentsOf;   // a sentence, as its words → the intents with it
+        for (const auto& intent : definition.intents()) {
+            sentences += static_cast<size_t>(intent.examples_size());
+            for (const auto& example : intent.examples()) {
+                std::string key;
+                for (const auto& word : splitWords(example)) key += (key.empty() ? "" : " ") + word;
+                if (!key.empty()) intentsOf[key].insert(intent.name());
+            }
+        }
+        if (sentences > 5000)
+            check.warn("the agent", "its examples spell " + std::to_string(sentences) +
+                                        " sentences: understanding them all slows every turn; use fewer alternatives");
+        // Intents that compete on a page: routed at the same level. A page's own routes (and its type's)
+        // win over its envelopes' whatever they match, those over its flow's, those over the agent's;
+        // within a level, the best match wins and then the first.
+        std::set<std::pair<std::string, std::string>> competing;
+        auto compete = [&](const std::set<std::string>& names) {
+            for (auto first = names.begin(); first != names.end(); ++first)
+                for (auto second = std::next(first); second != names.end(); ++second) competing.insert({*first, *second});
+        };
+        auto routedBy = [](const google::protobuf::RepeatedPtrField<vasdk::flow::Route>& routes, std::set<std::string>& names) {
+            for (const auto& route : routes)
+                if (!route.intent().empty()) names.insert(route.intent());
+        };
+        auto enveloped = [&](const google::protobuf::RepeatedPtrField<std::string>& applied) {
+            std::set<std::string> names, seen;
+            for (const auto& name : applied)
+                for (std::string at = name; !at.empty() && seen.insert(at).second && compiled->_envelopes.count(at);) {
+                    const auto& envelope = definition.envelope_defs(compiled->_envelopes.at(at));
+                    routedBy(envelope.routes(), names);
+                    at = envelope.extends();
+                }
+            return names;
+        };
+        std::map<std::string, const vasdk::flow::PageType*> declaredTypes;
+        for (const auto& type : definition.page_types()) declaredTypes[type.name()] = &type;
+        compete(enveloped(definition.envelopes()));
+        for (const auto& flow : definition.flows()) {
+            compete(enveloped(flow.envelopes()));
+            for (const auto& page : flow.pages()) {
+                std::set<std::string> own;
+                routedBy(page.routes(), own);
+                if (const auto type = declaredTypes.find(page.type()); type != declaredTypes.end()) routedBy(type->second->routes(), own);
+                compete(own);
+                compete(enveloped(page.envelopes()));
+            }
+        }
+        std::map<std::pair<std::string, std::string>, std::vector<std::string>> shared;
+        for (const auto& [sentence, intents] : intentsOf) {
+            if (intents.size() < 2) continue;
+            for (auto first = intents.begin(); first != intents.end(); ++first)
+                for (auto second = std::next(first); second != intents.end(); ++second)
+                    if (competing.count({*first, *second})) shared[{*first, *second}].push_back(sentence);
+        }
+        auto named = [&](const std::string& intent) {
+            const auto file = intentFiles.find(intent);
+            return quoted(intent) + (file == intentFiles.end() ? "" : " (" + file->second + ")");
+        };
+        for (const auto& [pair, said] : shared)
+            check.warn("intents " + named(pair.first) + " and " + named(pair.second),
+                       "both have " + quoted(said.front()) +
+                           (said.size() > 1 ? " and " + std::to_string(said.size() - 1) + " more" : std::string()) +
+                           ", and compete on the same page: the better match wins, then the first route");
+    }
     for (const auto& goal : definition.goals())
         if (!goal.name().empty() && !usedGoals.count(goal.name()))
             check.warn("goal " + quoted(goal.name()), "is not used by any form");

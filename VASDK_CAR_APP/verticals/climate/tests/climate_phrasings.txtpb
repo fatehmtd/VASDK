@@ -1,0 +1,13 @@
+# proto-file: vasdk/flow/test_case.proto
+# proto-message: vasdk.flow.FlowTestCase
+# The sentences climate.txtpb's own "up" and "down" sets spell, and the AC with the car's shared
+# ${car.on} and ${car.off}: each one is the heat or the AC, never the volume (media.txtpb has an
+# "up" of its own).
+name: "climate: warmer, cooler, the fan and the AC in the words the phrase sets spell"
+turns { user: "set the temperature to 22" expect { said_contains: "22 degrees" } }   # the climate tool keeps its state between cases
+turns { user: "bring up the temperature" expect { said_contains: "23 degrees" } }
+turns { user: "a bit cooler in here" expect { said_contains: "22 degrees" } }
+turns { user: "it's getting cold" expect { said_contains: "23 degrees" } }
+turns { user: "bring up the fan" expect { said_contains: "Fan" } }
+turns { user: "switch on the air conditioning" expect { said_contains: "AC" } }
+turns { user: "stop the ac" expect { said_contains: "AC" } }

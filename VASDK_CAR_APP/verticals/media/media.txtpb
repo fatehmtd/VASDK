@@ -67,10 +67,15 @@ intents { name: "previous" examples: ["previous", "previous song", "previous tra
 intents { name: "set_volume" examples: ["volume to @volume_level", "volume at @volume_level", "volume @volume_level",
                                         "set the volume to @volume_level", "turn the volume to @volume_level",
                                         "volume to @sys.integer", "set the volume to @sys.integer"] }
-intents { name: "louder"  examples: ["louder", "volume up", "turn it up", "turn up the volume", "turn up the music", "increase the volume",
-                                     "raise the volume", "crank it up", "pump it up"] }
-intents { name: "quieter" examples: ["quieter", "softer", "volume down", "turn it down", "turn down the volume", "turn down the music",
-                                     "lower the volume", "decrease the volume", "too loud"] }
+# Louder and quieter, from the car's shared verbs (${raise}, ${lower}: ../../agents/car/phrases.txtpb)
+# and this file's own sets: its "up" and "down" are about the sound; climate.txtpb has its own,
+# about the heat, and neither sees the other's.
+intents { name: "louder"  examples: ["${up}"] }
+intents { name: "quieter" examples: ["${down}"] }
+phrase_set_files: ["../../agents/car/phrases.txtpb"]
+phrase_sets { name: "sound" phrases: ["[the] (volume|music)"] }
+phrase_sets { name: "up"    phrases: ["louder", "volume up", "${raise} ${sound}", "(turn|crank|pump) it up"] }
+phrase_sets { name: "down"  phrases: ["(quieter|softer)", "volume down", "${lower} ${sound}", "turn it down", "too loud"] }
 intents { name: "mute"    examples: ["mute", "mute the music", "mute it", "silence"] }
 intents { name: "unmute"  examples: ["unmute", "sound on", "unmute the music"] }
 intents { name: "play_station" examples: ["play @station", "tune to @station", "tune in to @station", "switch to @station",

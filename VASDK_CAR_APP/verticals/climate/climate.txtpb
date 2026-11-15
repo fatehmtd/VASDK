@@ -24,26 +24,28 @@ entity_types {
 intents { name: "set_temperature" examples: ["set the temperature to @temperature", "temperature to @temperature", "temperature at @temperature",
                                              "@temperature degrees", "make it @temperature", "set it to @temperature", "set @zone to @temperature",
                                              "set the temperature", "change the temperature", "degrees"] }
-intents { name: "warmer" examples: ["warmer", "i'm cold", "i am cold", "it's cold", "too cold", "freezing", "chilly", "heat it up",
-                                    "turn up the heat", "turn the heat up", "heat up", "more heat", "turn up the temperature", "raise the temperature",
-                                    "warm it up", "a bit warmer", "make it warmer", "warmer in here", "getting cold in here",
-                                    "it's getting cold", "too cold in here", "cold in here"] }   # whole sentences: mid-story, a command must be most of the words
-intents { name: "cooler" examples: ["cooler", "colder", "i'm hot", "i am hot", "it's hot", "too hot", "too warm", "boiling", "cool it down",
-                                    "turn down the heat", "turn the heat down", "less heat", "turn down the temperature",
-                                    "lower the temperature", "a bit cooler", "make it cooler", "cooler in here", "getting warm in here",
-                                    "getting hot in here", "it's getting warm", "it's getting hot", "too hot in here", "too warm in here",
-                                    "warm in here", "hot in here"] }
-intents { name: "ac_on"  examples: ["ac", "ac on", "turn on the ac", "switch on the ac", "start the ac", "air conditioning",
-                                    "air conditioning on", "turn on the air conditioning", "aircon", "air con"] }
-intents { name: "ac_off" examples: ["ac off", "turn off the ac", "switch off the ac", "stop the ac", "air conditioning off",
-                                    "turn off the air conditioning", "aircon off", "air con off"] }
+# Warmer and cooler: this file's own "up" and "down" (media.txtpb has an "up" of its own, about the
+# sound), with the car's shared verbs (${raise}, ${lower}, ${car.on}: ../../agents/car/phrases.txtpb).
+# Whole sentences: mid-story, a command must be most of the words.
+phrase_set_files: ["../../agents/car/phrases.txtpb"]
+phrase_sets { name: "heat" phrases: ["the (heat|temperature)"] }
+phrase_sets { name: "up"   phrases: ["[a bit] warmer [in here]", "make it warmer", "(i'm|i am) cold", "it's [getting] cold",
+                                     "(too|getting) cold [in here]", "cold in here", "freezing", "chilly", "heat [it] up",
+                                     "warm it up", "${raise} ${heat}", "turn the heat up", "more heat"] }
+phrase_sets { name: "down" phrases: ["[a bit] (cooler|colder) [in here]", "make it cooler", "(i'm|i am) hot", "it's [getting] (hot|warm)",
+                                     "too (hot|warm) [in here]", "getting (hot|warm) in here", "(warm|hot) in here", "boiling",
+                                     "cool it down", "${lower} ${heat}", "turn the heat down", "less heat"] }
+phrase_sets { name: "ac" phrases: ["ac", "air conditioning", "aircon", "air con"] }
+intents { name: "warmer" examples: ["${up}"] }
+intents { name: "cooler" examples: ["${down}"] }
+intents { name: "ac_on"  examples: ["${ac} [on]", "${car.on} the (ac|air conditioning)"] }
+intents { name: "ac_off" examples: ["${ac} off", "${car.off} the (ac|air conditioning)"] }
 intents { name: "set_fan" examples: ["fan to @fan_level", "fan at @fan_level", "fan on @fan_level", "fan speed @fan_level",
                                      "fan speed to @fan_level", "set the fan to @fan_level", "fan level @fan_level", "fan up to @fan_level",
                                      "fan down to @fan_level", "turn the fan to @fan_level",
                                      "fan to @sys.integer", "fan at @sys.integer", "set the fan to @sys.integer"] }   # out of range: the second route
-intents { name: "fan_up"   examples: ["fan up", "more air", "more fan", "turn up the fan", "increase the fan", "fan higher", "fan faster", "stronger fan"] }
-intents { name: "fan_down" examples: ["fan down", "less air", "less fan", "turn down the fan", "decrease the fan", "fan lower", "fan slower",
-                                      "too windy", "too drafty"] }
+intents { name: "fan_up"   examples: ["fan up", "more (air|fan)", "${raise} the fan", "fan (higher|faster)", "stronger fan"] }
+intents { name: "fan_down" examples: ["fan down", "less (air|fan)", "${lower} the fan", "fan (lower|slower)", "too (windy|drafty)"] }
 intents { name: "defrost_on"  examples: ["defrost", "defog", "demist", "defrost the windshield", "clear the windshield", "windshield is fogged up",
                                          "windows are fogged up", "fogged up", "foggy"] }
 intents { name: "defrost_off" examples: ["defrost off", "turn off the defrost", "stop defrosting", "defog off", "demist off"] }

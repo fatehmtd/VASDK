@@ -18,6 +18,7 @@
 #include "engine/Runtime.h"
 #include "context/ContextProvider.h"
 #include "flow/DialogProcessor.h"
+#include "flow/ExamplePattern.h"
 #include "nlu/EmbeddingNluProvider.h"
 #include "nlu/LlmEntityExtractor.h"
 #include "nlu/LlmNluProvider.h"
@@ -668,8 +669,10 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
         if (entityModel == "tagger") {
             if (auto encoder = runtime->sentenceEncoder()) {
                 std::vector<std::string> examples;
-                for (const auto& intent : options.agent->definition().intents())
-                    examples.insert(examples.end(), intent.examples().begin(), intent.examples().end());
+                for (const auto& intent : options.agent->definition().intents()) {   // at most 64 each: patterns spell many
+                    const auto some = flow::sampleExamples({intent.examples().begin(), intent.examples().end()}, flow::kMostEncodedExamples);
+                    examples.insert(examples.end(), some.begin(), some.end());
+                }
                 // shortcut: trained per session (about a second); share it across sessions if many start at once.
                 auto tagger = std::make_shared<nlu::TaggerEntityExtractor>(encoder, options.agent->entities().modelLabels(), examples);
                 if (tagger->trained()) extractor = tagger;

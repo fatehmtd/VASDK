@@ -1,6 +1,9 @@
 #include "nlu/RuleNluProvider.h"
 
 #include "flow/CompiledAgent.h"
+#include "flow/ExamplePattern.h"
+
+#include <spdlog/spdlog.h>
 
 #include <algorithm>
 #include <cctype>
@@ -27,8 +30,22 @@ RuleNluProvider::RuleNluProvider(const google::protobuf::RepeatedPtrField<vasdk:
     for (const auto& intent : intents)
         add(intent.name(), {intent.examples().begin(), intent.examples().end()},
             {intent.negative_examples().begin(), intent.negative_examples().end()});
-    for (const char* name : {"sys.yes", "sys.no", "sys.cancel", "sys.repeat", "sys.help", "sys.skip"})
-        if (!_intents.count(name)) add(name, _languages->intentExamples(name), {});
+    // The built-in intents, in the languages' words: patterns too ("(cancel|stop) [it]"), with no sets.
+    for (const char* name : {"sys.yes", "sys.no", "sys.cancel", "sys.repeat", "sys.help", "sys.skip"}) {
+        if (_intents.count(name)) continue;
+        std::vector<std::string> examples;
+        for (const auto& phrase : _languages->intentExamples(name)) {
+            std::string problem;
+            const auto spelled = flow::expandPattern(phrase, &problem);
+            if (!spelled) {
+                spdlog::warn("[RuleNluProvider] {} phrase \"{}\": {}: taken as written", name, phrase, problem);
+                examples.push_back(phrase);
+                continue;
+            }
+            examples.insert(examples.end(), spelled->begin(), spelled->end());
+        }
+        add(name, examples, {});
+    }
 }
 
 bool RuleNluProvider::isBuiltIn(const std::string& intent) { return builtInName(intent); }

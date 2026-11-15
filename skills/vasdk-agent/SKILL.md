@@ -34,6 +34,7 @@ Larger agents split into parts with `include_files` (the car's `VASDK_CAR_APP/ag
 
 ```bash
 garage_agentc lint  agents/<name>/agent.txtpb                       # errors stop loading; warnings don't
+garage_agentc expand agents/<name>/agent.txtpb [intent] [--collisions]   # what the patterns spell; sentences two intents share
 garage_agentc test  agents/<name>/agent.txtpb agents/<name>/tests/*.txtpb
 garage_agentc chat  agents/<name>/agent.txtpb                       # try it by text
 garage_agentc eval  agents/<name>/agent.txtpb agents/<name>/nlu_eval.txtpb --sweep
@@ -44,6 +45,8 @@ An agent with no C++ extensions uses `vasdk_agentc` itself; one with extensions 
 ## Pitfalls
 
 - Every turn goes through [how a turn is answered](../../docs/reference/flows.md#how-a-turn-is-answered): rules, then the sentence encoder, then the LLM. Test the paraphrases users really say, not only the examples.
+- Write examples as [patterns and phrase sets](../../docs/reference/flows.md#patterns-and-phrase-sets) (`"(turn|switch) on [the] ${light}"`), not long lists, and check them with `expand`. Sets belong to a file (or an intent); share wording between files with a pack (`phrase_set_files`), never by assuming another part's set. Fix or explain every collision lint reports, and when rewriting examples, compare `expand` before and after so no sentence is lost. Worked example: [device controls](../../docs/examples/device-controls.md).
+- Device commands (a light, a volume) belong in the agent, not left to a small on-device LLM, which may answer in words instead of calling its tool.
 - Private answers (card numbers, PINs) are marked sensitive so logs and off-device models never see them ([tools and security](../../docs/reference/flows.md#tools-and-security)).
 - A feature the agent language lacks belongs in the core (`FlowRegistry` page types and steps, or a new field in `agent.proto`), usable by every agent, not in one app's code ([house rules](../../AGENTS.md#house-rules)).
 - Steps, page types and tools written in C++ also need C and Python equivalents to stay usable from every platform ([in other languages](../../docs/reference/flows.md#in-other-languages)).

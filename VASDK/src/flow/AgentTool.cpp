@@ -1,4 +1,5 @@
 #include "flow/AgentTool.h"
+#include "flow/ExamplePattern.h"
 #include "engine/ProtoFileLoader.h"
 #include "llm/Completion.h"
 #include "engine/ProviderRegistry.h"
@@ -25,6 +26,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <type_traits>
 #include <string>
@@ -45,7 +47,9 @@ namespace {
 int usage(const std::string& program) {
     const char* name = program.c_str();
     std::fprintf(stderr,
-                 "usage: %s lint <agent>\n"
+                 "usage: %s lint <agent or phrase set pack>\n"
+                 "       %s expand <agent> [intent]...   (the sentences each intent's examples spell)\n"
+                 "       %s expand <agent> --collisions  (sentences two intents both have, on one page)\n"
                  "       %s test <agent> <case>...\n"
                  "       %s chat <agent> [--session name=value]...\n"
                  "         (an empty line is silence, #2 taps the second choice, !<trigger> {json} fires a trigger)\n"
@@ -61,8 +65,55 @@ int usage(const std::string& program) {
                  "    --engine-config <file>  its sentence_encoder, entity_model and understanding settings (minilm and\n"
                  "                            gliner need a tool built with the providers, such as garage_agentc;\n"
                  "                            entity_model llm needs --llm)\n",
-                 name, name, name, name, name);
+                 name, name, name, name, name, name, name);
     return 2;
+}
+
+// Whether a file says it's a pack of phrase sets: "# proto-message: vasdk.flow.PhraseSetPack".
+bool isPhraseSetPack(const std::string& path) {
+    std::ifstream in(path);
+    std::string line;
+    for (int read = 0; read < 10 && std::getline(in, line); ++read)
+        if (line.find("proto-message:") != std::string::npos && line.find("vasdk.flow.PhraseSetPack") != std::string::npos) return true;
+    return false;
+}
+
+// A pack on its own: its name, its sets' names, and what each spells.
+int lintPack(const std::string& path) {
+    vasdk::flow::PhraseSetPack pack;
+    std::string error;
+    if (!engine::loadProtoFile(path, pack, &error)) {
+        std::fprintf(stderr, "%s: %s\n", path.c_str(), error.c_str());
+        return 1;
+    }
+    if (!isPhraseSetName(pack.name())) {
+        std::fprintf(stderr, "%s: the pack needs a name, letters, digits and _\n", path.c_str());
+        return 1;
+    }
+    auto scope = std::make_shared<PhraseScope>();
+    scope->kind = PhraseScope::Kind::Pack;
+    scope->name = pack.name();
+    scope->where = "pack \"" + pack.name() + "\"";
+    for (const auto& set : pack.phrase_sets()) {
+        if (!isPhraseSetName(set.name()) || set.phrases().empty() ||
+            !scope->sets.emplace(set.name(), std::vector<std::string>(set.phrases().begin(), set.phrases().end())).second) {
+            std::fprintf(stderr, "%s: phrase set \"%s\": a name is letters, digits and _, given once, with phrases\n", path.c_str(),
+                         set.name().c_str());
+            return 1;
+        }
+    }
+    ExampleExpander expander({scope});
+    size_t sentences = 0;
+    for (const auto& [name, phrases] : scope->sets) {
+        const auto spelled = expander.expand("${" + pack.name() + "." + name + "}", nullptr, &error);
+        if (!spelled) {
+            std::fprintf(stderr, "%s: %s\n", path.c_str(), error.c_str());
+            return 1;
+        }
+        sentences += spelled->size();
+    }
+    std::printf("%s: ok (pack \"%s\", %zu sets, %zu sentences)\n", path.c_str(), pack.name().c_str(), scope->sets.size(), sentences);
+    return 0;
 }
 
 std::shared_ptr<const va::flow::CompiledAgent> load(const std::string& path, bool showWarnings,
@@ -293,8 +344,10 @@ int runAgentTool(int argc, char** argv, std::shared_ptr<const FlowRegistry> regi
         if (entityModel == "llm") return std::make_shared<nlu::LlmEntityExtractor>(completion, 0);
         if (entityModel == "tagger") {
             std::vector<std::string> examples;
-            for (const auto& intent : agent->definition().intents())
-                examples.insert(examples.end(), intent.examples().begin(), intent.examples().end());
+            for (const auto& intent : agent->definition().intents()) {   // at most 64 each, as a session trains it
+                const auto some = sampleExamples({intent.examples().begin(), intent.examples().end()}, kMostEncodedExamples);
+                examples.insert(examples.end(), some.begin(), some.end());
+            }
             auto tagger = std::make_shared<nlu::TaggerEntityExtractor>(encoder, agent->entities().modelLabels(), examples);
             return tagger->trained() ? tagger : nullptr;
         }
@@ -323,6 +376,39 @@ int runAgentTool(int argc, char** argv, std::shared_ptr<const FlowRegistry> regi
         };
     };
 
+    if (command == "lint" && isPhraseSetPack(agentPath)) return lintPack(agentPath);
+    if (command == "expand") {
+        std::vector<std::string> wanted;
+        bool collisions = false;
+        for (int i = 3; i < argc; ++i) {
+            if (std::string(argv[i]) == "--collisions") collisions = true;
+            else wanted.push_back(argv[i]);
+        }
+        std::string error;
+        std::vector<std::string> warnings;
+        auto agent = CompiledAgent::load(agentPath, &error, &warnings, registry);
+        if (!agent) {
+            std::fprintf(stderr, "%s: %s\n", agentPath.c_str(), error.c_str());
+            return 1;
+        }
+        if (collisions) {   // the warnings the collision check makes
+            int found = 0;
+            for (const auto& warning : warnings)
+                if (warning.rfind("intents ", 0) == 0) {
+                    std::printf("%s\n", warning.c_str());
+                    ++found;
+                }
+            std::printf("%d collision(s)\n", found);
+            return 0;
+        }
+        for (const auto& intent : agent->definition().intents()) {
+            if (!wanted.empty() && std::find(wanted.begin(), wanted.end(), intent.name()) == wanted.end()) continue;
+            std::printf("%s (%d)\n", intent.name().c_str(), intent.examples_size());
+            for (const auto& example : intent.examples()) std::printf("  %s\n", example.c_str());
+            for (const auto& example : intent.negative_examples()) std::printf("  not: %s\n", example.c_str());
+        }
+        return 0;
+    }
     if (command == "lint") {
         auto agent = load(agentPath, true);
         if (!agent) return 1;

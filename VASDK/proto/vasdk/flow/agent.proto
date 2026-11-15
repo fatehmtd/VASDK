@@ -58,6 +58,28 @@ message Agent {
   // and docs/reference/languages.md. A pack here replaces a built-in or registered one of the same code.
   repeated string language_files = 27;
   repeated vasdk.nlu.Language language_defs = 28;   // the same, written in the agent
+  // Named phrases for this file's intent examples and knowledge questions: ${name}. Only this
+  // file's (the main file's, or an include_files part's) see them, never another part's, so
+  // two parts may each have an "up" of their own. See Intent.examples.
+  repeated PhraseSet phrase_sets = 29;
+  // Packs of phrase sets (vasdk.flow.PhraseSetPack) this file uses, relative to it: their sets
+  // are ${name}, or ${<pack name>.name}. A pack used by several parts is read once.
+  repeated string phrase_set_files = 30;
+}
+
+// Named phrases, used in examples as ${name}: phrases: ["(turn|switch) on", "power on"]. A phrase
+// is written as an example is, so it may hold other sets, (a|b), [optional] and the rest.
+message PhraseSet {
+  string name = 1;               // letters, digits and _: "on", "light_words"
+  repeated string phrases = 2;
+}
+
+// A file of phrase sets that agent files share (Agent.phrase_set_files). Its sets may use each
+// other, but nothing from the files that use the pack.
+message PhraseSetPack {
+  string name = 1;          // its sets' prefix, letters, digits and _: ${devices.on}
+  string description = 2;
+  repeated PhraseSet phrase_sets = 3;
 }
 
 // An answer to questions people ask: when no route understands the words and they ask one of
@@ -183,10 +205,18 @@ message SessionParam {
 //  - Negated it doesn't match: "I don't want to book" isn't book.
 // Built in, without declaring them: sys.yes, sys.no, sys.cancel, sys.repeat, sys.help, sys.skip
 // (declaring one of those names replaces its examples).
+// Examples are patterns, each standing for every sentence it spells (expanded when the agent loads):
+//   (a|b|c)   one of them: "(turn|switch) on"; empty alternatives are allowed: "(the|)"
+//   [x]       optional: "turn on [the] light"; next to a word, part of it: "light[s]"
+//   ${name}   one of a phrase set's phrases: the intent's own phrase_sets, else its file's,
+//             else a pack the file uses (${pack.name} names the pack)
+//   \c        the character itself: \( \) \[ \] \| \$ \\
+// An example may spell at most 256 sentences.
 message Intent {
   string name = 1;
-  repeated string examples = 2;            // "book", "oil change", "book an @service"
+  repeated string examples = 2;            // "book", "oil change", "book an @service", "${on} [the] light"
   repeated string negative_examples = 3;   // in the words, the intent doesn't match: "don't cancel"
+  repeated PhraseSet phrase_sets = 4;      // sets for this intent's examples only, ahead of the file's
 }
 
 // Entered with "flow:<name>": the conversation remembers where it was, and END_FLOW goes back

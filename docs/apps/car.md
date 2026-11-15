@@ -196,6 +196,7 @@ include_files: [
 - **Each part's commands apply on every page** through an envelope of its own (`envelopes: ["navigation"]`).
 - **The best match wins across parts;** order only breaks ties. So generic single words belong in `shared.txtpb`, included last, and `general` comes after every vertical, so a vertical's own question wins a tie with a general one.
 - **Parts may use each other's names,** and their comments say so: messages uses phone's `@contact`; profiles calls climate's and media's tools; media's video rule reads drive's state.
+- **Not their phrase sets.** Media and climate each have an `up` set, one about the sound ("louder", "turn up the volume"), the other about the heat ("warmer", "I'm cold"), and neither sees the other's. The verbs they share (`${raise}`, `${lower}`, `${car.on}`) come from a pack both use, [`agents/car/phrases.txtpb`](../../VASDK_CAR_APP/agents/car/phrases.txtpb) ([Patterns and phrase sets](../reference/flows.md#patterns-and-phrase-sets)). `car_agentc expand agents/car/agent.txtpb --collisions` lists any sentence two competing intents share.
 
 A part that hands its turns to the LLM:
 

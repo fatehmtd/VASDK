@@ -1,0 +1,12 @@
+# proto-file: vasdk/flow/test_case.proto
+# proto-message: vasdk.flow.FlowTestCase
+# The sentences media.txtpb's own "up" and "down" sets spell with the car's shared verbs: each one
+# is the volume, never the heat (climate.txtpb has an "up" of its own).
+name: "volume: louder and quieter in the words the phrase sets spell"
+turns { user: "volume to 10" expect { said: "Volume 10." } }
+turns { user: "bring up the music" expect { said: "Volume 13." } }
+turns { user: "increase volume" expect { said: "Volume 16." } }
+turns { user: "pump it up" expect { said: "Volume 19." } }
+turns { user: "bring down the volume" expect { said: "Volume 16." } }
+turns { user: "softer" expect { said: "Volume 13." } }
+turns { user: "decrease the music" expect { said: "Volume 10." } }
