@@ -234,6 +234,9 @@ private:
     bool _streamSpeech{false};
     std::unique_ptr<StreamingReplyExtractor> _extractor;  // current streamed reply
     std::atomic<bool> _speechOpen{false};  // sentence frames went out for a reply that has no final frame yet
+    // The running request's reply reached its final frame. A transport that delivers its reply as
+    // frames itself (llama.cpp) returns false from sendFrame(), so that alone doesn't mean "no answer".
+    std::atomic<bool> _replyArrived{false};
     std::vector<std::string> _toolFillerPhrases;
     std::function<bool()> _offline;
     std::vector<std::string> _offlineReplies;

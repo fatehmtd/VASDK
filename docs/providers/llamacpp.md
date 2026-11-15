@@ -60,10 +60,13 @@ flowchart LR
     Provider -->|"TextFrame chunks, ToolCallFrame"| Processor
 ```
 
+The transport keeps the conversation in llama.cpp's cache between turns and encodes only each turn's new part. When the new prompt doesn't start with what the cache holds (a new system prompt or tool list, a cleared or edited history), the cache is cleared and the prompt encoded in full. It delivers its reply itself, as `TextFrame`s, and returns `""` from `sendLLMRequest()` ([llm.md](../reference/llm.md#llmtransport)). A cancelled turn (a barge-in) or an empty reply is undone in the cache. A model with a recurrent state (LFM2's convolutions, Mamba) can't have part of its state removed, so for those the cache is cleared and the next turn re-encodes the whole history, keeping the conversation intact. A prompt that no longer fits drops the oldest exchanges, one at a time.
+
 ## Tests
 
 | Test | Kind | Needs | Run |
 | --- | --- | --- | --- |
 | `vasdk_llamacpp_completion` | unit | a GGUF model | `ctest --test-dir build -R vasdk_llamacpp_completion` |
+| `vasdk_llamacpp_transport` | model | a GGUF model | `ctest --test-dir build -R vasdk_llamacpp_transport` (through `LLMProcessor`, an answer said once; a cancelled turn keeps the conversation; a prompt and tools given after construction reach the model, which calls the tool; a new system prompt takes effect between turns) |
 
 A test that needs a model or a key reports "skipped" without it.

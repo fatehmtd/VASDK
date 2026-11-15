@@ -49,13 +49,15 @@ The agent's own LLM calls (`llm` steps, generative pages, slots filled by the LL
 - `registerTemplateVar(name, resolver)` - a resolver called **on every request**, so variables like `{missing_slots}` stay live without touching the template. This is the hook `GoalManager` and `IntentRouter` use.
 - `setResponseFormatInstruction(text)` - set once; automatically re-appended as a system message every time the template is swapped (survives `IntentRouter`/`GoalManager` mid-call template changes).
 
+**The system message**: a transport without a template (llama.cpp) reads its instructions from the history. The first message is the system prompt, followed by the response format instruction, and it stays in step with them. `setConfig()` adds it when there was none (the catalog makes the llama.cpp transport without a prompt, and Session or the app gives it one afterwards with the tools' descriptions), replaces it when the prompt changes and keeps the conversation after it, and removes it when both are empty. `clearHistory()` keeps it.
+
 **Tool round-trip**: `injectToolResult(s)()` feeds handler results back and re-requests. While the follow-up runs, `_forcingFinalAnswer` is set - local transports use it to ban the tool-call start token so the model must answer instead of re-emitting the same call.
 
 **Debugging**: `previewRequestPayload()` renders exactly what would be sent right now, without sending - this powers the Android app's model-info screen.
 
 **Errors** surface through `onError(code, message)` with stable `LLMErrorCode` values (`MissingApiKey`, `InvalidEndpoint`, `EmptyResponse`, `RequestFailed`, `ResponseParseFailed`, `OpenAIApiError`, `OpenAIParseFailed`, `AnthropicApiError`, `AnthropicParseFailed`) - switch on the code, not the message text.
 
-**Extending**: subclass and override `buildRequestPayload()`, `parseResponse()`, and `parseStreamingData()` to speak a new API dialect; `sendLLMRequest()` if the whole request flow differs (that's what `LlamaCppTransport` does - no HTTP at all).
+**Extending**: subclass and override `buildRequestPayload()`, `parseResponse()`, and `parseStreamingData()` to speak a new API dialect; `sendLLMRequest()` if the whole request flow differs (that's what `LlamaCppTransport` does - no HTTP at all). `sendLLMRequest()` returns the reply's text, which the base class adds to the history and delivers; a transport that delivers its reply itself (frames through `fireOnFrameReceived`, the last one `isFinal`, plus its own history entry) returns `""` instead, and `LLMProcessor` counts the turn as answered by that final frame.
 
 ## PromptTemplate
 
@@ -112,7 +114,7 @@ tool.addParameter({"city", "City name", "string", /*required*/ true})
 5. **Cancellation** - `AgentStateFrame{INTERRUPTED / USER_SPOKE_WHILE_THINKING}` cancels the in-flight request; a generation counter discards responses that arrive after cancellation. If the user was only pausing, the cancelled turn is merged into the next one - see [Follow-ups](#follow-ups).
 6. **Reasoning models** - `<think>…</think>`-style spans are stripped before TTS, using the template's `reasoningTags()` or an explicit `setReasoningTags()` override.
 7. **Profiles** (optional, `setProfiles`) - the configs the conversation may switch to, by name. A `UserTurnFrame` whose `llmProfile` names one (an agent route's `llm_profile`) is answered by it, its tool round trips included; the next turn that names none goes back to the config the processor had when profiles were set. The switch happens on the request thread, just before the turn's request, so the history is one conversation whichever model answers. An unknown name is answered by the default, with a warning. Profiles must share the transport's API. `Session` builds them from the engine config's [`llm_profiles`](engine-config.md#different-llms-for-different-tasks).
-8. **Failure replies** (`setFailureReplies`) - when a turn's request fails or times out before anything was said, and the user didn't cut it off, one of these is spoken, in turn, instead of silence. `Session` sets them from `llm.failure_replies`, with a default.
+8. **Failure replies** (`setFailureReplies`) - when a turn's request fails or times out before anything was said, and the user didn't cut it off, one of these is spoken, in turn, instead of silence. A turn counts as answered when `sendFrame()` returns true or the transport delivered the reply's final frame (a transport that delivers its own frames, such as llama.cpp, returns false), so an answer is never followed by a failure reply. `Session` sets them from `llm.failure_replies`, with a default.
 
 ### Follow-ups
 

@@ -125,9 +125,27 @@ bool LLMTransport::sendFrame(std::shared_ptr<transport::Frame> frame) {
 void LLMTransport::setConfig(const LLMConfig& config) {
     std::lock_guard<std::mutex> lock(_historyMutex);
     _config = config;
-    if (!_conversationHistory.empty() &&
-        _conversationHistory[0].role == MessageRole::SYSTEM) {
-        _conversationHistory[0].content = _config.systemPrompt;
+    updateSystemMessage();
+}
+
+// Call with _historyMutex held. The history's first message is the system prompt and the response
+// format instruction after it - added when the transport was made without one (a catalog-made
+// llama.cpp transport gets its prompt afterwards), removed when both are empty.
+void LLMTransport::updateSystemMessage() {
+    std::string content = _config.systemPrompt;
+    if (!_responseFormatInstruction.empty())
+        content += (content.empty() ? "" : "\n\n") + _responseFormatInstruction;
+    const bool present = !_conversationHistory.empty() && _conversationHistory[0].role == MessageRole::SYSTEM;
+    if (present && content.empty()) {
+        _conversationHistory.erase(_conversationHistory.begin());
+    } else if (present) {
+        _conversationHistory[0].content = std::move(content);
+    } else if (!content.empty()) {
+        ConversationMessage message;
+        message.role = MessageRole::SYSTEM;
+        message.content = std::move(content);
+        message.timestamp = transport::Frame::getCurrentTimestamp();
+        _conversationHistory.insert(_conversationHistory.begin(), std::move(message));
     }
 }
 
@@ -182,13 +200,7 @@ bool LLMTransport::rollbackExchange(const std::string& userMessage) {
 void LLMTransport::clearHistory() {
     std::lock_guard<std::mutex> lock(_historyMutex);
     _conversationHistory.clear();
-    if (!_config.systemPrompt.empty()) {
-        ConversationMessage msg;
-        msg.role = MessageRole::SYSTEM;
-        msg.content = _config.systemPrompt;
-        msg.timestamp = transport::Frame::getCurrentTimestamp();
-        _conversationHistory.push_back(msg);
-    }
+    updateSystemMessage();
 }
 
 void LLMTransport::injectToolResults(
@@ -247,12 +259,8 @@ void LLMTransport::setResponseFormatInstruction(std::string instruction) {
     std::lock_guard<std::mutex> lock(_historyMutex);
     _responseFormatInstruction = std::move(instruction);
     // For config-based transports (e.g. LlamaCpp) that read _conversationHistory directly
-    // and never call setPromptTemplate, append to the existing SYSTEM message now.
-    if (!_responseFormatInstruction.empty() &&
-        !_conversationHistory.empty() &&
-        _conversationHistory[0].role == MessageRole::SYSTEM) {
-        _conversationHistory[0].content += "\n\n" + _responseFormatInstruction;
-    }
+    // and never call setPromptTemplate: the SYSTEM message carries it after the system prompt.
+    updateSystemMessage();
 }
 
 void LLMTransport::setPromptTemplate(std::unique_ptr<PromptTemplate> tmpl) {

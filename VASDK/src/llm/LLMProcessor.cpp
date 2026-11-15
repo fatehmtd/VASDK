@@ -555,6 +555,7 @@ void LLMProcessor::onTransportFrameReceived(std::shared_ptr<transport::Frame> fr
                     for (const auto& s : sentences) pushSpeech(s, false);
                     return;
                 }
+                _replyArrived = true;
                 for (const auto& chunk : _streamingBuffer) fullText += chunk->text;
                 fullText += textFrame->text;
                 _streamingBuffer.clear();
@@ -652,6 +653,9 @@ void LLMProcessor::onTransportFrameReceived(std::shared_ptr<transport::Frame> fr
     // logic in processFrame(UPSTREAM) works correctly, then forward it downstream
     // to ToolDispatchProcessor.
     if (_toolDispatcher && frame->getType() == transport::FrameType::TOOL_CALL) {
+        // As for a JSON tool call: the turn stays open for the follow-up reply, and isn't one
+        // the LLM failed to answer (the transport returns "" from its request).
+        _awaitingToolFollowUp = true;
         {
             std::lock_guard<std::mutex> lk(_toolResultsMutex);
             // First native tool call frame in this batch - reset collection state.
@@ -946,7 +950,7 @@ std::string LLMProcessor::dispatchRequestNow(const std::string& text, float conf
                 now.reasoningEffort != config->reasoningEffort)
                 _transport->setConfig(*config);
         }
-        const bool answered = _transport->sendFrame(frame);
+        const bool answered = _transport->sendFrame(frame) || _replyArrived;
         // Failed or timed out with nothing said, and not cut off by the user: say so.
         if (!answered && !_speechOpen && !_awaitingToolFollowUp && !_failureReplies.empty() &&
             _runningGeneration.load() == _currentGeneration.load()) {
@@ -987,6 +991,7 @@ void LLMProcessor::requestWorkerLoop() {
         }
         const uint64_t generation = _currentGeneration.load();
         _runningGeneration.store(generation);
+        _replyArrived = false;
         job();
         if (_speechOpen) {
             if (generation != _currentGeneration.load()) {
