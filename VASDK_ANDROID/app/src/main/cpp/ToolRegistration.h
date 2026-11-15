@@ -22,7 +22,8 @@ class ToolRegistry {
     void registerCommunicationTools();
     void registerCalendarTools();
     void registerLocationTools();
-    void registerWebTools();
+    void registerWebTools();        // web_search, fetch_url: for a cloud LLM
+    void registerWeatherTool();     // get_weather (Open-Meteo)
     void registerCameraTools();
     void registerAndroidTools();
 private:
