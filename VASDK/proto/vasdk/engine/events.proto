@@ -66,6 +66,13 @@ message Transcript {
   bool is_final = 2;          // false: a partial result that later ones replace
   float confidence = 3;
   bool is_backchannel = 4;    // "mm-hmm" while the assistant spoke: recorded, never answered
+  // The user picked up again after a pause that ended their turn, and their words were merged:
+  // `text` is the whole turn the assistant answers ("Book a flight to Paris"), sent right after
+  // the final of its last part ("to Paris"). It stands for the last `replaces_transcripts` final
+  // transcripts before it (back-channels aside, a follow-up counting as one), so a UI shows those
+  // as this one message. A reply the assistant began to them is void (it was cancelled).
+  bool is_follow_up = 5;
+  int32 replaces_transcripts = 6;
 }
 
 // What the assistant says. Sent once per streamed piece; `text` is the whole reply so far.

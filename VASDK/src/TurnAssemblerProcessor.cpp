@@ -90,6 +90,10 @@ void TurnAssemblerProcessor::processFrame(std::shared_ptr<transport::Frame> fram
             }
             break;
         }
+        if (!transcription.transcriptionResult.text.empty()) {
+            std::lock_guard<std::mutex> lock(_mutex);
+            ++_transcriptsSinceTurn;   // shown by a UI as one of the user's messages
+        }
         handleFinal(transcription);
         break;
     }
@@ -139,6 +143,7 @@ void TurnAssemblerProcessor::handleInterrupt(transport::AgentStateTransition tra
         spdlog::info("[TurnAssembler] User resumed after a pause; \"{}\" will be merged into the next turn",
                      preview(_lastTurnText, _privateAnswer));
         _carriedText = _lastTurnText;
+        _carriedTranscripts = _transcriptsOfLastTurn;
         _carriedReplacesPrevious = true;
     }
     _lastTurnText.clear();
@@ -161,6 +166,9 @@ void TurnAssemblerProcessor::reset() {
         _lastTurnText.clear();
         _carriedText.clear();
         _carriedReplacesPrevious = false;
+        _transcriptsSinceTurn = 0;
+        _transcriptsOfLastTurn = 0;
+        _carriedTranscripts = 0;
     }
     cancelFinalWatchdog();
 }
@@ -174,6 +182,8 @@ void TurnAssemblerProcessor::keepUnsentTurn() {
     spdlog::info("[TurnAssembler] User resumed before \"{}\" was sent; it will be merged into the next turn",
                  preview(unsent, _privateAnswer));
     _carriedText = _carriedText.empty() ? unsent : _carriedText + " " + unsent;
+    _carriedTranscripts += _transcriptsSinceTurn;
+    _transcriptsSinceTurn = 0;
 }
 
 void TurnAssemblerProcessor::handleTranscriptionReady() {
@@ -269,6 +279,10 @@ void TurnAssemblerProcessor::handleFinal(const transport::TranscriptionFrame& fr
         } else if (_partialAlreadySent) {
             spdlog::info("[TurnAssembler] Dropping the final transcription - the turn was sent on its partial");
             _partialAlreadySent = false;
+            if (!incoming.empty()) {   // it shows the turn already sent, not the next one
+                --_transcriptsSinceTurn;
+                ++_transcriptsOfLastTurn;
+            }
             return;
         } else if (!incoming.empty()) {
             spdlog::info("[TurnAssembler] Final transcription before the turn end - staged: \"{}\"", preview(incoming, _privateAnswer));
@@ -314,14 +328,21 @@ void TurnAssemblerProcessor::emitTurn(const std::string& said, float confidence)
     auto turn = std::make_shared<transport::UserTurnFrame>();
     turn->text = said;
     turn->confidence = confidence;
+    int replacesTranscripts = 0;
     {
         std::lock_guard<std::mutex> lock(_mutex);
         if (!_carriedText.empty()) {
             turn->text = _carriedText + " " + said;
             turn->replacesPrevious = _carriedReplacesPrevious;
+            replacesTranscripts = _carriedTranscripts + _transcriptsSinceTurn;
+            _transcriptsOfLastTurn = 1;   // from now on a UI shows it as its follow-up
             _carriedText.clear();
             _carriedReplacesPrevious = false;
+            _carriedTranscripts = 0;
+        } else {
+            _transcriptsOfLastTurn = _transcriptsSinceTurn;
         }
+        _transcriptsSinceTurn = 0;
         _lastTurnText = turn->text;
         _lastTurnAt = std::chrono::steady_clock::now();
         turn->turnId = _nextTurnId++;
@@ -334,6 +355,8 @@ void TurnAssemblerProcessor::emitTurn(const std::string& said, float confidence)
         auto merged = std::make_shared<transport::TranscriptionFrame>();
         merged->isFinal = true;
         merged->isFollowUp = true;
+        merged->replacesTranscripts = replacesTranscripts;
+        merged->sensitive = _privateAnswer;   // masked wherever shown, as its parts were
         merged->transcriptionResult.text = turn->text;
         merged->transcriptionResult.confidence = confidence;
         merged->timestamp = turn->timestamp;

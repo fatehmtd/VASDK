@@ -40,6 +40,14 @@ data class MainMessage(
     val role: MainMessageRole,
     val text: String = "",
     val isPartial: Boolean = false,
+    /** A user message: how many of the user's transcripts the SDK merged into it (0: not merged). */
+    val mergedParts: Int = 0,
+    /** When it last took in a follow-up (System.currentTimeMillis), for a brief highlight; 0: never. */
+    val mergedAtMs: Long = 0L,
+    /** A user message: a back-channel ("mm-hmm") the assistant heard but doesn't answer. */
+    val isBackchannel: Boolean = false,
+    /** An assistant message: cut off because the user went on with the turn it answered. */
+    val isInterrupted: Boolean = false,
     val speechDurationMs: Long = 0L,
     val llmTokens: Int = 0,
     val llmDurationMs: Long = 0L
@@ -392,7 +400,22 @@ class MainViewModel : ViewModel() {
         }
     }
 
-    fun onTranscriptReceived(text: String, isFinal: Boolean) {
+    /**
+     * A transcript event (vasdk.engine.Transcript). [isFollowUp]: the SDK merged the user's last
+     * [replacesTranscripts] transcripts into one turn, [text]; they become one message.
+     * [isBackchannel]: an "mm-hmm" while the assistant spoke, shown but never answered.
+     */
+    fun onTranscriptReceived(
+        text: String,
+        isFinal: Boolean,
+        isFollowUp: Boolean = false,
+        replacesTranscripts: Int = 0,
+        isBackchannel: Boolean = false
+    ) {
+        if (isFollowUp && text.isNotBlank()) {
+            onFollowUp(text, replacesTranscripts)
+            return
+        }
         if (text.isBlank()) {
             if (isFinal) {
                 removeUserSpeakingBubble()
@@ -445,6 +468,12 @@ class MainViewModel : ViewModel() {
             )
         }
 
+        if (isBackchannel) {
+            // Heard, not answered: no thinking bubble, and the user's turn is still the one before.
+            userId?.let { id -> mutateMessage(id) { it.copy(isBackchannel = true) } }
+            return
+        }
+
         lastUserMessageId = userId
 
         val end = if (speechEndMs > speechStartMs) {
@@ -485,6 +514,19 @@ class MainViewModel : ViewModel() {
         // The user just replied to whatever was asked - hide the expectation banner
         // even if they declined or changed the subject instead of confirming.
         clearExpectation()
+    }
+
+    // The user went on after a pause and the SDK answers their words as one turn: show them as one
+    // message, and the reply it had begun to the first part as interrupted. The final of the last
+    // part came just before, with its thinking bubble, which stays.
+    private fun onFollowUp(text: String, replacesTranscripts: Int) {
+        val merge = mergeFollowUp(_uiState.value.messages, text, replacesTranscripts, nextId(), System.currentTimeMillis())
+        _uiState.update { it.copy(messages = merge.messages) }
+        val gone = merge.removedIds + merge.voidIds
+        if (streamingMessageId in gone) streamingMessageId = null   // a new reply starts its own message
+        if (partialMessageId in merge.removedIds) partialMessageId = null
+        lastUserMessageId = merge.mergedId
+        logger.info("Follow-up merged ${merge.removedIds.size + 1} messages, ${merge.voidIds.size} reply(ies) cut off")
     }
 
     private fun onSpeechStartedOrOngoing(isStarting: Boolean) {

@@ -114,6 +114,7 @@ flowchart LR
 | --- | --- | --- |
 | Speech in and out | the session's VAD, STT and TTS, on this machine | `session.push_audio(pcm)`, `session.on_audio(play)` |
 | What happens | `vasdk.engine.Event`s: a transcript, a reply, a tool call | `session.on_event(fn)`: `event.agent_reply.text`, the same message C++ gets |
+| A turn the user went on with after a pause | one follow-up transcript for its parts (`is_follow_up`, `replaces_transcripts`) | printed as `you (merged 2 parts): ...` (`heard_line` in `app.py`) |
 | The conversation | the agent: pages, intents, forms, flows | nothing: [`agent/`](../../VASDK_PYTHON_APP/agent/) |
 | The kitchen's actions in the conversation | `call_tool { name: "timers" ... }` | `registry.tool("timers")(kitchen.timers_tool)` |
 | Words the agent can't know (the recipes) | `code { extractor: "recipes" }` entities | `registry.entity_extractor("recipes")` |

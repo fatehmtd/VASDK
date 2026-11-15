@@ -10,6 +10,7 @@ internal val SurfaceElevated = Color(0xFFF1F3F4) // Grey 100 - cards, assistant 
 internal val Separator = Color(0xFFDADCE0)       // Grey 300
 internal val Accent = Color(0xFF1A73E8)          // Blue 600
 internal val UserBubble = Color(0xFF1A73E8)
+internal val MergeFlash = Color(0xFF8AB4F8)        // Blue 300 - a user bubble that just took in its follow-up
 internal val ErrorBubble = Color(0xFFFCE8E6)     // Red 50
 internal val ErrorAccent = Color(0xFFD93025)     // Red 600
 internal val TextPrimary = Color(0xFF202124)     // Grey 900

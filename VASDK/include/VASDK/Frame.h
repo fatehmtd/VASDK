@@ -444,6 +444,7 @@ namespace va {
                 cloned->isBackchannel = isBackchannel;
                 cloned->sensitive = sensitive;
                 cloned->isFollowUp = isFollowUp;
+                cloned->replacesTranscripts = replacesTranscripts;
                 return cloned;
             }
 
@@ -451,6 +452,8 @@ namespace va {
             bool isBackchannel = false; // Final of a dismissed back-channel ("mm-hmm"); recorded in history, never answered
             bool sensitive = false;     // answers a private question (a card number): masked wherever shown or logged
             bool isFollowUp = false;    // Interrupted turn + its continuation, as one message: the text the LLM received
+            int replacesTranscripts = 0; // a follow-up: how many of the final transcriptions before it (the continuation's
+                                         // own among them) it stands for, so a UI shows them as this one message
             va::audio::TranscriptionResult transcriptionResult; // Full result with word-level data, alternatives, and timing
 
             TranscriptionFrame() = default;

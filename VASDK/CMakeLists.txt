@@ -517,6 +517,10 @@ if(VASDK_BUILD_TESTS)
         add_test(NAME vasdk_activation COMMAND vasdk_activation_test)
         vasdk_label_tests(timing vasdk_activation)
 
+        # A resumed turn as events: one follow-up replacing the transcripts of its parts
+        vasdk_add_gtest(vasdk_event_tap LABEL unit SOURCES tests/event_tap_test.cpp LIBRARIES VASDK)
+        vasdk_add_gtest(vasdk_follow_up_transcript LABEL integration SOURCES tests/follow_up_transcript_test.cpp LIBRARIES VASDK)
+
         add_executable(vasdk_follow_up_window_test tests/follow_up_window_test.cpp)
         target_link_libraries(vasdk_follow_up_window_test PRIVATE VASDK)
         add_test(NAME vasdk_follow_up_window COMMAND vasdk_follow_up_window_test)

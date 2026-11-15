@@ -121,6 +121,8 @@ void EventTapProcessor::processFrame(std::shared_ptr<transport::Frame> frame, pi
         transcript->set_is_final(transcription->isFinal);
         transcript->set_confidence(transcription->transcriptionResult.confidence);
         transcript->set_is_backchannel(transcription->isBackchannel);
+        transcript->set_is_follow_up(transcription->isFollowUp);
+        transcript->set_replaces_transcripts(transcription->replacesTranscripts);
         break;
     }
     case transport::FrameType::TEXT: {

@@ -1,25 +1,44 @@
 package com.vasdk.android.ui
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.MergeType
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vasdk.android.MainMessage
 
 @Composable
 internal fun UserMessageItem(message: MainMessage) {
+    // A bubble that just took in the user's follow-up flashes, so the merge is seen as it happens.
+    val flash = remember { Animatable(0f) }
+    LaunchedEffect(message.mergedAtMs) {
+        if (message.mergedAtMs > 0L && System.currentTimeMillis() - message.mergedAtMs < MERGE_FLASH_MS) {
+            flash.snapTo(1f)
+            flash.animateTo(0f, tween(durationMillis = MERGE_FLASH_MS.toInt()))
+        }
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -28,8 +47,9 @@ internal fun UserMessageItem(message: MainMessage) {
     ) {
         Column(horizontalAlignment = Alignment.End) {
             Surface(
-                color = UserBubble,
-                shape = RoundedCornerShape(22.dp)
+                color = lerp(UserBubble, MergeFlash, flash.value),
+                shape = RoundedCornerShape(22.dp),
+                modifier = Modifier.alpha(if (message.isBackchannel) 0.55f else 1f)
             ) {
                 Text(
                     text = message.text,
@@ -38,17 +58,36 @@ internal fun UserMessageItem(message: MainMessage) {
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 11.dp)
                 )
             }
-            if (message.speechDurationMs > 0L) {
-                Text(
-                    text = formatSpeechDuration(message.speechDurationMs),
-                    color = TextSecondary.copy(alpha = 0.65f),
-                    fontSize = 11.sp,
+            val caption = listOfNotNull(
+                if (message.mergedParts > 1) "merged · ${message.mergedParts} parts" else null,
+                if (message.isBackchannel) "not answered" else null,
+                if (message.speechDurationMs > 0L) formatSpeechDuration(message.speechDurationMs) else null
+            ).joinToString("  ·  ")
+            if (caption.isNotEmpty()) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.padding(top = 4.dp)
-                )
+                ) {
+                    if (message.mergedParts > 1) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.MergeType,
+                            contentDescription = "merged",
+                            tint = Accent,
+                            modifier = Modifier.size(13.dp).padding(end = 2.dp)
+                        )
+                    }
+                    Text(
+                        text = caption,
+                        color = if (message.mergedParts > 1) Accent else TextSecondary.copy(alpha = 0.65f),
+                        fontSize = 11.sp
+                    )
+                }
             }
         }
     }
 }
+
+private const val MERGE_FLASH_MS = 1200L
 
 @Composable
 internal fun AssistantMessageItem(message: MainMessage) {
@@ -63,12 +102,21 @@ internal fun AssistantMessageItem(message: MainMessage) {
             Surface(color = SurfaceElevated, shape = RoundedCornerShape(22.dp)) {
                 Text(
                     text = message.text,
-                    color = TextPrimary,
+                    // Cut off: the user went on, and this answered only the first part of their turn
+                    color = if (message.isInterrupted) TextSecondary.copy(alpha = 0.6f) else TextPrimary,
                     fontSize = 15.sp,
+                    textDecoration = if (message.isInterrupted) TextDecoration.LineThrough else null,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 11.dp)
                 )
             }
-            if (message.llmTokens > 0 && message.llmDurationMs > 0L) {
+            if (message.isInterrupted) {
+                Text(
+                    text = "interrupted · you went on",
+                    color = TextSecondary.copy(alpha = 0.65f),
+                    fontSize = 11.sp,
+                    modifier = Modifier.padding(start = 2.dp, top = 5.dp)
+                )
+            } else if (message.llmTokens > 0 && message.llmDurationMs > 0L) {
                 Text(
                     text = formatLlmStats(message.llmTokens, message.llmDurationMs),
                     color = TextSecondary.copy(alpha = 0.65f),

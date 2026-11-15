@@ -208,7 +208,19 @@ class VasdkEngine private constructor(
     }
 
     interface Listener {
-        fun onTranscriptReceived(text: String, isFinal: Boolean)
+        /**
+         * What the user said (vasdk.engine.Transcript). [isFollowUp]: the user went on after a pause
+         * and the SDK merged their words into one turn, [text]; it replaces their last
+         * [replacesTranscripts] final transcripts (back-channels aside). [isBackchannel]: an
+         * "mm-hmm" while the assistant spoke, never answered.
+         */
+        fun onTranscriptReceived(
+            text: String,
+            isFinal: Boolean,
+            isFollowUp: Boolean,
+            replacesTranscripts: Int,
+            isBackchannel: Boolean
+        )
         fun onStatusChanged(status: String)
         fun onLlmResponse(chunk: String, isFinal: Boolean, isExpecting: Boolean, choicesJson: String) {}
         fun onDownloadProgress(fileProgress: Float, overallProgress: Float, fileName: String) {}
@@ -1023,8 +1035,8 @@ class VasdkEngine private constructor(
     //  Called from native code 
 
     @Keep
-    fun onTranscriptReceived(text: String, isFinal: Boolean) {
-        mainHandler.post { listener?.onTranscriptReceived(text, isFinal) }
+    fun onTranscriptReceived(text: String, isFinal: Boolean, isFollowUp: Boolean, replacesTranscripts: Int, isBackchannel: Boolean) {
+        mainHandler.post { listener?.onTranscriptReceived(text, isFinal, isFollowUp, replacesTranscripts, isBackchannel) }
     }
 
     @Keep
