@@ -2,7 +2,8 @@
 # proto-message: vasdk.flow.Agent
 #
 # On the phone, before the LLM: "call mom" finds the contact by its name in the phone book,
-# confirms, and calls; "turn on the flashlight" (or the torch, on or off) switches it at once.
+# confirms, and calls; "turn on the flashlight" (or the torch, or the lights, on or off) switches
+# it at once.
 # Everything else goes on to the LLM as before.
 # The app fills @contact from the phone book (ContactsEntity) and provides place_call and
 # set_flashlight (Kotlin).
@@ -18,13 +19,16 @@ entity_types { name: "contact" dynamic: true matching { phonetic: true } list { 
 
 intents { name: "call" examples: ["call @contact", "phone @contact", "ring @contact", "dial @contact", "give @contact a call"] }
 
-# The flashlight, at once and every time, rather than left to a small on-device model.
-intents { name: "flashlight_on"
-          examples: ["turn on the flashlight", "turn the flashlight on", "switch on the flashlight", "switch the flashlight on",
-                     "flashlight on", "turn on the torch", "turn the torch on", "switch on the torch", "switch the torch on", "torch on"] }
-intents { name: "flashlight_off"
-          examples: ["turn off the flashlight", "turn the flashlight off", "switch off the flashlight", "switch the flashlight off",
-                     "flashlight off", "turn off the torch", "turn the torch off", "switch off the torch", "switch the torch off", "torch off"] }
+# The flashlight, at once and every time, rather than left to a small on-device model. The verbs
+# come from the pack beside this file (${on}, ${off}); what's switched is this file's own set, and
+# the commands are sets made of both: "turn on the lights", "switch the torch off", "flashlight on".
+#   vasdk_agentc expand agents/phone/agent.txtpb flashlight_on   (every sentence they spell)
+phrase_set_files: ["phrases.txtpb"]
+phrase_sets { name: "light"   phrases: ["flashlight", "torch", "(light|lights)"] }
+phrase_sets { name: "on_cmd"  phrases: ["${on} [the] ${light}", "(turn|switch|put) [the] ${light} on", "${light} on"] }
+phrase_sets { name: "off_cmd" phrases: ["${off} [the] ${light}", "(turn|switch|put) [the] ${light} off", "${light} off"] }
+intents { name: "flashlight_on"  examples: ["${on_cmd}"] }
+intents { name: "flashlight_off" examples: ["${off_cmd}"] }
 
 # Written in Kotlin (VasdkEngine.registerAgentTool): starts the call.
 tools { name: "place_call" description: "Calls a phone number" }

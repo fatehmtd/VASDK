@@ -52,7 +52,8 @@ flows {
 | Part | What it does |
 |---|---|
 | `start_flow` | The flow a conversation starts in, at its `start_page`. |
-| `intents` | What the user wants, by example: an intent matches when the user's words contain one of its `examples`, in order, as whole words ("book" doesn't match "bookkeeping"). Case and punctuation are ignored. See [Understanding](#understanding) for misspellings, entities in examples, negation and the built-in `sys.*` intents. |
+| `intents` | What the user wants, by example: an intent matches when the user's words contain one of its `examples`, in order, as whole words ("book" doesn't match "bookkeeping"). Case and punctuation are ignored. An example may be a pattern: `"(turn\|switch) on [the] ${light}"` stands for every sentence it spells ([Patterns and phrase sets](#patterns-and-phrase-sets)). See [Understanding](#understanding) for misspellings, entities in examples, negation and the built-in `sys.*` intents. |
+| `phrase_sets`, `phrase_set_files` | Named phrases for this file's examples, `${name}`, and packs of them shared between files: see [Patterns and phrase sets](#patterns-and-phrase-sets). |
 | `flows` | Named groups of pages. `target: "flow:handoff"` goes to another flow's start page, remembering where it came from: `END_FLOW` goes back (see [Shared behaviour and navigation](#shared-behaviour-and-navigation)). |
 | `pages` | `on_enter` steps run each time the conversation enters the page; `routes` are tried against each user turn while it's there. |
 | `routes` | `intent` to match, `steps` to run, then `target`: a page of this flow, `flow:<name>`, `END_FLOW`, `CURRENT_PAGE` (enter this page again) or `END_SESSION`. No target: stay on the page without entering it again, and ask its question again unless the steps asked something. |
@@ -77,6 +78,7 @@ Intents are understood from their examples, with no model and no LLM. When sever
 | What | Example |
 |---|---|
 | Speech-recognition misspellings | "cancel my apointment" matches `cancel my appointment`. Words of 4 letters or more match when at least 80% alike (an edit, or two letters swapped, in a 5-letter word); shorter ones must be exact. List entity synonyms match the same way ("tyres" is `tires`). An entity can opt out with `matching { fuzzy: false }`, or ask for more or less with `min_similarity`. With an [entity model](#entity-models) an entity's misspellings count only inside the words it marks as that entity, where 60% alike does unless the entity sets its own `min_similarity` (names: "jimmy" is 60% "mommy"), and with a sentence encoder the rules match intents exactly (the encoder understands the rest). |
+| Patterns | `examples: ["(turn\|switch) on [the] ${light}"]` is every sentence it spells: "turn on the flashlight", "switch on torch"... See [Patterns and phrase sets](#patterns-and-phrase-sets). |
 | Entities in examples | `examples: ["book @service"]` matches "book my tyres": the words around the entity in order, the entity anywhere in the words. Each entity counts as one word. |
 | Negation | "I don't want to cancel" doesn't match `cancel`: a negating word (not, no, never, don't, can't, ...) up to three words before the example. `negative_examples: ["don't cancel"]` rules an intent out whenever they're in the words. |
 | Built-in intents | `sys.yes`, `sys.no`, `sys.cancel`, `sys.repeat`, `sys.help` and `sys.skip` work in routes without declaring them, with the examples of each of the agent's languages. Declaring an intent of the same name replaces its examples. |
@@ -91,6 +93,61 @@ Intents are understood from their examples, with no model and no LLM. When sever
 - With one, the closest question by meaning matches. It also wins over an intent the model alone matched, when it's closer.
 
 **More stages.** `FlowRuntime::setNlu(std::make_shared<nlu::CascadeNluProvider>(stages, 0.55))` tries stages in order: the rules, then, for instance, an on-device model or an LLM. A later stage is asked only when the earlier ones aren't sure enough. `nlu::NluProvider` is the interface a stage implements.
+
+### Patterns and phrase sets
+
+An example, a negative example or a knowledge question can be written as a pattern: one line that stands for every sentence it spells. Instead of ten examples for the flashlight, one:
+
+```textproto
+phrase_sets { name: "light" phrases: ["flashlight", "torch", "(light|lights)"] }
+intents { name: "flashlight_on" examples: ["(turn|switch|put) on [the] ${light}", "(turn|switch) [the] ${light} on", "${light} on"] }
+```
+
+| Syntax | Meaning | Spells |
+|---|---|---|
+| `(a\|b\|c)` | one of them; nested, and an empty one is allowed | `(turn\|switch) on`: "turn on", "switch on"; `(the\|) light`: "the light", "light" |
+| `[x]` | optional; `[a\|b]` is optional one of them | `turn on [the] light`: "turn on the light", "turn on light" |
+| `light[s]` | next to a word, part of it | "lights", "light" |
+| `${name}` | one of a phrase set's phrases | `${light}`: "flashlight", "torch", "light", "lights" |
+| `\c` | the character itself: `\(` `\)` `\[` `\]` `\|` `\$` `\\` | `price in \$`: "price in $" |
+
+Patterns are expanded when the agent loads, so everything that reads examples afterwards sees plain sentences: the rules, a sentence encoder, an LLM stage, speech-recognition hints, `vasdk_agentc eval`. The longest sentence found still wins: "turn on the light" picks `"turn on [the] ${light}"` (4 words) over `"turn on"` (2). An example may spell at most 256 sentences, and lint warns when an agent's spell more than 5,000 in all. A sentence encoder is given at most 64 of an intent's, an LLM's prompt 8, spread across them. The built-in intents' phrases in a [language pack](languages.md) may be patterns too, without phrase sets.
+
+**Phrase sets.** `phrase_sets { name: "light" phrases: [...] }` names phrases an example uses as `${light}`. A set's phrases are patterns themselves, written as examples are, so sets can be built from sets:
+
+```textproto
+phrase_sets { name: "on"     phrases: ["(turn|switch|put|power) on"] }
+phrase_sets { name: "on_cmd" phrases: ["${on} [the] ${light}", "(turn|switch) [the] ${light} on", "${light} on"] }
+intents { name: "flashlight_on" examples: ["${on_cmd}", "${on_cmd} please"] }
+```
+
+Sets that use each other in a loop (`a` uses `b`, `b` uses `a`) fail the load, naming the loop. `${...}` in an example is a phrase set; in a reply's text it's an [expression](#stored-values-and-conditions). Examples never evaluate expressions, so the two can't be mistaken for each other.
+
+**Where a name is looked up.** Phrase sets aren't merged into one list for the whole agent: in an agent of [several files](#entities), each file's examples are expanded with that file's sets before the files are merged, so two files can each have an `up` of their own. A `${name}` is looked up nearest first:
+
+1. the intent's own `phrase_sets` (`intents { name: "x" phrase_sets { ... } examples: [...] }`), for that intent only;
+2. the file's `phrase_sets`: the main file's, or an `include_files` part's, never another part's;
+3. the packs the file uses (`phrase_set_files`).
+
+A set's phrases see the sets from where it's declared outwards: a file's set can't use an intent's. A nearer set hides a farther one of the same name on purpose (an intent redefining `on` for itself), and lint notes each one.
+
+**Packs.** Phrases several files share go in a pack, a file of its own (`vasdk.flow.PhraseSetPack`) with a name:
+
+```textproto
+# phrases/devices.txtpb
+# proto-message: vasdk.flow.PhraseSetPack
+name: "devices"
+phrase_sets { name: "on"  phrases: ["(turn|switch|put|power) on"] }
+phrase_sets { name: "off" phrases: ["(turn|switch|put|power) off"] }
+```
+
+A file uses one with `phrase_set_files: ["phrases/devices.txtpb"]`, relative to it, and writes `${on}` or `${devices.on}`. A name in two packs it uses must be written with the pack's (`${devices.on}`), or the load fails. A pack's sets use only that pack's. Each file that uses a pack says so: a part doesn't see the packs another part uses. A pack is read once however many files use it. VASDK ships one, [`phrases/en-US-devices.txtpb`](../../VASDK/phrases/en-US-devices.txtpb) (on and off, up and down, louder, quieter, brighter, dimmer): name it by its path, or copy it next to the agent (an Android app does, since its agent is read from the app's assets).
+
+**Two intents, one sentence.** Patterns make it easy to give two intents the same sentence by accident, for instance "turn it up" for both the volume and the heat. Where both compete on a page (routes of the page itself, or of envelopes applied at the same level), the better match wins and then the first route, which is rarely what was meant, so lint warns, naming both intents and their files. A page's own route overriding an envelope's isn't warned about: it always wins. `vasdk_agentc expand <agent> --collisions` lists them all, and `vasdk_agentc expand <agent> <intent>` shows every sentence an intent's examples spell.
+
+**What lint checks.** Brackets that don't close, a `${name}` found nowhere, sets in a loop, a pattern spelling too many sentences, a pack without a name, a set declared twice, a set or a pack never used, a nearer set hiding another. `vasdk_agentc lint` also checks a pack on its own: `vasdk_agentc lint phrases/devices.txtpb`.
+
+A worked example of device commands (the flashlight, the volume, the screen) with phrase sets, and when to use a set, an entity or an enum: [Device controls](../examples/device-controls.md).
 
 
 ### Entity models
@@ -663,7 +720,7 @@ entity_types { name: "free_time"  dynamic: true list { values { value: "09:00" s
 | `composite` | one of its `templates` in order: `"@color:color @make:make from @sys.integer:year"`. Each part is a match of that entity starting right there; the words between them are said as they are. The longest template found wins, and a composite beats its parts | a struct, a field per part: `{color: "white", make: "toyota", year: 2019}`; replies say the parts as said ("white Toyota from 2019"). A form slot can take one (`entity: "@vehicle"`): `$form.vehicle.value.make`, and `$form.vehicle` said as the caller said it |
 | `code` | what the app's code finds: `code { extractor: "plates_db" }`, registered with `FlowRegistry::addEntityExtractor("plates_db", ...)`. It gets the words, returns where each value was said (`start`, `length`), and its `value`, `spoken` form and `attributes`: a database lookup, the phone's contacts. An extractor that isn't registered fails the agent's load | its `value`; replies say `spoken` |
 
-**An agent in several files.** `include_files: ["climate/climate.txtpb", "media/media.txtpb"]` merges in more of the agent, relative to this file. Each file is a `vasdk.flow.Agent` with its own intents, entities, envelopes, flows, triggers, knowledge and goals, so a feature's part of the conversation can live next to its code. Files are merged in order, after the main file's own content. Each file's `goal_files`, `entity_files`, `language_files` and `include_files` are relative to that file. Only the main file sets `name`, `locale`, `languages`, `start_flow`, `schema_version`, `proactive_policy` and `proto_imports`. A file that includes itself, a missing file, and the same names declared twice fail the load. Parts' envelopes compete on how well they match, and their order breaks ties. See [VASDK_Car](../apps/car.md), built from ten such parts.
+**An agent in several files.** `include_files: ["climate/climate.txtpb", "media/media.txtpb"]` merges in more of the agent, relative to this file. Each file is a `vasdk.flow.Agent` with its own intents, entities, envelopes, flows, triggers, knowledge and goals, so a feature's part of the conversation can live next to its code. Files are merged in order, after the main file's own content. Each file's `goal_files`, `entity_files`, `language_files`, `phrase_set_files` and `include_files` are relative to that file. Phrase sets are the exception to merging: each file's examples are expanded with its own sets and packs before it's merged, and no part sees another's ([Patterns and phrase sets](#patterns-and-phrase-sets)). Only the main file sets `name`, `locale`, `languages`, `start_flow`, `schema_version`, `proactive_policy` and `proto_imports`. A file that includes itself, a missing file, and the same names declared twice fail the load. Parts' envelopes compete on how well they match, and their order breaks ties. See [VASDK_Car](../apps/car.md), built from ten such parts.
 
 **Entity packs.** `entity_files: ["../shared/cars.txtpb"]` imports entity types from files of their own (`vasdk.nlu.EntityPack`), relative to the agent, so agents can share them. A type the agent declares itself wins over a pack's. VASDK ships three in [`VASDK/entities`](../../VASDK/entities/): `@country` (197 countries, with `iso2` and `iso3` attributes), `@us_state` (the states and DC, with their postal `code`) and `@currency` (32, with their ISO `code`). Their values are snake_case names (`united_kingdom`, `new_york`, `us_dollar`), never codes, because many codes are also words ("in", "or", "try").
 
@@ -740,7 +797,8 @@ bot: Sure. Is it for an oil change or a tire repair?   [main/booking]
      expects: SLOT service
 ```
 
-- **`lint`** prints every problem with where it is. Errors stop the agent from loading (`flow "main" page "welcome" route 1: unknown intent "bok"`): a missing start flow or page, an unknown intent or target, a duplicate name, an empty step. Warnings don't: a page never reached, an intent no route uses, a page with no routes.
+- **`lint`** prints every problem with where it is. Errors stop the agent from loading (`flow "main" page "welcome" route 1: unknown intent "bok"`): a missing start flow or page, an unknown intent or target, a duplicate name, an empty step, a pattern that doesn't close or names a set found nowhere. Warnings don't: a page never reached, an intent no route uses, a page with no routes, a phrase set never used, one sentence in two intents that compete on a page. Given a [pack](#patterns-and-phrase-sets) (`# proto-message: vasdk.flow.PhraseSetPack` at its top) it checks the pack on its own.
+- **`expand`** shows what patterns spell: `garage_agentc expand agents/garage-menu/agent.txtpb book` lists every sentence of `book`'s examples, and `--collisions` lists the sentences two competing intents both have.
 - **`test`** plays [`FlowTestCase`](../../VASDK/proto/vasdk/flow/test_case.proto) files by text and reports each difference. A turn with no `user` is the conversation start:
 
 ```textproto

@@ -1,0 +1,16 @@
+# proto-file: vasdk/flow/test_case.proto
+# proto-message: vasdk.flow.FlowTestCase
+name: "the flashlight by the sentences its patterns spell: the lights, the torch, power and put"
+turns { expect { page: "idle" } }
+turns { user: "Turn on the lights." tool_results { key: "set_flashlight" value: "{\"flashlight\": \"on\"}" }
+        expect { said: "Flashlight on." tools_called: "set_flashlight" } }
+turns { user: "lights off" tool_results { key: "set_flashlight" value: "{\"flashlight\": \"off\"}" }
+        expect { said: "Flashlight off." tools_called: "set_flashlight" } }
+turns { user: "power on the flashlight" tool_results { key: "set_flashlight" value: "{\"flashlight\": \"on\"}" }
+        expect { said: "Flashlight on." tools_called: "set_flashlight" } }
+turns { user: "put the light off please" tool_results { key: "set_flashlight" value: "{\"flashlight\": \"off\"}" }
+        expect { said: "Flashlight off." tools_called: "set_flashlight" } }
+turns { user: "switch on torch" tool_results { key: "set_flashlight" value: "{\"flashlight\": \"on\"}" }
+        expect { said: "Flashlight on." tools_called: "set_flashlight" } }
+# Not the flashlight: "turn on" alone names nothing to switch
+turns { user: "turn on" expect { matched: false } }

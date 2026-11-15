@@ -1,0 +1,14 @@
+# proto-file: vasdk/flow/agent.proto
+# proto-message: vasdk.flow.PhraseSetPack
+#
+# The verbs the car's verticals share: raising and lowering something, switching it on and off.
+# A vertical uses it with phrase_set_files: ["../../agents/car/phrases.txtpb"] and writes ${raise},
+# or ${car.raise} to say whose. What is raised (the volume, the heat, the fan) stays each
+# vertical's own: media and climate both have an "up" set, each about its own thing.
+name: "car"
+description: "Raising, lowering, switching on and off"
+
+phrase_sets { name: "raise" phrases: ["(turn|bring) up", "raise", "increase"] }
+phrase_sets { name: "lower" phrases: ["(turn|bring) down", "lower", "decrease"] }
+phrase_sets { name: "on"    phrases: ["(turn|switch) on", "start"] }
+phrase_sets { name: "off"   phrases: ["(turn|switch) off", "stop"] }

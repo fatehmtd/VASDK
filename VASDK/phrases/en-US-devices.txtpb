@@ -1,0 +1,26 @@
+# proto-file: vasdk/flow/agent.proto
+# proto-message: vasdk.flow.PhraseSetPack
+#
+# How people ask a device to do something, in English: the verbs around the thing ("turn on the
+# light", "turn the volume up"). Use it from an agent file with
+#   phrase_set_files: ["<path to VASDK>/phrases/en-US-devices.txtpb"]
+# and write ${devices.on}, or ${on} when no other pack the file uses has an "on". The thing itself
+# ("the light", "the volume") is the agent's: a set of its own, or an entity.
+#   intents { name: "light_on" examples: ["${devices.on} [the] ${light}", "(turn|switch) [the] ${light} on"] }
+# Copy it next to your agent to change it; vasdk_agentc lint checks a pack on its own.
+name: "devices"
+description: "On and off, up and down, louder and quieter, brighter and dimmer"
+
+# Before the thing: "turn on the light"
+phrase_sets { name: "on"  phrases: ["(turn|switch|put|power) on", "start", "activate", "enable"] }
+phrase_sets { name: "off" phrases: ["(turn|switch|put|power) off", "stop", "deactivate", "disable", "shut off"] }
+# Around the thing: "turn [the volume] up", "raise the volume"
+phrase_sets { name: "raise" phrases: ["(turn|bring|put) up", "raise", "increase", "boost"] }
+phrase_sets { name: "lower" phrases: ["(turn|bring|put) down", "lower", "decrease", "reduce"] }
+# On their own: "louder", "a bit brighter"
+phrase_sets { name: "louder"   phrases: ["[a [little] bit] louder", "(turn|crank) it up", "volume up"] }
+phrase_sets { name: "quieter"  phrases: ["[a [little] bit] (quieter|softer)", "turn it down", "volume down", "too loud"] }
+phrase_sets { name: "brighter" phrases: ["[a [little] bit] brighter", "more light", "too dark"] }
+phrase_sets { name: "dimmer"   phrases: ["[a [little] bit] (dimmer|darker)", "less light", "too bright"] }
+# Setting a value: "set the volume to 5"
+phrase_sets { name: "set" phrases: ["set", "change", "put", "make", "turn"] }

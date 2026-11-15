@@ -1,0 +1,8 @@
+# proto-file: vasdk/flow/test_case.proto
+# proto-message: vasdk.flow.FlowTestCase
+# "book" by the sentences its pattern spells with the "vehicle" phrase set.
+name: "booking by the vehicle brought in: a truck, a van"
+turns { expect { page: "welcome" } }
+turns { user: "can I drop off my truck" expect { page: "booking" said: "Sure. Is it for an oil change or a tire repair?" } }
+turns { user: "back" expect { page: "welcome" } }
+turns { user: "I need to bring the van in" expect { page: "booking" } }

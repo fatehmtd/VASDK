@@ -1,5 +1,7 @@
 #include "nlu/LlmNluProvider.h"
 
+#include "flow/ExamplePattern.h"
+
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 
@@ -11,8 +13,9 @@ namespace nlu {
 LlmNluProvider::LlmNluProvider(std::shared_ptr<const llm::Completion> completion,
                                const google::protobuf::RepeatedPtrField<vasdk::flow::Intent>& intents, int timeLimitMs)
     : _completion(std::move(completion)), _timeLimitMs(timeLimitMs) {
-    for (const auto& intent : intents)
-        _intents.emplace_back(intent.name(), std::vector<std::string>(intent.examples().begin(), intent.examples().end()));
+    for (const auto& intent : intents)   // a few of each: patterns may spell hundreds
+        _intents.emplace_back(intent.name(), flow::sampleExamples({intent.examples().begin(), intent.examples().end()},
+                                                                  flow::kMostPromptedExamples));
 }
 
 NluResult LlmNluProvider::understand(const NluRequest& request) const {

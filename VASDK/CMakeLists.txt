@@ -267,6 +267,7 @@ if(VASDK_ENABLE_ENGINE_CONFIG)
         ./src/SessionManager.cpp
         ./src/VAEngine.cpp
         ./src/flow/Expression.cpp
+        ./src/flow/ExamplePattern.cpp
         ./src/flow/SlotExtraction.cpp
         ./src/flow/Entities.cpp
         ./src/flow/CompiledAgent.cpp
@@ -532,6 +533,10 @@ if(VASDK_BUILD_TESTS)
         vasdk_label_tests(integration vasdk_config_providers)
 
         vasdk_add_gtest(vasdk_expression LABEL unit SOURCES tests/expression_test.cpp LIBRARIES VASDK)
+        vasdk_add_gtest(vasdk_example_pattern LABEL unit SOURCES tests/example_pattern_test.cpp LIBRARIES VASDK)
+        vasdk_add_gtest(vasdk_phrase_set_scopes LABEL unit SOURCES tests/phrase_set_scopes_test.cpp LIBRARIES VASDK)
+        target_compile_definitions(vasdk_phrase_set_scopes_test PRIVATE VASDK_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+        vasdk_add_gtest(vasdk_pattern_matching LABEL unit SOURCES tests/pattern_matching_test.cpp LIBRARIES VASDK)
 
         add_executable(vasdk_entity_model_test tests/entity_model_test.cpp)
         target_link_libraries(vasdk_entity_model_test PRIVATE VASDK)

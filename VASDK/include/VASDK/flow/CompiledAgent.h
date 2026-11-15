@@ -111,9 +111,12 @@ public:
 private:
     struct ImportedTypes;
     CompiledAgent() = default;
+    // `patternsExpanded`: a loaded agent's examples were expanded file by file (load); `intentFiles`
+    // names the file each intent came from, for messages.
     static std::shared_ptr<const CompiledAgent> build(vasdk::flow::Agent agent, std::shared_ptr<const ImportedTypes> imports,
                                                       std::shared_ptr<const FlowRegistry> registry, std::string* error,
-                                                      std::vector<std::string>* warnings);
+                                                      std::vector<std::string>* warnings, bool patternsExpanded,
+                                                      std::map<std::string, std::string> intentFiles);
 
     vasdk::flow::Agent _agent;
     PageRef _startPage;

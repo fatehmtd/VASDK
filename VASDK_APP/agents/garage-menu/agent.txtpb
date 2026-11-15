@@ -73,7 +73,10 @@ entity_types {
   matching { label: "appointment time" }
 }
 
-intents { name: "book"    examples: ["book", "appointment", "schedule", "bring my car in", "service"] }
+# A phrase set: what callers bring in, in every example that names it ("bring my truck in").
+phrase_sets { name: "vehicle" phrases: ["car", "truck", "van", "vehicle"] }
+intents { name: "book"    examples: ["book", "appointment", "schedule", "bring (my|the) ${vehicle} in", "drop off (my|the) ${vehicle}",
+                                     "service"] }
 intents { name: "price"   examples: ["how much", "price", "cost", "costs"] }
 intents { name: "hours"   examples: ["hours", "open", "close", "closing"] }
 intents { name: "person"  examples: ["person", "human", "agent", "representative", "someone"] }

@@ -1,0 +1,11 @@
+# proto-file: vasdk/flow/agent.proto
+# proto-message: vasdk.flow.PhraseSetPack
+#
+# The phone agent's verbs for its device commands, used as ${phone.on} or ${on} (agent.txtpb's
+# phrase_set_files). A pack beside the agent: the app copies the agent's folder out of its assets,
+# and VASDK's own phrases/en-US-devices.txtpb isn't among them.
+name: "phone"
+description: "Switching something of the phone on or off"
+
+phrase_sets { name: "on"  phrases: ["(turn|switch|put|power) on"] }
+phrase_sets { name: "off" phrases: ["(turn|switch|put|power) off"] }
