@@ -1,0 +1,6 @@
+# proto-file: vasdk/flow/test_case.proto
+# proto-message: vasdk.flow.FlowTestCase
+name: "the flashlight can't be used (no flash, the camera busy): the user is told, not told it's on"
+turns { expect { page: "idle" } }
+turns { user: "turn on the flashlight" tool_results { key: "set_flashlight" value: "{\"error\": \"No camera with flash found\"}" }
+        expect { said: "I couldn't use the flashlight." tools_called: "set_flashlight" page: "idle" } }

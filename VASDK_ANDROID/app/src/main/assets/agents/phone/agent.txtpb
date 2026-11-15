@@ -2,8 +2,10 @@
 # proto-message: vasdk.flow.Agent
 #
 # On the phone, before the LLM: "call mom" finds the contact by its name in the phone book,
-# confirms, and calls. Everything else goes on to the LLM as before.
-# The app fills @contact from the phone book (ContactsEntity) and provides place_call (Kotlin).
+# confirms, and calls; "turn on the flashlight" (or the torch, on or off) switches it at once.
+# Everything else goes on to the LLM as before.
+# The app fills @contact from the phone book (ContactsEntity) and provides place_call and
+# set_flashlight (Kotlin).
 #   vasdk_agentc test agents/phone/agent.txtpb ../../../../agent-tests/phone/*.txtpb
 schema_version: 1
 name: "android-phone"
@@ -16,8 +18,18 @@ entity_types { name: "contact" dynamic: true matching { phonetic: true } list { 
 
 intents { name: "call" examples: ["call @contact", "phone @contact", "ring @contact", "dial @contact", "give @contact a call"] }
 
+# The flashlight, at once and every time, rather than left to a small on-device model.
+intents { name: "flashlight_on"
+          examples: ["turn on the flashlight", "turn the flashlight on", "switch on the flashlight", "switch the flashlight on",
+                     "flashlight on", "turn on the torch", "turn the torch on", "switch on the torch", "switch the torch on", "torch on"] }
+intents { name: "flashlight_off"
+          examples: ["turn off the flashlight", "turn the flashlight off", "switch off the flashlight", "switch the flashlight off",
+                     "flashlight off", "turn off the torch", "turn the torch off", "switch off the torch", "switch the torch off", "torch off"] }
+
 # Written in Kotlin (VasdkEngine.registerAgentTool): starts the call.
 tools { name: "place_call" description: "Calls a phone number" }
+# Written in Kotlin: turns the flashlight on or off ({"on": true|false}).
+tools { name: "set_flashlight" description: "Turns the flashlight on or off" }
 
 flows {
   name: "main"
@@ -31,6 +43,16 @@ flows {
       steps { ask { say { text: "Call $entity?" } expect { mode: YES_NO } } }
       target: "confirm"
     }
+    routes { intent: "flashlight_on"
+             steps { call_tool { name: "set_flashlight" args { key: "on" value: "true" } } }
+             steps { say { text: "Flashlight on." } }
+             target: "idle" }   # done: back to idle, so nothing more is asked (even mid-chat with the LLM)
+    routes { intent: "flashlight_off"
+             steps { call_tool { name: "set_flashlight" args { key: "on" value: "false" } } }
+             steps { say { text: "Flashlight off." } }
+             target: "idle" }
+    # No flash on this phone, or the camera is busy
+    handlers { event: "tool-error" steps { say { text: "I couldn't use the flashlight." } } target: "idle" }
   }
   pages {
     name: "confirm"
