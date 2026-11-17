@@ -35,7 +35,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: lukka/get-cmake@latest
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Python packages
@@ -132,7 +132,7 @@ jobs:
           - { name: windows-x64, os: windows-2022 }
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Conan
@@ -155,7 +155,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - run: python3 skills/check_skills.py
