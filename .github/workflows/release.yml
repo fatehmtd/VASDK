@@ -29,7 +29,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0       # the tags and the commits since the last release
       - name: A release is from master
@@ -60,7 +60,7 @@ jobs:
     env:
       NAME: vasdk-${{ matrix.flavor }}-${{ needs.version.outputs.version }}-${{ matrix.name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -109,7 +109,7 @@ jobs:
     env:
       VERSION: ${{ needs.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}   # the commit the archives were built from
       - uses: actions/download-artifact@v4
