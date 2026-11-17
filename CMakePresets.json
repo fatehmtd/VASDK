@@ -100,7 +100,7 @@
       "configurePreset": "ci",
       "configuration": "Release",
       "output": { "outputOnFailure": true },
-      "execution": { "noTestsAction": "error" }
+      "execution": { "noTestsAction": "error", "timeout": 600 }
     },
     {
       "name": "unit",
