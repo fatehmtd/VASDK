@@ -112,7 +112,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}   # the commit the archives were built from
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
