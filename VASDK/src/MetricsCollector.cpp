@@ -31,7 +31,11 @@ void AlertDispatcher::start()
 
 void AlertDispatcher::stop()
 {
-    _running.store(false);
+    {
+        // Under _cvMutex, or the loop can test the predicate, miss this notify and never wake: join() hangs.
+        std::lock_guard<std::mutex> lk(_cvMutex);
+        _running.store(false);
+    }
     _cv.notify_one();
     if (_thread.joinable()) _thread.join();
 }
