@@ -294,7 +294,7 @@ vasdk_copy_runtime(app)   # Windows: vasdk_c.dll and ONNX Runtime beside app
 - **Needs C++17:** a profile that says `compiler.cppstd=14` (what `conan profile detect` writes for MSVC) gets `-s compiler.cppstd=17`.
 - **Dependencies are hidden.** They are linked into `vasdk_c` statically and hidden, so a consumer links `VASDK::c` and nothing else.
 - **Downloads at build time:**
-  - ONNX Runtime: Microsoft's prebuilt shared library, pinned by SHA-256 and installed beside `vasdk_c`. Conan's own `onnxruntime` needs protobuf older than 7.
+  - ONNX Runtime: Microsoft's prebuilt shared library (the NuGet package `Microsoft.ML.OnnxRuntime`; the AAR on Android), pinned by SHA-256 and installed beside `vasdk_c`. Conan's own `onnxruntime` needs protobuf older than 7.
   - The sources a few providers compile in.
 
   This is why the recipe isn't on Conan Center yet: Conan Center builds offline.

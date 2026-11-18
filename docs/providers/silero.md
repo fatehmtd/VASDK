@@ -40,7 +40,7 @@ In an engine config, its own `SileroOptions` message ([options.proto](../../VASD
 | --- | --- | --- | --- |
 | silero_vad.onnx | [snakers4/silero-vad](https://github.com/snakers4/silero-vad) | MIT | `VASDK_3P_IMPL/cmake/DownloadSileroVADModel.cmake` |
 
-Runtime: [ONNX Runtime](https://github.com/microsoft/onnxruntime), MIT.
+Runtime: [ONNX Runtime](https://onnxruntime.ai), MIT.
 
 All of them are listed in [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md) and in [Providers, sources and licenses](../provider-catalog.md#sources-and-licenses). An app that ships this provider ships these licenses with it ([vasdk-app](../../skills/vasdk-app/SKILL.md#licenses-ship-with-the-app)).
 

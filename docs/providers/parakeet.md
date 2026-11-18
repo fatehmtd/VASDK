@@ -58,7 +58,7 @@ The catalog derives `minNewSamplesForPartial`, `minNewSamplesForFinal` and `cont
 | --- | --- | --- | --- |
 | encoder/decoder ONNX, vocab.txt | [istupakov/parakeet-tdt-0.6b-v3-onnx](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx) | CC BY 4.0 | `VASDK_3P_IMPL/cmake/DownloadParakeetModel.cmake` |
 
-Runtime: [ONNX Runtime](https://github.com/microsoft/onnxruntime), MIT.
+Runtime: [ONNX Runtime](https://onnxruntime.ai), MIT.
 
 All of them are listed in [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md) and in [Providers, sources and licenses](../provider-catalog.md#sources-and-licenses). An app that ships this provider ships these licenses with it ([vasdk-app](../../skills/vasdk-app/SKILL.md#licenses-ship-with-the-app)).
 
