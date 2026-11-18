@@ -32,7 +32,7 @@ In an engine config, its own `MiniLmOptions` message ([options.proto](../../VASD
 | --- | --- | --- | --- |
 | model.onnx, vocab.txt | [sentence-transformers/all-MiniLM-L6-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) | Apache 2.0 | `VASDK_3P_IMPL/cmake/DownloadMiniLmModel.cmake` |
 
-Runtime: [ONNX Runtime](https://github.com/microsoft/onnxruntime), MIT.
+Runtime: [ONNX Runtime](https://onnxruntime.ai), MIT.
 
 All of them are listed in [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md) and in [Providers, sources and licenses](../provider-catalog.md#sources-and-licenses). An app that ships this provider ships these licenses with it ([vasdk-app](../../skills/vasdk-app/SKILL.md#licenses-ship-with-the-app)).
 

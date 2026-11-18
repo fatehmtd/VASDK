@@ -64,7 +64,7 @@ Every VAD/STT/TTS/LLM/audio provider under `VASDK_3P_IMPL/`, plus the core libra
 | [snakers4/silero-vad](https://github.com/snakers4/silero-vad) | VAD (Silero) | GitHub | MIT |
 | [marton78/pffft](https://github.com/marton78/pffft) | SmartTurn v3, VizAnim, pyannote speaker embedding (FFT) | GitHub | Permissive NCAR/UCAR license |
 | [xiph/rnnoise](https://github.com/xiph/rnnoise) | Noise suppression | GitHub | BSD 3-Clause |
-| [microsoft/onnxruntime](https://github.com/microsoft/onnxruntime) | Silero, Parakeet, Moonshine, SmartTurn, turn-1-mini, PocketTTS, Supertonic, MOSS-TTS-Nano, MiniLM, GLiNER, pyannote speaker embedding (ONNX inference) | GitHub release archive (desktop), Maven Central AAR (Android) | MIT |
+| [ONNX Runtime](https://onnxruntime.ai) | Silero, Parakeet, Moonshine, SmartTurn, turn-1-mini, PocketTTS, Supertonic, MOSS-TTS-Nano, MiniLM, GLiNER, pyannote speaker embedding (ONNX inference) | NuGet package `Microsoft.ML.OnnxRuntime` (desktop), Maven Central AAR (Android) | MIT |
 | [moonshine-ai/moonshine](https://github.com/moonshine-ai/moonshine) | STT (Moonshine streaming model, ORT utils and tokenizer code) | GitHub | MIT (code and every streaming model; only legacy non-streaming non-English models, which VASDK doesn't use, are under the non-commercial Moonshine Community License) |
 | [ggml-org/whisper.cpp](https://github.com/ggml-org/whisper.cpp) | STT (Whisper.cpp) | GitHub | MIT |
 | Cactus needle engine | STT (Whistle; prebuilt binaries only, no source) | [Cactus-Compute/needle3](https://huggingface.co/Cactus-Compute/needle3) (HuggingFace: `cactus-needle` wheel on desktop, `libneedle.a` on Android) | Apache 2.0 |
