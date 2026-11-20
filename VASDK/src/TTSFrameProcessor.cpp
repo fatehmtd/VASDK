@@ -158,6 +158,9 @@ namespace va {
                 holdPlayback(false);
                 break;
             case transport::AgentStateTransition::BARGE_IN_PENDING:
+                // Speech while thinking: the reply's first audio waits for the decision; nothing to duck yet.
+                _heldPlaybackMode = frame->currentState == transport::AgentState::THINKING
+                    ? transport::PendingPlaybackMode::Pause : _pendingPlaybackMode;
                 holdPlayback(true);
                 break;
             case transport::AgentStateTransition::BACKCHANNEL:
@@ -177,8 +180,9 @@ namespace va {
         }
 
         void TTSFrameProcessor::holdPlayback(bool held) {
-            if (_pendingPlaybackMode == transport::PendingPlaybackMode::Continue) return;
-            if (_pendingPlaybackMode == transport::PendingPlaybackMode::Pause) {
+            const transport::PendingPlaybackMode heldPlaybackMode = _heldPlaybackMode;
+            if (heldPlaybackMode == transport::PendingPlaybackMode::Continue) return;
+            if (heldPlaybackMode == transport::PendingPlaybackMode::Pause) {
                 std::lock_guard<std::mutex> lock(_turnMutex);
                 const auto now = std::chrono::steady_clock::now();
                 if (held && !_playbackPaused) {
@@ -193,11 +197,11 @@ namespace va {
             std::lock_guard<std::mutex> lock(_holdReleaseMutex);
             _holdReleaseScheduled = false;  // a new hold, or an immediate release, supersedes a pending one
             if (held) _holdStartTime = std::chrono::steady_clock::now();
-            if (_playbackHold) _playbackHold(_pendingPlaybackMode, held, _duckGainDecibels);
+            if (_playbackHold) _playbackHold(heldPlaybackMode, held, _duckGainDecibels);
         }
 
         void TTSFrameProcessor::releaseDuckAfterMinimumDuration() {
-            if (_pendingPlaybackMode != transport::PendingPlaybackMode::Duck) {
+            if (_heldPlaybackMode != transport::PendingPlaybackMode::Duck) {
                 holdPlayback(false);
                 return;
             }
@@ -227,7 +231,7 @@ namespace va {
                     }))
                     continue;  // stopped, superseded or rescheduled
                 _holdReleaseScheduled = false;
-                if (_playbackHold) _playbackHold(_pendingPlaybackMode, false, _duckGainDecibels);
+                if (_playbackHold) _playbackHold(_heldPlaybackMode, false, _duckGainDecibels);
             }
         }
 
@@ -277,6 +281,7 @@ namespace va {
                                                  : _synthesisProvider->normalizesText() ? frame->text
                                                                                         : speakable(frame->text),
                                                  frame->interruptible,
+                                                 frame->bargeInDecision,
                                                  {frame->voice, frame->speed},
                                                  logged,
                                                  frame->turnId});
@@ -307,6 +312,7 @@ namespace va {
                         _sentInTurn = true;
                         _synthesisStartTime = now;
                         _lastReplyText.clear();
+                        _lastReplyLogged.clear();
                     }
                     if (isProtected) {
                         _protectedSending = true;
@@ -396,12 +402,22 @@ namespace va {
             maybeStartDrain();
         }
 
-        std::string TTSFrameProcessor::currentReplyText() {
+        std::string TTSFrameProcessor::currentReplyText(bool masked) {
             std::lock_guard<std::mutex> lock(_turnMutex);
             std::string text;
-            for (const auto& part : _sentParts) text += (text.empty() ? "" : " ") + part.sentence.text;
-            for (const auto& sentence : _pendingSentences) text += (text.empty() ? "" : " ") + sentence.text;
-            return text.empty() ? _lastReplyText : text;
+            for (const auto& part : _sentParts) text += (text.empty() ? "" : " ") + (masked ? part.sentence.logged : part.sentence.text);
+            for (const auto& sentence : _pendingSentences) text += (text.empty() ? "" : " ") + (masked ? sentence.logged : sentence.text);
+            return text.empty() ? (masked ? _lastReplyLogged : _lastReplyText) : text;
+        }
+
+        std::optional<transport::BargeInDecisionMode> TTSFrameProcessor::getPlayingPartDecision() {
+            std::lock_guard<std::mutex> lock(_turnMutex);
+            const auto now = std::chrono::steady_clock::now();
+            // The sink plays a little behind the model: the hardware buffer.
+            const auto margin = std::chrono::milliseconds(_hardwareBufferMarginMs);
+            for (const auto& part : _sentParts)
+                if (!part.synthesized || now < part.endsAt + margin) return part.sentence.bargeInDecision;
+            return std::nullopt;
         }
 
         void TTSFrameProcessor::replaceProvider(std::shared_ptr<audio::GenericVoiceSynthesisProvider> provider) {
@@ -549,6 +565,8 @@ namespace va {
                 _turnActive = _textClosed = _sentInTurn = _draining = false;
                 _lastReplyText.clear();
                 for (const auto& part : _sentParts) _lastReplyText += (_lastReplyText.empty() ? "" : " ") + part.sentence.text;
+                _lastReplyLogged.clear();
+                for (const auto& part : _sentParts) _lastReplyLogged += (_lastReplyLogged.empty() ? "" : " ") + part.sentence.logged;
                 _sentParts.clear();
             }
             spdlog::info("[TTSFrameProcessor] Audio drained - emitting COMPLETED");

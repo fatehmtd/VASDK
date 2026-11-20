@@ -8,6 +8,7 @@ package vasdk.flow;
 
 import "google/protobuf/any.proto";
 import "google/protobuf/struct.proto";
+import "vasdk/engine/engine_config.proto";
 import "vasdk/flow/expectation.proto";
 import "vasdk/flow/trigger.proto";
 import "vasdk/goal/goal.proto";
@@ -46,7 +47,8 @@ message Agent {
   // an app's verticals (climate, media, navigation), each with its intents, entities, envelopes,
   // flows, triggers, knowledge and goals. They are merged in, in order, after this file's own;
   // their goal_files, entity_files and include_files are relative to them. Only the main file
-  // sets schema_version, name, locale, languages, start_flow, proactive_policy and proto_imports.
+  // sets schema_version, name, locale, languages, start_flow, proactive_policy, proto_imports and
+  // barge_in_decision.
   repeated string include_files = 25;
   // The languages the agent's users may speak, besides locale ("en-US", "fr-CA"): values ("demain",
   // "tomorrow"), yes and no, the built-in intents and back-channels are understood in any of them.
@@ -65,6 +67,10 @@ message Agent {
   // Packs of phrase sets (vasdk.flow.PhraseSetPack) this file uses, relative to it: their sets
   // are ${name}, or ${<pack name>.name}. A pack used by several parts is read once.
   repeated string phrase_set_files = 30;
+  // Who decides whether speech over this agent is a back-channel or a real interruption, for the whole
+  // agent; it replaces the engine config's turn_taking.backchannel.barge_in_decision. A page or a part
+  // (Say) can choose its own.
+  optional vasdk.engine.Backchannel.BargeInDecision barge_in_decision = 31;
 }
 
 // Named phrases, used in examples as ${name}: phrases: ["(turn|switch) on", "power on"]. A phrase
@@ -256,6 +262,9 @@ message Page {
   repeated string envelopes = 6;
   string type = 7;                 // a page type: declared in page_types, written in C++, or menu, yes_no, end
   google.protobuf.Any params = 8;  // the page type's params, of its params_type
+  // Who decides on speech over this page's replies (engine config's turn_taking.backchannel.barge_in_decision).
+  // A part (Say) can choose its own. Unset: the agent's, else the engine config's.
+  optional vasdk.engine.Backchannel.BargeInDecision barge_in_decision = 9;
 }
 
 // Asks for the goal's slots one by one, then confirms them (require_confirmation). Each answer
@@ -327,6 +336,9 @@ message Say {
   // fast (0.8 slower, 1.2 faster; 0.5 to 2). A provider that can't is heard as usual.
   string voice = 8;
   optional float speed = 9;
+  // Who decides on speech over this part (engine config's turn_taking.backchannel.barge_in_decision).
+  // Unset: the page's, else the agent's, else the engine config's.
+  optional vasdk.engine.Backchannel.BargeInDecision barge_in_decision = 10;
 }
 
 // A question: the user is expected to answer, and it is repeated when the answer isn't understood.

@@ -425,6 +425,7 @@ std::shared_ptr<const CompiledAgent> CompiledAgent::load(const std::string& path
             if (more.languages_size() > 0) owned.push_back("languages");
             if (!more.start_flow().empty()) owned.push_back("start_flow");
             if (more.has_proactive_policy()) owned.push_back("proactive_policy");
+            if (more.has_barge_in_decision()) owned.push_back("barge_in_decision");
             if (more.proto_imports_size() > 0) owned.push_back("proto_imports");
             if (!owned.empty()) {
                 std::string list;

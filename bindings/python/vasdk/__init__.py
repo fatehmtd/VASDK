@@ -52,7 +52,7 @@ from pathlib import Path
 __all__ = ["Registry", "Turn", "Agent", "Conversation", "Providers", "Session", "Runtime", "Models", "Sink", "run_test_file",
            "run_test", "words", "score_transcript", "normalize_transcript", "version", "api_version", "set_log_level", "build_dir", "VasdkError", "Event", "Command", "ConversationInput", "ConversationReply",
            "StepOutcome", "SessionOptions", "ToolDeclaration", "ToolParameter", "TriggerDecision", "Language",
-           "builtin_language", "ConversationSnapshot", "FlowTestCase", "EntityValue", "EntityValuesCommand", "Backchannel",
+           "builtin_language", "ConversationSnapshot", "FlowTestCase", "EntityValue", "EntityValuesCommand", "Backchannel", "BargeInDecision",
            "VoicePrint",
            "AFTER_INPUT", "AFTER_TRANSCRIPTION", "BEFORE_SYNTHESIS", "BEFORE_OUTPUT"]
 
@@ -192,6 +192,7 @@ FlowTestCase = test_case_pb2.FlowTestCase   # run_test()
 EntityValue = entity_pb2.EntityValue   # a dynamic entity's value: set_entity_values()
 EntityValuesCommand = events_pb2.EntityValuesCommand
 Backchannel = engine_config_pb2.Backchannel   # Session.set_backchannel()
+BargeInDecision = engine_config_pb2.Backchannel.BargeInDecision   # Backchannel(barge_in_decision=BargeInDecision.MODEL_WHEN_RULES_UNSURE)
 VoicePrint = events_pb2.VoicePrint   # Session.add_speaker()
 
 # Where Session.add_processor puts a processor (vasdk_slot)
@@ -320,6 +321,7 @@ _session_output_rate = _declare("vasdk_session_output_rate", _i, _p)
 _session_push_audio = _declare("vasdk_session_push_audio", None, _p, _p, _n)
 _session_send = _declare("vasdk_session_send", _i, _p, _s, _n, _i, _error)
 _session_set_network = _declare("vasdk_session_set_network_available", None, _p, _i)
+_session_set_barge_in = _declare("vasdk_session_set_barge_in_decision", _i, _p, _i, _i)
 _session_snapshot = _declare("vasdk_session_snapshot_message", _p, _p, _i, _length)
 _session_speakers = _declare("vasdk_session_speakers_message", _p, _p, _i, _length)
 _session_add_tool = _declare("vasdk_session_add_tool_message", _i, _p, _s, _n, _i, _TOOL, _p, _error)
@@ -1489,6 +1491,12 @@ class Session:
 
     def set_network_available(self, available):
         _session_set_network(self._handle, 1 if available else 0)
+
+    def set_barge_in_decision(self, decision, while_thinking=False):
+        """Who decides on speech over the assistant: a vasdk.BargeInDecision. while_thinking: judge
+        speech while it thinks too. The session's other back-channel values stay."""
+        if not _session_set_barge_in(self._handle, int(decision), 1 if while_thinking else 0):
+            raise VasdkError(f"not a BargeInDecision: {decision}")
 
     def reset_conversation(self):
         """Starts the conversation over: the LLM's history cleared, the agent at its start."""

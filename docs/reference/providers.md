@@ -181,6 +181,24 @@ virtual TurnEvaluation evaluate(const std::shared_ptr<transport::Frame> frame,
 
 `evaluate()` is called per frame (VAD state frames and others); return `NONE` to stay silent, or a `TURN_START`/`TURN_END` decision and `TurnDetectionProcessor` emits the corresponding `TurnStateFrame`. `agentIsSpeaking` is how you classify `INTERRUPT` (user barged in over TTS) vs `NORMAL`. The built-in fallback (no provider) maps VAD `STARTING`→start, `ENDED`→end at VAD confidence; the SmartTurn v3 and turn-1-mini implementations in `VASDK_3P_IMPL` add an end-of-turn model (turn-1-mini streams every audio frame through its state; SmartTurn re-reads the turn), thresholds, rolling averages, and minimum-duration suppression. By default SmartTurn scores a few frames after VAD `ENDED`; `setEvaluateOnPause(true)` (on the `TurnDetectionProvider` base, like `setPauseThreshold`) also scores each frame while the VAD is `PAUSED`/`ENDING`, and a `TURN_END` there - which needs `pauseThreshold()` confidence, default 0.85, since a pause is often just a breath - makes `TurnDetectionProcessor` end the VAD segment early (one inference per paused frame). A `TURN_START` returned on VAD `STARTING` is held by the processor until the VAD confirms speech.
 
+## BargeInClassifier
+
+([`BargeInClassifier.h`](../../VASDK/include/VASDK/BargeInClassifier.h)) Decides, with the conversation's context, whether speech over the agent (or while it thinks) is a back-channel or a real interruption. `AgentStateProcessor` asks it when its [decision mode](processors.md#who-decides-the-word-rules-or-a-model-with-the-context) says so.
+
+```cpp
+struct BargeInContext {
+    std::string heard;            // the user's words so far
+    bool isFinal; float confidence;
+    bool agentIsThinking;         // true: does it add to the request, or is it an acknowledgement or a noise?
+    std::string agentReply;       // the reply being spoken, private values masked; empty while thinking
+    std::string lastUserTurn;     // the request being answered
+    std::string conversationSummary;   // empty until a summary is kept
+};
+virtual BackchannelVerdict classify(const BargeInContext& context) const = 0;   // Backchannel | Interrupt | Undecided
+```
+
+`classify()` may block: the processor calls it on a worker thread of its own, one call at a time, and holds the decision for up to `modelTimeoutMs` of audio. `Undecided` (no answer, a failure) leaves it to the word rules. One object may serve several sessions, so it must be thread-safe. The built-in [`LlmBargeInClassifier`](../../VASDK/include/VASDK/llm/LlmBargeInClassifier.h) asks an LLM (`llm::Completion`, any `llm_profiles` entry) for one word: `BACKCHANNEL` or `INTERRUPT`, while thinking `ACKNOWLEDGES` or `ADDS`. A dedicated on-device classifier would implement the same interface.
+
 ## SpeakerEmbeddingProvider
 
 ([`SpeakerEmbeddingProvider.h`](../../VASDK/include/VASDK/SpeakerEmbeddingProvider.h)) Turns one utterance into a fixed-size voice print. Enrollment and matching (cosine similarity) live in `SpeakerIdentificationProcessor`, so a provider only wraps the model.

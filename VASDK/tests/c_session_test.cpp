@@ -194,6 +194,10 @@ int main() {
         check(vasdk_session_send(typed, commandData.data(), commandData.size(), VASDK_FORMAT_BINARY, &error) == 1, "a Command is taken");
         check(typedHeard.waitFor("We're open 8 to 6. How can I help?"), "and answered");
         check(vasdk_session_send(typed, "", 0, VASDK_FORMAT_BINARY, &error) == 0 && error, "an empty Command fails");
+        check(vasdk_session_set_barge_in_decision(typed, VASDK_BARGE_IN_MODEL_WHEN_RULES_UNSURE, 1) == 1,
+              "who decides on speech over the assistant, by its enum");
+        check(vasdk_session_set_barge_in_decision(typed, static_cast<vasdk_barge_in_decision>(7), 0) == 0,
+              "a value not in the enum is refused");
         vasdk_free(error);
         error = nullptr;
         google::protobuf::Struct context;
