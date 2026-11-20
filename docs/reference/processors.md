@@ -214,7 +214,100 @@ The policy is chosen when building the pipeline:
 | `historyMode` | `Drop`, or `AppendToHistory`: the dismissed final is forwarded with `TranscriptionFrame::isBackchannel`. LLMProcessor puts it in front of the user's next message, e.g. `(While you were speaking I said "mm-hmm".) What about Tuesday?`, so history keeps strict user/assistant alternation. |
 | `tailOverlapMode` | `TreatAsTurn`, `Classify` |
 
-`enabled = false` restores the plain hard barge-in. Back-channels while `THINKING` aren't covered: any speech then still cancels the reply. Empty phrase and interrupt-word lists are the languages' (`setLanguages`; a Session gives it the agent's, else VASDK's built-in en-US); set your own to replace them.
+`enabled = false` restores the plain hard barge-in. Speech while `THINKING` cancels the reply at once, unless `judgeWhileThinking` is on ([below](#while-thinking)). Empty phrase and interrupt-word lists are the languages' (`setLanguages`; a Session gives it the agent's, else VASDK's built-in en-US); set your own to replace them.
+
+#### Who decides: the word rules, or a model with the context
+
+The rules above go by words, counts, confidence and duration. They can't see context: "Tuesday, right" over a read-back is a confirmation, not a stop; "no" after "shall I go on?" is an answer; "is it in the garden" holds no interrupt word but is a question; and a long "yeah yeah that sounds great" is cut off at 600 ms. `BackchannelConfig::decisionMode` (engine config: `turn_taking.backchannel.barge_in_decision`) lets a model decide, told what the agent is saying, what the user said over it, and the user's last turn.
+
+| `decisionMode` (C++) | `barge_in_decision` (config) | Who decides |
+|---|---|---|
+| `WordRulesOnly` (default) | `WORD_RULES_ONLY` | The rules above, as before. No model is asked. |
+| `ModelWhenRulesUnsure` | `MODEL_WHEN_RULES_UNSURE` | An exact list match decides at once: an interrupt word commits, only back-channel phrases dismiss. What the rules would settle only by a heuristic (an unknown word, a low-confidence garble, the duration cut-off) is asked of the model. |
+| `ModelForEveryOverlap` | `MODEL_FOR_EVERY_OVERLAP` | The model judges all speech with words, interrupt words and phrases included. The rules stand in only when it can't answer. |
+
+In every mode, empty speech and the reply's own echo (`rejectEcho`) are dismissed without asking anyone. The model is a [`BargeInClassifier`](../../VASDK/include/VASDK/BargeInClassifier.h) (`setBargeInClassifier`). A Session builds an [`LlmBargeInClassifier`](../../VASDK/include/VASDK/llm/LlmBargeInClassifier.h) over `barge_in_llm_profile` (an `llm_profiles` entry, else `understanding.llm_profile`, else `llm`) whenever an LLM is configured, so a mode chosen later finds it. Without one, every mode is `WordRulesOnly`, with a warning. A small, fast model fits: a cloud `llm` with a local `system1` profile ([several LLMs at once](engine-config.md#different-llms-for-different-tasks)). With no `llm` endpoint, the on-device llama.cpp model (`providers.llm`) is reused, shared with the replies. The prompt gives the model a few worked answers from another domain; without them a 1.2B model gives one label whatever was said. On LFM2.5 1.2B (Q4_K_M, macOS), the booking example below is judged 9 of 10 right in about 250 ms (`vasdk_llamacpp_barge_in`). The miss, "okay" while thinking taken as more words, never reaches the model in `ModelWhenRulesUnsure`: the word rules keep it.
+
+**How each works while SPEAKING.**
+
+- `WORD_RULES_ONLY`: on each partial, an interrupt word, two unknown words or more than `maxBackchannelWords` commits. Speech past `commitAfterPendingMs` commits. On the final, only back-channel phrases, or a 1-2 word final below `minInterruptConfidence`, is dismissed; anything else commits. No model call: it decides in under 1 ms.
+- `MODEL_WHEN_RULES_UNSURE`:
+  1. An interrupt word commits and only back-channel phrases dismiss, without a model call.
+  2. Where the rules would commit by a heuristic, on a partial, at the duration cut-off or on the final, the model is asked instead.
+  3. While it thinks, playback stays ducked, and the duration cut-off is held for up to `modelTimeoutMs` (800 ms) more. Newer words replace a question not asked yet, and the same words aren't asked twice.
+  4. `INTERRUPT` commits. `BACKCHANNEL` on a final dismisses; on a partial it holds off the duration cut-off for those words.
+  5. No answer in time (offline, slow, unreadable, `Undecided`): the rules' verdict.
+- `MODEL_FOR_EVERY_OVERLAP`: as `MODEL_WHEN_RULES_UNSURE` without step 1, so even "stop" waits for the model, up to the timeout. It fits long replies (read-backs, explanations), where a wrong cut-off costs most, with a fast local profile.
+
+A verdict arrives on the classifier's own thread and is about one overlap (a generation number): a late verdict about speech already decided changes nothing. While a [private answer](flows.md#tools-and-security) is expected (`TurnPolicyFrame::privateAnswer`), no model is asked, and a private answer is never the "last turn" told to one. The agent's reply is told with its private values masked (`setMaskedReplyTextProvider`, `TTSFrameProcessor::currentReplyText(true)`).
+
+##### While thinking
+
+With `judgeWhileThinking` (`barge_in_while_thinking: true`, off by default), speech while `THINKING` doesn't cancel the reply at once. It opens a pending decision (`BARGE_IN_PENDING`, state still `THINKING`). The LLM keeps generating; TTS holds the reply's first audio paused (not ducked: nothing plays yet), and if the reply starts meanwhile the speech is decided as speech over it. The question changes: does it add to or change the request, or is it an acknowledgement or a noise?
+
+| Verdict | What happens |
+|---|---|
+| Acknowledgement, noise ("okay", "hmm", a cough) | `BACKCHANNEL` (`THINKING` → `THINKING`): the reply plays. The words are dropped or recorded (`historyMode`). |
+| Adds to the request ("…for four people", "actually, Wednesday") | `USER_SPOKE_WHILE_THINKING`, as without this: the reply is cancelled and the [follow-up merge](llm.md#follow-ups) answers "Book a table for Tuesday for four people" as one request. |
+
+The modes are the same: `WORD_RULES_ONLY` keeps the reply for only back-channel phrases, empty speech or a garble, and cancels on any other word (words while thinking are usually more of the request). The model is asked `ADDS` or `ACKNOWLEDGES` instead of `INTERRUPT` or `BACKCHANNEL`. Its wait adds to the time before the first audio, up to `modelTimeoutMs`.
+
+```mermaid
+flowchart TD
+    A[User speech while SPEAKING, or THINKING with barge_in_while_thinking] --> B[Pending: duck or pause; while THINKING the first audio is paused]
+    B --> C{Empty, or the reply's echo?}
+    C -- yes --> D[Keep: BACKCHANNEL, the reply carries on]
+    C -- no --> E{Mode: the playing part's, else the page's, the agent's, the config's}
+    E -- WORD_RULES_ONLY --> R[The word rules' verdict]
+    E -- MODEL_WHEN_RULES_UNSURE --> F{Exact list match?}
+    F -- interrupt word --> I[Cancel: BARGE_IN_INTERRUPT, or USER_SPOKE_WHILE_THINKING]
+    F -- only back-channel phrases --> D
+    F -- heuristic only --> M[Ask the model: the reply or the request, what was heard, the last turn]
+    E -- MODEL_FOR_EVERY_OVERLAP --> M
+    M -- INTERRUPT / ADDS --> I
+    M -- BACKCHANNEL / ACKNOWLEDGES --> D
+    M -- no answer within modelTimeoutMs --> R
+    R -- interruption --> I
+    R -- back-channel --> D
+```
+
+**Who sets it, the first that's set winning:** an agent's reply part (`say { barge_in_decision }`), its page (`pages { barge_in_decision }`), the agent (`barge_in_decision`, main file only), the engine config, `Session::Options::backchannel`, then `WORD_RULES_ONLY`. The part's or page's choice travels on `TextFrame::bargeInDecision`; `TTSFrameProcessor::getPlayingPartDecision()` reports the part playing when the user starts (`setPlayingPartDecisionProvider`), and that mode holds for the whole overlap. While `THINKING` no part plays: the agent's or the config's decides. At run time, each language sets it by its enum:
+
+```cpp
+auto backchannel = session.backchannel();   // C++
+backchannel.decisionMode = va::transport::BargeInDecisionMode::ModelWhenRulesUnsure;
+backchannel.judgeWhileThinking = true;
+session.setBackchannel(backchannel);
+```
+
+```c
+vasdk_session_set_barge_in_decision(session, VASDK_BARGE_IN_MODEL_WHEN_RULES_UNSURE, 1);   /* C */
+```
+
+```python
+session.set_barge_in_decision(vasdk.BargeInDecision.MODEL_WHEN_RULES_UNSURE, while_thinking=True)   # Python
+```
+
+```kotlin
+session.setBargeInDecision(Backchannel.BargeInDecision.MODEL_WHEN_RULES_UNSURE, whileThinking = true)   // Kotlin
+```
+
+The rest of the back-channel values (`barge_in_llm_profile`, `barge_in_model_timeout_ms`) go through `set_backchannel` / `setBackchannel` with a `Backchannel` message, its fields typed the same way.
+
+A booking agent reads back *"I have a table for four on Tuesday at 7 pm, in the garden. Shall I confirm it?"*:
+
+| The user says over it | `WORD_RULES_ONLY` | `MODEL_WHEN_RULES_UNSURE` | `MODEL_FOR_EVERY_OVERLAP` |
+|---|---|---|---|
+| "mm-hmm" | dismissed (a phrase) | dismissed by the rules, no model call | model → back-channel |
+| "wait" | commits (an interrupt word) | commits by the rules, no model call | model → interruption |
+| "is it in the garden?" | commits: two unknown words | model → interruption | model → interruption |
+| "Tuesday, right" | commits: the agent is cut off | model → back-channel, the agent carries on | model → back-channel |
+| "yeah yeah that sounds great" (900 ms) | commits at 600 ms | model → back-channel | model → back-channel |
+| the model is offline or slower than 800 ms | n/a | the rules' verdict | the rules' verdict |
+
+And while it thinks after "Book a table for Tuesday", with `barge_in_while_thinking`: a cough or "okay" keeps the coming reply (no second request, no lost second); "…for four people" cancels it, and the merged request is answered.
+
+Metrics: `agent_bargein_model_verdicts_total`, `agent_bargein_model_latency_ms`, `agent_replies_kept_while_thinking_total`. Tests: `vasdk_barge_in_decision`, `vasdk_llm_barge_in_classifier`, `vasdk_barge_in_session`, `vasdk_barge_in_agent`.
 
 ### TurnAssemblerProcessor
 

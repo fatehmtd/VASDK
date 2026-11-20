@@ -121,17 +121,18 @@ std::string spokenName(const std::string& name) {
 
 // Adds to the reply: to its last part when spoken alike, else as a part of its own.
 void append(Reply& reply, const std::string& more, bool interruptible = true, const std::string& ssml = {},
-            const std::string& voice = {}, float speed = 0) {
+            const std::string& voice = {}, float speed = 0,
+            std::optional<vasdk::engine::Backchannel::BargeInDecision> bargeInDecision = std::nullopt) {
     if (more.empty()) return;
     if (!reply.text.empty()) reply.text += " ";
     reply.text += more;
     auto& segments = reply.segments;
     if (!segments.empty() && ssml.empty() && segments.back().ssml.empty() && segments.back().interruptible == interruptible &&
-        segments.back().voice == voice && segments.back().speed == speed) {
+        segments.back().voice == voice && segments.back().speed == speed && segments.back().bargeInDecision == bargeInDecision) {
         segments.back().text += " " + more;
         return;
     }
-    segments.push_back({more, ssml, interruptible, voice, speed});
+    segments.push_back({more, ssml, interruptible, voice, speed, bargeInDecision});
 }
 
 // "<speak>Hi <break time='1s'/>there</speak>" → "Hi there": what a voice without SSML says.
@@ -1988,7 +1989,12 @@ std::string FlowRuntime::say(const vasdk::flow::Say& say, Reply& reply) {
     std::string text = pick(say.text(), &say);
     const std::string ssml = say.ssml().empty() ? std::string() : render(say.ssml());
     if (text.empty()) text = withoutTags(ssml);
-    append(reply, text, !say.has_interruptible() || say.interruptible(), ssml, say.voice(), say.has_speed() ? say.speed() : 0.f);
+    // Who decides on speech over this part: its own choice, else its page's.
+    std::optional<vasdk::engine::Backchannel::BargeInDecision> bargeInDecision;
+    if (say.has_barge_in_decision()) bargeInDecision = say.barge_in_decision();
+    else if (started() && _agent->page(_position).has_barge_in_decision()) bargeInDecision = _agent->page(_position).barge_in_decision();
+    append(reply, text, !say.has_interruptible() || say.interruptible(), ssml, say.voice(), say.has_speed() ? say.speed() : 0.f,
+           bargeInDecision);
     if (say.has_ui()) reply.ui.MergeFrom(say.ui());
     if (say.has_follow_up_listen_ms()) reply.followUpListenMs = say.follow_up_listen_ms();
     return text;

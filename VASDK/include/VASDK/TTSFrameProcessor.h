@@ -14,6 +14,7 @@
 #include <deque>
 #include <vector>
 #include <atomic>
+#include <optional>
 #include <deque>
 #include <string>
 
@@ -56,8 +57,17 @@ public:
         std::lock_guard<std::mutex> lock(_languageMutex);
         if (language) _language = std::move(language);
     }
-    /** The words of the reply being spoken, or of the one just finished: what echo from the speakers would be. Thread-safe. */
-    std::string currentReplyText();
+    /**
+     * The words of the reply being spoken, or of the one just finished: what echo from the speakers would be.
+     * masked: with the user's private values masked (TextFrame::sensitiveValues), as logs show them: what a
+     * barge-in model is told (AgentStateProcessor::setMaskedReplyTextProvider). Thread-safe.
+     */
+    std::string currentReplyText(bool masked = false);
+    /**
+     * The barge-in decision mode of the part of the reply playing now (TextFrame::bargeInDecision), or none
+     * when it chose none or nothing plays. Feeds AgentStateProcessor::setPlayingPartDecisionProvider. Thread-safe.
+     */
+    std::optional<transport::BargeInDecisionMode> getPlayingPartDecision();
     /** Called, on the provider's thread, when the provider reports an error (a lost connection). */
     void setOnProviderError(std::function<void(const std::string& error)> callback) { _onProviderError = std::move(callback); }
     bool initialize() override;
@@ -88,6 +98,7 @@ public:
     void setPendingPlayback(transport::PendingPlaybackMode pendingPlaybackMode, float duckGainDecibels,
                             uint32_t duckDurationMs = 2500) {
         _pendingPlaybackMode = pendingPlaybackMode;
+        _heldPlaybackMode = pendingPlaybackMode;
         _duckGainDecibels = duckGainDecibels;
         _duckDurationMs = duckDurationMs;
     }
@@ -167,6 +178,7 @@ private:
     struct Sentence {
         std::string text;          // what the provider is given: plain text, or SSML when it supportsSsml()
         bool interruptible = true;
+        std::optional<transport::BargeInDecisionMode> bargeInDecision;   // TextFrame::bargeInDecision
         va::audio::SpeechStyle style;   // another voice or pace for it
         std::string logged;             // the text as logs show it: sensitive values masked
         uint64_t turnId = 0;            // TextFrame::turnId: the user turn it answers
@@ -185,6 +197,7 @@ private:
     };
     std::vector<SentPart>   _sentParts;
     std::string             _lastReplyText;     // the reply that finished last, until the next one starts
+    std::string             _lastReplyLogged;   // the same, private values masked
     std::deque<Sentence>    _cutOff;            // to speak again with the next provider
     bool                    _cutOffClosed{ false };   // the cut-off reply had all its text
     std::shared_ptr<audio::GenericVoiceSynthesisProvider> _cutOffBy;   // the provider that failed
@@ -215,6 +228,8 @@ private:
 
     PlaybackHold                   _playbackHold;
     transport::PendingPlaybackMode _pendingPlaybackMode{ transport::PendingPlaybackMode::Duck };
+    // The hold in effect: _pendingPlaybackMode, or Pause for speech while thinking (nothing to duck yet).
+    std::atomic<transport::PendingPlaybackMode> _heldPlaybackMode{ transport::PendingPlaybackMode::Duck };
     float                          _duckGainDecibels{ -12.0f };
     uint32_t                       _duckDurationMs{ 2500 };
     // Deferred duck release. The hold callback is only called under _holdReleaseMutex, so a release

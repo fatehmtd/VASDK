@@ -36,45 +36,71 @@ namespace va {
             }
         } // namespace
 
+        namespace {
+            // What the word lists find in a transcript.
+            struct WordScan {
+                bool interruptWord = false;   // an interrupt word ("stop", "wait")
+                uint32_t unitCount = 0;       // words and back-channel phrases
+                uint32_t unknownCount = 0;    // words that are in no list
+            };
+
+            WordScan scanWords(const std::vector<std::string>& words, const BackchannelConfig& backchannelConfig) {
+                std::vector<std::vector<std::string>> phrases;
+                for (const auto& phrase : backchannelConfig.backchannelPhrases) {
+                    auto phraseWords = normalizedWords(phrase);
+                    if (!phraseWords.empty()) phrases.push_back(std::move(phraseWords));
+                }
+                std::vector<std::string> interruptWords;
+                for (const auto& interruptWord : backchannelConfig.interruptWords) {
+                    for (auto& word : normalizedWords(interruptWord)) interruptWords.push_back(std::move(word));
+                }
+                WordScan scan;
+                for (size_t index = 0; index < words.size();) {
+                    if (std::find(interruptWords.begin(), interruptWords.end(), words[index]) != interruptWords.end()) {
+                        scan.interruptWord = true;
+                        return scan;
+                    }
+                    size_t longestMatch = 0;
+                    for (const auto& phrase : phrases) {
+                        if (phrase.size() <= longestMatch || index + phrase.size() > words.size()) continue;
+                        if (std::equal(phrase.begin(), phrase.end(), words.begin() + static_cast<std::ptrdiff_t>(index)))
+                            longestMatch = phrase.size();
+                    }
+                    ++scan.unitCount;
+                    if (longestMatch == 0) { ++scan.unknownCount; ++index; }
+                    else index += longestMatch;
+                }
+                return scan;
+            }
+
+            // How sure the word rules are: a list matched (sure), or only a heuristic decides.
+            enum class RuleMatch { NoWords, InterruptWord, OnlyBackchannelPhrases, HeuristicOnly };
+
+            RuleMatch ruleMatch(const std::string& text, const BackchannelConfig& backchannelConfig) {
+                const auto words = normalizedWords(text);
+                if (words.empty()) return RuleMatch::NoWords;
+                const auto scan = scanWords(words, backchannelConfig);
+                if (scan.interruptWord) return RuleMatch::InterruptWord;
+                if (scan.unknownCount == 0 && scan.unitCount <= backchannelConfig.maxBackchannelWords)
+                    return RuleMatch::OnlyBackchannelPhrases;
+                return RuleMatch::HeuristicOnly;
+            }
+        } // namespace
+
         BackchannelVerdict classifyBackchannel(const std::string& text, bool isFinal,
                                                const BackchannelConfig& backchannelConfig, float confidence)
         {
             const std::vector<std::string> words = normalizedWords(text);
             if (words.empty()) return isFinal ? BackchannelVerdict::Backchannel : BackchannelVerdict::Undecided;
-
-            std::vector<std::vector<std::string>> phrases;
-            for (const auto& phrase : backchannelConfig.backchannelPhrases) {
-                auto phraseWords = normalizedWords(phrase);
-                if (!phraseWords.empty()) phrases.push_back(std::move(phraseWords));
-            }
-            std::vector<std::string> interruptWords;
-            for (const auto& interruptWord : backchannelConfig.interruptWords) {
-                for (auto& word : normalizedWords(interruptWord)) interruptWords.push_back(std::move(word));
-            }
-
-            uint32_t unitCount = 0;
-            uint32_t unknownCount = 0;
-            for (size_t index = 0; index < words.size();) {
-                if (std::find(interruptWords.begin(), interruptWords.end(), words[index]) != interruptWords.end())
-                    return BackchannelVerdict::Interrupt;
-                size_t longestMatch = 0;
-                for (const auto& phrase : phrases) {
-                    if (phrase.size() <= longestMatch || index + phrase.size() > words.size()) continue;
-                    if (std::equal(phrase.begin(), phrase.end(), words.begin() + static_cast<std::ptrdiff_t>(index)))
-                        longestMatch = phrase.size();
-                }
-                ++unitCount;
-                if (longestMatch == 0) { ++unknownCount; ++index; }
-                else index += longestMatch;
-            }
-
-            if (unitCount > backchannelConfig.maxBackchannelWords) return BackchannelVerdict::Interrupt;
+            const WordScan scan = scanWords(words, backchannelConfig);
+            if (scan.interruptWord) return BackchannelVerdict::Interrupt;
+            if (scan.unitCount > backchannelConfig.maxBackchannelWords) return BackchannelVerdict::Interrupt;
             // Interrupt words returned above, so a short garble is only ever unknown words.
-            if (isFinal && unknownCount > 0 && confidence < backchannelConfig.minInterruptConfidence &&
-                unitCount <= backchannelConfig.lowConfidenceMaxWords)
+            if (isFinal && scan.unknownCount > 0 && confidence < backchannelConfig.minInterruptConfidence &&
+                scan.unitCount <= backchannelConfig.lowConfidenceMaxWords)
                 return BackchannelVerdict::Backchannel;
-            if (unknownCount >= 2) return BackchannelVerdict::Interrupt;
-            if (unknownCount == 1) return isFinal ? BackchannelVerdict::Interrupt : BackchannelVerdict::Undecided;
+            if (scan.unknownCount >= 2) return BackchannelVerdict::Interrupt;
+            if (scan.unknownCount == 1) return isFinal ? BackchannelVerdict::Interrupt : BackchannelVerdict::Undecided;
             return isFinal ? BackchannelVerdict::Backchannel : BackchannelVerdict::Undecided;
         }
 
@@ -98,6 +124,17 @@ namespace va {
         {
             if (!_backchannelConfig.rejectEcho || !_spokenTextProvider || heard.empty()) return false;
             const bool echo = isEcho(heard, _spokenTextProvider(), _backchannelConfig);
+            if (echo) spdlog::info("[AgentStateProcessor] \"{}\" is the reply's own words (echo): not an interruption", heard);
+            return echo;
+        }
+
+        bool AgentStateProcessor::overlapEchoes(const std::string& heard, OverlapKind overlapKind,
+                                                const BackchannelConfig& backchannelConfig) const
+        {
+            // While thinking nothing plays: what's heard can't be the reply's echo.
+            if (overlapKind == OverlapKind::PendingWhileThinking || !backchannelConfig.rejectEcho ||
+                !_spokenTextProvider || heard.empty()) return false;
+            const bool echo = isEcho(heard, _spokenTextProvider(), backchannelConfig);
             if (echo) spdlog::info("[AgentStateProcessor] \"{}\" is the reply's own words (echo): not an interruption", heard);
             return echo;
         }
@@ -129,6 +166,15 @@ namespace va {
                 _metrics.bargeInsCommitted.initialize(_collector,
                     MetricDescriptor{ "agent_bargein_committed_total", MetricType::Counter,
                                      "User speech over the agent that interrupted it" });
+                _metrics.modelVerdicts.initialize(_collector,
+                    MetricDescriptor{ "agent_bargein_model_verdicts_total", MetricType::Counter,
+                                     "Barge-in decisions a model made (back-channel or interruption)" });
+                _metrics.modelLatencyMs.initialize(_collector,
+                    MetricDescriptor{ "agent_bargein_model_latency_ms", MetricType::Sampler,
+                                     "Time a barge-in classifier took to answer, ms" });
+                _metrics.repliesKeptWhileThinking.initialize(_collector,
+                    MetricDescriptor{ "agent_replies_kept_while_thinking_total", MetricType::Counter,
+                                     "Speech while thinking judged an acknowledgement or a noise: the reply was kept" });
             }
 
             return true;
@@ -155,6 +201,12 @@ namespace va {
                 _followUpArmed = false;
             }
             _followUpThread = std::thread(&AgentStateProcessor::followUpLoop, this);
+            {
+                std::lock_guard<std::mutex> lock(_modelMutex);
+                _modelStop = false;
+                _modelQueue.reset();
+            }
+            _modelThread = std::thread(&AgentStateProcessor::modelLoop, this);
 
             if (_alwaysOn) {
                 transitionTo(transport::AgentState::LISTENING,
@@ -177,6 +229,12 @@ namespace va {
             }
             _followUpCv.notify_all();
             if (_followUpThread.joinable()) _followUpThread.join();
+            {
+                std::lock_guard<std::mutex> lock(_modelMutex);
+                _modelStop = true;   // a question in flight finishes; its verdict finds no overlap
+            }
+            _modelCv.notify_all();
+            if (_modelThread.joinable()) _modelThread.join();
             FrameProcessor::stop();
         }
 
@@ -192,7 +250,8 @@ namespace va {
             case transport::FrameType::AUDIO:
             return true;
             case transport::FrameType::CONTROL:
-            return dynamic_cast<const transport::FollowUpListenFrame*>(frame.get()) != nullptr;
+            return dynamic_cast<const transport::FollowUpListenFrame*>(frame.get()) != nullptr ||
+                   dynamic_cast<const transport::TurnPolicyFrame*>(frame.get()) != nullptr;
             default:
             return false;
             }
@@ -207,6 +266,7 @@ namespace va {
             {
                 std::lock_guard<std::mutex> lock(_pendingBackchannelMutex);
                 if (_pendingBackchannel) {
+                    std::lock_guard<std::mutex> overlapLock(_backchannelMutex);   // the model thread reads it too
                     _backchannelConfig = std::move(*_pendingBackchannel);
                     _pendingBackchannel.reset();
                 }
@@ -219,6 +279,8 @@ namespace va {
                     std::lock_guard<std::mutex> lock(_followUpMutex);
                     _nextReplyWindow = *window;
                     return;   // for this stage only
+                } else if (auto policy = std::dynamic_pointer_cast<transport::TurnPolicyFrame>(frame)) {
+                    _privateAnswer = policy->privateAnswer;   // the next answer is private: no model hears it
                 }
                 pushUpstream(frame);
                 return;
@@ -248,7 +310,8 @@ namespace va {
             if (_currentState.load() != transport::AgentState::IDLE) {
                 pushDownstream(frame);
             }
-            if (_currentState.load() == transport::AgentState::SPEAKING) {
+            if (_currentState.load() == transport::AgentState::SPEAKING ||
+                _currentState.load() == transport::AgentState::THINKING) {
                 if (auto audioFrame = std::dynamic_pointer_cast<transport::AudioFrame>(frame))
                     handleOverlapAudio(*audioFrame);
             }
@@ -322,11 +385,25 @@ namespace va {
                 beginOverlap(nearReplyEnd || replyProtected ? OverlapKind::TailTurn : OverlapKind::PendingBargeIn);
                 break;
             }
-            case transport::AgentState::THINKING:
+            case transport::AgentState::THINKING: {
+                {
+                    std::lock_guard<std::mutex> lock(_backchannelMutex);
+                    if (_overlapKind == OverlapKind::PendingWhileThinking) {
+                        // Another stretch of the same speech ("hmm... okay"): keep deciding on all of it.
+                        _userSpeechEnded = false;
+                        _audioDurationSinceSpeechEndMs = 0;
+                        break;
+                    }
+                }
+                if (_backchannelConfig.enabled && _backchannelConfig.judgeWhileThinking) {
+                    beginOverlap(OverlapKind::PendingWhileThinking);
+                    break;
+                }
                 transitionTo(transport::AgentState::INTERRUPTED,
                     transport::AgentStateTransition::USER_SPOKE_WHILE_THINKING);
                 startInterruptTimeout();
                 break;
+            }
             case transport::AgentState::LISTENING: {
                 cancelFollowUpWindow();
                 {
@@ -348,8 +425,9 @@ namespace va {
         void AgentStateProcessor::handleUserTurnEnded(std::shared_ptr<transport::TurnStateFrame> frame)
         {
             _userSpeaking = false;
-            if (_currentState.load() == transport::AgentState::SPEAKING) {
-                handleOverlapUserTurnEnded();
+            if (_currentState.load() == transport::AgentState::SPEAKING ||
+                _currentState.load() == transport::AgentState::THINKING) {
+                handleOverlapUserTurnEnded();   // nothing to do while thinking without an overlap
                 return;
             }
             if (_currentState.load() == transport::AgentState::LISTENING) {
@@ -380,6 +458,11 @@ namespace va {
             if (state == transport::AgentState::THINKING || state == transport::AgentState::IDLE ||
                 (state == transport::AgentState::LISTENING && !_userSpeaking)) {
                 cancelFollowUpWindow();
+                {
+                    // The reply starts (paused) while speech before it is being judged: judged as speech over it now.
+                    std::lock_guard<std::mutex> lock(_backchannelMutex);
+                    if (_overlapKind == OverlapKind::PendingWhileThinking) _overlapKind = OverlapKind::PendingBargeIn;
+                }
                 transitionTo(transport::AgentState::SPEAKING,
                     transport::AgentStateTransition::SYNTHESIS_STARTED);
             }
@@ -405,7 +488,8 @@ namespace va {
             std::shared_ptr<transport::TranscriptionFrame> frame)
         {
             if (!frame) return;
-            if (_currentState.load() == transport::AgentState::SPEAKING) {
+            if (_currentState.load() == transport::AgentState::SPEAKING ||
+                _currentState.load() == transport::AgentState::THINKING) {
                 bool overlapActive;
                 {
                     std::lock_guard<std::mutex> lock(_backchannelMutex);
@@ -449,6 +533,10 @@ namespace va {
                 }
             }
 
+            if (state == transport::AgentState::LISTENING || state == transport::AgentState::THINKING) {
+                std::lock_guard<std::mutex> lock(_backchannelMutex);
+                _lastUserTurn = _privateAnswer ? "(a private answer)" : frame->transcriptionResult.text;
+            }
             switch (state) {
             case transport::AgentState::LISTENING:
                 transitionTo(transport::AgentState::THINKING,
@@ -590,7 +678,9 @@ namespace va {
             auto prev = _currentState.exchange(next);
             if (prev == next && !emitWhenUnchanged) return;  // no-op if state unchanged
 
-            if (next != transport::AgentState::SPEAKING) {
+            // THINKING -> THINKING is speech while thinking being judged (BARGE_IN_PENDING, BACKCHANNEL).
+            if (next != transport::AgentState::SPEAKING &&
+                !(prev == transport::AgentState::THINKING && next == transport::AgentState::THINKING)) {
                 std::lock_guard<std::mutex> lock(_backchannelMutex);
                 clearOverlapLocked();
                 if (next != transport::AgentState::LISTENING) _finalAfterSpeakingMode = FinalAfterSpeakingMode::None;
@@ -686,13 +776,30 @@ namespace va {
 
         void AgentStateProcessor::beginOverlap(OverlapKind overlapKind)
         {
+            // Who decides, fixed for this overlap: the playing part's choice, else the config's.
+            transport::BargeInDecisionMode decisionMode = _backchannelConfig.decisionMode;
+            if (overlapKind == OverlapKind::PendingBargeIn && _playingPartDecisionProvider) {
+                if (const auto partDecision = _playingPartDecisionProvider()) decisionMode = *partDecision;
+            }
+            {
+                std::lock_guard<std::mutex> lock(_modelMutex);
+                if (!_bargeInClassifier) decisionMode = transport::BargeInDecisionMode::WordRulesOnly;
+            }
+            if (_privateAnswer) decisionMode = transport::BargeInDecisionMode::WordRulesOnly;   // never sent to a model
             {
                 std::lock_guard<std::mutex> lock(_backchannelMutex);
                 clearOverlapLocked();
                 _overlapKind = overlapKind;
+                _overlapDecisionMode = decisionMode;
             }
             if (overlapKind == OverlapKind::TailTurn) {
                 spdlog::info("[AgentStateProcessor] User spoke over the end of the reply - answering after it");
+                return;
+            }
+            if (overlapKind == OverlapKind::PendingWhileThinking) {
+                spdlog::info("[AgentStateProcessor] User spoke while the agent thinks - deciding before the reply plays");
+                transitionTo(transport::AgentState::THINKING, transport::AgentStateTransition::BARGE_IN_PENDING,
+                    0.0f, true);
                 return;
             }
             spdlog::info("[AgentStateProcessor] User spoke over the agent - barge-in pending ({})",
@@ -707,12 +814,21 @@ namespace va {
             if (audioFrame.sampleRate == 0) return;
             const uint32_t durationMs = static_cast<uint32_t>(
                 static_cast<uint64_t>(audioFrame.numSamples) * 1000 / audioFrame.sampleRate);
-            bool commitNow = false, decideNow = false;
-            std::string heardSoFar;
+            bool commitNow = false, decideNow = false, modelWaitOver = false;
+            bool modelPending = false;
+            uint32_t modelAskedAtMs = 0;
+            std::string heardSoFar, modelBackchannelText;
             uint32_t pendingMs = 0;
+            OverlapKind overlapKind;
+            transport::BargeInDecisionMode decisionMode;
             {
                 std::lock_guard<std::mutex> lock(_backchannelMutex);
-                if (_overlapKind != OverlapKind::PendingBargeIn) return;
+                if (!isPending(_overlapKind)) return;
+                overlapKind = _overlapKind;
+                decisionMode = _overlapDecisionMode;
+                modelPending = _modelPending;
+                modelAskedAtMs = _modelAskedAtMs;
+                modelBackchannelText = _modelBackchannelText;
                 if (!_userSpeechEnded) {
                     _pendingSpeechDurationMs += durationMs;
                     commitNow = _pendingSpeechDurationMs > _backchannelConfig.commitAfterPendingMs;
@@ -721,14 +837,28 @@ namespace va {
                 } else {
                     _audioDurationSinceSpeechEndMs += durationMs;
                     decideNow = _audioDurationSinceSpeechEndMs > _backchannelConfig.finalTranscriptionWaitMs;
+                    modelWaitOver = _audioDurationSinceSpeechEndMs >
+                        _backchannelConfig.finalTranscriptionWaitMs + _backchannelConfig.modelTimeoutMs;
                 }
             }
-            if (commitNow && _backchannelConfig.rejectEcho && _spokenTextProvider) {
+            if (commitNow && overlapKind == OverlapKind::PendingBargeIn && _backchannelConfig.rejectEcho && _spokenTextProvider) {
                 // Long speech over the agent may be its own voice from the speakers: decide by the words.
                 if (heardSoFar.empty()) commitNow = pendingMs > _backchannelConfig.commitAfterPendingMs + _backchannelConfig.echoWordsWaitMs;
                 else if (echoes(heardSoFar)) commitNow = false;
             }
+            const bool asksModel = decisionMode != transport::BargeInDecisionMode::WordRulesOnly;
+            if (commitNow && asksModel && heardSoFar.empty()) {
+                // No words yet (an STT that writes only once the user stops, as Whistle): wait for them, for up
+                // to modelTimeoutMs, so the model judges the final instead of the duration deciding alone.
+                commitNow = pendingMs > _backchannelConfig.commitAfterPendingMs + _backchannelConfig.modelTimeoutMs;
+            } else if (commitNow && asksModel) {
+                // Long speech is the rules' guess: the model judges the words, for up to modelTimeoutMs.
+                if (modelBackchannelText == heardSoFar) commitNow = false;   // it called these words a back-channel
+                else if (!modelPending) { askModel(false); commitNow = false; }
+                else commitNow = pendingMs > std::max(_backchannelConfig.commitAfterPendingMs, modelAskedAtMs) + _backchannelConfig.modelTimeoutMs;
+            }
             if (commitNow) commitBargeIn(false, "speech too long for a back-channel");
+            else if (decideNow && asksModel && modelWaitOver) decideOverlapByRules();   // the model didn't answer in time
             else if (decideNow) decideOverlap();
         }
 
@@ -744,11 +874,13 @@ namespace va {
         {
             const std::string& text = frame->transcriptionResult.text;
             OverlapKind overlapKind;
+            transport::BargeInDecisionMode decisionMode;
             bool userSpeechEnded;
             std::string overlapText;
             {
                 std::lock_guard<std::mutex> lock(_backchannelMutex);
                 overlapKind = _overlapKind;
+                decisionMode = _overlapDecisionMode;
                 if (frame->isFinal) {
                     if (!text.empty()) {
                         if (!_overlapFinalText.empty()) _overlapFinalText += ' ';
@@ -764,40 +896,93 @@ namespace va {
             }
             // Partials still reach the LLM's fallback cache; finals are held until the overlap is decided.
             if (!frame->isFinal) pushDownstream(frame);
-            if (overlapKind != OverlapKind::PendingBargeIn) return;
+            if (!isPending(overlapKind)) return;
 
             if (frame->isFinal && userSpeechEnded) {
                 decideOverlap();
                 return;
             }
-            if (classifyBackchannel(overlapText, false, _backchannelConfig) == BackchannelVerdict::Interrupt && !echoes(overlapText))
+            if (classifyBackchannel(overlapText, false, _backchannelConfig) != BackchannelVerdict::Interrupt ||
+                overlapEchoes(overlapText, overlapKind, _backchannelConfig))
+                return;
+            // The rules would interrupt now: at once on an interrupt word or with them alone; else the model judges.
+            if (decisionMode == transport::BargeInDecisionMode::WordRulesOnly ||
+                (decisionMode == transport::BargeInDecisionMode::ModelWhenRulesUnsure &&
+                 ruleMatch(overlapText, _backchannelConfig) == RuleMatch::InterruptWord))
                 commitBargeIn(userSpeechEnded, "words");
+            else
+                askModel(false);
         }
 
         void AgentStateProcessor::decideOverlap()
         {
             bool userSpeechEnded;
             std::string overlapText;
-            float confidence;
+            OverlapKind overlapKind;
+            transport::BargeInDecisionMode decisionMode;
             {
                 std::lock_guard<std::mutex> lock(_backchannelMutex);
-                if (_overlapKind != OverlapKind::PendingBargeIn) return;
+                if (!isPending(_overlapKind)) return;
                 userSpeechEnded = _userSpeechEnded;
                 overlapText = overlapTextLocked();
-                // Deciding on a partial (no final arrived): no STT confidence to go on.
-                confidence = _overlapFinalText.empty() ? 1.0f : _overlapFinalConfidence;
+                overlapKind = _overlapKind;
+                decisionMode = _overlapDecisionMode;
             }
-            if (classifyBackchannel(overlapText, true, _backchannelConfig, confidence) == BackchannelVerdict::Backchannel ||
-                echoes(overlapText))
+            if (decisionMode == transport::BargeInDecisionMode::WordRulesOnly) {
+                decideOverlapByRules();
+                return;
+            }
+            if (overlapEchoes(overlapText, overlapKind, _backchannelConfig)) {
                 dismissBackchannel();
-            else
-                commitBargeIn(userSpeechEnded, "words after the user stopped");
+                return;
+            }
+            const RuleMatch match = ruleMatch(overlapText, _backchannelConfig);
+            if (match == RuleMatch::NoWords) {
+                dismissBackchannel();
+            } else if (decisionMode == transport::BargeInDecisionMode::ModelWhenRulesUnsure && match == RuleMatch::InterruptWord) {
+                commitBargeIn(userSpeechEnded, "interrupt word");
+            } else if (decisionMode == transport::BargeInDecisionMode::ModelWhenRulesUnsure && match == RuleMatch::OnlyBackchannelPhrases) {
+                dismissBackchannel();
+            } else {
+                askModel(true);   // decided when it answers, or by the rules after modelTimeoutMs
+            }
         }
 
-        void AgentStateProcessor::commitBargeIn(bool userSpeechEnded, const char* reason)
+        void AgentStateProcessor::decideOverlapByRules(uint64_t onlyGeneration)
         {
+            bool userSpeechEnded;
+            std::string overlapText;
+            float confidence;
+            OverlapKind overlapKind;
+            BackchannelConfig backchannelConfig;   // a copy: the model thread decides here too
+            {
+                std::lock_guard<std::mutex> lock(_backchannelMutex);
+                if (!isPending(_overlapKind) || (onlyGeneration != 0 && onlyGeneration != _overlapGeneration)) return;
+                userSpeechEnded = _userSpeechEnded;
+                overlapText = overlapTextLocked();
+                overlapKind = _overlapKind;
+                // Deciding on a partial (no final arrived): no STT confidence to go on.
+                confidence = _overlapFinalText.empty() ? 1.0f : _overlapFinalConfidence;
+                backchannelConfig = _backchannelConfig;
+                onlyGeneration = _overlapGeneration;
+            }
+            if (classifyBackchannel(overlapText, true, backchannelConfig, confidence) == BackchannelVerdict::Backchannel ||
+                overlapEchoes(overlapText, overlapKind, backchannelConfig))
+                dismissBackchannel(onlyGeneration);
+            else
+                commitBargeIn(userSpeechEnded, "words after the user stopped", onlyGeneration);
+        }
+
+        void AgentStateProcessor::commitBargeIn(bool userSpeechEnded, const char* reason, uint64_t onlyGeneration)
+        {
+            OverlapKind overlapKind;
+            {
+                std::lock_guard<std::mutex> lock(_backchannelMutex);
+                if (!isPending(_overlapKind) || (onlyGeneration != 0 && onlyGeneration != _overlapGeneration)) return;
+                overlapKind = _overlapKind;
+            }
             std::shared_ptr<transport::TranscriptionFrame> forwardNow;
-            if (playbackProtected()) {
+            if (overlapKind == OverlapKind::PendingBargeIn && playbackProtected()) {
                 {
                     // Pending since before the part began: it's now answered after the reply instead.
                     std::lock_guard<std::mutex> lock(_backchannelMutex);
@@ -810,7 +995,7 @@ namespace va {
             }
             {
                 std::lock_guard<std::mutex> lock(_backchannelMutex);
-                if (_overlapKind != OverlapKind::PendingBargeIn) return;
+                if (_overlapKind != overlapKind) return;
                 if (userSpeechEnded) {
                     // The user's turn already ended unseen: replay it once the interrupt resolves.
                     _heldFinalTranscription = takeOverlapTranscriptionLocked(true);
@@ -821,36 +1006,130 @@ namespace va {
                 }
                 clearOverlapLocked();
             }
-            spdlog::info("[AgentStateProcessor] Barge-in committed ({}{})", reason,
-                userSpeechEnded ? ", replaying the turn" : "");
+            const bool whileThinking = overlapKind == OverlapKind::PendingWhileThinking;
+            spdlog::info("[AgentStateProcessor] {} ({}{})", whileThinking ? "Reply cancelled: the user added to the request" : "Barge-in committed",
+                reason, userSpeechEnded ? ", replaying the turn" : "");
             _metrics.bargeInsCommitted.increment();
-            transitionTo(transport::AgentState::INTERRUPTED, transport::AgentStateTransition::BARGE_IN_INTERRUPT);
+            transitionTo(transport::AgentState::INTERRUPTED, whileThinking
+                ? transport::AgentStateTransition::USER_SPOKE_WHILE_THINKING : transport::AgentStateTransition::BARGE_IN_INTERRUPT);
             startInterruptTimeout();
             if (forwardNow) pushDownstream(forwardNow);
         }
 
-        void AgentStateProcessor::dismissBackchannel()
+        void AgentStateProcessor::dismissBackchannel(uint64_t onlyGeneration)
         {
             std::shared_ptr<transport::TranscriptionFrame> recorded;
             std::string overlapText;
             float confidence;
+            OverlapKind overlapKind;
             {
                 std::lock_guard<std::mutex> lock(_backchannelMutex);
-                if (_overlapKind != OverlapKind::PendingBargeIn) return;
+                if (!isPending(_overlapKind) || (onlyGeneration != 0 && onlyGeneration != _overlapGeneration)) return;
+                overlapKind = _overlapKind;
                 overlapText = overlapTextLocked();
                 confidence = _overlapFinalConfidence;
                 if (_backchannelConfig.historyMode == BackchannelHistoryMode::AppendToHistory)
                     recorded = takeOverlapTranscriptionLocked(true);
                 clearOverlapLocked();
             }
-            spdlog::info("[AgentStateProcessor] Back-channel \"{}\" (conf={:.2f}) - agent keeps speaking",
-                overlapText, confidence);
-            _metrics.backchannels.increment();
-            transitionTo(transport::AgentState::SPEAKING, transport::AgentStateTransition::BACKCHANNEL, 0.0f, true);
+            if (overlapKind == OverlapKind::PendingWhileThinking) {
+                spdlog::info("[AgentStateProcessor] \"{}\" (conf={:.2f}) while thinking - the reply is kept", overlapText, confidence);
+                _metrics.repliesKeptWhileThinking.increment();
+                transitionTo(transport::AgentState::THINKING, transport::AgentStateTransition::BACKCHANNEL, 0.0f, true);
+            } else {
+                spdlog::info("[AgentStateProcessor] Back-channel \"{}\" (conf={:.2f}) - agent keeps speaking",
+                    overlapText, confidence);
+                _metrics.backchannels.increment();
+                transitionTo(transport::AgentState::SPEAKING, transport::AgentStateTransition::BACKCHANNEL, 0.0f, true);
+            }
             if (recorded) {
                 recorded->isBackchannel = true;
                 pushDownstream(recorded);
             }
+        }
+
+        //  Asking the model 
+
+        void AgentStateProcessor::askModel(bool isFinal)
+        {
+            ModelRequest request;
+            request.isFinal = isFinal;
+            {
+                std::lock_guard<std::mutex> lock(_backchannelMutex);
+                if (!isPending(_overlapKind)) return;
+                const std::string heard = overlapTextLocked();
+                if (_modelPending && _modelAskedText == heard && _modelAskedFinal == isFinal) return;   // asked already
+                _modelPending = true;
+                _modelAskedText = heard;
+                _modelAskedFinal = isFinal;
+                _modelAskedAtMs = _pendingSpeechDurationMs;
+                request.overlapGeneration = _overlapGeneration;
+                request.context.heard = heard;
+                request.context.isFinal = isFinal;
+                request.context.confidence = _overlapFinalText.empty() ? 1.0f : _overlapFinalConfidence;
+                request.context.agentIsThinking = _overlapKind == OverlapKind::PendingWhileThinking;
+                request.context.lastUserTurn = _lastUserTurn;
+            }
+            if (!request.context.agentIsThinking) {
+                if (_maskedReplyTextProvider) request.context.agentReply = _maskedReplyTextProvider();
+                else if (_spokenTextProvider) request.context.agentReply = _spokenTextProvider();
+            }
+            spdlog::info("[AgentStateProcessor] Asking the model about \"{}\"{}", request.context.heard, isFinal ? " (final)" : "");
+            {
+                std::lock_guard<std::mutex> lock(_modelMutex);
+                _modelQueue = std::move(request);   // replaces a question not asked yet: the newest words count
+            }
+            _modelCv.notify_one();
+        }
+
+        void AgentStateProcessor::modelLoop()
+        {
+            while (true) {
+                ModelRequest request;
+                std::shared_ptr<const BargeInClassifier> classifier;
+                {
+                    std::unique_lock<std::mutex> lock(_modelMutex);
+                    _modelCv.wait(lock, [this] { return _modelStop || _modelQueue.has_value(); });
+                    if (_modelStop) return;
+                    request = std::move(*_modelQueue);
+                    _modelQueue.reset();
+                    classifier = _bargeInClassifier;
+                }
+                const auto started = std::chrono::steady_clock::now();
+                const BackchannelVerdict verdict = classifier ? classifier->classify(request.context) : BackchannelVerdict::Undecided;
+                _metrics.modelLatencyMs.observe(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
+                applyModelVerdict(request, verdict);
+            }
+        }
+
+        void AgentStateProcessor::applyModelVerdict(const ModelRequest& request, BackchannelVerdict verdict)
+        {
+            bool newest;
+            {
+                std::lock_guard<std::mutex> lock(_modelMutex);
+                newest = !_modelQueue || _modelQueue->overlapGeneration != request.overlapGeneration;
+            }
+            bool userSpeechEnded;
+            {
+                std::lock_guard<std::mutex> lock(_backchannelMutex);
+                if (request.overlapGeneration != _overlapGeneration || !isPending(_overlapKind)) return;   // decided meanwhile
+                if (newest) _modelPending = false;
+                userSpeechEnded = _userSpeechEnded;
+                if (verdict == BackchannelVerdict::Backchannel) {
+                    _modelBackchannelText = request.context.heard;   // holds off the duration cut-off for these words
+                    if (!request.isFinal || !newest || !userSpeechEnded) return;   // still listening
+                } else if (verdict == BackchannelVerdict::Undecided && (!request.isFinal || !newest)) {
+                    return;   // the duration cut-off, or the final, decides
+                }
+            }
+            spdlog::info("[AgentStateProcessor] Model: \"{}\" is {}", request.context.heard,
+                verdict == BackchannelVerdict::Interrupt ? (request.context.agentIsThinking ? "more to the request" : "an interruption")
+                : verdict == BackchannelVerdict::Backchannel ? (request.context.agentIsThinking ? "an acknowledgement" : "a back-channel")
+                : "undecided: the word rules decide");
+            if (verdict != BackchannelVerdict::Undecided) _metrics.modelVerdicts.increment();
+            if (verdict == BackchannelVerdict::Interrupt) commitBargeIn(userSpeechEnded, "model", request.overlapGeneration);
+            else if (verdict == BackchannelVerdict::Backchannel) dismissBackchannel(request.overlapGeneration);
+            else decideOverlapByRules(request.overlapGeneration);
         }
 
         void AgentStateProcessor::handleOverlapSystemTurnEnded()
@@ -961,6 +1240,10 @@ namespace va {
         {
             spdlog::info("[AgentStateProcessor] Replaying the user's turn spoken over the agent: \"{}\"",
                 heldTranscription->transcriptionResult.text);
+            {
+                std::lock_guard<std::mutex> lock(_backchannelMutex);
+                _lastUserTurn = _privateAnswer ? "(a private answer)" : heldTranscription->transcriptionResult.text;
+            }
             transitionTo(transport::AgentState::THINKING, transport::AgentStateTransition::USER_STOPPED_SPEAKING,
                 heldTranscription->transcriptionResult.confidence);
             pushDownstream(heldTranscription);
@@ -969,6 +1252,11 @@ namespace va {
         void AgentStateProcessor::clearOverlapLocked()
         {
             _overlapKind = OverlapKind::None;
+            ++_overlapGeneration;   // a model verdict still to come is about speech already decided
+            _modelPending = false;
+            _modelAskedText.clear();
+            _modelAskedFinal = false;
+            _modelBackchannelText.clear();
             _userSpeechEnded = false;
             _pendingSpeechDurationMs = 0;
             _audioDurationSinceSpeechEndMs = 0;

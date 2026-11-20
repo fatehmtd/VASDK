@@ -497,6 +497,15 @@ int vasdk_session_send(vasdk_session* session, const void* command, size_t lengt
     return 1;
 }
 
+int vasdk_session_set_barge_in_decision(vasdk_session* session, vasdk_barge_in_decision decision, int while_thinking) {
+    if (!session || decision < VASDK_BARGE_IN_WORD_RULES_ONLY || decision > VASDK_BARGE_IN_MODEL_FOR_EVERY_OVERLAP) return 0;
+    auto backchannel = session->engine->backchannel();
+    backchannel.decisionMode = static_cast<va::transport::BargeInDecisionMode>(decision);   // the same order
+    backchannel.judgeWhileThinking = while_thinking != 0;
+    session->engine->setBackchannel(backchannel);
+    return 1;
+}
+
 void vasdk_session_set_network_available(vasdk_session* session, int available) {
     if (session) session->engine->setNetworkAvailable(available != 0);
 }

@@ -25,6 +25,7 @@
 #include "nlu/TaggerEntityExtractor.h"
 #include "llm/LLMFirePolicy.h"
 #include "llm/Completion.h"
+#include "llm/LlmBargeInClassifier.h"
 #include "llm/LLMProcessor.h"
 #include "llm/AnthropicTransport.h"
 #include "llm/OpenAITransport.h"
@@ -187,6 +188,11 @@ void applyBackchannel(const vasdk::engine::Backchannel& config, pipeline::Backch
     if (config.has_reject_echo()) backchannel.rejectEcho = config.reject_echo();
     if (config.has_echo_min_share()) backchannel.echoMinShare = config.echo_min_share();
     if (config.has_echo_words_wait_ms()) backchannel.echoWordsWaitMs = static_cast<uint32_t>(std::max(0, config.echo_words_wait_ms()));
+    if (config.has_barge_in_decision())   // the same order: transport::BargeInDecisionMode
+        backchannel.decisionMode = static_cast<transport::BargeInDecisionMode>(config.barge_in_decision());
+    if (config.has_barge_in_model_timeout_ms())
+        backchannel.modelTimeoutMs = static_cast<uint32_t>(std::max(0, config.barge_in_model_timeout_ms()));
+    if (config.has_barge_in_while_thinking()) backchannel.judgeWhileThinking = config.barge_in_while_thinking();
 }
 
 // The preset's VAD timings, then any turn_taking.voice_activity value set in the config.
@@ -407,6 +413,8 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
 
     const auto& turnTaking = config.turn_taking();
     applyBackchannel(turnTaking.backchannel(), options.backchannel);
+    if (options.agent && options.agent->definition().has_barge_in_decision())   // the agent's own choice wins
+        options.backchannel.decisionMode = static_cast<transport::BargeInDecisionMode>(options.agent->definition().barge_in_decision());
     const bool balanced = turnTaking.preset() == vasdk::engine::TurnTaking::BALANCED;
     const float lookbackFactor = turnTaking.voice_activity().has_lookback_factor()
         ? std::max(0.0f, turnTaking.voice_activity().lookback_factor()) : (balanced ? 3.0f : 5.0f);
@@ -597,40 +605,70 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
         spdlog::info("{} No LLM or agent configured: the assistant only speaks say() text", state->logTag);
     }
 
+    //  LLM completions for the side tasks (understanding, barge-in decisions): llm's, and llm_profiles'
+    std::shared_ptr<const llm::Completion> llmCompletion = options.llmCompletion ? options.llmCompletion : providerCompletion;
+    llm::LLMConfig completionConfig;
+    completionConfig.endpoint = config.llm().endpoint();
+    completionConfig.apiKey = config.llm().api_key();
+    completionConfig.model = config.llm().model();
+    completionConfig.temperature = 0.0f;
+    completionConfig.maxTokens = 400;
+    completionConfig.timeoutMs = 8000;   // a voice turn can't wait longer
+    completionConfig.reasoningEffort = config.llm().effort();
+    auto completionOf = [](const llm::LLMConfig& given, bool claude) -> std::shared_ptr<const llm::Completion> {
+        if (claude) return std::make_shared<llm::AnthropicCompletion>(given);
+        return std::make_shared<llm::OpenAICompletion>(given);
+    };
+    if (!llmCompletion && config.has_llm() && (!config.llm().endpoint().empty() || anthropic))
+        llmCompletion = completionOf(completionConfig, anthropic);
+    // The profiles, for the agent (what llm steps and generative pages name, and understanding's) and barge-in decisions
+    std::map<std::string, std::shared_ptr<const llm::Completion>> profileCompletions;
+    for (const auto& profile : config.llm_profiles()) {
+        if (profile.name().empty()) continue;
+        const auto given = profileConfig(config.llm(), profile, completionConfig);
+        if (given.endpoint.empty() && !profileIsAnthropic(config.llm(), profile)) {
+            spdlog::warn("{} LLM profile \"{}\" has no endpoint: not used", state->logTag, profile.name());
+            continue;
+        }
+        profileCompletions[profile.name()] = std::make_shared<GatedCompletion>(
+            completionOf(given, profileIsAnthropic(config.llm(), profile)), state->llmOffline);
+        spdlog::info("{} LLM profile \"{}\": {} ({})", state->logTag, profile.name(), given.endpoint, given.model);
+    }
+
+    //  Barge-in decisions: a model told what the agent says and what the user said over it, asked
+    //  when barge_in_decision (the config's, the agent's, a page's or a part's) says so.
+    {
+        std::shared_ptr<const llm::Completion> bargeInCompletion =
+            llmCompletion ? std::make_shared<GatedCompletion>(llmCompletion, state->llmOffline) : nullptr;
+        std::string profileName = turnTaking.backchannel().barge_in_llm_profile();
+        if (profileName.empty()) profileName = config.understanding().llm_profile();
+        if (!profileName.empty()) {
+            if (const auto found = profileCompletions.find(profileName); found != profileCompletions.end()) bargeInCompletion = found->second;
+            else spdlog::warn("{} barge-in LLM profile \"{}\" isn't in llm_profiles: llm is asked", state->logTag, profileName);
+        }
+        // Built whenever there's an LLM, so a mode chosen later (set_backchannel, a page) finds it.
+        if (bargeInCompletion)
+            state->agentState->setBargeInClassifier(std::make_shared<llm::LlmBargeInClassifier>(
+                bargeInCompletion, static_cast<int>(options.backchannel.modelTimeoutMs)));
+        else if (options.backchannel.decisionMode != transport::BargeInDecisionMode::WordRulesOnly)
+            spdlog::warn("{} barge_in_decision asks a model, but no LLM is configured: the word rules decide", state->logTag);
+        state->agentState->setPlayingPartDecisionProvider([tts = std::weak_ptr<pipeline::TTSFrameProcessor>(state->tts)] {
+            auto ttsProcessor = tts.lock();
+            return ttsProcessor ? ttsProcessor->getPlayingPartDecision() : std::nullopt;
+        });
+        state->agentState->setMaskedReplyTextProvider([tts = std::weak_ptr<pipeline::TTSFrameProcessor>(state->tts)] {
+            auto ttsProcessor = tts.lock();
+            return ttsProcessor ? ttsProcessor->currentReplyText(true) : std::string();
+        });
+    }
+
     //  Agent (optional): answers turns from its pages, before the LLM
     if (options.agent) {
         state->dialog = std::make_shared<flow::DialogProcessor>(options.agent);
         state->dialog->setPassUnmatchedTurns(state->llm != nullptr);
         state->dialog->setToolCaller(flow::ToolRunner::caller(std::make_shared<flow::ToolRunner>(options.agent, config.security())));
         // Understanding: the agent's examples, then paraphrases by meaning, then an LLM.
-        auto completion = options.llmCompletion ? options.llmCompletion : providerCompletion;
-        llm::LLMConfig completionConfig;
-        completionConfig.endpoint = config.llm().endpoint();
-        completionConfig.apiKey = config.llm().api_key();
-        completionConfig.model = config.llm().model();
-        completionConfig.temperature = 0.0f;
-        completionConfig.maxTokens = 400;
-        completionConfig.timeoutMs = 8000;   // a voice turn can't wait longer
-        completionConfig.reasoningEffort = config.llm().effort();
-        auto completionOf = [](const llm::LLMConfig& given, bool claude) -> std::shared_ptr<const llm::Completion> {
-            if (claude) return std::make_shared<llm::AnthropicCompletion>(given);
-            return std::make_shared<llm::OpenAICompletion>(given);
-        };
-        if (!completion && config.has_llm() && (!config.llm().endpoint().empty() || anthropic))
-            completion = completionOf(completionConfig, anthropic);
-        // The profiles, for the agent: what llm steps and generative pages name, and understanding's
-        std::map<std::string, std::shared_ptr<const llm::Completion>> agentProfiles;
-        for (const auto& profile : config.llm_profiles()) {
-            if (profile.name().empty()) continue;
-            const auto given = profileConfig(config.llm(), profile, completionConfig);
-            if (given.endpoint.empty() && !profileIsAnthropic(config.llm(), profile)) {
-                spdlog::warn("{} LLM profile \"{}\" has no endpoint: not used", state->logTag, profile.name());
-                continue;
-            }
-            agentProfiles[profile.name()] = std::make_shared<GatedCompletion>(completionOf(given, profileIsAnthropic(config.llm(), profile)),
-                                                                             state->llmOffline);
-            spdlog::info("{} LLM profile \"{}\": {} ({})", state->logTag, profile.name(), given.endpoint, given.model);
-        }
+        auto completion = llmCompletion;
         // With an intent model, the rules match exactly: the model understands the rest.
         std::vector<std::shared_ptr<const nlu::NluProvider>> stages{
             runtime->sentenceEncoder() ? options.agent->exactRules() : options.agent->rules()};
@@ -656,10 +694,10 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
         if (completion) completion = std::make_shared<GatedCompletion>(completion, state->llmOffline);
         // What the agent asks at speed (the intent check, form answers): understanding's profile
         if (const auto& name = config.understanding().llm_profile(); !name.empty()) {
-            if (const auto found = agentProfiles.find(name); found != agentProfiles.end()) completion = found->second;
+            if (const auto found = profileCompletions.find(name); found != profileCompletions.end()) completion = found->second;
             else spdlog::warn("{} understanding.llm_profile \"{}\" isn't in llm_profiles: llm is asked", state->logTag, name);
         }
-        state->dialog->setLlmProfiles(agentProfiles);
+        state->dialog->setLlmProfiles(profileCompletions);
         if (completion) {
             const int intentTimeoutMs = config.llm().has_intent_timeout_ms() ? config.llm().intent_timeout_ms() : 1500;
             stages.push_back(std::make_shared<nlu::LlmNluProvider>(completion, options.agent->definition().intents(), intentTimeoutMs));

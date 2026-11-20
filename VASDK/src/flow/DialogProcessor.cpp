@@ -674,6 +674,8 @@ void DialogProcessor::speak(const Reply& reply, bool filler, uint64_t turnId, co
         text->text = i == 0 ? segments[i].text : " " + segments[i].text;   // listeners join the parts as they come
         text->ssml = segments[i].ssml;
         text->interruptible = segments[i].interruptible;
+        if (segments[i].bargeInDecision)   // the same order: transport::BargeInDecisionMode
+            text->bargeInDecision = static_cast<transport::BargeInDecisionMode>(*segments[i].bargeInDecision);
         text->voice = segments[i].voice;
         text->speed = segments[i].speed;
         text->language = _agent->languages().speaking().code();

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "nlu/Language.h"
+#include "BargeInClassifier.h"
 #include "FrameProcessor.h"
 #include "Frame.h"
 #include "metrics/MetricsCollector.h"
@@ -31,8 +32,6 @@ namespace va {
             TreatAsTurn,  // let the reply finish, then answer it ("yes" to "shall I book it?")
             Classify      // classify like any other overlap; back-channels are dismissed
         };
-
-        enum class BackchannelVerdict { Backchannel, Interrupt, Undecided };
 
         /**
          * @brief Back-channel handling: user speech while the agent is SPEAKING is held as a
@@ -77,6 +76,18 @@ namespace va {
             /// 0: it interrupts then, as without rejectEcho. Raise it (600) for speakers with no echo
             /// cancellation and an STT whose words come late; every interruption then waits as long.
             uint32_t echoWordsWaitMs = 0;
+            /// Who decides: the word rules only (today's behavior), a model when the rules are unsure,
+            /// or a model for all speech with words. A model mode needs a classifier
+            /// (AgentStateProcessor::setBargeInClassifier); without one, the word rules decide.
+            /// An agent's page or part can choose its own (TextFrame::bargeInDecision).
+            transport::BargeInDecisionMode decisionMode = transport::BargeInDecisionMode::WordRulesOnly;
+            /// How long a decision waits for the model, in audio time past the point the word rules
+            /// would have decided (commitAfterPendingMs, finalTranscriptionWaitMs); then the rules decide.
+            uint32_t modelTimeoutMs = 800;
+            /// Judge speech while THINKING too: an acknowledgement or a noise ("okay", a cough) keeps the
+            /// coming reply (paused until decided); words that add to the request cancel it, as without
+            /// this. false: any speech while THINKING cancels the reply at once.
+            bool judgeWhileThinking = false;
         };
 
         /** Fills `config`'s empty phrase and word lists with `languages`' back-channels and interruptions. */
@@ -203,6 +214,34 @@ namespace va {
                 _protectedPlaybackMsProvider = std::move(protectedPlaybackMsProvider);
             }
 
+            /**
+             * @brief What decides on speech over the agent when BackchannelConfig::decisionMode (or the
+             *        playing part's mode) asks a model: called on a worker thread of this processor's own,
+             *        one call at a time. nullptr: the word rules decide. Before start(), or any time.
+             */
+            void setBargeInClassifier(std::shared_ptr<const BargeInClassifier> bargeInClassifier) {
+                std::lock_guard<std::mutex> lock(_modelMutex);
+                _bargeInClassifier = std::move(bargeInClassifier);
+            }
+
+            /**
+             * @brief The decision mode of the part of the reply playing now, when it chose one
+             *        (TTSFrameProcessor::getPlayingPartDecision); it wins over the config for an overlap
+             *        that starts while it plays.
+             */
+            void setPlayingPartDecisionProvider(std::function<std::optional<transport::BargeInDecisionMode>()> provider) {
+                _playingPartDecisionProvider = std::move(provider);
+            }
+
+            /**
+             * @brief The words of the reply being spoken with the user's private values masked
+             *        (TTSFrameProcessor::currentReplyText(true)): what a BargeInClassifier is told.
+             *        Unset: it's told the spoken text (setSpokenTextProvider).
+             */
+            void setMaskedReplyTextProvider(std::function<std::string()> maskedReplyTextProvider) {
+                _maskedReplyTextProvider = std::move(maskedReplyTextProvider);
+            }
+
             transport::AgentState getState() const { return _currentState.load(); }
 
             void processFrame(std::shared_ptr<transport::Frame> frame, FlowDirection direction) override;
@@ -247,17 +286,34 @@ namespace va {
             void cancelInterruptTimeout();
             void interruptTimeoutLoop();
 
+            // Asking the BargeInClassifier, on _modelThread
+            struct ModelRequest {
+                uint64_t overlapGeneration = 0;
+                bool isFinal = false;   // the user stopped: the verdict settles the overlap
+                BargeInContext context;
+            };
+            void askModel(bool isFinal);
+            void modelLoop();
+            void applyModelVerdict(const ModelRequest& request, BackchannelVerdict verdict);
+
             // Back-channel handling (pending barge-in while SPEAKING)
             enum class FinalAfterSpeakingMode { None, ReplayAsTurn, ClassifyThenReplay };
-            enum class OverlapKind { None, PendingBargeIn, TailTurn };
+            // PendingWhileThinking: speech while THINKING (judgeWhileThinking), decided like a pending barge-in.
+            enum class OverlapKind { None, PendingBargeIn, PendingWhileThinking, TailTurn };
+            static bool isPending(OverlapKind overlapKind) {
+                return overlapKind == OverlapKind::PendingBargeIn || overlapKind == OverlapKind::PendingWhileThinking;
+            }
             void beginOverlap(OverlapKind overlapKind);
             void handleOverlapAudio(const transport::AudioFrame& audioFrame);
             void handleOverlapUserTurnEnded();
             void handleOverlapTranscription(std::shared_ptr<transport::TranscriptionFrame> frame);
             void handleOverlapSystemTurnEnded();
             void decideOverlap();
-            void commitBargeIn(bool userSpeechEnded, const char* reason);
-            void dismissBackchannel();
+            // onlyGeneration: act only on that overlap (a model's verdict may come late); 0: the current one.
+            void decideOverlapByRules(uint64_t onlyGeneration = 0);
+            bool overlapEchoes(const std::string& heard, OverlapKind overlapKind, const BackchannelConfig& backchannelConfig) const;
+            void commitBargeIn(bool userSpeechEnded, const char* reason, uint64_t onlyGeneration = 0);
+            void dismissBackchannel(uint64_t onlyGeneration = 0);
             void clearOverlapLocked();
             std::string overlapTextLocked() const;
             std::shared_ptr<transport::TranscriptionFrame> takeOverlapTranscriptionLocked(bool includePartial);
@@ -299,6 +355,17 @@ namespace va {
             std::function<std::string()> _spokenTextProvider;
             bool echoes(const std::string& heard) const;
             std::function<int()> _protectedPlaybackMsProvider;
+            std::function<std::optional<transport::BargeInDecisionMode>()> _playingPartDecisionProvider;
+            std::function<std::string()> _maskedReplyTextProvider;
+            std::atomic<bool> _privateAnswer{ false };   // a private answer is expected: never sent to a model
+
+            // Model worker thread
+            std::thread             _modelThread;
+            std::mutex              _modelMutex;
+            std::condition_variable _modelCv;
+            std::shared_ptr<const BargeInClassifier> _bargeInClassifier;
+            std::optional<ModelRequest> _modelQueue;   // the newest question replaces an unasked one
+            bool                    _modelStop{ false };
             bool playbackProtected() const { return _protectedPlaybackMsProvider && _protectedPlaybackMsProvider() > 0; }
             // Guards the overlap fields below: the interrupt-timeout thread also resolves interrupts.
             std::mutex  _backchannelMutex;
@@ -309,6 +376,14 @@ namespace va {
             std::string _overlapFinalText;            // finals heard during the overlap
             float       _overlapFinalConfidence{ 0.0f };
             std::string _latestPartialTranscription;  // newest partial after those finals
+            uint64_t    _overlapGeneration{ 0 };       // a new one per overlap: older model verdicts are dropped
+            transport::BargeInDecisionMode _overlapDecisionMode{ transport::BargeInDecisionMode::WordRulesOnly };
+            bool        _modelPending{ false };        // a question to the model is queued or in flight
+            std::string _modelAskedText;              // what it was asked, so the same words aren't asked twice
+            bool        _modelAskedFinal{ false };
+            uint32_t    _modelAskedAtMs{ 0 };          // _pendingSpeechDurationMs when it was asked: its time runs from there
+            std::string _modelBackchannelText;        // the words the model last called a back-channel
+            std::string _lastUserTurn;                // the user's last turn, for the model's context
             // Late commit: the user's turn, replayed to the LLM once the interrupt resolves.
             std::shared_ptr<transport::TranscriptionFrame> _heldFinalTranscription;
             bool        _replayTurnAfterInterruptResolved{ false };
@@ -321,6 +396,9 @@ namespace va {
                 va::metrics::CounterHandle transitions;
                 va::metrics::CounterHandle backchannels;
                 va::metrics::CounterHandle bargeInsCommitted;
+                va::metrics::CounterHandle modelVerdicts;
+                va::metrics::SamplerHandle modelLatencyMs;
+                va::metrics::CounterHandle repliesKeptWhileThinking;
             } _metrics;
             uint64_t _utteranceStartNs{0};
         };

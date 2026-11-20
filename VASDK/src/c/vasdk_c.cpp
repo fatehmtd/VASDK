@@ -91,6 +91,8 @@ char* replyJson(const va::flow::Reply& reply, const va::flow::FlowRuntime& runti
         nlohmann::json part{{"text", segment.text}, {"interruptible", segment.interruptible}};
         if (!segment.voice.empty()) part["voice"] = segment.voice;
         if (segment.speed > 0) part["speed"] = segment.speed;
+        if (segment.bargeInDecision)
+            part["barge_in_decision"] = vasdk::engine::Backchannel::BargeInDecision_Name(*segment.bargeInDecision);
         segments.push_back(std::move(part));
     }
     auto& choices = out["choices"] = nlohmann::json::array();
@@ -116,6 +118,7 @@ vasdk::flow::ConversationReply replyMessage(const va::flow::Reply& reply, const 
         added->set_interruptible(segment.interruptible);
         added->set_voice(segment.voice);
         added->set_speed(segment.speed);
+        if (segment.bargeInDecision) added->set_barge_in_decision(*segment.bargeInDecision);
     }
     for (const auto& choice : reply.choices) {
         auto* added = out.add_choices();
