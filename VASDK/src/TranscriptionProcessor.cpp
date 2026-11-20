@@ -1,6 +1,14 @@
 #include "VASDK/TranscriptionProcessor.h"
 #include <VASDK/profiling/CTrack.h>
+#include <VASDK/WavFile.h>
 #include <spdlog/spdlog.h>
+
+#include <chrono>
+#include <cstring>
+#include <ctime>
+#include <filesystem>
+#include <iomanip>
+#include <sstream>
 #include "TranscriptionProcessor.h"
 
 namespace va {
@@ -73,6 +81,51 @@ namespace va {
             }
         }
 
+        void TranscriptionFrameProcessor::setAudioDumpDirectory(const std::string& directory)
+        {
+            _audioDumpDirectory = directory;
+            _audioDumpCount = 0;
+            if (directory.empty()) return;
+            std::error_code error;
+            std::filesystem::create_directories(directory, error);
+            if (error) spdlog::warn("[TranscriptionFrameProcessor] Can't create {}: {}", directory, error.message());
+            const std::time_t now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+            std::ostringstream prefix;
+            prefix << "stt-" << std::put_time(std::localtime(&now), "%Y%m%d-%H%M%S");
+            _audioDumpPrefix = prefix.str();
+            spdlog::warn("[TranscriptionFrameProcessor] Writing the audio sent to STT to {} (debugging: the user's voice on disk)", directory);
+        }
+
+        void TranscriptionFrameProcessor::dumpAudio(const std::vector<char>& audio)
+        {
+            if (_audioDumpDirectory.empty() || audio.empty() || !_transcriptionProvider) return;
+            if (_privateAnswer) {
+                spdlog::info("[TranscriptionFrameProcessor] Not saving the STT's audio: a private answer");
+                return;
+            }
+            const auto config = _transcriptionProvider->getAudioConfiguration();
+            std::vector<float> samples;
+            if (config.format == audio::AudioFormat::SHORT) {
+                samples = audio::fromPcm16(reinterpret_cast<const short*>(audio.data()), audio.size() / sizeof(short));
+            } else if (config.format == audio::AudioFormat::FLOAT) {
+                samples.resize(audio.size() / sizeof(float));
+                std::memcpy(samples.data(), audio.data(), samples.size() * sizeof(float));
+            } else {
+                spdlog::warn("[TranscriptionFrameProcessor] Not saving the STT's audio: only 16-bit and float samples are written");
+                return;
+            }
+            char name[32];
+            std::snprintf(name, sizeof(name), "-%04d.wav", ++_audioDumpCount);
+            const auto path = (std::filesystem::path(_audioDumpDirectory) / (_audioDumpPrefix + name)).string();
+            std::string error;
+            const int channels = config.channels > 0 ? config.channels : 1;
+            if (audio::writeWav(path, samples.data(), samples.size(), config.sampleRate, channels, audio::AudioFormat::SHORT, &error))
+                spdlog::info("[TranscriptionFrameProcessor] Saved the STT's audio: {} ({:.2f} s)", path,
+                             static_cast<double>(samples.size()) / channels / std::max(1, config.sampleRate));
+            else
+                spdlog::warn("[TranscriptionFrameProcessor] Couldn't save the STT's audio to {}: {}", path, error);
+        }
+
         void TranscriptionFrameProcessor::sendSilence(int durationMS) const
         {
             if (!_transcriptionProvider) {
@@ -110,6 +163,8 @@ namespace va {
                 _transcriptionProvider->writeAudioData(
                     reinterpret_cast<const uint8_t*>(_transcriptionBuffer.data()),
                     preBytes);
+                if (!_audioDumpDirectory.empty())
+                    _audioDumpSegment.insert(_audioDumpSegment.end(), _transcriptionBuffer.begin(), _transcriptionBuffer.end());
             }
             else {
                 spdlog::warn("[TranscriptionFrameProcessor] Could not read pre-speech "
@@ -134,6 +189,9 @@ namespace va {
                     _transcriptionProvider->writeAudioData(
                         reinterpret_cast<const uint8_t*>(_transcriptionBuffer.data()),
                         bytesToRead);
+                    if (!_audioDumpDirectory.empty() && _collectingAudio)
+                        _audioDumpSegment.insert(_audioDumpSegment.end(), _transcriptionBuffer.begin(),
+                                                 _transcriptionBuffer.begin() + static_cast<std::ptrdiff_t>(bytesToRead));
                 }
                 else {
                     spdlog::warn("[TranscriptionFrameProcessor] could not read audio data from ring buffer at offset {}", audioFrame->ringbufferOffset);
@@ -170,6 +228,7 @@ namespace va {
                 _hasPendingPreSpeech = true;
                 _pendingPreSpeechOffset = vadFrame->speechStartOffset;
                 _collectingAudio = true;
+                _audioDumpSegment.clear();
             } break;
 
             case transport::VADState::ENDED: {
@@ -178,10 +237,13 @@ namespace va {
                 if (_transcriptionProvider) {
                     _transcriptionProvider->commitEndOfSpeech();
                 }
+                dumpAudio(_audioDumpSegment);
+                _audioDumpSegment.clear();
             } break;
 
             case transport::VADState::QUIET: {
                 _hasPendingPreSpeech = false;
+                _audioDumpSegment.clear();   // speech too short to transcribe: dropped
                 if (_collectingAudio) {
                     _collectingAudio = false;
                     if (_transcriptionProvider) {
@@ -227,6 +289,7 @@ namespace va {
                     finalAudioData.data(), 0,
                     vadFrame->totalSpeechLength) > 0)
                 {
+                    dumpAudio(finalAudioData);
                     auto transcriptionResult = _transcriptionProvider->writeFullAudioData(
                         reinterpret_cast<const uint8_t*>(finalAudioData.data()),
                         finalAudioData.size());

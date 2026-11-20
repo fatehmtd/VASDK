@@ -420,6 +420,7 @@ std::unique_ptr<Session::State> Session::createState(std::shared_ptr<Runtime> ru
     state->transcription = std::make_shared<pipeline::TranscriptionFrameProcessor>(providers.stt);
     state->transcription->configSilenceBehavior(false, false, 1000);
     state->transcription->setStreamingMode(turnTaking.streaming_transcription());
+    state->transcription->setAudioDumpDirectory(config.diagnostics().stt_audio_dir());
     state->transcription->setRingBuffer(state->ringBuffer);
     if (providers.speakerEmbedding) {
         state->speakerIdentification = std::make_shared<pipeline::SpeakerIdentificationProcessor>(providers.speakerEmbedding);

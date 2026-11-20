@@ -105,6 +105,13 @@ public:
         return _streamingMode;
     }
 
+    /**
+     * @brief Debugging: each speech segment sent to STT, as the STT gets it, is written as a WAV file
+     * in `directory` (stt-<start>-<n>.wav, created if missing), except a private answer's. Empty: none
+     * (the default). Set before start(). Engine config: diagnostics.stt_audio_dir.
+     */
+    void setAudioDumpDirectory(const std::string& directory);
+
 protected:
     bool shouldProcess(std::shared_ptr<transport::Frame> frame) const override;
     void sendSilence(int durationMS) const;
@@ -120,6 +127,13 @@ private:
     void flushPendingPreSpeech(const transport::AudioFrame& audioFrame);
 
     void applyReplacement();
+    // Writes `audio` (the STT's format) as the next WAV file in _audioDumpDirectory.
+    void dumpAudio(const std::vector<char>& audio);
+
+    std::string _audioDumpDirectory;
+    std::string _audioDumpPrefix;          // stt-<when it was set>
+    int _audioDumpCount{0};
+    std::vector<char> _audioDumpSegment;   // streaming: the segment fed so far
 
     std::shared_ptr<audio::GenericTranscriptionProvider> _transcriptionProvider;   // written under _providerMutex, on the pipeline thread
     mutable std::mutex _providerMutex;
