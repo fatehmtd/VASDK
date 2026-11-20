@@ -2,7 +2,7 @@
 # master. Nothing runs on a merge. The version comes from the commits since the last release
 # (cmake/next_version.py: breaking -> major, feat -> minor, else patch). Each platform and flavor
 # builds the C library as an archive of an install prefix. With "publish" ticked, and every archive
-# but the full flavor's built, it commits the version to master, tags v<version> and puts the
+# built (the full flavor's too), it commits the version to master, tags v<version> and puts the
 # archives, SHA256SUMS, an SBOM and build provenance on a GitHub release. Unticked, it's a dry run:
 # the archives stay on the run as artifacts. The package channels are built from the release.
 name: Release
@@ -99,7 +99,7 @@ jobs:
 
   publish:
     needs: [version, archive]
-    # A dry run sums up whatever was built; a release needs every core and default archive
+    # A dry run sums up whatever was built; a release needs every archive, the full flavor's too
     if: always() && needs.version.result == 'success' && (needs.archive.result == 'success' || !inputs.publish)
     runs-on: ubuntu-24.04
     permissions:

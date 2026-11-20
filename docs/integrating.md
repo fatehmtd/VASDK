@@ -258,12 +258,34 @@ Which channels publish VASDK, and their state:
 | CMake (`FetchContent`, `add_subdirectory`, CPM) | C++ API and C library from source | Available |
 | `cmake --install`, `find_package`, pkg-config | The C library | Available |
 | `cmake --install --component vasdk_cpp_development`, `find_package(VASDK COMPONENTS cpp)` | The C++ libraries, from a build against installed dependencies ([from an install](#the-c-libraries-from-an-install)) | Available |
-| GitHub Releases | Archives per platform and flavor, checksums, SBOM | Planned (CI and release workflow) |
+| GitHub Releases | Archives per platform and flavor, checksums, SBOM, build provenance | From 1.0.0 ([Release archives](#release-archives)) |
 | Conan | The C library from source, dependencies from Conan | The recipe in the repository ([Conan](#conan)); Conan Center later |
 | Homebrew | The C library | Planned |
-| PyPI (`pip install vasdk`) | The Python binding with the C library inside | Planned ([bindings/python](../bindings/python/README.md) builds a wheel locally today) |
-| Maven Central (`com.vasdk:vasdk-android`, `com.vasdk:vasdk-jvm`) | The Kotlin binding with the C library inside | Planned ([Android](apps/android.md#the-kotlin-binding-as-an-aar) builds the AAR locally today) |
+| PyPI (`pip install vasdk`) | The Python binding with the C library inside | Planned: wheels made from the release archives ([what's left](releasing.md#python-and-kotlin)). Until then, [bindings/python](../bindings/python/README.md#a-wheel) builds a wheel locally |
+| Maven Central (`com.vasdk:vasdk-android`, `com.vasdk:vasdk-jvm`) | The Kotlin binding with the C library inside | Planned ([what's left](releasing.md#python-and-kotlin)). Until then, [Android](apps/android.md#the-kotlin-binding-as-an-aar) builds the AAR locally and [bindings/kotlin](../bindings/kotlin/README.md) builds the JVM library |
 | NuGet, npm, SwiftPM, crates.io, Go, pub.dev | Bindings over the C library | Later |
+
+### Release archives
+
+Each [release](https://github.com/fatehmtd/VASDK/releases), from 1.0.0, has one archive per platform and [flavor](#flavors): `vasdk-<flavor>-<version>-<platform>.tar.gz`, or `.zip` on Windows. Each unpacks to a folder of the same name holding an install prefix ([layout](#prebuilt-with-find_package-or-pkg-config)). No models are included; the [model store](models.md) fetches them.
+
+| Platform | Built on | Needs |
+| --- | --- | --- |
+| `linux-x64`, `linux-arm64` | Ubuntu 24.04 | glibc 2.39 and the system's OpenSSL 3 (`libssl3`); older distributions build from source until a manylinux_2_28 build lands |
+| `macos-arm64`, `macos-x64` | macOS 15 | |
+| `windows-x64` | Windows Server 2022, MSVC | The archive's `bin/` DLLs beside your program (`vasdk_copy_runtime`) |
+
+Check an archive before you use it, then point CMake at it (here 1.0.0):
+
+```bash
+gh release download v1.0.0 --repo fatehmtd/VASDK -p 'vasdk-default-1.0.0-linux-x64.tar.gz' -p SHA256SUMS
+sha256sum --check --ignore-missing SHA256SUMS
+gh attestation verify vasdk-default-1.0.0-linux-x64.tar.gz --repo fatehmtd/VASDK   # built by this repository's release workflow
+tar xzf vasdk-default-1.0.0-linux-x64.tar.gz
+cmake -B build -DCMAKE_PREFIX_PATH=$PWD/vasdk-default-1.0.0-linux-x64             # then find_package(VASDK) as above
+```
+
+Each release also carries a CycloneDX SBOM. How releases are cut is covered in [Releasing VASDK](releasing.md).
 
 ### Conan
 
@@ -305,8 +327,8 @@ vasdk_copy_runtime(app)   # Windows: vasdk_c.dll and ONNX Runtime beside app
 
 | Platform | C library | Notes |
 | --- | --- | --- |
-| Windows x64 (MSVC) | Built | `vasdk_c.dll` exports only `VASDK_C_API` functions |
-| Linux x64, arm64 | Not built in this change | Linker version script: only `vasdk_*` exported |
-| macOS arm64, x64 | Not built in this change | Exported symbols list: only `_vasdk_*` |
+| Windows x64 (MSVC) | Built by CI and the [release archives](#release-archives) | `vasdk_c.dll` exports only `VASDK_C_API` functions |
+| Linux x64, arm64 | Built by CI and the [release archives](#release-archives) | Linker version script: only `vasdk_*` exported. The archives need glibc 2.39 |
+| macOS arm64, x64 | Built by CI and the [release archives](#release-archives) | Exported symbols list: only `_vasdk_*` |
 | Android arm64-v8a, x86_64 | Through Gradle ([Android](apps/android.md)) | The AAR's `libVASDK.so`; moving it to `vasdk_c` comes with the Maven publication |
 | iOS | Not supported | Needs an iOS build of the providers' dependencies (ONNX Runtime's iOS package) |

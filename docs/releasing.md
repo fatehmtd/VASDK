@@ -39,7 +39,7 @@ flowchart LR
    - **bump** is `auto` (from the commits), or `patch`, `minor` or `major` to force it.
    - The run's summary says the version and why ("minor from 12 commits since v1.0.0: 0 breaking, 3 feat, 9 other").
 2. **The archives.** Each platform and flavor is built with the `release` presets and installed. Each archive is `vasdk-<flavor>-<version>-<platform>.tar.gz` (`.zip` on Windows), holding the install prefix ([layout](integrating.md#prebuilt-with-find_package-or-pkg-config)).
-3. **Publication,** with publish ticked, once every `core` and `default` archive is built:
+3. **Publication,** with publish ticked, once every archive is built (all three flavors):
    - **The version commit:** `chore: release X.Y.Z` on `master`, raising `VERSION` and `pyproject.toml`, so the tag holds the version it releases. It's pushed only as a fast-forward: if `master` moved while the archives were built, the run stops before tagging, and you run it again. The first release has `VERSION` right already, and adds no commit.
    - **The tag** `vX.Y.Z` on that commit.
    - **The GitHub release:** the archives, `SHA256SUMS`, a CycloneDX SBOM and [build provenance](https://docs.github.com/actions/security-for-github-actions/using-artifact-attestations) (`gh attestation verify <file> --repo fatehmtd/VASDK`), with notes GitHub writes from the merged pull requests.
@@ -57,14 +57,33 @@ Every archive is required, the `full` flavor's too: a release publishes only whe
 
 | Channel | Built from | Credentials | State |
 | --- | --- | --- | --- |
-| GitHub release | `release.yml` | `GITHUB_TOKEN` | Ready |
+| GitHub release | `release.yml` | `GITHUB_TOKEN` | Ready; the first release is 1.0.0 |
 | Conan | [`conanfile.py`](../conanfile.py) in the repository, built by CI | None | Ready ([Conan](integrating.md#conan)) |
 | Conan Center | The same recipe, in a pull request to conan-center-index | None | Planned: Conan Center builds offline, so ONNX Runtime and the providers' sources must come from Conan first |
 | Homebrew | A formula in a tap, from the source archive | A tap repository | Planned |
-| PyPI | cibuildwheel wheels with the C library inside | Trusted publishing (OIDC), no token | Planned |
-| Maven Central | `com.vasdk:vasdk-android`, `com.vasdk:vasdk-jvm` | The `com.vasdk` namespace (verified by a DNS TXT record on vasdk.com) and a signing key | Planned |
+| PyPI | Wheels repackaged from the release archives, with the C library inside | Trusted publishing (OIDC), no token | Planned ([what's left](#python-and-kotlin)) |
+| Maven Central | `com.vasdk:vasdk-android`, `com.vasdk:vasdk-jvm` | The `com.vasdk` namespace (registered and verified on the Central Portal) and a signing key | Planned ([what's left](#python-and-kotlin)) |
 
 Each channel's page goes into [Using VASDK in your project, Packages](integrating.md#packages) as it ships.
+
+## Python and Kotlin
+
+The bindings aren't published yet; a release ships without them, and adding them later is a `feat` (a `MINOR` release). Each one already takes its version from `VERSION`, so what's left is packaging and credentials.
+
+**PyPI (`vasdk`):**
+
+1. **Wheels in `release.yml`:** a job after `archive` that unpacks each platform's `default` archive, runs [`bundle.py`](../bindings/python/bundle.py) on its `lib/` (or `bin/` on Windows), and builds the wheel. [`setup.py`](../bindings/python/setup.py) already tags it `py3-none-<platform>`, since it carries a native library and no extension. The generated messages aren't in the archives, so the job passes them with `VASDK_PYTHON_PROTOS`.
+2. **Linux tags:** PyPI rejects `linux_x86_64`, so `auditwheel repair` retags the wheel. On the Ubuntu 24.04 build that gives `manylinux_2_39`, which only recent distributions install; the manylinux_2_28 container ([Cutting a release](#cutting-a-release)) widens it.
+3. **Trusted publisher:** register it once on pypi.org (a pending publisher for the project `vasdk`, the workflow `release.yml`, an environment such as `pypi`). The job then needs `id-token: write` and `pypa/gh-action-pypi-publish`, and no token.
+4. **A test of the wheel:** install it into a clean environment and run [`bindings/python/tests`](../bindings/python/tests) against it, before publishing.
+
+**Maven Central (`com.vasdk`):**
+
+1. **The namespace:** done. `com.vasdk` is registered and verified on the Sonatype Central Portal.
+2. **Credentials:** a GPG signing key (its public half on a keyserver such as keys.openpgp.org) and a Central Portal user token, kept as repository secrets.
+3. **`vasdk-jvm`:** [`bindings/kotlin/build.gradle.kts`](../bindings/kotlin/build.gradle.kts) adds `maven-publish` and `signing` (or a plugin that does both for Central), sources and Javadoc jars, and the C library per platform from the archives, in the folders JNA looks in (`darwin-aarch64/`, `darwin-x86-64/`, `linux-x86-64/`, `linux-aarch64/`, `win32-x86-64/`).
+4. **`vasdk-android`:** the AAR still carries `libVASDK.so`; it moves to `vasdk_c` first ([Platforms](integrating.md#platforms)), then publishes the same way.
+5. **A job in `release.yml`** that runs after the GitHub release and publishes both.
 
 ## Checklist
 

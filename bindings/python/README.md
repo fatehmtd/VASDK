@@ -173,7 +173,7 @@ The generated code needs the `protobuf` package at the version of VASDK's `proto
 
 ## A wheel
 
-A wheel carries the C library, `vasdk_c`, for one platform: the C API and every provider built in. It works with any Python 3 there.
+A wheel carries the C library, `vasdk_c`, for one platform: the C API and every provider built in. It works with any Python 3 there. `vasdk` isn't on PyPI yet ([what's left](../../docs/releasing.md#python-and-kotlin)), so build the wheel yourself:
 
 1. Build VASDK. Every build makes the C library (`build/cmake/c_library/`).
 2. Bundle the library and the libraries beside it into the package:
