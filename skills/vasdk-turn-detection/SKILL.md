@@ -28,7 +28,7 @@ providers { turn { id: "turn-1-mini" } }   # English; smartturn-v3 for other lan
 turn_taking { preset: BALANCED }   # SNAPPY for phone calls, PATIENT for people who stop to think; then override single values
 ```
 
-If it cuts people off, use `PATIENT` or raise the pause threshold. If it answers too slowly, use `SNAPPY` or let it end on a pause (`setEvaluateOnPause`). Back-channels ("mm-hmm") duck the voice instead of stopping it; set them in `backchannel`.
+If it cuts people off, use `PATIENT` or raise the pause threshold. If it answers too slowly, use `SNAPPY` or let it end on a pause (`setEvaluateOnPause`). Back-channels ("mm-hmm") duck the voice instead of stopping it; set them in `backchannel`. When the word lists aren't enough ("Tuesday, right" over a read-back cuts it off), let a small LLM judge with the context: `backchannel { barge_in_decision: MODEL_WHEN_RULES_UNSURE barge_in_llm_profile: "system1" }`, and `barge_in_while_thinking: true` so a cough while it thinks doesn't cancel the reply ([who decides](../../docs/reference/processors.md#who-decides-the-word-rules-or-a-model-with-the-context)).
 
 ## Contract pitfalls
 

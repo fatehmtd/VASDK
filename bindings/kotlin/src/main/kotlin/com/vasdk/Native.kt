@@ -173,6 +173,7 @@ internal interface VasdkLibrary : Library {
     fun vasdk_session_push_audio(session: Pointer, pcm: ShortArray, samples: SizeT)
     fun vasdk_session_send(session: Pointer, command: ByteArray, length: SizeT, format: Int, error: PointerByReference): Int
     fun vasdk_session_set_network_available(session: Pointer, available: Int)
+    fun vasdk_session_set_barge_in_decision(session: Pointer, decision: Int, whileThinking: Int): Int
     fun vasdk_session_snapshot_message(session: Pointer, format: Int, length: SizeTByReference): Pointer?
     fun vasdk_session_add_tool_message(session: Pointer, declaration: ByteArray, length: SizeT, format: Int, tool: ToolFn, user: Pointer?,
                                        error: PointerByReference): Int

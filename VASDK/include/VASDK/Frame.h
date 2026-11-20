@@ -187,6 +187,17 @@ namespace va {
         };
 
         /**
+         * @brief Who decides whether user speech over the agent (or while it thinks) is a
+         *        back-channel or a real interruption (pipeline::BackchannelConfig::decisionMode).
+         *        In the order of the config's vasdk.engine.Backchannel.BargeInDecision, so one casts to the other.
+         */
+        enum class BargeInDecisionMode {
+            WordRulesOnly,         // word lists, word counts, STT confidence and duration; no model
+            ModelWhenRulesUnsure,  // an exact word-list match decides at once; a model judges the rest
+            ModelForEveryOverlap   // a model judges all speech with words; the rules only when it can't answer
+        };
+
+        /**
          * @brief Text frame for transcription and synthesis
          */
         class VASDK_EXPORT TextFrame : public Frame {
@@ -212,6 +223,7 @@ namespace va {
                 cloned->choices = choices;
                 cloned->ssml = ssml;
                 cloned->interruptible = interruptible;
+                cloned->bargeInDecision = bargeInDecision;
                 cloned->voice = voice;
                 cloned->speed = speed;
                 cloned->uiJson = uiJson;
@@ -229,6 +241,8 @@ namespace va {
             std::vector<Choice> choices;       // UI choices presented to the user (non-empty when LLM restricts valid responses)
             std::string ssml;                  // spoken instead of text by a provider that supportsSsml()
             bool interruptible = true;         // false: the user can't talk over this frame's audio
+            /// Who decides on speech over this frame's audio (an agent part's or page's barge_in_decision); unset: the session's.
+            std::optional<BargeInDecisionMode> bargeInDecision;
             std::string voice;                 // another of the voice provider's voices for this text; empty: its own
             float speed = 0;                   // 0: the voice's usual pace; 1.2 faster, 0.8 slower
             std::string uiJson;                // app UI for the reply, a JSON object (set on the final chunk only)

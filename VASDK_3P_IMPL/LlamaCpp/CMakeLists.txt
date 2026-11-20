@@ -58,6 +58,12 @@ if(VASDK_BUILD_TESTS)
                     LIBRARIES vasdk_llamacpp MODELS_DIR "${_vasdk_llamacpp_test_model_dir}")
     target_compile_definitions(vasdk_llamacpp_transport_test PRIVATE
         VASDK_LLAMACPP_TEST_MODEL_NAME="${_vasdk_llamacpp_test_model_name}")
+
+    # Context-based barge-in decided by the same model (the session's LLM, reused)
+    vasdk_add_gtest(vasdk_llamacpp_barge_in LABEL model TIMEOUT 600 SOURCES tests/llamacpp_barge_in_test.cpp
+                    LIBRARIES vasdk_llamacpp MODELS_DIR "${_vasdk_llamacpp_test_model_dir}")
+    target_compile_definitions(vasdk_llamacpp_barge_in_test PRIVATE
+        VASDK_LLAMACPP_TEST_MODEL_NAME="${_vasdk_llamacpp_test_model_name}")
     if(WIN32)
         get_target_property(_vasdk_type VASDK TYPE)
         if(_vasdk_type STREQUAL "SHARED_LIBRARY")

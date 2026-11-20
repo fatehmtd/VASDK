@@ -308,6 +308,19 @@ VASDK_C_API int vasdk_session_set_param(vasdk_session* session, const char* name
  * (enroll_speaker without providers.speaker_embedding). Thread-safe. */
 VASDK_C_API int vasdk_session_send(vasdk_session* session, const void* command, size_t length, vasdk_format format,
                                     char** error);
+/* Who decides whether speech over the assistant is a back-channel or a real interruption
+ * (turn_taking.backchannel.barge_in_decision; docs/reference/processors.md). The same values as
+ * vasdk.engine.Backchannel.BargeInDecision. */
+typedef enum vasdk_barge_in_decision {
+    VASDK_BARGE_IN_WORD_RULES_ONLY = 0,          /* word lists, counts, confidence, duration; no model */
+    VASDK_BARGE_IN_MODEL_WHEN_RULES_UNSURE = 1,  /* an exact word-list match decides; a model judges the rest */
+    VASDK_BARGE_IN_MODEL_FOR_EVERY_OVERLAP = 2   /* a model judges all speech with words */
+} vasdk_barge_in_decision;
+/* Sets who decides, and whether speech while the assistant thinks is judged too (nonzero
+ * while_thinking); the session's other back-channel values stay. 0 for a value not in the enum.
+ * Thread-safe. */
+VASDK_C_API int vasdk_session_set_barge_in_decision(vasdk_session* session, vasdk_barge_in_decision decision,
+                                                    int while_thinking);
 /* Nonzero: the network is up. Down: local fallbacks speak and listen, and the LLM rests. Thread-safe. */
 VASDK_C_API void vasdk_session_set_network_available(vasdk_session* session, int available);
 /* Where the agent's conversation is, to resume it later ("" when there's nothing to resume): the

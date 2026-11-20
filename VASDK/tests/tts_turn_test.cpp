@@ -245,6 +245,32 @@ TEST_P(TtsTurnProviderTest, UninterruptiblePartIsReportedOnlyWhilePlaying) {
     EXPECT_EQ(rig.recorder->snapshot(), (States{SynthesisState::STARTED, SynthesisState::COMPLETED})) << "still one turn";
 }
 
+TEST_P(TtsTurnProviderTest, PlayingPartDecisionIsReportedOnlyWhilePlaying) {
+    Rig rig(queued(), false);
+    const auto t0 = std::chrono::steady_clock::now();
+    rig.send(text("Intro.", false));
+    auto readBack = text("Read-back.", false);
+    readBack->bargeInDecision = transport::BargeInDecisionMode::ModelForEveryOverlap;   // an agent part's choice
+    readBack->interruptible = false;   // synthesized on its own, so its audio is all its own
+    rig.send(readBack);
+    rig.send(text("Question?", true));
+    // Sampled rather than read at fixed times: a loaded machine runs late, never early.
+    std::chrono::steady_clock::time_point on{}, off{};
+    while (std::chrono::steady_clock::now() < t0 + 5000ms && off == std::chrono::steady_clock::time_point{}) {
+        const auto decision = rig.tts->getPlayingPartDecision();
+        const auto now = std::chrono::steady_clock::now();
+        if (decision && on == std::chrono::steady_clock::time_point{}) {
+            on = now;
+            EXPECT_EQ(*decision, transport::BargeInDecisionMode::ModelForEveryOverlap);
+        }
+        if (!decision && on != std::chrono::steady_clock::time_point{}) off = now;
+        std::this_thread::sleep_for(2ms);  // fixed wait: the sampling period
+    }
+    ASSERT_TRUE(on != std::chrono::steady_clock::time_point{}) << "reported while the part plays";
+    EXPECT_GE(millisecondsBetween(t0, on), 80) << "not during the part before";
+    EXPECT_TRUE(off != std::chrono::steady_clock::time_point{}) << "not during the part after";
+}
+
 INSTANTIATE_TEST_SUITE_P(Providers, TtsTurnProviderTest, testing::Bool(), providerName);
 
 // A provider that confirms a cancel later, and one that confirms it synchronously (the cloud ones).
@@ -382,6 +408,30 @@ TEST_F(TtsTurnDuckTest, InterruptResolutionReleasesAtOnce) {
     EXPECT_FALSE(events.back().first) << "the second hold is the release";
     std::this_thread::sleep_for(400ms);  // fixed wait: checking no stray release comes later
     EXPECT_EQ(holds().size(), 2u) << "no stray release later";
+}
+
+// Speech while the agent thinks: nothing plays yet, so the reply's first audio is paused, not ducked,
+// whatever the pending playback mode, and released as soon as the speech is dismissed.
+TEST(TtsTurn, SpeechWhileThinkingPausesTheReplyInsteadOfDucking) {
+    std::mutex holdMutex;   // before the rig: stopping it may still report a hold
+    std::vector<std::pair<transport::PendingPlaybackMode, bool>> holds;
+    Rig rig(true, false);
+    rig.tts->setPendingPlayback(transport::PendingPlaybackMode::Duck, -9.0f, 300);
+    rig.tts->setPlaybackHold([&](transport::PendingPlaybackMode playbackMode, bool held, float) {
+        std::lock_guard<std::mutex> lock(holdMutex);
+        holds.emplace_back(playbackMode, held);
+    });
+    auto pending = agent(transport::AgentStateTransition::BARGE_IN_PENDING);
+    pending->currentState = transport::AgentState::THINKING;
+    rig.send(pending);
+    auto kept = agent(transport::AgentStateTransition::BACKCHANNEL);
+    kept->currentState = transport::AgentState::THINKING;
+    rig.send(kept);
+    waitUntil([&] { std::lock_guard<std::mutex> lock(holdMutex); return holds.size() >= 2; }, 250ms);
+    std::lock_guard<std::mutex> lock(holdMutex);
+    ASSERT_EQ(holds.size(), 2u) << "released at once, not after the 300 ms duck";
+    EXPECT_EQ(holds[0], std::make_pair(transport::PendingPlaybackMode::Pause, true));
+    EXPECT_EQ(holds[1], std::make_pair(transport::PendingPlaybackMode::Pause, false));
 }
 
 // The user resumed turn 3: what's queued of its reply goes, and other speech stays.

@@ -34,6 +34,8 @@ struct ReplySegment {
     bool interruptible = true;     // false: the user can't talk over it
     std::string voice;             // another of the voice provider's voices; empty: its own
     float speed = 0;               // 0: the voice's usual pace; 1.2 faster, 0.8 slower
+    // Who decides on speech over it: its Say's barge_in_decision, else its page's; unset: the session's.
+    std::optional<vasdk::engine::Backchannel::BargeInDecision> bargeInDecision;
 };
 
 /** An answer offered with a question, for the app to show as a button. */
