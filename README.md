@@ -138,7 +138,7 @@ Swapping a provider never touches processor or pipeline code. Read the reference
 ## Natural turn-taking
 
 - **Early end of turn, without cutting people off.** SmartTurn v3 scores the audio while the user pauses: a clearly finished turn ends at the pause, an uncertain one waits for real silence. [Details](docs/reference/processors.md#turndetectionprocessor)
-- **Back-channels don't interrupt.** "Mm-hmm", "yeah" and "right" said over the agent duck its voice instead of stopping it; real interruptions still cut in. [Details](docs/reference/processors.md#back-channels-speech-over-the-agent-that-isnt-an-interruption)
+- **Back-channels don't interrupt.** "Mm-hmm", "yeah" and "right" said over the agent duck its voice instead of stopping it; real interruptions still cut in. Optionally a small LLM decides with the context ("Tuesday, right" over a read-back is a confirmation, "is it in the garden?" a question), even while the agent thinks, per agent, page or part. [Details](docs/reference/processors.md#back-channels-speech-over-the-agent-that-isnt-an-interruption)
 - **Follow-ups are one message.** If a pause ends the turn and the user keeps talking, the in-flight request is cancelled and both utterances go to the LLM together. [Details](docs/reference/llm.md#follow-ups)
 
 ## Providers

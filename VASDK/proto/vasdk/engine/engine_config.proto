@@ -177,6 +177,20 @@ message Backchannel {
   optional bool reject_echo = 15;
   optional float echo_min_share = 16;
   optional int32 echo_words_wait_ms = 17;
+  // Who decides whether speech over the assistant is a back-channel or a real interruption. A model
+  // is told what the assistant is saying, what the user said over it, and the user's last turn.
+  enum BargeInDecision {
+    WORD_RULES_ONLY = 0;          // word lists, word counts, STT confidence and duration; no model (default)
+    MODEL_WHEN_RULES_UNSURE = 1;  // an interrupt word or only back-channel phrases decide at once; a model judges the rest
+    MODEL_FOR_EVERY_OVERLAP = 2;  // a model judges all speech with words; the rules only when it can't answer
+  }
+  optional BargeInDecision barge_in_decision = 18;   // an agent, its pages and their parts can choose their own
+  // The llm_profiles entry that decides: a small, fast model. Unset: understanding.llm_profile, else llm.
+  string barge_in_llm_profile = 19;
+  optional int32 barge_in_model_timeout_ms = 20;    // wait for the model this long, then the rules decide; default 800
+  // Judge speech while the assistant thinks too: "okay" or a cough keeps the coming reply (paused until
+  // decided), words that add to the request cancel it. default false: any speech then cancels it at once.
+  optional bool barge_in_while_thinking = 21;
 }
 
 // Raw PCM between the transport and the providers. The providers resample from their own rates.

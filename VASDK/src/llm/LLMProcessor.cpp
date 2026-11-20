@@ -10,6 +10,12 @@
 #include <regex>
 
 namespace va {
+
+namespace {
+long long msSince(std::chrono::steady_clock::time_point start) {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
+}
+} // namespace
 namespace llm {
 
 LLMProcessor::LLMProcessor(std::shared_ptr<LLMTransport> transport)
@@ -265,6 +271,11 @@ void LLMProcessor::processFrame(std::shared_ptr<transport::Frame> frame,
                     }
                     enqueueRequest([this, snapshot] {
                         _awaitingToolFollowUp = false;
+                        spdlog::info("[Timing] LLM round {}: tool results back {} ms after it was sent; asking again",
+                                     _llmRound.load(), msSince(_llmRoundStart));
+                        _llmRoundStart = std::chrono::steady_clock::now();
+                        ++_llmRound;
+                        _roundFirstToken = false;
                         _transport->injectToolResults(snapshot);
                     });
                 }
@@ -294,6 +305,7 @@ std::pair<std::string, std::string> LLMProcessor::effectiveReasoningTags() const
 }
 
 namespace {
+
 // The model is expected to emit a JSON object, but malformed output (truncated
 // or mismatched brackets) is not uncommon with smaller/quantized local models.
 // Rather than speaking the raw JSON blob to the user, try to salvage just the
@@ -529,6 +541,9 @@ void LLMProcessor::onTransportFrameReceived(std::shared_ptr<transport::Frame> fr
             std::chrono::steady_clock::now() - _llmRequestStart).count();
         _metrics.ttft.observe(ms);
     }
+    if (!_roundFirstToken.exchange(true))
+        spdlog::info("[Timing] LLM round {}: first token {} ms after it was sent ({} ms after the turn's request)",
+                     _llmRound.load(), msSince(_llmRoundStart), msSince(_llmRequestStart));
     _metrics.tokens.increment();
 
     if (frame->getType() == transport::FrameType::TEXT) {
@@ -919,6 +934,10 @@ std::string LLMProcessor::dispatchRequestNow(const std::string& text, float conf
     }
     _llmRequestStart = std::chrono::steady_clock::now();
     _firstTokenReceived = false;
+    _llmRoundStart = _llmRequestStart;
+    _llmRound = 1;
+    _roundFirstToken = false;
+    _firstSpeechSent = false;
     _toolCallDepth = 0;
     {
         std::lock_guard<std::mutex> lk(_toolResultsMutex);
@@ -1016,6 +1035,8 @@ void LLMProcessor::pushSpeech(const std::string& text, bool isFinal, bool isExpe
     frame->sourceId    = getName();
     frame->turnId      = _runningTurnId.load();
     _speechOpen        = !isFinal;
+    if (!text.empty() && !_firstSpeechSent.exchange(true))
+        spdlog::info("[Timing] LLM first words to TTS {} ms after the turn's request", msSince(_llmRequestStart));
     {
         std::lock_guard<std::mutex> lk(_specMutex);
         if (_spec.active && !_spec.confirmed) {

@@ -169,7 +169,21 @@ turn_taking {
 | `barge_in_min_speech_ms` | `min_speech_ms` while the assistant speaks (default 150; 0: same as `min_speech_ms`) | `bargeInMinSpeechDurationMs` |
 | `lookback_factor` | audio kept from before the detected start, as a multiple of the start window (default 3 for `BALANCED`, 5 otherwise) | `VADFrameProcessor` constructor |
 
-`backchannel` decides whether speech over the assistant is a back-channel ("yeah", "mm-hmm") or an interruption. Each field replaces the same value in `Session::Options::backchannel` (`pipeline::BackchannelConfig`), so a value set in the file wins over the app's: `enabled`, `pending_playback` (`DUCK`, `PAUSE`, `CONTINUE`), `history` (`DROP`, `APPEND_TO_HISTORY`), `tail_overlap` (`TREAT_AS_TURN`, `CLASSIFY`), `duck_gain_db`, `duck_ms`, `commit_after_ms`, `final_transcription_wait_ms`, `tail_overlap_ms`, `max_backchannel_words`, `min_interrupt_confidence`, `low_confidence_max_words`, `phrases` and `interrupt_words`. The two lists replace the agent's languages' back-channels and interruptions when set ([Languages](languages.md)); without an agent, VASDK's built-in en-US ones.
+`backchannel` decides whether speech over the assistant is a back-channel ("yeah", "mm-hmm") or an interruption. Each field replaces the same value in `Session::Options::backchannel` (`pipeline::BackchannelConfig`), so a value set in the file wins over the app's: `enabled`, `pending_playback` (`DUCK`, `PAUSE`, `CONTINUE`), `history` (`DROP`, `APPEND_TO_HISTORY`), `tail_overlap` (`TREAT_AS_TURN`, `CLASSIFY`), `duck_gain_db`, `duck_ms`, `commit_after_ms`, `final_transcription_wait_ms`, `tail_overlap_ms`, `max_backchannel_words`, `min_interrupt_confidence`, `low_confidence_max_words`, `phrases`, `interrupt_words`, `reject_echo`, `echo_min_share`, `echo_words_wait_ms`, `barge_in_decision`, `barge_in_llm_profile`, `barge_in_model_timeout_ms` and `barge_in_while_thinking`. The two lists replace the agent's languages' back-channels and interruptions when set ([Languages](languages.md)); without an agent, VASDK's built-in en-US ones.
+
+**Who decides: the word rules, or a model.** `barge_in_decision` chooses: `WORD_RULES_ONLY` (the default: the lists, counts and durations above), `MODEL_WHEN_RULES_UNSURE` (an interrupt word or only back-channel phrases decide at once; a model judges the rest), or `MODEL_FOR_EVERY_OVERLAP` (a model judges all speech with words). The model is told what the assistant is saying, what the user said over it, and the user's last turn. `barge_in_llm_profile` names the `llm_profiles` entry it is (else `understanding.llm_profile`, else `llm`); `barge_in_model_timeout_ms` (default 800) is how long a decision waits for it, then the rules decide. `barge_in_while_thinking: true` judges speech while the assistant thinks too: an acknowledgement or a noise keeps the coming reply, words that add to the request cancel it (default: any speech then cancels it at once). An agent, its pages and their parts can choose their own mode ([Rich replies](flows.md#rich-replies)). How each mode works, with examples: [processors](processors.md#who-decides-the-word-rules-or-a-model-with-the-context).
+
+```textproto
+llm_profiles { name: "system1" endpoint: "http://127.0.0.1:8081/v1/chat/completions" model: "qwen3-0.6b" }   # small, local
+turn_taking {
+  backchannel {
+    barge_in_decision: MODEL_WHEN_RULES_UNSURE
+    barge_in_llm_profile: "system1"
+    barge_in_model_timeout_ms: 800
+    barge_in_while_thinking: true
+  }
+}
+```
 
 **Echo from speakers.** Without echo cancellation (a laptop's own mic and speakers; browsers over WebRTC cancel it themselves), the mic hears the assistant, and that can pause or cut its reply. With `reject_echo` (the default), speech over the assistant that is mostly its own words (2 or more, `echo_min_share` of them, default 0.8, and no interrupt word) is treated as echo: the reply goes on, and the words aren't a user turn. It needs words: by default, speech longer than `commit_after_ms` still interrupts before any arrive. `echo_words_wait_ms: 600` waits that much longer for them, so echo is caught with an STT whose words come late, but every real interruption then waits as long too.
 
@@ -248,10 +262,12 @@ understanding { llm_profile: "fast" }
 | An `llm` step, a generative page | its `profile`, else `understanding.llm_profile`, else `llm` |
 | A turn a route hands to the LLM (`target: "LLM"`) | the route's `llm_profile`, and the turns after it that nothing understood (a quiz's answers), until a route answers one |
 | Any other turn the agent doesn't understand, or with no agent | `llm` |
+| Whether speech over the assistant, or while it thinks, is a back-channel or an interruption (`turn_taking.backchannel.barge_in_decision`) | `barge_in_llm_profile`, else `understanding.llm_profile`, else `llm` |
 
 - **A profile only says what differs.** Each field left unset is `llm`'s, so `llm_profiles { name: "fast" model: "..." }` is another model on the same endpoint. A profile of another `api` starts from that API's defaults.
 - **The conversation is one, whichever model answers.** It keeps a single history, and a tool round trip is answered by the turn's model. It can switch only between profiles of `llm`'s `api`; a profile of another API is the agent's only, as the session logs at start.
 - **An unknown name** in an agent is answered by the default, with a warning.
+- **They run at once.** Each profile is its own client: the barge-in question is asked on its own thread while the reply plays or is being written, so it never waits for the conversation's LLM. A cloud `llm` with a small local profile for the side tasks is the usual split. The in-process llama.cpp (`providers.llm`) is one model, the conversation's: a local side model is a second server (`llama-server` on another port, named by its `endpoint`). With no `barge_in_llm_profile` and an in-process `providers.llm`, the barge-in question shares that model with the reply, and waits for it.
 - **On one machine,** each tier must stay loaded. LM Studio, for one, unloads a model to load another, and a request that arrives meanwhile fails (`failure_replies` is said).
 
 `models_dir` sets the base directory for local model files. When it is unset, VASDK_Pipeline uses the `models/` folder it finds next to the executable. A relative path is resolved from the current directory.

@@ -214,6 +214,12 @@ class Session private constructor(private var handle: Pointer?, private val owne
     /** Back-channel handling: the fields set replace the session's. */
     fun setBackchannel(backchannel: Backchannel) = send(Command.newBuilder().setSetBackchannel(backchannel).build())
 
+    /** Who decides on speech over the assistant; [whileThinking]: judge speech while it thinks too. The other back-channel values stay. */
+    fun setBargeInDecision(decision: Backchannel.BargeInDecision, whileThinking: Boolean = false) {
+        if (Lib.vasdk.vasdk_session_set_barge_in_decision(live, decision.number, if (whileThinking) 1 else 0) == 0)
+            throw VasdkException("not a BargeInDecision: $decision")
+    }
+
     /** The next utterance enrolls `speakerId`, replacing their voice print; a speaker_enrollment event says how it went.
      *  Needs providers.speaker_embedding in the config. */
     fun enrollSpeaker(speakerId: String) = send(Command.newBuilder().setEnrollSpeaker(speakerId).build())

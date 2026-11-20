@@ -87,6 +87,7 @@ add_library(VASDK ${VASDK_LIBRARY_TYPE}
     ./src/llm/LLMTransport.cpp
     ./src/llm/OpenAITransport.cpp
     ./src/llm/Completion.cpp
+    ./src/llm/LlmBargeInClassifier.cpp
     ./src/llm/AnthropicTransport.cpp
     ./src/llm/StreamingReplyExtractor.cpp
     ./src/llm/PromptTemplate.cpp
@@ -468,6 +469,11 @@ if(VASDK_BUILD_TESTS)
     add_test(NAME vasdk_vad_turn_end COMMAND vasdk_vad_turn_end_test)
     vasdk_label_tests(timing vasdk_vad_turn_end)
 
+    # Who decides on speech over the agent: the word rules, or a model (BargeInClassifier)
+    vasdk_add_gtest(vasdk_barge_in_decision LABEL timing RUN_SERIAL SOURCES tests/barge_in_decision_test.cpp LIBRARIES VASDK)
+    vasdk_add_gtest(vasdk_llm_barge_in_classifier LABEL unit SOURCES tests/llm_barge_in_classifier_test.cpp LIBRARIES VASDK)
+    vasdk_add_gtest(vasdk_barge_in_session LABEL integration SOURCES tests/barge_in_session_test.cpp LIBRARIES VASDK)
+
     add_executable(vasdk_backchannel_test tests/backchannel_test.cpp)
     target_link_libraries(vasdk_backchannel_test PRIVATE VASDK)
     add_test(NAME vasdk_backchannel COMMAND vasdk_backchannel_test)
@@ -583,6 +589,9 @@ if(VASDK_BUILD_TESTS)
         target_link_libraries(vasdk_envelope_steps_test PRIVATE VASDK)
         add_test(NAME vasdk_envelope_steps COMMAND vasdk_envelope_steps_test)
         vasdk_label_tests(unit vasdk_envelope_steps)
+
+        # An agent's barge_in_decision: a part's, a page's, the agent's
+        vasdk_add_gtest(vasdk_barge_in_agent LABEL unit SOURCES tests/barge_in_agent_test.cpp LIBRARIES VASDK)
 
         add_executable(vasdk_speech_style_test tests/speech_style_test.cpp)
         target_link_libraries(vasdk_speech_style_test PRIVATE VASDK)

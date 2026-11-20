@@ -277,6 +277,11 @@ private:
     } _metrics;
     std::chrono::steady_clock::time_point _llmRequestStart;
     bool _firstTokenReceived{false};
+    // The [Timing] log lines of a turn: each round (the request, then each tool follow-up) on its own clock.
+    std::chrono::steady_clock::time_point _llmRoundStart;
+    std::atomic<int>  _llmRound{0};
+    std::atomic<bool> _roundFirstToken{false};
+    std::atomic<bool> _firstSpeechSent{false};
 };
 
 } // namespace llm
