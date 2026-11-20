@@ -331,6 +331,21 @@ remote_control { enabled: true token: "${VASDK_RC_TOKEN}" mode: CONTROL }   # bi
 
 `engine::RemoteControl::start(session, config)` starts one from code. It needs the build's HTTP server (`VASDK_ENABLE_WEBSOCKET_SERVER`, on by default).
 
+## Diagnostics
+
+Debugging aids, all off by default. They write the user's voice to disk, so never turn them on in production.
+
+```textproto
+diagnostics { stt_audio_dir: "stt-audio" }   # created if missing
+```
+
+- **`stt_audio_dir`** saves each speech segment sent to STT as a WAV file: `stt-<session start>-<n>.wav`, for example `stt-20261119-191500-0001.wav`.
+  - **What's in it:** exactly the audio the recognizer got, in its format (16-bit PCM, its sample rate and channels). With `streaming_transcription`, that's the voice detector's lookback and every frame fed while the user spoke. Without it, it's the one block sent when they stopped.
+  - **What's skipped:** speech dropped as too short is never transcribed, so it isn't written. A private answer (a card number) is never written either.
+  - **Matching a file to its words:** the log names each file (`Saved the STT's audio: …`) just before the transcription it produced.
+  - **Uses:** play a file to hear what the recognizer heard: cut-off starts, noise, a low level. Or feed the files to another STT, or to an evaluation set ([Evaluation](../evaluation.md)).
+- From code: `TranscriptionFrameProcessor::setAudioDumpDirectory(directory)`.
+
 ## Using it from C++
 
 ```cpp

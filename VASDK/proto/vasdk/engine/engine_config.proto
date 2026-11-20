@@ -257,6 +257,14 @@ message EngineConfig {
   // step's or a generative page's profile). What else isn't named uses `llm`.
   repeated LlmProfile llm_profiles = 10;
   SpeakerIdentification speaker_identification = 11;   // with providers.speaker_embedding
+  Diagnostics diagnostics = 12;        // debugging aids; all off by default
+}
+
+// Debugging aids. They write the user's voice to disk: never on in production.
+message Diagnostics {
+  // Each speech segment sent to STT, as the STT gets it, as a WAV file in this directory
+  // (stt-<session start>-<n>.wav; created if missing). Unset: none written.
+  string stt_audio_dir = 1;
 }
 
 // One more LLM. Each field left unset is `llm`'s, so a profile may be only another model on the
