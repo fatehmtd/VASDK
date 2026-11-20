@@ -590,8 +590,9 @@ namespace va {
                 std::lock_guard<std::mutex> lock(_turnMutex);
                 if (!_firstChunkReceived) {
                     _firstChunkReceived = true;
-                    _metrics.ttfa.observe(std::chrono::duration<double, std::milli>(
-                        now - _synthesisStartTime).count());
+                    const double ttfaMs = std::chrono::duration<double, std::milli>(now - _synthesisStartTime).count();
+                    _metrics.ttfa.observe(ttfaMs);
+                    spdlog::info("[Timing] TTS first audio {:.0f} ms after the first sentence went to the voice", ttfaMs);
                 }
                 _metrics.chunk.observe(std::chrono::duration<double, std::milli>(
                     now - _synthesisStartTime).count());
